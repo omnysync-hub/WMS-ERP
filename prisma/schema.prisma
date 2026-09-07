@@ -1,0 +1,745 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ==========================================
+// ACCOUNTS & POSTING ENGINE (The Spine)
+// ==========================================
+
+model Account {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  name         String
+  type         String        // asset, liability, equity, revenue, expense, contra_revenue
+  description  String?
+  journalLines JournalLine[]
+  createdAt    DateTime      @default(now())
+}
+
+model JournalEntry {
+  id        String        @id @default(uuid())
+  date      DateTime      @default(now())
+  memo      String
+  refType   String        // job_revenue, inventory_cogs, tech_advance, tech_expense, discount, payroll, grn_receipt, pos_sale
+  refId     String?
+  lines     JournalLine[]
+  createdAt DateTime      @default(now())
+}
+
+model JournalLine {
+  id             String       @id @default(uuid())
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        Account      @relation(fields: [accountId], references: [id])
+  debit          Float        @default(0)
+  credit         Float        @default(0)
+}
+
+model Invoice {
+  id            String   @id @default(uuid())
+  invoiceNumber String   @unique
+  jobId         String?
+  customerId    String?
+  customerName  String
+  amount        Float
+  status        String   @default("unpaid") // unpaid, paid, cancelled
+  createdAt     DateTime @default(now())
+}
+
+model Quotation {
+  id              String   @id @default(uuid())
+  quotationNumber String   @unique
+  customerId      String
+  totalAmount     Float
+  status          String   @default("draft") // draft, sent, approved, rejected
+  remarks         String?
+  createdAt       DateTime @default(now())
+}
+
+// ==========================================
+// CUSTOMERS & CARE-OF PARTIES
+// ==========================================
+
+model Customer {
+  id          String     @id @default(uuid())
+  name        String
+  phone       String
+  email       String?
+  addressText String
+  lat         Float?
+  lng         Float?
+  jobs        Job[]
+  projects    Project[]
+  createdAt   DateTime   @default(now())
+}
+
+model CareOfParty {
+  id          String   @id @default(uuid())
+  companyName String
+  personName  String
+  phone       String?
+  jobs        Job[]
+  createdAt   DateTime @default(now())
+}
+
+// ==========================================
+// JOBS & LIFECYCLE
+// ==========================================
+
+model Job {
+  id                   String              @id @default(uuid())
+  jobNumber            String              @unique
+  customerId           String
+  customer             Customer            @relation(fields: [customerId], references: [id])
+  careOfPartyId        String?
+  careOfParty          CareOfParty?        @relation(fields: [careOfPartyId], references: [id])
+  manualJobNumber      String?
+  jobType              String              // installation, maintenance, repair, inspection
+  remarks              String?
+  status               String              @default("Created") // Created, Assigned, Accepted, InProgress, Paused, CompletedPendingVerification, Finalized, Verified
+  assignedTechnicianId String?
+  assignedTechnician   Employee?           @relation(fields: [assignedTechnicianId], references: [id])
+  discountAmount       Float               @default(0)
+  discountReason       String?
+  qualityFlag          String?             // clean, disputed
+  verifiedChecklist    String?             // JSON of checked items
+  createdAt            DateTime            @default(now())
+  finalizedAt          DateTime?
+  verifiedAt           DateTime?
+  items                JobItem[]
+  statusHistory        JobStatusHistory[]
+  inventoryRequests    InventoryRequest[]
+  stockReturns         StockReturn[]
+  expenseClaims        JobExpenseClaim[]
+  hisaabSettlements    HisaabSettlement[]
+  feedbackCalls        FeedbackCall[]
+}
+
+model JobItem {
+  id              String  @id @default(uuid())
+  jobId           String
+  job             Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  description     String
+  quantityPlanned Float
+  quantityActual  Float?
+  unitRate        Float
+}
+
+model JobStatusHistory {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fromStatus String
+  toStatus   String
+  changedBy  String
+  changedAt  DateTime @default(now())
+  metaJson   String?  // JSON string
+}
+
+model InventoryRequest {
+  id           String   @id @default(uuid())
+  jobId        String
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId String
+  item         String
+  qtyRequested Float
+  status       String   @default("pending") // pending, issued, rejected
+  createdAt    DateTime @default(now())
+}
+
+model StockReturn {
+  id             String    @id @default(uuid())
+  jobId          String
+  job            Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId   String
+  item           String
+  qtyReturned    Float
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model JobExpenseClaim {
+  id           String    @id @default(uuid())
+  jobId        String
+  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId String
+  amount       Float
+  note         String
+  receiptUrl   String?
+  status       String    @default("pending") // pending, paid
+  paidAt       DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model HisaabSettlement {
+  id              String    @id @default(uuid())
+  jobId           String
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId    String
+  amountExpected  Float
+  amountCollected Float
+  isFull          Boolean   @default(false)
+  balanceDue      Float     @default(0)
+  nextVisitDate   DateTime?
+  discountAmount  Float?
+  settledBy       String
+  settledAt       DateTime  @default(now())
+}
+
+// ==========================================
+// TECHNICIAN LEDGER
+// ==========================================
+
+model TechnicianLedgerEntry {
+  id           String   @id @default(uuid())
+  technicianId String
+  type         String   // advance, hisaab_given, expense_owed, expense_paid
+  amount       Float
+  refJobId     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+// ==========================================
+// INVENTORY, PURCHASING & POS
+// ==========================================
+
+model Product {
+  id           String             @id @default(uuid())
+  sku          String             @unique
+  name         String
+  unit         String             // pcs, meters, kg, units
+  unitPrice    Float
+  costPrice    Float
+  stockQuantity Float             @default(0)
+  reorderLevel Float              @default(5)
+  stockEntries StockLedger[]
+  prItems      PurchaseRequisitionItem[]
+  poItems      PurchaseOrderItem[]
+  grnItems     GoodsReceiptItem[]
+  posItems     PosSaleItem[]
+  createdAt    DateTime           @default(now())
+}
+
+model StockLedger {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  qty       Float
+  direction String   // in, out
+  refType   String   // grn, job_consumption, stock_return, pos_sale, adjustment
+  refId     String?
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+model PurchaseRequisition {
+  id          String                    @id @default(uuid())
+  prNumber    String                    @unique
+  requestedBy String
+  status      String                    @default("pending") // pending, approved, rejected
+  notes       String?
+  items       PurchaseRequisitionItem[]
+  purchaseOrders PurchaseOrder[]
+  createdAt   DateTime                  @default(now())
+}
+
+model PurchaseRequisitionItem {
+  id        String              @id @default(uuid())
+  prId      String
+  pr        PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product             @relation(fields: [productId], references: [id])
+  quantity  Float
+}
+
+model PurchaseOrder {
+  id            String              @id @default(uuid())
+  poNumber      String              @unique
+  prId          String?
+  pr            PurchaseRequisition? @relation(fields: [prId], references: [id])
+  supplierName  String
+  supplierEmail String
+  status        String              @default("issued") // issued, partially_received, completed
+  totalAmount   Float               @default(0)
+  items         PurchaseOrderItem[]
+  goodsReceipts GoodsReceipt[]
+  createdAt     DateTime            @default(now())
+}
+
+model PurchaseOrderItem {
+  id        String        @id @default(uuid())
+  poId      String
+  po        PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product       @relation(fields: [productId], references: [id])
+  quantity  Float
+  unitCost  Float
+}
+
+model GoodsReceipt {
+  id         String             @id @default(uuid())
+  grnNumber  String             @unique
+  poId       String
+  po         PurchaseOrder      @relation(fields: [poId], references: [id])
+  receivedBy String
+  status     String             @default("received")
+  notes      String?
+  items      GoodsReceiptItem[]
+  createdAt  DateTime           @default(now())
+}
+
+model GoodsReceiptItem {
+  id               String       @id @default(uuid())
+  grnId            String
+  grn              GoodsReceipt @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product      @relation(fields: [productId], references: [id])
+  quantityReceived Float
+}
+
+model PosSale {
+  id            String        @id @default(uuid())
+  saleNumber    String        @unique
+  totalAmount   Float
+  paymentMethod String        @default("cash") // cash, card, transfer
+  items         PosSaleItem[]
+  createdAt     DateTime      @default(now())
+}
+
+model PosSaleItem {
+  id        String   @id @default(uuid())
+  saleId    String
+  sale      PosSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Float
+  unitPrice Float
+}
+
+// ==========================================
+// EMPLOYEES, ATTENDANCE & PAYROLL
+// ==========================================
+
+model Employee {
+  id                   String                @id @default(uuid())
+  name                 String
+  phone                String
+  email                String?
+  role                 String                // technician, dispatcher, accountant, admin, storekeeper, call_center, hr
+  department           String                // Operations, Accounts, HR, Maintenance, Sales, Management
+  designation          String?               // Senior HVAC Technician, Lead Dispatcher, Operations Manager
+  employmentType       String                @default("Full-time") // Full-time, Contract, Probation, Part-time
+  joinDate             DateTime              @default(now())
+  salary               Float                 @default(0)
+  status               String                @default("Active") // Active, On Leave, Resigning, Terminated, Inactive
+  probationEndDate     DateTime?
+  probationStatus      String?               @default("Confirmed") // On Probation, Confirmed
+  reportingManagerId   String?
+  reportingManager     Employee?             @relation("ReportingChain", fields: [reportingManagerId], references: [id])
+  directReports        Employee[]            @relation("ReportingChain")
+  faceEnrolled         Boolean               @default(false)
+  faceTemplateUrl      String?
+  active               Boolean               @default(true)
+  lat                  Float?
+  lng                  Float?
+  lastPingAt           DateTime?
+  jobs                 Job[]
+  attendanceLogs       AttendanceLog[]
+  advances             EmployeeAdvance[]
+  payslips             Payslip[]
+  projectTasks         ProjectTask[]
+  leaveBalances        LeaveBalance[]
+  leaveRequests        LeaveRequest[]
+  assetAssignments     AssetAssignment[]
+  onboardingChecklists OnboardingChecklist[]
+  offboardingChecklists OffboardingChecklist[]
+  exitInterview        ExitInterview?
+  finalSettlements     FinalSettlement[]
+  grievanceTickets     GrievanceTicket[]
+  createdAt            DateTime              @default(now())
+}
+
+model GeofenceZone {
+  id           String          @id @default(uuid())
+  name         String
+  lat          Float
+  lng          Float
+  radiusMeters Float           @default(150)
+  logs         AttendanceLog[]
+  createdAt    DateTime        @default(now())
+}
+
+model AttendanceLog {
+  id             String        @id @default(uuid())
+  employeeId     String
+  employee       Employee      @relation(fields: [employeeId], references: [id])
+  timestamp      DateTime      @default(now())
+  faceMatchScore Float
+  lat            Float
+  lng            Float
+  geofenceZoneId String?
+  geofenceZone   GeofenceZone? @relation(fields: [geofenceZoneId], references: [id])
+  result         String        // pass, fail
+  notes          String?
+}
+
+model EmployeeAdvance {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  amount     Float
+  status     String   @default("approved") // pending, approved, recovered
+  approvedBy String
+  createdAt  DateTime @default(now())
+}
+
+model PayrollRun {
+  id              String    @id @default(uuid())
+  period          String    // e.g. "September 2026"
+  status          String    @default("Draft") // Draft, Approved, Paid
+  approvedBy      String?
+  approvedAt      DateTime?
+  totalGross      Float     @default(0)
+  totalDeductions Float     @default(0)
+  totalNet        Float     @default(0)
+  payslips        Payslip[]
+  createdAt       DateTime  @default(now())
+}
+
+model Payslip {
+  id                String     @id @default(uuid())
+  payrollRunId      String
+  payrollRun        PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employeeId        String
+  employee          Employee   @relation(fields: [employeeId], references: [id])
+  grossSalary       Float
+  advanceDeduction  Float      @default(0)
+  expenseAdjustment Float      @default(0)
+  netSalary         Float
+  status            String     @default("generated") // generated, paid
+  createdAt         DateTime   @default(now())
+}
+
+// ==========================================
+// PROJECT MANAGEMENT & BOQ
+// ==========================================
+
+model Project {
+  id            String        @id @default(uuid())
+  projectNumber String        @unique
+  name          String
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  status        String        @default("planning") // planning, active, completed
+  totalBudget   Float         @default(0)
+  startDate     DateTime?
+  endDate       DateTime?
+  boqItems      BOQItem[]
+  tasks         ProjectTask[]
+  createdAt     DateTime      @default(now())
+}
+
+model BOQItem {
+  id          String        @id @default(uuid())
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  itemCode    String
+  description String
+  unit        String
+  plannedQty  Float
+  unitRate    Float
+  tasks       ProjectTask[]
+  createdAt   DateTime      @default(now())
+}
+
+model ProjectTask {
+  id                   String    @id @default(uuid())
+  projectId            String
+  project              Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  boqItemId            String?
+  boqItem              BOQItem?  @relation(fields: [boqItemId], references: [id])
+  title                String
+  description          String?
+  status               String    @default("Created") // Reuses Job states: Created, Assigned, InProgress, Completed, Verified
+  assignedTechnicianId String?
+  assignedTechnician   Employee? @relation(fields: [assignedTechnicianId], references: [id])
+  createdAt            DateTime  @default(now())
+}
+
+// ==========================================
+// FEEDBACK & CALL CENTER
+// ==========================================
+
+model FeedbackCall {
+  id           String    @id @default(uuid())
+  jobId        String
+  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  calledBy     String
+  calledAt     DateTime  @default(now())
+  outcome      String    // approved, disapproved, no_answer, rescheduled
+  remarks      String?
+  followUpDate DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// ==========================================
+// EXPANDED HRM: RECRUITMENT / ATS
+// ==========================================
+
+model JobRequisition {
+  id                String      @id @default(uuid())
+  requisitionNumber String      @unique
+  role              String
+  department        String
+  headcount         Int         @default(1)
+  reason            String
+  status            String      @default("Draft") // Draft, Approved, Open, Filled, Cancelled
+  approvedBy        String?
+  candidates        Candidate[]
+  createdAt         DateTime    @default(now())
+}
+
+model Candidate {
+  id            String               @id @default(uuid())
+  requisitionId String?
+  requisition   JobRequisition?      @relation(fields: [requisitionId], references: [id])
+  name          String
+  email         String?
+  phone         String
+  stage         String               @default("Applied") // Applied, Screening, Interview, Offer, Hired, Rejected
+  resumeUrl     String?
+  notes         String?
+  interviews    CandidateInterview[]
+  offers        Offer[]
+  createdAt     DateTime             @default(now())
+}
+
+model CandidateInterview {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  interviewer String
+  notes       String?
+  createdAt   DateTime  @default(now())
+}
+
+model Offer {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  role        String
+  salary      Float
+  startDate   DateTime
+  status      String    @default("Draft") // Draft, Sent, Accepted, Declined
+  createdAt   DateTime  @default(now())
+}
+
+// ==========================================
+// EXPANDED HRM: ONBOARDING & OFFBOARDING
+// ==========================================
+
+model OnboardingChecklist {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  item        String
+  isDone      Boolean   @default(false)
+  owner       String
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model OffboardingChecklist {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  item        String
+  isDone      Boolean   @default(false)
+  owner       String
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model ExitInterview {
+  id             String   @id @default(uuid())
+  employeeId     String   @unique
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  reason         String
+  feedback       String
+  rehireEligible Boolean  @default(true)
+  completedAt    DateTime @default(now())
+}
+
+model FinalSettlement {
+  id                String   @id @default(uuid())
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  grossAmount       Float
+  advanceDeduction  Float    @default(0)
+  expenseAdjustment Float    @default(0)
+  leaveEncashment   Float    @default(0)
+  netAmount         Float
+  status            String   @default("Draft") // Draft, Approved, Paid
+  journalEntryId    String?
+  createdAt         DateTime @default(now())
+}
+
+// ==========================================
+// EXPANDED HRM: LEAVE MANAGEMENT
+// ==========================================
+
+model LeaveType {
+  id          String         @id @default(uuid())
+  name        String         // Annual, Sick, Casual, Emergency
+  accrualRule String         // e.g. "22 days/year", "10 days/year"
+  maxDays     Float          @default(22)
+  balances    LeaveBalance[]
+  requests    LeaveRequest[]
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  accrued     Float     @default(0)
+  taken       Float     @default(0)
+  balance     Float     @default(0) // accrued - taken
+}
+
+model LeaveRequest {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  startDate   DateTime
+  endDate     DateTime
+  daysCount   Float
+  reason      String
+  status      String    @default("Pending") // Pending, Approved, Rejected
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model CompanyHoliday {
+  id          String   @id @default(uuid())
+  name        String
+  date        DateTime
+  description String?
+}
+
+// ==========================================
+// EXPANDED HRM: ASSET MANAGEMENT
+// ==========================================
+
+model Asset {
+  id                String            @id @default(uuid())
+  tag               String            @unique // AST-2026-001
+  name              String
+  category          String            // Laptop, Hand Tools, HVAC Gauges, Company Vehicle
+  status            String            @default("In Storage") // Assigned, In Storage, Under Repair
+  purchaseDate      DateTime?
+  currentEmployeeId String?
+  assignments       AssetAssignment[]
+  createdAt         DateTime          @default(now())
+}
+
+model AssetAssignment {
+  id             String    @id @default(uuid())
+  assetId        String
+  asset          Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  employeeId     String
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  assignedAt     DateTime  @default(now())
+  returnedAt     DateTime?
+  conditionNotes String?
+  assignedBy     String
+}
+
+// ==========================================
+// EXPANDED HRM: GRIEVANCE / HR HELPDESK
+// ==========================================
+
+model GrievanceTicket {
+  id            String                   @id @default(uuid())
+  ticketNumber  String                   @unique // GRV-2026-001
+  employeeId    String
+  employee      Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  category      String                   // Workplace, Payroll, Equipment, Safety, Policy
+  description   String
+  status        String                   @default("Open") // Open, In Progress, Resolved
+  assignedTo    String?
+  comments      GrievanceComment[]
+  statusHistory GrievanceStatusHistory[]
+  createdAt     DateTime                 @default(now())
+}
+
+model GrievanceComment {
+  id         String          @id @default(uuid())
+  ticketId   String
+  ticket     GrievanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String
+  authorName String
+  comment    String
+  createdAt  DateTime        @default(now())
+}
+
+model GrievanceStatusHistory {
+  id         String          @id @default(uuid())
+  ticketId   String
+  ticket     GrievanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  fromStatus String
+  toStatus   String
+  changedBy  String
+  changedAt  DateTime        @default(now())
+}
+
+// ==========================================
+// SYSTEM AUDIT & ROLLBACK ENGINE
+// ==========================================
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  timestamp  DateTime @default(now())
+  actorId    String?
+  actorName  String
+  actorRole  String
+  category   String   // UI_CLICK, NAVIGATION, DATA_MUTATION, ROLE_SWITCH, SEARCH, MODAL, EXPORT
+  action     String   // Description of activity
+  target     String?  // Target element, URL, or identifier
+  metadata   String?  // JSON string of additional context
+  ipAddress  String?  @default("127.0.0.1 (Local Session)")
+  createdAt  DateTime @default(now())
+}
+
+model RollbackLog {
+  id           String    @id @default(uuid())
+  timestamp    DateTime  @default(now())
+  entityType   String    // Job, InventoryRequest, StockReturn, Discount, Expense, JournalEntry
+  entityId     String
+  entityNumber String?   // e.g. JOB-2026-0001
+  action       String    // e.g. "Status changed from Assigned to InProgress"
+  actorName    String
+  actorRole    String
+  stateBefore  String    // JSON snapshot
+  stateAfter   String    // JSON snapshot
+  status       String    @default("ACTIVE") // ACTIVE, ROLLED_BACK
+  rolledBackAt DateTime?
+  rolledBackBy String?
+  canRollback  Boolean   @default(true)
+  reason       String?
+  createdAt    DateTime  @default(now())
+}
+
