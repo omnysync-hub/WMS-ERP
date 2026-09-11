@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { HrmService } from "@/lib/services/HrmService";
 import { prisma } from "@/lib/prisma";
