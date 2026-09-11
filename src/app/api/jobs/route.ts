@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
         careOfParty: true,
         assignedTechnician: true,
         items: true,
+        expenseClaims: true,
+        inventoryRequests: true,
         statusHistory: {
           orderBy: { changedAt: "desc" },
           take: 1,
@@ -99,6 +101,27 @@ export async function POST(req: NextRequest) {
       "Dispatcher",
       { initialItems: items }
     );
+
+    // If any items are linked to inventory products, register pending inventory requests for the warehouse
+    if (items && items.length > 0) {
+      for (const it of items) {
+        if (it.productId) {
+          try {
+            await prisma.inventoryRequest.create({
+              data: {
+                jobId: job.id,
+                technicianId: assignedTechnicianId || "warehouse_dispatch",
+                item: it.description,
+                qtyRequested: Number(it.quantityPlanned) || 1,
+                status: "pending",
+              },
+            });
+          } catch (e) {
+            console.error("Failed to create inventory request for job item:", e);
+          }
+        }
+      }
+    }
 
     return NextResponse.json(job, { status: 201 });
   } catch (err: any) {

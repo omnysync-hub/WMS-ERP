@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { InventoryService } from "./InventoryService";
 
 export class JobsService {
   /**
@@ -504,4 +505,160 @@ export class JobsService {
 
     return updated;
   }
+
+  /**
+   * Clear technician expense claim by accountant:
+   * Updates claim to paid, creates double-entry journal entry:
+   * Debit 6100 (Tech Travel & Expenses)
+   * Credit 1000 (Cash in Hand) or 1010 (Bank)
+   */
+  static async clearExpense(
+    jobId: string,
+    claimId: string,
+    accountantName: string,
+    disbursingAccountCode: string = "1000"
+  ) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { expenseClaims: true, customer: true },
+    });
+    if (!job) throw new Error("Job not found");
+
+    const claim = await prisma.jobExpenseClaim.findUnique({
+      where: { id: claimId },
+    });
+    if (!claim) throw new Error("Expense claim not found");
+    if (claim.jobId !== jobId) throw new Error("Claim does not belong to this job");
+    if (claim.status === "paid") throw new Error("Expense claim is already cleared/paid");
+
+    // 1. Mark claim as paid
+    const updatedClaim = await prisma.jobExpenseClaim.update({
+      where: { id: claimId },
+      data: {
+        status: "paid",
+        paidAt: new Date(),
+      },
+    });
+
+    // 2. Double-entry posting: Debit 6100 (Tech Expenses), Credit Cash/Bank
+    const expenseCostingAccount = await AccountsPostingService.getAccountByCode("6100");
+    const disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+
+    if (claim.amount > 0) {
+      await AccountsPostingService.post({
+        memo: `Technician expense clearance for Job ${job.jobNumber}: ${claim.note}`,
+        refType: "expense_reimbursement",
+        refId: claim.id,
+        lines: [
+          { accountId: expenseCostingAccount.id, debit: claim.amount, credit: 0 },
+          { accountId: disbursingAccount.id, debit: 0, credit: claim.amount },
+        ],
+      });
+    }
+
+    // 3. Log status change history
+    await this.logStatusChange(jobId, job.status, job.status, accountantName, {
+      action: "expense_cleared",
+      claimId,
+      amount: claim.amount,
+      note: claim.note,
+      disbursingAccountCode,
+    });
+
+    return updatedClaim;
+  }
+
+  /**
+   * Storekeeper issues physical inventory to a job:
+   * Deducts warehouse inventory, records stock ledger, posts COGS to accounts,
+   * adds the item to the job's line items, and marks matching inventory request as issued.
+   */
+  static async issueInventory(
+    jobId: string,
+    productId: string,
+    quantity: number,
+    storekeeperName: string,
+    requestId?: string
+  ) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { items: true },
+    });
+    if (!job) throw new Error("Job not found");
+
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new Error("Product not found in warehouse inventory");
+
+    const qty = Number(quantity);
+    if (!qty || qty <= 0) throw new Error("Quantity must be greater than zero");
+
+    if (product.stockQuantity < qty) {
+      throw new Error(
+        `Insufficient stock for '${product.name}'. Available in warehouse: ${product.stockQuantity}, Requested: ${qty}`
+      );
+    }
+
+    // 1. Consume stock through InventoryService (handles ledger and COGS journal entry)
+    await InventoryService.consumeStock(
+      productId,
+      qty,
+      "job_consumption",
+      requestId || jobId,
+      `Issued to Job ${job.jobNumber} by ${storekeeperName}`
+    );
+
+    // 2. If an inventory request ID was supplied or exists for this item/job, update it to issued
+    if (requestId) {
+      await prisma.inventoryRequest.update({
+        where: { id: requestId },
+        data: { status: "issued" },
+      });
+    } else {
+      // Check if there was an open request for this product name
+      const matchingReq = await prisma.inventoryRequest.findFirst({
+        where: {
+          jobId,
+          status: "pending",
+          item: { contains: product.name },
+        },
+      });
+      if (matchingReq) {
+        await prisma.inventoryRequest.update({
+          where: { id: matchingReq.id },
+          data: { status: "issued" },
+        });
+      }
+    }
+
+    // 3. Add item to JobItem line items
+    const newItem = await prisma.jobItem.create({
+      data: {
+        jobId,
+        description: `${product.name} (${product.sku}) [Issued by Storekeeper]`,
+        quantityPlanned: qty,
+        quantityActual: qty,
+        unitRate: product.unitPrice,
+      },
+    });
+
+    // 4. Log status history
+    await this.logStatusChange(jobId, job.status, job.status, storekeeperName, {
+      action: "inventory_issued",
+      productId,
+      productName: product.name,
+      quantity: qty,
+      requestId,
+    });
+
+    return {
+      success: true,
+      jobItem: newItem,
+      product: {
+        id: product.id,
+        name: product.name,
+        remainingStock: product.stockQuantity - qty,
+      },
+    };
+  }
 }
+

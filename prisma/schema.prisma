@@ -17,18 +17,28 @@ model Account {
   name         String
   type         String        // asset, liability, equity, revenue, expense, contra_revenue
   description  String?
+  isActive     Boolean       @default(true)
   journalLines JournalLine[]
   createdAt    DateTime      @default(now())
 }
 
 model JournalEntry {
-  id        String        @id @default(uuid())
-  date      DateTime      @default(now())
-  memo      String
-  refType   String        // job_revenue, inventory_cogs, tech_advance, tech_expense, discount, payroll, grn_receipt, pos_sale
-  refId     String?
-  lines     JournalLine[]
-  createdAt DateTime      @default(now())
+  id               String        @id @default(uuid())
+  date             DateTime      @default(now())
+  memo             String
+  refType          String        // job_revenue, inventory_cogs, tech_advance, tech_expense, discount, payroll, grn_receipt, pos_sale, opening_balance, year_end_close, reversal
+  refId            String?
+  postedBy         String        @default("System")
+  postedAt         DateTime      @default(now())
+  status           String        @default("posted") // posted, reversed, reversal, draft, pending_approval
+  reversalOfId     String?
+  reversedById     String?
+  requiresApproval Boolean       @default(false)
+  approvedBy       String?
+  approvedAt       DateTime?
+  fiscalPeriodId   String?
+  lines            JournalLine[]
+  createdAt        DateTime      @default(now())
 }
 
 model JournalLine {
@@ -74,9 +84,10 @@ model Customer {
   addressText String
   lat         Float?
   lng         Float?
-  jobs        Job[]
-  projects    Project[]
-  createdAt   DateTime   @default(now())
+  jobs                  Job[]
+  projects              Project[]
+  customerLedgerEntries CustomerLedgerEntry[]
+  createdAt             DateTime              @default(now())
 }
 
 model CareOfParty {
@@ -265,10 +276,14 @@ model PurchaseOrder {
   poNumber      String              @unique
   prId          String?
   pr            PurchaseRequisition? @relation(fields: [prId], references: [id])
+  vendorId      String?
+  vendor        Vendor?             @relation(fields: [vendorId], references: [id])
   supplierName  String
   supplierEmail String
   status        String              @default("issued") // issued, partially_received, completed
   totalAmount   Float               @default(0)
+  whtAmount     Float               @default(0)
+  netPayable    Float               @default(0)
   items         PurchaseOrderItem[]
   goodsReceipts GoodsReceipt[]
   createdAt     DateTime            @default(now())
@@ -306,12 +321,22 @@ model GoodsReceiptItem {
 }
 
 model PosSale {
-  id            String        @id @default(uuid())
-  saleNumber    String        @unique
-  totalAmount   Float
-  paymentMethod String        @default("cash") // cash, card, transfer
-  items         PosSaleItem[]
-  createdAt     DateTime      @default(now())
+  id             String        @id @default(uuid())
+  saleNumber     String        @unique
+  totalAmount    Float
+  subtotal       Float?
+  discountAmount Float?        @default(0)
+  taxAmount      Float?        @default(0)
+  amountTendered Float?
+  changeGiven    Float?
+  paymentMethod  String        @default("cash") // cash, card, transfer, split, credit
+  customerName   String?       @default("Walk-in Customer")
+  customerPhone  String?
+  cashierName    String?
+  notes          String?
+  status         String?       @default("completed") // completed, refunded
+  items          PosSaleItem[]
+  createdAt      DateTime      @default(now())
 }
 
 model PosSaleItem {
@@ -322,6 +347,169 @@ model PosSaleItem {
   product   Product  @relation(fields: [productId], references: [id])
   quantity  Float
   unitPrice Float
+}
+
+model PosRegisterSession {
+  id               String    @id @default(uuid())
+  sessionNumber    String    @unique
+  cashierName      String
+  openingFloat     Float
+  closingCash      Float?
+  expectedCash     Float?
+  discrepancy      Float?
+  totalSalesCount  Int       @default(0)
+  totalSalesAmount Float     @default(0)
+  cashSalesAmount  Float     @default(0)
+  cardSalesAmount  Float     @default(0)
+  cashInTotal      Float     @default(0)
+  cashOutTotal     Float     @default(0)
+  status           String    @default("open") // open, closed
+  openedAt         DateTime  @default(now())
+  closedAt         DateTime?
+  notes            String?
+}
+
+// ==========================================
+// ENTERPRISE FINANCIALS, PERIODS & SUB-LEDGERS
+// ==========================================
+
+model FiscalPeriod {
+  id           String    @id @default(uuid())
+  fiscalYear   Int
+  periodNumber Int       // 1 to 12
+  name         String    // e.g. "January 2026", "July 2026"
+  startDate    DateTime
+  endDate      DateTime
+  status       String    @default("open") // open, closed, locked
+  closedBy     String?
+  closedAt     DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model Vendor {
+  id                  String              @id @default(uuid())
+  name                String              @unique
+  contactPerson       String?
+  phone               String?
+  email               String?
+  addressText         String?
+  ntnNumber           String?
+  strnNumber          String?
+  whtRate             Float               @default(0) // custom WHT percentage, e.g. 8.0, 11.0, 5.0, 0
+  whtExempt           Boolean             @default(false)
+  paymentTermsDays    Int                 @default(30)
+  purchaseOrders      PurchaseOrder[]
+  vendorLedgerEntries VendorLedgerEntry[]
+  createdAt           DateTime            @default(now())
+}
+
+model CustomerLedgerEntry {
+  id             String    @id @default(uuid())
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  postingDate    DateTime  @default(now())
+  entryType      String    // invoice, payment, credit_note, opening_balance
+  documentNumber String    // INV-2026-0001, REC-2026-0001
+  journalEntryId String?
+  debit          Float     @default(0)
+  credit         Float     @default(0)
+  runningBalance Float     @default(0)
+  dueDate        DateTime?
+  clearedAmount  Float     @default(0)
+  isFullyCleared Boolean   @default(false)
+  notes          String?
+  createdAt      DateTime  @default(now())
+}
+
+model VendorLedgerEntry {
+  id             String    @id @default(uuid())
+  vendorId       String
+  vendor         Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  postingDate    DateTime  @default(now())
+  entryType      String    // bill, payment, debit_note, opening_balance
+  documentNumber String    // PO-2026-0001, PAY-2026-0001
+  journalEntryId String?
+  debit          Float     @default(0)
+  credit         Float     @default(0)
+  runningBalance Float     @default(0)
+  dueDate        DateTime?
+  whtWithheld    Float     @default(0)
+  cprNumber      String?   // FBR Computerized Payment Receipt number
+  clearedAmount  Float     @default(0)
+  isFullyCleared Boolean   @default(false)
+  notes          String?
+  createdAt      DateTime  @default(now())
+}
+
+model BankStatementLine {
+  id                   String    @id @default(uuid())
+  bankAccountId        String    // Level 4 Account code or ID, e.g. "1010"
+  statementDate        DateTime
+  valueDate            DateTime?
+  description          String
+  referenceNumber      String?
+  debit                Float     @default(0) // Deposits in bank (Customer credit)
+  credit               Float     @default(0) // Withdrawals from bank (Payments)
+  runningBalance       Float?
+  status               String    @default("unreconciled") // unreconciled, matched, manually_reconciled, unpresented
+  matchedJournalLineId String?
+  reconciledAt         DateTime?
+  reconciledBy         String?
+  batchImportId        String?
+  createdAt            DateTime  @default(now())
+}
+
+model FixedAsset {
+  id                      String    @id @default(uuid())
+  assetNumber             String    @unique // e.g. FA-2026-0001
+  name                    String
+  category                String    // Vehicles, Machinery, Tools, IT Equipment, Furniture
+  hrmAssetId              String?   // Link to HRM physical Asset.id if applicable
+  acquisitionDate         DateTime
+  acquisitionCost         Float
+  salvageValue            Float     @default(0)
+  usefulLifeMonths        Int       @default(60)
+  depreciationMethod      String    @default("straight_line") // straight_line
+  assetAccountCode        String    @default("1500") // Level 4 Asset Account
+  accumDeprAccountCode    String    @default("1590") // Level 4 Accum Depr Account
+  deprExpenseAccountCode  String    @default("6350") // Level 4 Depr Expense Account
+  accumulatedDepreciation Float     @default(0)
+  bookValue               Float
+  lastDepreciationPeriod  String?   // e.g. "2026-09"
+  status                  String    @default("active") // active, fully_depreciated, disposed
+  createdAt               DateTime  @default(now())
+}
+
+model CompanySettings {
+  id                  String    @id @default(uuid())
+  legalName           String    @default("Workman Services (Pvt) Ltd")
+  tradeName           String?   @default("Workman Services")
+  addressText         String    @default("Main Boulevard, Gulberg III, Lahore, Pakistan")
+  phone               String    @default("042-111-WORKMAN")
+  email               String    @default("finance@workmanservices.pk")
+  ntnNumber           String?   @default("9482710-3")
+  strnNumber          String?   @default("3277876123456")
+  baseCurrency        String    @default("PKR")
+  fiscalYearStartMonth Int      @default(7) // July in Pakistan (July-June)
+  approvalThreshold   Float     @default(50000) // Vouchers above PKR 50,000 need approval
+  isSetupCompleted    Boolean   @default(false)
+  goLiveDate          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model FinancialAuditLog {
+  id          String   @id @default(uuid())
+  entity      String   // JournalEntry, FiscalPeriod, Vendor, SubLedger, FixedAsset, OpeningBalance
+  entityId    String
+  action      String   // POST, REVERSE, CLOSE_PERIOD, CLOSE_YEAR, RECONCILE, DISBURSE
+  beforeValue String?  // JSON snapshot
+  afterValue  String?  // JSON snapshot
+  userId      String?
+  userName    String   @default("System")
+  userRole    String   @default("accountant")
+  ipAddress   String?  @default("127.0.0.1")
+  timestamp   DateTime @default(now())
 }
 
 // ==========================================

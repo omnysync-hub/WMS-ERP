@@ -190,22 +190,26 @@ async function runVerification() {
     const tech = await prisma.employee.findFirst({ where: { role: "technician" } });
     if (!tech) throw new Error("No tech for attendance test");
 
-    // Pass: High face score + inside geofence (lat: 25.2048, lng: 55.2708)
+    const zone = await prisma.geofenceZone.findFirst();
+    const zoneLat = zone?.lat || 31.5204;
+    const zoneLng = zone?.lng || 74.3587;
+
+    // Pass: High face score + inside geofence
     const passResult = await AttendanceService.recordAttendance({
       employeeId: tech.id,
       faceMatchScore: 95.5,
-      lat: 25.2048,
-      lng: 55.2708,
+      lat: zoneLat,
+      lng: zoneLng,
       notes: "Test Pass Attendance",
     });
     assert(passResult.success === true && passResult.result === "pass", "Attendance passes when face >= 90% and inside geofence");
 
-    // Fail: Low face score or out of bounds (lat: 25.5, lng: 55.6)
+    // Fail: Low face score or out of bounds
     const failResult = await AttendanceService.recordAttendance({
       employeeId: tech.id,
       faceMatchScore: 65,
-      lat: 25.5,
-      lng: 55.6,
+      lat: zoneLat + 0.5,
+      lng: zoneLng + 0.5,
       notes: "Test Fail Attendance",
     });
     assert(failResult.success === false && failResult.result === "fail", "Attendance fails when out of bounds/low score and logs to audit");
@@ -492,6 +496,64 @@ async function runVerification() {
     await prisma.candidate.delete({ where: { id: candidate.id } });
   } catch (err: any) {
     assert(false, `ATS candidate conversion test failed: ${err.message}`);
+  }
+
+  // TEST 14: OPENING STOCK DECLARATION & BALANCED EQUITY POSTING
+  try {
+    const testProduct = await InventoryService.createProduct({
+      sku: `OPEN-TEST-${Date.now().toString().slice(-4)}`,
+      name: "Opening Stock Test Part",
+      unit: "pcs",
+      unitPrice: 1500,
+      costPrice: 900,
+      stockQuantity: 0,
+      reorderLevel: 5,
+    });
+
+    const result = await InventoryService.setOpeningStock({
+      productId: testProduct.id,
+      quantity: 25,
+      unitCost: 1000,
+      notes: "Audit Opening Stock Test",
+    });
+
+    const updatedProduct = await prisma.product.findUnique({ where: { id: testProduct.id } });
+    const ledger = await prisma.stockLedger.findFirst({
+      where: { productId: testProduct.id, refType: "opening_stock" },
+    });
+
+    // Check balanced journal entry
+    const journalEntry = await prisma.journalEntry.findFirst({
+      where: { refType: "opening_stock", refId: ledger?.id },
+      include: { lines: { include: { account: true } } },
+    });
+
+    const debitLine = journalEntry?.lines.find((l) => l.debit > 0);
+    const creditLine = journalEntry?.lines.find((l) => l.credit > 0);
+
+    assert(
+      updatedProduct?.stockQuantity === 25 &&
+        updatedProduct?.costPrice === 1000 &&
+        ledger?.qty === 25 &&
+        ledger?.direction === "in" &&
+        debitLine?.account.code === "1200" &&
+        debitLine?.debit === 25000 &&
+        creditLine?.account.code === "3000" &&
+        creditLine?.credit === 25000,
+      "InventoryService.setOpeningStock updates product qty, writes ledger, and posts balanced Dr 1200 / Cr 3000 entry"
+    );
+
+    // Clean up
+    if (journalEntry) {
+      await prisma.journalLine.deleteMany({ where: { journalEntryId: journalEntry.id } });
+      await prisma.journalEntry.delete({ where: { id: journalEntry.id } });
+    }
+    if (ledger) {
+      await prisma.stockLedger.delete({ where: { id: ledger.id } });
+    }
+    await prisma.product.delete({ where: { id: testProduct.id } });
+  } catch (err: any) {
+    assert(false, `Opening stock test failed: ${err.message}`);
   }
 
   console.log("\n==================================================");

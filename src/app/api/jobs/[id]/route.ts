@@ -137,6 +137,25 @@ export async function PATCH(
         result = await JobsService.verifyJob(params.id, actor, payload.checklist);
         break;
 
+      case "clear_expense":
+        result = await JobsService.clearExpense(
+          params.id,
+          payload.claimId,
+          actor,
+          payload.disbursingAccountCode || "1000"
+        );
+        break;
+
+      case "issue_inventory":
+        result = await JobsService.issueInventory(
+          params.id,
+          payload.productId,
+          Number(payload.quantity),
+          actor,
+          payload.requestId
+        );
+        break;
+
       default:
         return NextResponse.json(
           { error: `Unknown action: '${action}'` },

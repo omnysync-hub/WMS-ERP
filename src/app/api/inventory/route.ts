@@ -41,8 +41,132 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ prs, pos, grns });
     }
 
+    // Query active jobs and their issued inventory requests & acknowledged stock returns for field stock computation
+    const activeJobs = await prisma.job.findMany({
+      where: {
+        status: {
+          notIn: ["Finalized", "Verified"],
+        },
+      },
+      select: {
+        id: true,
+        jobNumber: true,
+        status: true,
+        customer: { select: { name: true } },
+        assignedTechnician: { select: { id: true, name: true } },
+        inventoryRequests: {
+          where: { status: "issued" },
+          select: {
+            id: true,
+            item: true,
+            qtyRequested: true,
+            createdAt: true,
+          },
+        },
+        stockReturns: {
+          where: { acknowledgedAt: { not: null } },
+          select: {
+            id: true,
+            item: true,
+            qtyReturned: true,
+            acknowledgedAt: true,
+          },
+        },
+      },
+    });
+
+    const consumptionLedgers = await prisma.stockLedger.findMany({
+      where: {
+        refType: "job_consumption",
+      },
+      select: {
+        id: true,
+        productId: true,
+        qty: true,
+        refId: true,
+      },
+    });
+
+    const returnLedgers = await prisma.stockLedger.findMany({
+      where: {
+        refType: "stock_return",
+      },
+      select: {
+        id: true,
+        productId: true,
+        qty: true,
+        refId: true,
+      },
+    });
+
+    const calculateAllocations = (product: any) => {
+      const pId = product.id;
+      const pName = (product.name || "").toLowerCase();
+      const pSku = (product.sku || "").toLowerCase();
+
+      // Find all ledger refIds that belong to this product
+      const productConsumptionReqIds = new Set(
+        consumptionLedgers
+          .filter((cl) => cl.productId === pId && cl.refId)
+          .map((cl) => cl.refId as string)
+      );
+
+      const allocations: Array<{
+        jobId: string;
+        jobNumber: string;
+        customerName: string;
+        technicianName: string;
+        jobStatus: string;
+        quantity: number;
+      }> = [];
+
+      for (const job of activeJobs) {
+        let jobIssued = 0;
+        for (const req of job.inventoryRequests) {
+          const itemText = (req.item || "").toLowerCase();
+          if (
+            productConsumptionReqIds.has(req.id) ||
+            itemText.includes(pSku) ||
+            itemText.includes(pName) ||
+            (pSku && itemText === pSku)
+          ) {
+            jobIssued += req.qtyRequested;
+          }
+        }
+
+        let jobReturned = 0;
+        for (const ret of job.stockReturns) {
+          const itemText = (ret.item || "").toLowerCase();
+          const hasReturnLedger = returnLedgers.some(
+            (rl) => rl.productId === pId && rl.refId === job.id
+          );
+          if (
+            hasReturnLedger ||
+            itemText.includes(pSku) ||
+            itemText.includes(pName)
+          ) {
+            jobReturned += ret.qtyReturned;
+          }
+        }
+
+        const netOnJob = Math.max(0, jobIssued - jobReturned);
+        if (netOnJob > 0) {
+          allocations.push({
+            jobId: job.id,
+            jobNumber: job.jobNumber,
+            customerName: job.customer?.name || "Unassigned Customer",
+            technicianName: job.assignedTechnician?.name || "Field Technician",
+            jobStatus: job.status,
+            quantity: netOnJob,
+          });
+        }
+      }
+
+      return allocations;
+    };
+
     if (productId) {
-      // Return single product with its full movement timeline
+      // Return single product with its full movement timeline and field allocations
       const product = await prisma.product.findUnique({
         where: { id: productId },
         include: {
@@ -51,15 +175,38 @@ export async function GET(req: NextRequest) {
           },
         },
       });
-      return NextResponse.json(product);
+      if (!product) {
+        return NextResponse.json({ error: "Product not found" }, { status: 404 });
+      }
+
+      const allocations = calculateAllocations(product);
+      const stockOnJob = allocations.reduce((sum, a) => sum + a.quantity, 0);
+
+      return NextResponse.json({
+        ...product,
+        stockOnJob,
+        totalStock: product.stockQuantity + stockOnJob,
+        jobAllocations: allocations,
+      });
     }
 
-    // Default: products list with low-stock alerts
+    // Default: products list with low-stock alerts, warehouse stock, and stock on jobs
     const products = await prisma.product.findMany({
       orderBy: { name: "asc" },
     });
 
-    return NextResponse.json(products);
+    const enrichedProducts = products.map((p) => {
+      const allocations = calculateAllocations(p);
+      const stockOnJob = allocations.reduce((sum, a) => sum + a.quantity, 0);
+      return {
+        ...p,
+        stockOnJob,
+        totalStock: p.stockQuantity + stockOnJob,
+        jobAllocations: allocations,
+      };
+    });
+
+    return NextResponse.json(enrichedProducts);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -241,6 +388,18 @@ export async function POST(req: NextRequest) {
           unitCost: unitCost !== undefined ? Number(unitCost) : undefined,
           notes,
           source,
+        });
+        return NextResponse.json(result, { status: 200 });
+      }
+
+      case "set_opening_stock": {
+        const { productId, quantity, unitCost, notes, openingDate } = payload;
+        const result = await InventoryService.setOpeningStock({
+          productId,
+          quantity: Number(quantity),
+          unitCost: Number(unitCost),
+          notes,
+          openingDate,
         });
         return NextResponse.json(result, { status: 200 });
       }

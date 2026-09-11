@@ -26,6 +26,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   ExternalLink,
+  ShoppingBag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -84,8 +85,10 @@ export default function Sidebar({
 
   const operationsItems = [
     { label: "Jobs Directory", href: "/jobs", icon: Briefcase },
+    { label: "Job Reports & Audit", href: "/jobs?view=reports", icon: BarChart3 },
     { label: "Live Dispatch Map", href: "/dispatch", icon: MapPin },
     { label: "Accounts & Ledgers", href: "/accounts", icon: CreditCard },
+    { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag },
     { label: "HRM & Payroll", href: "/hrm", icon: UserCheck },
     { label: "Purchasing & Stock", href: "/inventory", icon: Package },
     { label: "Feedback Queue", href: "/feedback", icon: Headphones },

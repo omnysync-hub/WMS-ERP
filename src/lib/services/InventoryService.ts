@@ -328,5 +328,72 @@ export class InventoryService {
 
     return product;
   }
+
+  /**
+   * Set or adjust Opening Stock balance for an inventory item.
+   * Records opening_stock in StockLedger and posts balanced GAAP entry:
+   * Debit 1200 (Inventory Asset)
+   * Credit 3000 (Owner Capital / Equity)
+   */
+  static async setOpeningStock(params: {
+    productId: string;
+    quantity: number;
+    unitCost?: number;
+    notes?: string;
+    openingDate?: string;
+  }) {
+    const { productId, quantity, unitCost, notes, openingDate } = params;
+    if (quantity <= 0) throw new Error("Opening stock quantity must be greater than 0");
+
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new Error("Product not found");
+
+    const effectiveCost = unitCost !== undefined && unitCost > 0 ? unitCost : product.costPrice;
+
+    // 1. Increment product stockQuantity and update cost price
+    const updatedProduct = await prisma.product.update({
+      where: { id: productId },
+      data: {
+        stockQuantity: { increment: quantity },
+        costPrice: effectiveCost,
+      },
+    });
+
+    // 2. Add Stock Ledger entry
+    const entryDate = openingDate ? new Date(openingDate) : new Date();
+    const ledger = await prisma.stockLedger.create({
+      data: {
+        productId,
+        qty: quantity,
+        direction: "in",
+        refType: "opening_stock",
+        notes: notes || `Opening stock balance declared as of ${entryDate.toISOString().split("T")[0]}`,
+        createdAt: entryDate,
+      },
+    });
+
+    // 3. Post to Accounts: Debit 1200 (Inventory Asset), Credit 3000 (Owner Capital / Equity)
+    try {
+      const inventoryAccount = await AccountsPostingService.getAccountByCode("1200");
+      const capitalAccount = await AccountsPostingService.getAccountByCode("3000");
+      const totalVal = Math.round(quantity * effectiveCost);
+      if (totalVal > 0) {
+        await AccountsPostingService.post({
+          memo: `Opening inventory balance for ${quantity}x ${product.name} (${product.sku})`,
+          refType: "opening_stock",
+          refId: ledger.id,
+          lines: [
+            { accountId: inventoryAccount.id, debit: totalVal, credit: 0 },
+            { accountId: capitalAccount.id, debit: 0, credit: totalVal },
+          ],
+        });
+      }
+    } catch (e) {
+      console.warn("Could not post opening stock journal entry:", e);
+    }
+
+    return { product: updatedProduct, ledger };
+  }
 }
+
 

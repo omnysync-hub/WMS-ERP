@@ -15,19 +15,21 @@ import {
   ArrowLeft,
   Search,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
   Phone,
-  Tag,
   Cpu,
-  Layers,
-  HelpCircle,
   AlertCircle,
   X,
+  Package,
+  Wrench,
+  Trash2,
+  Receipt,
+  Boxes,
+  Layers,
+  Sparkles,
+  Info,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 // Standard HVAC Job Types
 const COMMON_JOB_TYPES = [
@@ -41,6 +43,20 @@ const COMMON_JOB_TYPES = [
   "Annual Maintenance Contract (AMC)",
 ];
 
+// Common HVAC Equipment Types
+const COMMON_EQUIPMENT_TYPES = [
+  "Split Air Conditioner (Wall Mounted)",
+  "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
+  "Floor Standing / Tower AC",
+  "Cassette Type Air Conditioner",
+  "Ducted Split System",
+  "Multi-Split / VRF Outdoor & Indoor Unit",
+  "Air Handling Unit (AHU) / FCU",
+  "Chiller Unit (Air-Cooled / Water-Cooled)",
+  "Commercial Package Unit",
+  "Cold Storage / Walk-in Freezer",
+];
+
 // Common HVAC Equipment Brands
 const HVAC_BRANDS = [
   "Daikin",
@@ -48,6 +64,10 @@ const HVAC_BRANDS = [
   "Mitsubishi Electric",
   "Carrier",
   "Gree",
+  "Haier",
+  "Kenwood",
+  "Orient",
+  "Dawlance",
   "LG",
   "York",
   "Trane",
@@ -57,12 +77,44 @@ const HVAC_BRANDS = [
   "Voltas",
 ];
 
+// Quick HVAC Service Presets with Standard Market Rates (PKR)
+const COMMON_SERVICE_PRESETS = [
+  { name: "AC Installation & Commissioning", rate: 4500 },
+  { name: "AC Gas Leakage Test & Full Recharge", rate: 5500 },
+  { name: "General Chemical Master Servicing", rate: 2500 },
+  { name: "Compressor Replacement & Vacuum Labor", rate: 7500 },
+  { name: "Inverter PCB Board Repair / Replacement Labor", rate: 3500 },
+  { name: "Capacitor & Contactor Replacement Labor", rate: 1200 },
+  { name: "Thermostat Installation & Wiring", rate: 1800 },
+  { name: "Duct Cleaning & Sanitization Service", rate: 6000 },
+  { name: "Diagnostic & Fault Troubleshooting Fee", rate: 1500 },
+];
+
+interface ProductLineItem {
+  id: string;
+  productId?: string;
+  name: string;
+  sku?: string;
+  unit?: string;
+  availableStock?: number;
+  quantity: number;
+  unitRate: number;
+}
+
+interface ServiceLineItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unitRate: number;
+}
+
 export default function NewJobIntakePage() {
   const router = useRouter();
 
   // Master Data
   const [customers, setCustomers] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
+  const [inventoryProducts, setInventoryProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // SECTION 1: Customer State
@@ -73,14 +125,26 @@ export default function NewJobIntakePage() {
   const [initialQueryForDrawer, setInitialQueryForDrawer] = useState("");
   const customerDropdownRef = useRef<HTMLDivElement>(null);
 
-  // SECTION 2: Job Details, Product, Care-Of, Remarks & Assignment
+  // SECTION 2: Job Classification & Equipment Details
   const [selectedJobTypePreset, setSelectedJobTypePreset] = useState("Installation & Commissioning");
   const [customJobType, setCustomJobType] = useState("");
   const [isCustomJobType, setIsCustomJobType] = useState(false);
 
-  // Product: Brand & Model
-  const [productBrand, setProductBrand] = useState("Daikin");
-  const [productModel, setProductModel] = useState("Inverter Split 2.0 Ton");
+  // Product, Brand & Model
+  const [productType, setProductType] = useState("Inverter AC (1.0 / 1.5 / 2.0 Ton)");
+  const [productBrand, setProductBrand] = useState("Gree");
+  const [productModel, setProductModel] = useState("Inverter Split 1.5 Ton Fairy Series");
+
+  // SECTION 3: Line Items & Charges (Products from Inventory + Services)
+  const [productLines, setProductLines] = useState<ProductLineItem[]>([]);
+  const [serviceLines, setServiceLines] = useState<ServiceLineItem[]>([
+    {
+      id: "srv-initial-1",
+      name: "AC Installation & Commissioning",
+      quantity: 1,
+      unitRate: 4500,
+    },
+  ]);
 
   // Care-Of Subcontract Toggle
   const [isCareOf, setIsCareOf] = useState(false);
@@ -97,23 +161,28 @@ export default function NewJobIntakePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Load Customers & Technicians
+  // Load Customers, Technicians, and Inventory Products
   const loadData = async () => {
     try {
       setLoading(true);
-      const [custRes, techRes] = await Promise.all([
+      const [custRes, techRes, invRes] = await Promise.all([
         fetch("/api/customers"),
         fetch("/api/technicians"),
+        fetch("/api/inventory"),
       ]);
 
       const custList = await custRes.json();
       const techData = await techRes.json();
+      const invData = await invRes.json();
 
       if (Array.isArray(custList)) {
         setCustomers(custList);
       }
       if (techData?.technicians) {
         setTechnicians(techData.technicians);
+      }
+      if (Array.isArray(invData)) {
+        setInventoryProducts(invData);
       }
     } catch (err) {
       console.error("Failed to load intake data", err);
@@ -158,10 +227,130 @@ export default function NewJobIntakePage() {
     ? customJobType.trim() || "General Service"
     : selectedJobTypePreset;
 
-  const handleProductChange = (brand: string, model: string) => {
-    setProductBrand(brand);
-    setProductModel(model);
+  // PRODUCT LINES MANAGEMENT (Linked with Inventory)
+  const handleAddProductLine = () => {
+    const defaultProd = inventoryProducts[0];
+    const newLine: ProductLineItem = {
+      id: `prod-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      productId: defaultProd?.id || "",
+      name: defaultProd?.name || "",
+      sku: defaultProd?.sku || "",
+      unit: defaultProd?.unit || "unit",
+      availableStock: defaultProd?.stockQuantity ?? 0,
+      quantity: 1,
+      unitRate: defaultProd?.unitPrice || 0,
+    };
+    setProductLines([...productLines, newLine]);
   };
+
+  const handleSelectInventoryProduct = (lineId: string, selectedProdId: string) => {
+    if (selectedProdId === "CUSTOM") {
+      setProductLines(
+        productLines.map((line) =>
+          line.id === lineId
+            ? {
+                ...line,
+                productId: "",
+                name: "",
+                sku: "",
+                unit: "unit",
+                availableStock: undefined,
+                unitRate: 0,
+              }
+            : line
+        )
+      );
+      return;
+    }
+
+    const prod = inventoryProducts.find((p) => p.id === selectedProdId);
+    if (!prod) return;
+
+    setProductLines(
+      productLines.map((line) =>
+        line.id === lineId
+          ? {
+              ...line,
+              productId: prod.id,
+              name: prod.name,
+              sku: prod.sku,
+              unit: prod.unit,
+              availableStock: prod.stockQuantity,
+              unitRate: prod.unitPrice || 0,
+            }
+          : line
+      )
+    );
+  };
+
+  const handleUpdateProductLine = (
+    lineId: string,
+    field: "name" | "quantity" | "unitRate",
+    value: any
+  ) => {
+    setProductLines(
+      productLines.map((line) => {
+        if (line.id !== lineId) return line;
+        if (field === "quantity") {
+          return { ...line, quantity: Math.max(1, Number(value) || 1) };
+        }
+        if (field === "unitRate") {
+          return { ...line, unitRate: Math.max(0, Number(value) || 0) };
+        }
+        return { ...line, [field]: value };
+      })
+    );
+  };
+
+  const handleRemoveProductLine = (lineId: string) => {
+    setProductLines(productLines.filter((l) => l.id !== lineId));
+  };
+
+  // SERVICE LINES MANAGEMENT
+  const handleAddServiceLine = () => {
+    const defaultSrv = COMMON_SERVICE_PRESETS[0];
+    const newLine: ServiceLineItem = {
+      id: `srv-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      name: defaultSrv?.name || "General HVAC Labor",
+      quantity: 1,
+      unitRate: defaultSrv?.rate || 2000,
+    };
+    setServiceLines([...serviceLines, newLine]);
+  };
+
+  const handleUpdateServiceLine = (
+    lineId: string,
+    field: "name" | "quantity" | "unitRate",
+    value: any
+  ) => {
+    setServiceLines(
+      serviceLines.map((line) => {
+        if (line.id !== lineId) return line;
+        if (field === "quantity") {
+          return { ...line, quantity: Math.max(1, Number(value) || 1) };
+        }
+        if (field === "unitRate") {
+          return { ...line, unitRate: Math.max(0, Number(value) || 0) };
+        }
+        return { ...line, [field]: value };
+      })
+    );
+  };
+
+  const handleRemoveServiceLine = (lineId: string) => {
+    setServiceLines(serviceLines.filter((l) => l.id !== lineId));
+  };
+
+  // CHARGES FINANCIAL SUMMARY
+  const productsSubtotal = productLines.reduce(
+    (sum, l) => sum + l.quantity * (l.unitRate || 0),
+    0
+  );
+  const servicesSubtotal = serviceLines.reduce(
+    (sum, l) => sum + l.quantity * (l.unitRate || 0),
+    0
+  );
+  const totalEstimatedCharges = productsSubtotal + servicesSubtotal;
 
   // Form Submission
   const handleSubmitJob = async (e: React.FormEvent) => {
@@ -180,11 +369,33 @@ export default function NewJobIntakePage() {
       setIsSubmitting(true);
       setErrorMsg("");
 
-      // Consolidate remarks with Product (Brand + Model)
-      const productPrefix = productBrand || productModel
-        ? `[Product: ${productBrand || "Unspecified"} - Model: ${productModel || "Standard"}] `
-        : "";
-      const fullRemarks = `${productPrefix}${remarks.trim()}`;
+      // Consolidate remarks with Product (Product Type, Brand & Model)
+      const equipPrefix = `[Equipment: ${productType || "HVAC Unit"} | Brand: ${
+        productBrand || "Unspecified"
+      } | Model: ${productModel || "Standard"}] `;
+      const fullRemarks = `${equipPrefix}${remarks.trim()}`;
+
+      // Build consolidated items array for backend JobItem records
+      const combinedItems = [
+        ...productLines
+          .filter((l) => l.name.trim())
+          .map((l) => ({
+            description: `[Product] ${l.name}${l.sku ? ` (${l.sku})` : ""}`,
+            quantityPlanned: l.quantity,
+            unitRate: l.unitRate,
+            productId: l.productId || null,
+            isProduct: true,
+          })),
+        ...serviceLines
+          .filter((s) => s.name.trim())
+          .map((s) => ({
+            description: `[Service] ${s.name}`,
+            quantityPlanned: s.quantity,
+            unitRate: s.unitRate,
+            productId: null,
+            isProduct: false,
+          })),
+      ];
 
       const payload = {
         customerId: selectedCustomerId,
@@ -193,6 +404,7 @@ export default function NewJobIntakePage() {
         jobType: effectiveJobType.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 30),
         remarks: fullRemarks,
         assignedTechnicianId: assignedTechnicianId || null,
+        items: combinedItems,
       };
 
       const res = await fetch("/api/jobs", {
@@ -226,7 +438,7 @@ export default function NewJobIntakePage() {
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-20 animate-in fade-in">
+    <div className="space-y-6 max-w-5xl mx-auto pb-24 animate-in fade-in">
       {/* Page Header */}
       <PageHeader
         breadcrumbs={[
@@ -234,7 +446,7 @@ export default function NewJobIntakePage() {
           { label: "Intake Work Order" },
         ]}
         title="New HVAC Job Intake"
-        subtitle="Book a new customer service order, configure equipment details, and schedule dispatch."
+        subtitle="Book a service order, define equipment specs, link inventory parts, and set service charges."
       />
 
       <div className="flex items-center justify-between">
@@ -275,7 +487,7 @@ export default function NewJobIntakePage() {
                   1. Customer & Location
                 </h2>
                 <p className="text-[11px] text-[#71717A]">
-                  Search existing records by name or phone number, or register a new customer on Google Maps.
+                  Search existing customer records or register a new customer with map coordinates.
                 </p>
               </div>
             </div>
@@ -316,20 +528,6 @@ export default function NewJobIntakePage() {
                     {selectedCustomer.addressText}
                   </span>
                 </div>
-
-                {selectedCustomer.lat && selectedCustomer.lng && (
-                  <div className="pt-1">
-                    <a
-                      href={`https://www.google.com/maps?q=${selectedCustomer.lat},${selectedCustomer.lng}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] text-[#0D7A5F] hover:underline inline-flex items-center gap-1 font-medium"
-                    >
-                      <span>Google Maps Location ({selectedCustomer.lat.toFixed(4)}, {selectedCustomer.lng.toFixed(4)})</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                )}
               </div>
 
               <button
@@ -354,7 +552,7 @@ export default function NewJobIntakePage() {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
                 <input
                   type="text"
-                  placeholder="Start typing customer name or phone number (+971...)"
+                  placeholder="Start typing customer name or phone number (+92...)"
                   value={customerSearch}
                   onFocus={() => setIsCustomerDropdownOpen(true)}
                   onChange={(e) => {
@@ -389,11 +587,9 @@ export default function NewJobIntakePage() {
                         className="p-3 hover:bg-[#F9FAFB] cursor-pointer flex items-center justify-between transition group"
                       >
                         <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-[#18181B] group-hover:text-[#0D7A5F]">
-                              {c.name}
-                            </p>
-                          </div>
+                          <p className="font-bold text-[#18181B] group-hover:text-[#0D7A5F]">
+                            {c.name}
+                          </p>
                           <p className="text-[11px] text-[#71717A] font-mono mt-0.5">
                             {c.phone}
                           </p>
@@ -408,7 +604,6 @@ export default function NewJobIntakePage() {
                       </div>
                     ))
                   ) : (
-                    /* Customer Not Found: Auto-Recommend Add New Button */
                     <div className="p-4 text-center space-y-2">
                       <p className="text-xs text-[#71717A]">
                         No matching customer found for <strong className="text-[#18181B]">"{customerSearch}"</strong>
@@ -416,7 +611,6 @@ export default function NewJobIntakePage() {
                     </div>
                   )}
 
-                  {/* Auto-Recommend Add New Customer Action */}
                   <div className="p-2 bg-[#F9FAFB] sticky bottom-0 border-t border-[#EDEDED]">
                     <button
                       type="button"
@@ -431,7 +625,7 @@ export default function NewJobIntakePage() {
                         <Plus className="w-4 h-4" />
                         {customerSearch.trim()
                           ? `Add "${customerSearch.trim()}" as New Customer`
-                          : "Add New Customer (with Google Maps)"}
+                          : "Add New Customer"}
                       </span>
                       <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[#0D7A5F] text-white">
                         + New Record
@@ -445,7 +639,7 @@ export default function NewJobIntakePage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* SECTION 2: JOB TYPE, PRODUCT (BRAND + MODEL), CARE OF, REMARKS, ASSIGN    */}
+        {/* SECTION 2: JOB CLASSIFICATION & EQUIPMENT SPECIFICATION                   */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
           <div className="flex items-center gap-2 pb-3 border-b border-[#EDEDED]">
@@ -457,7 +651,7 @@ export default function NewJobIntakePage() {
                 2. Job Classification & Equipment Details
               </h2>
               <p className="text-[11px] text-[#71717A]">
-                Select job type, equipment brand & model, subcontracting status, notes, and dispatch technician.
+                Select job type, equipment product type before brand, brand, and unit model.
               </p>
             </div>
           </div>
@@ -466,7 +660,7 @@ export default function NewJobIntakePage() {
             {/* 1. JOB TYPE: Select or Type from Dropdown */}
             <div>
               <label className="font-semibold text-[#18181B] block mb-1.5">
-                Job Type (Select or Type Custom) *
+                Job Nature / Type *
               </label>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -506,28 +700,58 @@ export default function NewJobIntakePage() {
               </div>
             </div>
 
-            {/* 2. PRODUCT: Brand & Model */}
+            {/* 2. PRODUCT SPECIFICATION: PRODUCT TYPE (BEFORE BRAND) -> BRAND -> MODEL */}
             <div className="pt-2 border-t border-[#EDEDED]">
-              <div className="flex items-center gap-2 mb-2">
-                <Cpu className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                <span className="font-bold text-xs text-[#18181B] uppercase tracking-wider">
-                  Product / HVAC Equipment Details
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                  <span className="font-bold text-xs text-[#18181B] uppercase tracking-wider">
+                    Equipment Details (Product Type, Brand & Model)
+                  </span>
+                </div>
+                <span className="text-[11px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded font-mono">
+                  Product column placed before Brand
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Product Column (Placed BEFORE Brand as requested) */}
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Product / Appliance Type *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="hvac-equipment-products-list"
+                      placeholder="e.g. Inverter AC 1.5 Ton, Chiller..."
+                      value={productType}
+                      onChange={(e) => setProductType(e.target.value)}
+                      className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
+                    />
+                    <datalist id="hvac-equipment-products-list">
+                      {COMMON_EQUIPMENT_TYPES.map((item) => (
+                        <option key={item} value={item} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <span className="text-[10px] text-[#71717A] mt-1 block">
+                    Type or pick from standard HVAC equipment types
+                  </span>
+                </div>
+
                 {/* Brand */}
                 <div>
                   <label className="font-semibold text-[#18181B] block mb-1">
-                    Brand (Type or Select)
+                    Equipment Brand (Type or Select)
                   </label>
                   <div className="relative">
                     <input
                       type="text"
                       list="hvac-brands-list"
-                      placeholder="e.g. Daikin, O General, Mitsubishi, Carrier..."
+                      placeholder="e.g. Daikin, Gree, Haier, Carrier..."
                       value={productBrand}
-                      onChange={(e) => handleProductChange(e.target.value, productModel)}
+                      onChange={(e) => setProductBrand(e.target.value)}
                       className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
                     />
                     <datalist id="hvac-brands-list">
@@ -536,6 +760,9 @@ export default function NewJobIntakePage() {
                       ))}
                     </datalist>
                   </div>
+                  <span className="text-[10px] text-[#71717A] mt-1 block">
+                    Brand manufacturer
+                  </span>
                 </div>
 
                 {/* Model */}
@@ -545,11 +772,14 @@ export default function NewJobIntakePage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Inverter Split 2.0 Ton / VRV IV Outdoor / FCU 3-Ton"
+                    placeholder="e.g. Inverter Split 1.5 Ton / VRV IV Outdoor"
                     value={productModel}
-                    onChange={(e) => handleProductChange(productBrand, e.target.value)}
+                    onChange={(e) => setProductModel(e.target.value)}
                     className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
                   />
+                  <span className="text-[10px] text-[#71717A] mt-1 block">
+                    Serial or series specification
+                  </span>
                 </div>
               </div>
             </div>
@@ -564,12 +794,11 @@ export default function NewJobIntakePage() {
                       Care-Of / Subcontracted Order
                     </span>
                     <span className="text-[11px] text-[#71717A]">
-                      Enable if this job is performed on behalf of a facility management company or third party.
+                      Enable if this job is billed through or performed on behalf of a 3rd party contractor.
                     </span>
                   </div>
                 </div>
 
-                {/* Toggle Button */}
                 <button
                   type="button"
                   onClick={() => setIsCareOf(!isCareOf)}
@@ -589,7 +818,6 @@ export default function NewJobIntakePage() {
                 </button>
               </div>
 
-              {/* Care Of Subcontract Fields */}
               {isCareOf && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 mt-2 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] animate-in fade-in">
                   <div>
@@ -610,7 +838,7 @@ export default function NewJobIntakePage() {
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Engr. Rashid Al-Kaabi"
+                      placeholder="e.g. Engr. Usman Khan"
                       value={careOfPersonName}
                       onChange={(e) => setCareOfPersonName(e.target.value)}
                       className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none"
@@ -631,22 +859,451 @@ export default function NewJobIntakePage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
 
-            {/* 4. REMARKS SECTION */}
-            <div className="pt-2 border-t border-[#EDEDED]">
+        {/* ========================================================================= */}
+        {/* SECTION 3: SCOPE OF WORK, PRODUCTS (INVENTORY) & SERVICE CHARGES           */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
+          <div className="flex items-center justify-between pb-3 border-b border-[#EDEDED]">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
+                <Receipt className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  3. Line Items & Charges (Products from Inventory & Services)
+                </h2>
+                <p className="text-[11px] text-[#71717A]">
+                  Add multiple products (linked with inventory stock & prices) and multiple service labor charges.
+                </p>
+              </div>
+            </div>
+
+            <div className="text-right hidden sm:block">
+              <span className="text-[11px] text-[#71717A] block font-medium">Estimated Job Total:</span>
+              <span className="text-base font-extrabold text-[#0D7A5F] font-mono">
+                {formatCurrency(totalEstimatedCharges)}
+              </span>
+            </div>
+          </div>
+
+          {/* 3A. PRODUCT LINES (LINKED WITH INVENTORY) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-[#0D7A5F]" />
+                <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  Product / Parts Lines (Linked with Live Inventory)
+                </span>
+                <span className="text-[10px] bg-emerald-50 text-[#0D7A5F] border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
+                  {productLines.length} {productLines.length === 1 ? "part" : "parts"}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddProductLine}
+                className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                + Add Product Line
+              </button>
+            </div>
+
+            {productLines.length === 0 ? (
+              <div className="p-5 border border-dashed border-[#EDEDED] rounded-xl text-center space-y-2 bg-[#FAFAFA]">
+                <Boxes className="w-6 h-6 text-[#A1A1AA] mx-auto" />
+                <p className="text-xs text-[#71717A]">
+                  No inventory products or physical parts added yet for this job.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAddProductLine}
+                  className="text-xs font-bold text-[#0D7A5F] hover:underline"
+                >
+                  Click to select products from warehouse inventory
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {productLines.map((line, idx) => {
+                  const lineTotal = line.quantity * (line.unitRate || 0);
+                  const isLowStock =
+                    line.availableStock !== undefined && line.availableStock <= 5;
+                  const isOutOfStock =
+                    line.availableStock !== undefined && line.availableStock <= 0;
+
+                  return (
+                    <div
+                      key={line.id}
+                      className="p-3.5 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl flex flex-col md:flex-row items-start md:items-center gap-3 text-xs animate-in fade-in"
+                    >
+                      {/* Product Selector / Name */}
+                      <div className="flex-1 w-full md:w-auto">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Product / Part #{idx + 1}
+                        </label>
+                        <select
+                          value={line.productId || "CUSTOM"}
+                          onChange={(e) => handleSelectInventoryProduct(line.id, e.target.value)}
+                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
+                        >
+                          <optgroup label="Warehouse Inventory Products">
+                            {inventoryProducts.map((inv) => (
+                              <option key={inv.id} value={inv.id}>
+                                {inv.name} ({inv.sku}) — Stock: {inv.stockQuantity} {inv.unit} @ {formatCurrency(inv.unitPrice)}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <option value="CUSTOM">+ Custom / Non-Catalog Product...</option>
+                        </select>
+
+                        {/* Custom product name input if CUSTOM */}
+                        {!line.productId && (
+                          <input
+                            type="text"
+                            placeholder="Type custom product name or model..."
+                            value={line.name}
+                            onChange={(e) => handleUpdateProductLine(line.id, "name", e.target.value)}
+                            className="w-full mt-1.5 bg-white p-1.5 text-xs rounded border border-[#0D7A5F] focus:outline-none font-medium"
+                          />
+                        )}
+
+                        {/* Stock & SKU badges */}
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                          {line.sku && (
+                            <span className="text-[10px] font-mono text-[#52525B] bg-[#E4E4E7] px-1.5 py-0.5 rounded">
+                              SKU: {line.sku}
+                            </span>
+                          )}
+                          {line.availableStock !== undefined && (
+                            <span
+                              className={cn(
+                                "text-[10px] font-semibold px-2 py-0.5 rounded-full",
+                                isOutOfStock
+                                  ? "bg-rose-100 text-rose-800"
+                                  : isLowStock
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-emerald-100 text-[#065F46]"
+                              )}
+                            >
+                              {isOutOfStock
+                                ? "Out of Stock (0)"
+                                : `${line.availableStock} in inventory`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Quantity */}
+                      <div className="w-full md:w-28">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Qty ({line.unit || "unit"})
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={line.quantity}
+                          onChange={(e) =>
+                            handleUpdateProductLine(line.id, "quantity", e.target.value)
+                          }
+                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-center font-bold text-[#18181B]"
+                        />
+                      </div>
+
+                      {/* Unit Price / Charge */}
+                      <div className="w-full md:w-36">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Unit Rate (PKR)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={line.unitRate}
+                          onChange={(e) =>
+                            handleUpdateProductLine(line.id, "unitRate", e.target.value)
+                          }
+                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-right font-semibold text-[#18181B]"
+                        />
+                      </div>
+
+                      {/* Line Subtotal */}
+                      <div className="w-full md:w-36 text-right">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Line Total
+                        </label>
+                        <div className="p-2 font-mono font-bold text-[#18181B] bg-white rounded-lg border border-[#EDEDED] text-right">
+                          {formatCurrency(lineTotal)}
+                        </div>
+                      </div>
+
+                      {/* Remove */}
+                      <div className="self-end md:self-center pt-2 md:pt-4">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProductLine(line.id)}
+                          className="p-2 text-[#71717A] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          title="Remove product"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex justify-end pr-1 text-xs text-[#71717A]">
+                  <span>Products Subtotal:&nbsp;</span>
+                  <span className="font-mono font-bold text-[#18181B]">
+                    {formatCurrency(productsSubtotal)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3B. SERVICE LINES (LABOR & CHARGES) */}
+          <div className="space-y-3 pt-4 border-t border-[#EDEDED]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wrench className="w-4 h-4 text-[#0D7A5F]" />
+                <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  Service Lines & Labor Charges
+                </span>
+                <span className="text-[10px] bg-emerald-50 text-[#0D7A5F] border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
+                  {serviceLines.length} {serviceLines.length === 1 ? "service" : "services"}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddServiceLine}
+                className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                + Add Service Line
+              </button>
+            </div>
+
+            {serviceLines.length === 0 ? (
+              <div className="p-5 border border-dashed border-[#EDEDED] rounded-xl text-center space-y-2 bg-[#FAFAFA]">
+                <Wrench className="w-6 h-6 text-[#A1A1AA] mx-auto" />
+                <p className="text-xs text-[#71717A]">
+                  No service lines or labor charges added yet.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAddServiceLine}
+                  className="text-xs font-bold text-[#0D7A5F] hover:underline"
+                >
+                  Click to add service labor charges
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {serviceLines.map((srv, idx) => {
+                  const srvTotal = srv.quantity * (srv.unitRate || 0);
+
+                  return (
+                    <div
+                      key={srv.id}
+                      className="p-3.5 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl flex flex-col md:flex-row items-start md:items-center gap-3 text-xs animate-in fade-in"
+                    >
+                      {/* Service Name / Suggestion */}
+                      <div className="flex-1 w-full md:w-auto">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block">
+                            Service Task #{idx + 1}
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-[#71717A]">Quick Presets:</span>
+                            <select
+                              onChange={(e) => {
+                                const selected = COMMON_SERVICE_PRESETS.find(
+                                  (p) => p.name === e.target.value
+                                );
+                                if (selected) {
+                                  handleUpdateServiceLine(srv.id, "name", selected.name);
+                                  handleUpdateServiceLine(srv.id, "unitRate", selected.rate);
+                                }
+                              }}
+                              className="text-[10px] bg-white border border-[#EDEDED] rounded px-1.5 py-0.5 text-[#52525B]"
+                              defaultValue=""
+                            >
+                              <option value="" disabled>
+                                Pick Preset...
+                              </option>
+                              {COMMON_SERVICE_PRESETS.map((p) => (
+                                <option key={p.name} value={p.name}>
+                                  {p.name} ({formatCurrency(p.rate)})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <input
+                          type="text"
+                          placeholder="e.g. AC Installation, Coil Chemical Wash, Gas Recharge..."
+                          value={srv.name}
+                          onChange={(e) => handleUpdateServiceLine(srv.id, "name", e.target.value)}
+                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
+                        />
+                      </div>
+
+                      {/* Quantity */}
+                      <div className="w-full md:w-28">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Units / Qty
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={srv.quantity}
+                          onChange={(e) =>
+                            handleUpdateServiceLine(srv.id, "quantity", e.target.value)
+                          }
+                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-center font-bold text-[#18181B]"
+                        />
+                      </div>
+
+                      {/* Service Rate / Charge (Money) */}
+                      <div className="w-full md:w-36">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Service Charge (PKR) *
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={srv.unitRate}
+                          onChange={(e) =>
+                            handleUpdateServiceLine(srv.id, "unitRate", e.target.value)
+                          }
+                          className="w-full bg-white p-2 rounded-lg border border-[#0D7A5F] focus:outline-none font-mono text-right font-semibold text-[#18181B]"
+                          placeholder="Enter money..."
+                        />
+                      </div>
+
+                      {/* Line Subtotal */}
+                      <div className="w-full md:w-36 text-right">
+                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
+                          Service Total
+                        </label>
+                        <div className="p-2 font-mono font-bold text-[#18181B] bg-white rounded-lg border border-[#EDEDED] text-right">
+                          {formatCurrency(srvTotal)}
+                        </div>
+                      </div>
+
+                      {/* Remove */}
+                      <div className="self-end md:self-center pt-2 md:pt-4">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveServiceLine(srv.id)}
+                          className="p-2 text-[#71717A] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          title="Remove service"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex justify-end pr-1 text-xs text-[#71717A]">
+                  <span>Services Subtotal:&nbsp;</span>
+                  <span className="font-mono font-bold text-[#18181B]">
+                    {formatCurrency(servicesSubtotal)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3C. SECTION OF CHARGES & FINANCIAL SUMMARY CARD */}
+          <div className="p-5 bg-gradient-to-br from-[#F9FAFB] to-[#F4F4F5] border border-[#EDEDED] rounded-xl space-y-3">
+            <div className="flex items-center gap-2 pb-2 border-b border-[#E4E4E7]">
+              <Sparkles className="w-4 h-4 text-[#0D7A5F]" />
+              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                Work Order Quotation & Financial Summary
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div className="p-3 bg-white rounded-lg border border-[#EDEDED] shadow-2xs">
+                <span className="text-[#71717A] block text-[11px] mb-1">Products / Parts Total</span>
+                <span className="font-mono text-sm font-bold text-[#18181B]">
+                  {formatCurrency(productsSubtotal)}
+                </span>
+                <span className="text-[10px] text-[#71717A] block mt-0.5">
+                  {productLines.length} product {productLines.length === 1 ? "line" : "lines"}
+                </span>
+              </div>
+
+              <div className="p-3 bg-white rounded-lg border border-[#EDEDED] shadow-2xs">
+                <span className="text-[#71717A] block text-[11px] mb-1">Services & Labor Total</span>
+                <span className="font-mono text-sm font-bold text-[#18181B]">
+                  {formatCurrency(servicesSubtotal)}
+                </span>
+                <span className="text-[10px] text-[#71717A] block mt-0.5">
+                  {serviceLines.length} service {serviceLines.length === 1 ? "line" : "lines"}
+                </span>
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 shadow-2xs">
+                <span className="text-[#065F46] block text-[11px] font-semibold mb-1">
+                  Grand Total Estimated Charges
+                </span>
+                <span className="font-mono text-base font-extrabold text-[#0D7A5F]">
+                  {formatCurrency(totalEstimatedCharges)}
+                </span>
+                <span className="text-[10px] text-[#065F46] block mt-0.5 font-medium">
+                  Planned for customer invoice
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* SECTION 4: REMARKS & TECHNICIAN DISPATCH ASSIGNMENT                       */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
+          <div className="flex items-center gap-2 pb-3 border-b border-[#EDEDED]">
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                4. Operational Notes & Technician Assignment
+              </h2>
+              <p className="text-[11px] text-[#71717A]">
+                Add customer problem description and assign a field technician or defer to dispatcher.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 text-xs">
+            {/* Remarks Section */}
+            <div>
               <label className="font-semibold text-[#18181B] block mb-1.5">
                 Remarks / Problem Description & Caller Notes
               </label>
               <textarea
                 rows={3}
-                placeholder="Describe caller symptoms, site access codes, error codes on display, or special instructions..."
+                placeholder="Describe caller symptoms, site access codes, error codes on display, or special customer instructions..."
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] resize-none"
               />
             </div>
 
-            {/* 5. LASTLY: ASSIGN TECHNICIAN (With "Assign Later" option) */}
+            {/* Assign Technician */}
             <div className="pt-2 border-t border-[#EDEDED]">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="font-semibold text-[#18181B] block">

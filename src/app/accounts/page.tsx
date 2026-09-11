@@ -1,10 +1,16 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import QuickExpenseDrawer from "@/components/drawers/QuickExpenseDrawer";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import FinancialStatementsTab from "@/components/accounts/FinancialStatementsTab";
+import BankReconciliationTab from "@/components/accounts/BankReconciliationTab";
+import FixedAssetsTab from "@/components/accounts/FixedAssetsTab";
+import SubLedgerReconciliationTab from "@/components/accounts/SubLedgerReconciliationTab";
+import ReverseJournalEntryModal from "@/components/accounts/ReverseJournalEntryModal";
+import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
 import {
   CreditCard,
@@ -22,6 +28,7 @@ import {
   Calendar,
   X,
   ChevronRight,
+  ChevronDown,
   ShieldCheck,
   Lock,
   AlertTriangle,
@@ -35,11 +42,30 @@ import {
   Wallet,
   Building,
   RefreshCw,
+  FolderTree,
+  ArrowUpRight,
+  ArrowDownLeft,
+  ArrowLeftRight,
+  Layers,
+  Table as TableIcon,
+  Sparkles,
+  RotateCcw,
 } from "lucide-react";
 
 export default function AccountsPage() {
   const [activeTab, setActiveTab] = useState<
-    "discounts" | "ledgers" | "settlements" | "expenses" | "pos" | "chart" | "journal"
+    | "discounts"
+    | "ledgers"
+    | "settlements"
+    | "expenses"
+    | "pos"
+    | "cashbook"
+    | "chart"
+    | "journal"
+    | "reports"
+    | "bankrec"
+    | "fixedassets"
+    | "subledgers"
   >("discounts");
 
   // Sub-tabs for Party Ledgers
@@ -94,11 +120,43 @@ export default function AccountsPage() {
   const [posSales, setPosSales] = useState<any[]>([]);
   const [posStats, setPosStats] = useState<any>({ totalCount: 0, totalRevenue: 0, cashSales: 0, cardSales: 0 });
 
-  // Chart of Accounts Drilldown Drawer state
+  // Chart of Accounts Drilldown Drawer state & Level 4 Hierarchy
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [coaTree, setCoaTree] = useState<any[]>([]);
+  const [coaFlat, setCoaFlat] = useState<any[]>([]);
+  const [coaViewMode, setCoaViewMode] = useState<"tree" | "table">("tree");
+  const [coaSearch, setCoaSearch] = useState("");
+  const [coaLevelFilter, setCoaLevelFilter] = useState<"ALL" | "1" | "2" | "3" | "4">("ALL");
+  const [coaTypeFilter, setCoaTypeFilter] = useState<string>("ALL");
+  const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(
+    new Set(["1000-GRP", "1100", "2000-GRP", "2100-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
+  );
   const [selectedAccountDrilldown, setSelectedAccountDrilldown] = useState<any>(null);
   const [accountLedgerLines, setAccountLedgerLines] = useState<any[]>([]);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
+
+  // Cashbook State
+  const [cashbookEntries, setCashbookEntries] = useState<any[]>([]);
+  const [cashbookSummary, setCashbookSummary] = useState<any>({
+    totalReceipts: 0,
+    totalPayments: 0,
+    netClosingBalance: 0,
+    totalTransactions: 0,
+  });
+  const [cashAccounts, setCashAccounts] = useState<any[]>([]);
+  const [cashbookFilterAccount, setCashbookFilterAccount] = useState("ALL");
+  const [cashbookPeriod, setCashbookPeriod] = useState<"all" | "today" | "7d" | "month">("all");
+  const [cashbookSearch, setCashbookSearch] = useState("");
+  const [cashbookLoading, setCashbookLoading] = useState(false);
+  const [showRecordCashModal, setShowRecordCashModal] = useState(false);
+  const [cashFormType, setCashFormType] = useState<"receipt" | "payment" | "transfer">("receipt");
+  const [cashFormAccount, setCashFormAccount] = useState("1000");
+  const [cashFormContra, setCashFormContra] = useState("4000");
+  const [cashFormTransferTo, setCashFormTransferTo] = useState("1010");
+  const [cashFormAmount, setCashFormAmount] = useState("");
+  const [cashFormMemo, setCashFormMemo] = useState("");
+  const [cashFormParty, setCashFormParty] = useState("");
+  const [cashFormSubmitting, setCashFormSubmitting] = useState(false);
 
   // General Journal & Manual Entry state
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
@@ -135,6 +193,20 @@ export default function AccountsPage() {
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
   const [actionErrorMsg, setActionErrorMsg] = useState("");
 
+  // Enterprise Features State
+  const [companySettings, setCompanySettings] = useState<any>(null);
+  const [reversingEntry, setReversingEntry] = useState<any>(null);
+  const [vendorCprNumber, setVendorCprNumber] = useState("");
+
+  useEffect(() => {
+    fetch("/api/accounts?view=company_settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) setCompanySettings(data.settings);
+      })
+      .catch(() => null);
+  }, []);
+
   // 1. DATA LOADER
   const loadData = useCallback(async () => {
     try {
@@ -168,9 +240,37 @@ export default function AccountsPage() {
         if (data.sales) setPosSales(data.sales);
         if (data.stats) setPosStats(data.stats);
       } else if (activeTab === "chart") {
-        const res = await fetch("/api/accounts");
+        const res = await fetch("/api/accounts?view=chart");
         const data = await res.json();
-        if (Array.isArray(data)) setAccounts(data);
+        if (data.tree) setCoaTree(data.tree);
+        if (data.flat) setCoaFlat(data.flat);
+        if (data.rawAccounts) setAccounts(data.rawAccounts);
+        else if (Array.isArray(data)) setAccounts(data);
+      } else if (activeTab === "cashbook") {
+        setCashbookLoading(true);
+        const queryParams = new URLSearchParams({
+          view: "cashbook",
+          accountCode: cashbookFilterAccount,
+        });
+        if (cashbookPeriod === "today") {
+          const start = new Date();
+          start.setHours(0, 0, 0, 0);
+          queryParams.set("from", start.toISOString());
+        } else if (cashbookPeriod === "7d") {
+          const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+          queryParams.set("from", start.toISOString());
+        } else if (cashbookPeriod === "month") {
+          const start = new Date();
+          start.setDate(1);
+          start.setHours(0, 0, 0, 0);
+          queryParams.set("from", start.toISOString());
+        }
+        const res = await fetch(`/api/accounts?${queryParams.toString()}`);
+        const data = await res.json();
+        if (data.entries) setCashbookEntries(data.entries);
+        if (data.summary) setCashbookSummary(data.summary);
+        if (data.cashAccounts) setCashAccounts(data.cashAccounts);
+        setCashbookLoading(false);
       } else if (activeTab === "journal") {
         const res = await fetch("/api/accounts?view=journal");
         const data = await res.json();
@@ -179,7 +279,7 @@ export default function AccountsPage() {
     } catch (e: any) {
       console.error("Failed to load accounts data", e);
     }
-  }, [activeTab]);
+  }, [activeTab, cashbookFilterAccount, cashbookPeriod]);
 
   useEffect(() => {
     loadData();
@@ -384,30 +484,53 @@ export default function AccountsPage() {
     }
   };
 
-  // 5. ACTION: RECORD VENDOR PAYMENT
+  // 5. ACTION: RECORD VENDOR PAYMENT WITH CUSTOM WHT & CPR LOGGING
   const handleRecordVendorPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedVendor || !vendorPayAmount || Number(vendorPayAmount) <= 0) return;
 
     try {
+      const isDbVendor = Boolean(selectedVendor.id);
+      const actionName = isDbVendor ? "vendor_payment" : "record_vendor_payment";
+      const payload: any = {
+        action: actionName,
+        vendorName: selectedVendor.name,
+        memo: vendorPayMemo || `Supplier payment to ${selectedVendor.name}`,
+        actorName: "Fatima Noor (Accountant)",
+      };
+
+      if (isDbVendor) {
+        payload.vendorId = selectedVendor.id;
+        payload.grossAmount = Number(vendorPayAmount);
+        payload.paymentAccountCode = "1000";
+        payload.cprNumber = vendorCprNumber || undefined;
+      } else {
+        payload.amount = Number(vendorPayAmount);
+      }
+
       const res = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "record_vendor_payment",
-          vendorName: selectedVendor.name,
-          amount: Number(vendorPayAmount),
-          memo: vendorPayMemo || `Supplier payment to ${selectedVendor.name}`,
-          actorName: "Fatima Noor (Accountant)",
-        }),
+        body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error("Vendor payment failed");
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Vendor payment failed");
+      }
 
+      const result = await res.json();
       setShowVendorPayModal(false);
       setVendorPayAmount("");
       setVendorPayMemo("");
-      setActionSuccessMsg(`Disbursed supplier payment of ${formatCurrency(Number(vendorPayAmount))} to ${selectedVendor.name}.`);
+      setVendorCprNumber("");
+
+      const whtInfo = result.taxCalculation
+        ? ` (Net disbursed: ${formatCurrency(result.taxCalculation.netPayable)}, WHT: ${formatCurrency(result.taxCalculation.whtAmount)})`
+        : "";
+      setActionSuccessMsg(
+        `Disbursed supplier payment of ${formatCurrency(Number(vendorPayAmount))} to ${selectedVendor.name}${whtInfo}.`
+      );
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
@@ -628,6 +751,70 @@ export default function AccountsPage() {
     }
   };
 
+  // Record Cashbook Transaction (Receipt, Payment, Transfer)
+  const handleRecordCashTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cashFormAmount || Number(cashFormAmount) <= 0) {
+      alert("Please enter a valid positive transaction amount");
+      return;
+    }
+    try {
+      setCashFormSubmitting(true);
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_cash_transaction",
+          transactionType: cashFormType,
+          cashAccountCode: cashFormAccount,
+          contraAccountCode: cashFormContra,
+          transferToAccountCode: cashFormTransferTo,
+          amount: Number(cashFormAmount),
+          memo: cashFormMemo,
+          partyName: cashFormParty,
+          actorName: "Fatima Noor (Accountant)",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to record cash transaction");
+
+      setActionSuccessMsg(
+        `Successfully recorded Cashbook ${cashFormType.toUpperCase()} of ${formatCurrency(
+          Number(cashFormAmount)
+        )}`
+      );
+      setShowRecordCashModal(false);
+      setCashFormAmount("");
+      setCashFormMemo("");
+      setCashFormParty("");
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setCashFormSubmitting(false);
+    }
+  };
+
+  // Tree View Expand/Collapse Handlers
+  const toggleTreeNode = (code: string) => {
+    setExpandedTreeNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const expandAllTreeNodes = () => {
+    const allCodes = new Set<string>();
+    coaFlat.forEach((n) => allCodes.add(n.code));
+    setExpandedTreeNodes(allCodes);
+  };
+
+  const collapseAllTreeNodes = () => {
+    setExpandedTreeNodes(new Set());
+  };
+
   const tabs = [
     {
       id: "discounts",
@@ -661,16 +848,42 @@ export default function AccountsPage() {
       count: posSales.length,
     },
     {
+      id: "cashbook",
+      label: "Cash & Bank Book",
+      icon: <Wallet className="w-3.5 h-3.5" />,
+      count: cashbookEntries.length,
+    },
+    {
       id: "chart",
       label: "Chart of Accounts (COA)",
       icon: <BookOpen className="w-3.5 h-3.5" />,
-      count: accounts.length,
+      count: coaFlat.length || accounts.length,
     },
     {
       id: "journal",
       label: "General Journal",
       icon: <Scale className="w-3.5 h-3.5" />,
       count: journalEntries.length,
+    },
+    {
+      id: "reports",
+      label: "Financial Statements",
+      icon: <FileText className="w-3.5 h-3.5" />,
+    },
+    {
+      id: "bankrec",
+      label: "Bank Reconciliation",
+      icon: <Building className="w-3.5 h-3.5" />,
+    },
+    {
+      id: "fixedassets",
+      label: "Fixed Assets & Depr",
+      icon: <Layers className="w-3.5 h-3.5" />,
+    },
+    {
+      id: "subledgers",
+      label: "Sub-Ledger Drift & Aging",
+      icon: <ArrowLeftRight className="w-3.5 h-3.5" />,
     },
   ];
 
@@ -688,6 +901,34 @@ export default function AccountsPage() {
           </span>
         }
       />
+
+      {/* Enterprise Onboarding Banner */}
+      {companySettings && !companySettings.isSetupCompleted && (
+        <div className="p-4 bg-gradient-to-r from-emerald-950 via-teal-950 to-zinc-900 text-white rounded-2xl shadow-lg border border-emerald-800/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/15">
+              <Sparkles className="w-5 h-5 text-emerald-300" />
+            </div>
+            <div>
+              <div className="font-bold text-sm flex items-center gap-2">
+                Enterprise SAP-FICO Accounting Onboarding Incomplete
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  Step-by-Step Guided Setup
+                </span>
+              </div>
+              <p className="text-xs text-emerald-100/80 mt-0.5">
+                Configure legal tenant profile, FBR tax credentials (NTN/STRN), fiscal periods, and 4-Level Chart of Accounts opening balances (offset to 3900 Opening Balance Equity).
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/setup"
+            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-bold rounded-xl text-xs inline-flex items-center gap-1.5 transition shadow-sm shrink-0"
+          >
+            Launch Setup Wizard <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      )}
 
       {/* Notifications */}
       {actionSuccessMsg && (
@@ -1437,10 +1678,25 @@ export default function AccountsPage() {
           </div>
 
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7]">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Over-the-Counter POS Sales Register
-              </h3>
+            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-[#0D7A5F]" />
+                  Over-the-Counter POS Sales Register & Terminal
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  Full-featured countertop point of sale with barcode scanning, cash drawer shift sessions, and thermal receipts.
+                </p>
+              </div>
+
+              <a
+                href="/pos"
+                className="px-4 py-2 rounded-xl bg-[#0D7A5F] hover:bg-[#0A634D] text-white font-bold text-xs shadow-xs transition inline-flex items-center gap-2 self-start sm:self-auto"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                Launch Full POS Terminal
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </a>
             </div>
 
             <div className="overflow-x-auto">
@@ -1505,61 +1761,762 @@ export default function AccountsPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 6: CHART OF ACCOUNTS (COA) WITH DRILLDOWN */}
       {/* ========================================================================= */}
-      {activeTab === "chart" && (
-        <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-          <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
-            <div>
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Standard Double-Entry Chart of Accounts
-              </h3>
-              <p className="text-[11px] text-[#71717A] mt-0.5">
-                Click any account to inspect its full General Ledger / T-Account transaction history.
-              </p>
+      {/* TAB 5.5: CASHBOOK (CASH & BANK BOOK) */}
+      {/* ========================================================================= */}
+      {activeTab === "cashbook" && (
+        <div className="space-y-6 animate-in fade-in">
+          {/* Cashbook Header & Controls */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E4E4E7]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Cash & Bank Book Register
+                    </h3>
+                    <p className="text-[11px] text-[#71717A]">
+                      Real-time chronological record of all cash collections, bank receipts, field disbursements, and running liquidity.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCashFormType("receipt");
+                    setShowRecordCashModal(true);
+                  }}
+                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] border border-emerald-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
+                >
+                  <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-700" />
+                  + Cash Receipt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCashFormType("payment");
+                    setShowRecordCashModal(true);
+                  }}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5 text-rose-700" />
+                  + Cash Payment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCashFormType("transfer");
+                    setShowRecordCashModal(true);
+                  }}
+                  className="px-3 py-1.5 bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] border border-[#D4D4D8] rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-[#52525B]" />
+                  Transfer
+                </button>
+              </div>
+            </div>
+
+            {/* Cashbook Summary KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-[#EDEDED]">
+                <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
+                  Total Cash Inflows (Receipts)
+                </span>
+                <span className="font-mono text-base font-extrabold text-[#0D7A5F] block mt-1">
+                  +{formatCurrency(cashbookSummary.totalReceipts)}
+                </span>
+                <span className="text-[10px] text-[#71717A] block mt-0.5">Collections & Counter Sales</span>
+              </div>
+
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-[#EDEDED]">
+                <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
+                  Total Cash Outflows (Payments)
+                </span>
+                <span className="font-mono text-base font-extrabold text-rose-700 block mt-1">
+                  -{formatCurrency(cashbookSummary.totalPayments)}
+                </span>
+                <span className="text-[10px] text-[#71717A] block mt-0.5">Expenses & Vendor Payouts</span>
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+                <span className="text-[10px] uppercase font-bold text-[#065F46] tracking-wider block">
+                  Net Closing Cash on Hand
+                </span>
+                <span className="font-mono text-base font-extrabold text-[#0D7A5F] block mt-1">
+                  {formatCurrency(cashbookSummary.netClosingBalance)}
+                </span>
+                <span className="text-[10px] text-[#065F46] block mt-0.5 font-medium">Reconciled Ledger Balance</span>
+              </div>
+
+              <div className="p-3 bg-white rounded-xl border border-[#EDEDED]">
+                <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
+                  Active Vouchers Logged
+                </span>
+                <span className="font-mono text-base font-extrabold text-[#18181B] block mt-1">
+                  {cashbookSummary.totalTransactions || cashbookEntries.length}
+                </span>
+                <span className="text-[10px] text-[#71717A] block mt-0.5">Double-entry cash postings</span>
+              </div>
+            </div>
+
+            {/* Filter Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {/* Account Filter */}
+                <select
+                  value={cashbookFilterAccount}
+                  onChange={(e) => setCashbookFilterAccount(e.target.value)}
+                  className="bg-[#F4F4F5] border border-[#EDEDED] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#18181B] focus:bg-white focus:outline-none"
+                >
+                  <option value="ALL">All Cash & Bank Accounts</option>
+                  {cashAccounts.map((acc) => (
+                    <option key={acc.code} value={acc.code}>
+                      {acc.code} — {acc.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Period Chips */}
+                <div className="inline-flex rounded-lg border border-[#EDEDED] p-0.5 bg-[#F4F4F5]">
+                  {(["all", "today", "7d", "month"] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setCashbookPeriod(p)}
+                      className={cn(
+                        "px-2.5 py-1 text-[11px] font-bold rounded-md capitalize transition",
+                        cashbookPeriod === p
+                          ? "bg-white text-[#18181B] shadow-2xs"
+                          : "text-[#71717A] hover:text-[#18181B]"
+                      )}
+                    >
+                      {p === "7d" ? "7 Days" : p === "month" ? "This Month" : p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                <input
+                  type="text"
+                  placeholder="Search voucher, memo, contra..."
+                  value={cashbookSearch}
+                  onChange={(e) => setCashbookSearch(e.target.value)}
+                  className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
+                />
+              </div>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                  <th className="py-2.5 px-4">Account Code</th>
-                  <th className="py-2.5 px-4">Account Name</th>
-                  <th className="py-2.5 px-4">Classification</th>
-                  <th className="py-2.5 px-4 text-right">Journal Lines</th>
-                  <th className="py-2.5 px-4 text-right">Current Balance</th>
-                  <th className="py-2.5 px-4 text-right">Drilldown</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E4E4E7]">
-                {accounts.map((acc) => (
-                  <tr
-                    key={acc.id}
-                    onClick={() => handleOpenAccountDrilldown(acc)}
-                    className="hover:bg-[#FAFAFA] cursor-pointer transition"
-                  >
-                    <td className="py-2.5 px-4 font-mono font-bold text-[#18181B]">{acc.code}</td>
-                    <td className="py-2.5 px-4 font-medium text-[#18181B]">{acc.name}</td>
-                    <td className="py-2.5 px-4 capitalize text-[#71717A]">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#F4F4F5] text-[#3F3F46] border border-[#E4E4E7]">
-                        {acc.type}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono text-[#71717A]">{acc.entriesCount || 0}</td>
-                    <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
-                      {formatCurrency(acc.balance)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right">
-                      <span className="text-[#0D7A5F] hover:underline font-bold text-[11px] inline-flex items-center gap-1">
-                        Inspect <ChevronRight className="w-3 h-3" />
-                      </span>
-                    </td>
+          {/* Cashbook Ledger Table */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-[#E4E4E7] text-[10px] font-bold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
+                    <th className="py-2.5 px-4">Date & Time</th>
+                    <th className="py-2.5 px-3">Voucher Ref</th>
+                    <th className="py-2.5 px-3">Cash/Bank A/C</th>
+                    <th className="py-2.5 px-4">Particulars / Contra Account & Narration</th>
+                    <th className="py-2.5 px-4 text-right">Receipt (Dr +)</th>
+                    <th className="py-2.5 px-4 text-right">Payment (Cr -)</th>
+                    <th className="py-2.5 px-4 text-right">Running Balance</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[#E4E4E7]">
+                  {cashbookLoading ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-xs text-[#71717A]">
+                        <div className="inline-flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-[#0D7A5F] border-t-transparent rounded-full animate-spin" />
+                          Loading Cashbook entries...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : cashbookEntries.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-xs text-[#71717A]">
+                        No cash transactions recorded for the selected period.
+                      </td>
+                    </tr>
+                  ) : (
+                    cashbookEntries
+                      .filter((entry) => {
+                        if (!cashbookSearch.trim()) return true;
+                        const query = cashbookSearch.toLowerCase().trim();
+                        return (
+                          entry.voucherRef?.toLowerCase().includes(query) ||
+                          entry.memo?.toLowerCase().includes(query) ||
+                          entry.contraAccount?.toLowerCase().includes(query) ||
+                          entry.cashAccount?.name?.toLowerCase().includes(query)
+                        );
+                      })
+                      .map((entry) => (
+                        <tr key={entry.id} className="hover:bg-[#F9FAFB] transition">
+                          <td className="py-2.5 px-4 font-mono text-[11px] text-[#52525B]">
+                            {formatDateTime(entry.date)}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-mono font-bold text-[10px] bg-[#F4F4F5] px-1.5 py-0.5 rounded border border-[#EDEDED] text-[#18181B]">
+                              {entry.voucherRef}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-mono text-xs font-semibold text-[#18181B] block">
+                              {entry.cashAccount?.code}
+                            </span>
+                            <span className="text-[10px] text-[#71717A] block truncate max-w-[140px]">
+                              {entry.cashAccount?.name}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <p className="font-medium text-[#18181B] text-xs">
+                              {entry.memo}
+                            </p>
+                            <p className="text-[10px] text-[#71717A] mt-0.5 font-mono">
+                              Contra: {entry.contraAccount}
+                            </p>
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold">
+                            {entry.receiptAmount > 0 ? (
+                              <span className="text-[#0D7A5F]">
+                                +{formatCurrency(entry.receiptAmount)}
+                              </span>
+                            ) : (
+                              <span className="text-[#D4D4D8]">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold">
+                            {entry.paymentAmount > 0 ? (
+                              <span className="text-rose-700">
+                                -{formatCurrency(entry.paymentAmount)}
+                              </span>
+                            ) : (
+                              <span className="text-[#D4D4D8]">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
+                            {formatCurrency(entry.runningBalance)}
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 6: CHART OF ACCOUNTS (COA) — LEVEL 1 TO LEVEL 4 (TREE & TABULAR)      */}
+      {/* ========================================================================= */}
+      {activeTab === "chart" && (
+        <div className="space-y-4 animate-in fade-in">
+          {/* Header & View Mode Switcher */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-[#E4E4E7]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Chart of Accounts (COA) — 4-Level Accounting Hierarchy
+                    </h3>
+                    <p className="text-[11px] text-[#71717A]">
+                      Tree-like hierarchy from broad financial elements down to granular Level 4 posting ledgers with automated reporting roll-up.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* View Switcher: Tree View vs Tabular View */}
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-xl border border-[#EDEDED] p-1 bg-[#F4F4F5]">
+                  <button
+                    type="button"
+                    onClick={() => setCoaViewMode("tree")}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition",
+                      coaViewMode === "tree"
+                        ? "bg-white text-[#0D7A5F] shadow-xs"
+                        : "text-[#71717A] hover:text-[#18181B]"
+                    )}
+                  >
+                    <FolderTree className="w-3.5 h-3.5" />
+                    Tree View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCoaViewMode("table")}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition",
+                      coaViewMode === "table"
+                        ? "bg-white text-[#0D7A5F] shadow-xs"
+                        : "text-[#71717A] hover:text-[#18181B]"
+                    )}
+                  >
+                    <TableIcon className="w-3.5 h-3.5" />
+                    Tabular View
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 4-Level Architecture Explainer Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200 text-xs">
+                <div className="flex items-center justify-between font-bold text-blue-950 mb-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-600" />
+                    Level 1 (Category)
+                  </span>
+                  <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-blue-200/80 text-blue-900">
+                    Header
+                  </span>
+                </div>
+                <p className="text-[11px] text-blue-900 leading-snug">
+                  Main elements: Assets, Liabilities, Equity, Revenue, Expenses. Summary roll-up container.
+                </p>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-purple-50/70 border border-purple-200 text-xs">
+                <div className="flex items-center justify-between font-bold text-purple-950 mb-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-purple-600" />
+                    Level 2 (Type)
+                  </span>
+                  <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-purple-200/80 text-purple-900">
+                    Sub-Group
+                  </span>
+                </div>
+                <p className="text-[11px] text-purple-900 leading-snug">
+                  Sub-groupings: Current Assets vs Fixed Assets, Operating Expenses vs Field Fleet.
+                </p>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs">
+                <div className="flex items-center justify-between font-bold text-amber-950 mb-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-600" />
+                    Level 3 (Sub-Type)
+                  </span>
+                  <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-amber-200/80 text-amber-900">
+                    Parent Group
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900 leading-snug">
+                  Specific control parent: Bank Accounts, Trade Receivables, Utilities & Office Costs.
+                </p>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-xs shadow-2xs">
+                <div className="flex items-center justify-between font-bold text-emerald-950 mb-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                    Level 4 (Transactional)
+                  </span>
+                  <span className="text-[9px] uppercase font-mono px-1.5 py-0.2 rounded bg-emerald-200 text-[#065F46] font-bold">
+                    ✓ Posting Ready
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-900 leading-snug font-medium">
+                  Active ledgers (Printer Ink, Meezan Bank, Drawer). Real-time double-entry posting target.
+                </p>
+              </div>
+            </div>
+
+            {/* Tree View Controls */}
+            {coaViewMode === "tree" ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={expandAllTreeNodes}
+                    className="px-2.5 py-1 text-xs font-semibold bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] rounded-lg transition"
+                  >
+                    + Expand All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={collapseAllTreeNodes}
+                    className="px-2.5 py-1 text-xs font-semibold bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] rounded-lg transition"
+                  >
+                    - Collapse All
+                  </button>
+
+                  <div className="hidden lg:flex items-center gap-2 ml-3 text-[10px] font-mono">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">
+                      L1 · Category
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200">
+                      L2 · Type
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                      L3 · Sub-Type / Parent
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold">
+                      L4 · Transactional (Posting Ready)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                  <input
+                    type="text"
+                    placeholder="Search accounts in tree..."
+                    value={coaSearch}
+                    onChange={(e) => setCoaSearch(e.target.value)}
+                    className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Tabular View Controls */
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {/* Level Filter */}
+                  <select
+                    value={coaLevelFilter}
+                    onChange={(e) => setCoaLevelFilter(e.target.value as any)}
+                    className="bg-[#F4F4F5] border border-[#EDEDED] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#18181B] focus:bg-white focus:outline-none"
+                  >
+                    <option value="ALL">All Hierarchy Levels (L1-L4)</option>
+                    <option value="1">Level 1: Main Heads</option>
+                    <option value="2">Level 2: Groups</option>
+                    <option value="3">Level 3: Control Accounts</option>
+                    <option value="4">Level 4: Posting Ledgers</option>
+                  </select>
+
+                  {/* Classification Filter */}
+                  <select
+                    value={coaTypeFilter}
+                    onChange={(e) => setCoaTypeFilter(e.target.value)}
+                    className="bg-[#F4F4F5] border border-[#EDEDED] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#18181B] focus:bg-white focus:outline-none"
+                  >
+                    <option value="ALL">All Classifications</option>
+                    <option value="asset">Assets</option>
+                    <option value="liability">Liabilities</option>
+                    <option value="equity">Equity</option>
+                    <option value="revenue">Revenue</option>
+                    <option value="expense">Expenses</option>
+                    <option value="contra_revenue">Contra-Revenue</option>
+                  </select>
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                  <input
+                    type="text"
+                    placeholder="Search code or account title..."
+                    value={coaSearch}
+                    onChange={(e) => setCoaSearch(e.target.value)}
+                    className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* VIEW MODE 1: TREE VIEW */}
+          {coaViewMode === "tree" && (
+            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+              <div className="px-5 py-3 bg-[#F4F4F5] border-b border-[#E4E4E7] flex items-center justify-between text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                <span>Account Hierarchy & Code</span>
+                <span>Rolled-up Balance & Actions</span>
+              </div>
+
+              <div className="divide-y divide-[#EDEDED]">
+                {coaTree.length === 0 ? (
+                  <div className="p-12 text-center text-xs text-[#71717A]">
+                    <div className="inline-flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-[#0D7A5F] border-t-transparent rounded-full animate-spin" />
+                      Building Chart of Accounts hierarchy...
+                    </div>
+                  </div>
+                ) : (
+                  coaTree.map((rootNode) => {
+                    const renderNode = (node: any): React.ReactNode => {
+                      const isExpanded = expandedTreeNodes.has(node.code);
+                      const hasChildren = node.children && node.children.length > 0;
+
+                      const matchesSearch =
+                        !coaSearch.trim() ||
+                        node.code.toLowerCase().includes(coaSearch.toLowerCase().trim()) ||
+                        node.name.toLowerCase().includes(coaSearch.toLowerCase().trim());
+
+                      const hasMatchingDescendant = (n: any): boolean => {
+                        if (!coaSearch.trim()) return true;
+                        if (
+                          n.code.toLowerCase().includes(coaSearch.toLowerCase().trim()) ||
+                          n.name.toLowerCase().includes(coaSearch.toLowerCase().trim())
+                        ) {
+                          return true;
+                        }
+                        return n.children?.some((c: any) => hasMatchingDescendant(c)) || false;
+                      };
+
+                      if (!hasMatchingDescendant(node)) return null;
+
+                      const levelColors: Record<number, { bg: string; border: string; badge: string; label: string }> = {
+                        1: {
+                          bg: "bg-[#F4F4F5] font-bold text-[#18181B]",
+                          border: "border-l-4 border-l-blue-600",
+                          badge: "bg-blue-100 text-blue-900 border-blue-200",
+                          label: "L1 · Category",
+                        },
+                        2: {
+                          bg: "bg-[#FAFAFA] font-semibold text-[#27272A]",
+                          border: "border-l-4 border-l-purple-500",
+                          badge: "bg-purple-100 text-purple-900 border-purple-200",
+                          label: "L2 · Type",
+                        },
+                        3: {
+                          bg: "bg-white font-medium text-[#3F3F46]",
+                          border: "border-l-4 border-l-amber-500",
+                          badge: "bg-amber-100 text-amber-900 border-amber-200",
+                          label: "L3 · Sub-Type / Parent",
+                        },
+                        4: {
+                          bg: "bg-[#F9FAFB]/60 hover:bg-emerald-50/50 text-[#18181B]",
+                          border: "border-l-4 border-l-emerald-600",
+                          badge: "bg-emerald-100 text-emerald-900 border-emerald-200 font-bold",
+                          label: "L4 · Transactional (Data-Entry Ready)",
+                        },
+                      };
+
+                      const style = levelColors[node.level] || levelColors[4];
+                      const indentPadding =
+                        node.level === 1 ? "pl-3" : node.level === 2 ? "pl-8" : node.level === 3 ? "pl-14" : "pl-20";
+
+                      return (
+                        <div key={node.code} className="border-b border-[#EDEDED] last:border-b-0 animate-in fade-in duration-100">
+                          <div
+                            className={cn(
+                              "flex items-center justify-between text-xs transition pr-4 py-2.5",
+                              style.bg,
+                              style.border,
+                              indentPadding
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                              {hasChildren ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleTreeNode(node.code)}
+                                  className="p-1 hover:bg-[#E4E4E7] rounded text-[#71717A] transition"
+                                  title={isExpanded ? "Collapse" : "Expand"}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              ) : (
+                                <div className="w-5 h-5 flex items-center justify-center">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                </div>
+                              )}
+
+                              <span className="font-mono font-bold text-[11px] text-[#18181B] bg-white border border-[#EDEDED] px-2 py-0.5 rounded shadow-2xs">
+                                {node.code}
+                              </span>
+
+                              <span className="truncate font-medium text-[#18181B]">{node.name}</span>
+
+                              <span
+                                className={cn(
+                                  "text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border font-mono shrink-0",
+                                  style.badge
+                                )}
+                              >
+                                {style.label}
+                              </span>
+
+                              <span className="text-[10px] text-[#71717A] capitalize font-medium hidden md:inline">
+                                ({node.type})
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-4 text-right shrink-0">
+                              <span className="font-mono font-bold text-xs text-[#18181B]">
+                                {formatCurrency(node.balance)}
+                              </span>
+
+                              {node.level === 4 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAccountDrilldown(node)}
+                                  className="text-[11px] font-bold text-[#0D7A5F] hover:underline inline-flex items-center gap-0.5 px-2 py-1 bg-white rounded border border-emerald-200 hover:bg-emerald-50 transition"
+                                >
+                                  Inspect <ChevronRight className="w-3 h-3" />
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-[#A1A1AA] w-16 text-right font-mono">
+                                  Rollup
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {hasChildren && (isExpanded || Boolean(coaSearch.trim())) && (
+                            <div>
+                              {node.children.map((child: any) => renderNode(child))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    };
+
+                    return renderNode(rootNode);
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* VIEW MODE 2: TABULAR VIEW */}
+          {coaViewMode === "table" && (
+            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
+                      <th className="py-2.5 px-4">Account Code</th>
+                      <th className="py-2.5 px-4">Account Name</th>
+                      <th className="py-2.5 px-3 text-center">Level & Role</th>
+                      <th className="py-2.5 px-3">Parent Group</th>
+                      <th className="py-2.5 px-3">Classification</th>
+                      <th className="py-2.5 px-4 text-right">Journal Lines</th>
+                      <th className="py-2.5 px-4 text-right">Balance</th>
+                      <th className="py-2.5 px-4 text-right">Posting / Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E4E4E7]">
+                    {coaFlat.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-[#71717A]">
+                          Loading tabular chart of accounts...
+                        </td>
+                      </tr>
+                    ) : (
+                      coaFlat
+                        .filter((acc) => {
+                          if (coaLevelFilter !== "ALL" && String(acc.level) !== coaLevelFilter) {
+                            return false;
+                          }
+                          if (coaTypeFilter !== "ALL" && acc.type !== coaTypeFilter) {
+                            return false;
+                          }
+                          if (coaSearch.trim()) {
+                            const query = coaSearch.toLowerCase().trim();
+                            return (
+                              acc.code.toLowerCase().includes(query) ||
+                              acc.name.toLowerCase().includes(query)
+                            );
+                          }
+                          return true;
+                        })
+                        .map((acc) => {
+                          const levelBadge =
+                            acc.level === 1
+                              ? { badge: "bg-blue-100 text-blue-900 border-blue-200", label: "L1 · Category" }
+                              : acc.level === 2
+                              ? { badge: "bg-purple-100 text-purple-900 border-purple-200", label: "L2 · Type" }
+                              : acc.level === 3
+                              ? { badge: "bg-amber-100 text-amber-900 border-amber-200", label: "L3 · Sub-Type" }
+                              : { badge: "bg-emerald-100 text-emerald-900 border-emerald-200 font-bold", label: "L4 · Transactional" };
+
+                          return (
+                            <tr
+                              key={acc.code}
+                              className={cn(
+                                "hover:bg-[#F9FAFB] transition",
+                                acc.level === 1
+                                  ? "bg-[#FAFAFA] font-bold"
+                                  : acc.level === 2
+                                  ? "font-semibold"
+                                  : ""
+                              )}
+                            >
+                              <td className="py-2.5 px-4 font-mono font-bold text-[#18181B]">
+                                {acc.code}
+                              </td>
+                              <td className="py-2.5 px-4 text-[#18181B]">
+                                <span
+                                  style={{
+                                    paddingLeft: `${(acc.level - 1) * 16}px`,
+                                  }}
+                                  className="inline-flex items-center gap-1.5"
+                                >
+                                  {acc.level > 1 && (
+                                    <span className="text-[#A1A1AA] font-mono text-[10px]">
+                                      └──
+                                    </span>
+                                  )}
+                                  {acc.name}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span
+                                  className={cn(
+                                    "px-2 py-0.5 rounded text-[10px] font-mono border whitespace-nowrap",
+                                    levelBadge.badge
+                                  )}
+                                >
+                                  {levelBadge.label}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-[11px] text-[#71717A]">
+                                {acc.parentCode || "—"}
+                              </td>
+                              <td className="py-2.5 px-3 capitalize text-[#71717A]">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#F4F4F5] text-[#3F3F46] border border-[#E4E4E7]">
+                                  {acc.type}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono text-[#71717A]">
+                                {acc.entriesCount || 0}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
+                                {formatCurrency(acc.balance)}
+                              </td>
+                              <td className="py-2.5 px-4 text-right">
+                                {acc.level === 4 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAccountDrilldown(acc)}
+                                    className="text-[#0D7A5F] hover:underline font-bold text-[11px] inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 rounded border border-emerald-200 hover:bg-emerald-100 transition"
+                                  >
+                                    Data-Entry Ready <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-[#A1A1AA] font-mono px-2 py-0.5 rounded bg-[#F4F4F5]">
+                                    Summary Rollup
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1596,7 +2553,7 @@ export default function AccountsPage() {
                 return (
                   <div key={je.id} className="p-4 hover:bg-[#FAFAFA] transition space-y-2">
                     <div className="flex items-center justify-between text-xs pb-2 border-b border-[#E4E4E7]">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-[#18181B]">{je.memo}</span>
                         <span className="text-[10px] text-[#71717A] font-mono px-1.5 py-0.5 rounded bg-[#F4F4F5]">
                           {je.refType}
@@ -1606,8 +2563,39 @@ export default function AccountsPage() {
                             ✓ Balanced
                           </span>
                         )}
+                        {je.status === "reversed" && (
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                            Reversed
+                          </span>
+                        )}
+                        {je.status === "reversal" && (
+                          <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                            Reversal Voucher
+                          </span>
+                        )}
+                        {je.reversalOfId && (
+                          <span className="text-[10px] font-mono text-purple-700">
+                            Reverses #{je.reversalOfId.slice(0, 8).toUpperCase()}
+                          </span>
+                        )}
+                        {je.reversedById && (
+                          <span className="text-[10px] font-mono text-rose-700">
+                            Reversed by #{je.reversedById.slice(0, 8).toUpperCase()}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[11px] text-[#71717A] font-mono">{formatDateTime(je.date)}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-[#71717A] font-mono">{formatDateTime(je.date)}</span>
+                        {(!je.status || je.status === "posted") && (
+                          <button
+                            type="button"
+                            onClick={() => setReversingEntry(je)}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 inline-flex items-center gap-1 transition"
+                          >
+                            <RotateCcw className="w-3 h-3" /> Reverse Voucher
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="space-y-1 text-xs">
@@ -1634,6 +2622,26 @@ export default function AccountsPage() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* ENTERPRISE TAB 8: FINANCIAL STATEMENTS */}
+      {/* ========================================================================= */}
+      {activeTab === "reports" && <FinancialStatementsTab />}
+
+      {/* ========================================================================= */}
+      {/* ENTERPRISE TAB 9: BANK RECONCILIATION */}
+      {/* ========================================================================= */}
+      {activeTab === "bankrec" && <BankReconciliationTab />}
+
+      {/* ========================================================================= */}
+      {/* ENTERPRISE TAB 10: FIXED ASSETS & DEPRECIATION */}
+      {/* ========================================================================= */}
+      {activeTab === "fixedassets" && <FixedAssetsTab />}
+
+      {/* ========================================================================= */}
+      {/* ENTERPRISE TAB 11: SUB-LEDGER DRIFT & AGING */}
+      {/* ========================================================================= */}
+      {activeTab === "subledgers" && <SubLedgerReconciliationTab />}
 
       {/* ========================================================================= */}
       {/* DRAWER 1: CUSTOMER STATEMENT OF ACCOUNT */}
@@ -2137,28 +3145,88 @@ export default function AccountsPage() {
             </div>
 
             <form onSubmit={handleRecordVendorPayment} className="space-y-3">
-              <p className="text-[#71717A]">
-                Disbursing payment to <strong>{selectedVendor.name}</strong>.
-              </p>
+              <div className="p-3 bg-[#FAFAFA] rounded-xl border border-[#E4E4E7] space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-[#71717A]">Supplier:</span>
+                  <span className="font-bold text-[#18181B]">{selectedVendor.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#71717A]">NTN / STRN:</span>
+                  <span className="font-mono">{selectedVendor.ntnNumber || "Unregistered / Individual"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#71717A]">WHT Rate (Sec 153):</span>
+                  <span className="font-mono font-bold text-emerald-800">
+                    {selectedVendor.whtExempt ? "0% (Exempt)" : `${selectedVendor.whtRate || 0}%`}
+                  </span>
+                </div>
+              </div>
 
               <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount ($) *</label>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Gross Bill Amount (PKR) *</label>
                 <input
                   type="number"
                   min="1"
                   step="0.01"
                   value={vendorPayAmount}
                   onChange={(e) => setVendorPayAmount(e.target.value)}
+                  placeholder="e.g. 50000"
                   className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm"
                   required
                 />
               </div>
 
+              {/* Tax Deduction Breakdown */}
+              {Number(vendorPayAmount) > 0 && (
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5 text-[11px]">
+                  <span className="font-bold text-emerald-950 block uppercase tracking-wide">
+                    Double-Entry Tax Breakdown
+                  </span>
+                  <div className="flex justify-between text-emerald-900">
+                    <span>Dr 2000 Accounts Payable (Gross):</span>
+                    <span className="font-mono font-bold">{formatCurrency(Number(vendorPayAmount))}</span>
+                  </div>
+                  <div className="flex justify-between text-rose-800">
+                    <span>Cr 2200 WHT Payable to FBR ({selectedVendor.whtRate || 0}%):</span>
+                    <span className="font-mono font-bold">
+                      -{formatCurrency(
+                        Math.round((Number(vendorPayAmount) * (selectedVendor.whtExempt ? 0 : (selectedVendor.whtRate || 0))) / 100 * 100) / 100
+                      )}
+                    </span>
+                  </div>
+                  <div className="border-t border-emerald-200 pt-1 flex justify-between font-bold text-emerald-950">
+                    <span>Cr 1000/1010 Net Payable Disbursed:</span>
+                    <span className="font-mono text-xs">
+                      {formatCurrency(
+                        Math.round(
+                          (Number(vendorPayAmount) -
+                            Math.round((Number(vendorPayAmount) * (selectedVendor.whtExempt ? 0 : (selectedVendor.whtRate || 0))) / 100 * 100) / 100) *
+                            100
+                        ) / 100
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Payment Reference</label>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">
+                  FBR CPR Number (Computerized Payment Receipt)
+                </label>
                 <input
                   type="text"
-                  placeholder="e.g. Bank wire ref #99821"
+                  placeholder="e.g. CPR-IT-2026-009124"
+                  value={vendorCprNumber}
+                  onChange={(e) => setVendorCprNumber(e.target.value)}
+                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Payment Reference / Memo</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Bank wire ref #99821 / Cheque clearance"
                   value={vendorPayMemo}
                   onChange={(e) => setVendorPayMemo(e.target.value)}
                   className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs"
@@ -2177,7 +3245,7 @@ export default function AccountsPage() {
                   type="submit"
                   className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs"
                 >
-                  Disburse & Debit Accounts Payable
+                  Disburse & Deduct WHT
                 </button>
               </div>
             </form>
@@ -2631,6 +3699,231 @@ export default function AccountsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: RECORD CASHBOOK TRANSACTION (RECEIPT, PAYMENT, CONTRA TRANSFER)    */}
+      {/* ========================================================================= */}
+      {showRecordCashModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in"
+          role="dialog"
+        >
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-[#E4E4E7] text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-[#0D7A5F]" />
+                  Record Cashbook Entry
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  Post a verified double-entry receipt, payment, or contra bank/cash transfer.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRecordCashModal(false)}
+                className="p-1 text-[#71717A] hover:text-[#18181B] rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Type Selector (Receipt, Payment, Transfer) */}
+            <div className="grid grid-cols-3 gap-2 p-1 bg-[#F4F4F5] rounded-xl">
+              <button
+                type="button"
+                onClick={() => setCashFormType("receipt")}
+                className={cn(
+                  "py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition",
+                  cashFormType === "receipt"
+                    ? "bg-white text-emerald-800 shadow-xs"
+                    : "text-[#71717A] hover:text-[#18181B]"
+                )}
+              >
+                <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+                Receipt (In)
+              </button>
+              <button
+                type="button"
+                onClick={() => setCashFormType("payment")}
+                className={cn(
+                  "py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition",
+                  cashFormType === "payment"
+                    ? "bg-white text-rose-800 shadow-xs"
+                    : "text-[#71717A] hover:text-[#18181B]"
+                )}
+              >
+                <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+                Payment (Out)
+              </button>
+              <button
+                type="button"
+                onClick={() => setCashFormType("transfer")}
+                className={cn(
+                  "py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition",
+                  cashFormType === "transfer"
+                    ? "bg-white text-[#18181B] shadow-xs"
+                    : "text-[#71717A] hover:text-[#18181B]"
+                )}
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 text-[#52525B]" />
+                Transfer
+              </button>
+            </div>
+
+            <form onSubmit={handleRecordCashTransaction} className="space-y-3.5 pt-1">
+              {/* Cash Account Selection */}
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  {cashFormType === "transfer" ? "Source Cash / Bank Account *" : "Cash / Bank Account *"}
+                </label>
+                <select
+                  value={cashFormAccount}
+                  onChange={(e) => setCashFormAccount(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
+                >
+                  <option value="1000">1000 — Cash on Hand / Main Drawer</option>
+                  <option value="1010">1010 — Operating Bank Account (Meezan Bank)</option>
+                  <option value="1011">1011 — Secondary Bank Account (HBL)</option>
+                  <option value="1020">1020 — Petty Cash Float</option>
+                </select>
+              </div>
+
+              {/* Transfer Target OR Contra Account */}
+              {cashFormType === "transfer" ? (
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Destination Cash / Bank Account *
+                  </label>
+                  <select
+                    value={cashFormTransferTo}
+                    onChange={(e) => setCashFormTransferTo(e.target.value)}
+                    className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
+                  >
+                    <option value="1010">1010 — Operating Bank Account (Meezan Bank)</option>
+                    <option value="1000">1000 — Cash on Hand / Main Drawer</option>
+                    <option value="1011">1011 — Secondary Bank Account (HBL)</option>
+                    <option value="1020">1020 — Petty Cash Float</option>
+                  </select>
+                  <p className="text-[10px] text-[#71717A] mt-1">
+                    Contra entry: will debit destination account and credit source account.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Contra General Ledger Account (Reason / Allocation) *
+                  </label>
+                  <select
+                    value={cashFormContra}
+                    onChange={(e) => setCashFormContra(e.target.value)}
+                    className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
+                  >
+                    {cashFormType === "receipt" ? (
+                      <>
+                        <option value="4000">4000 — HVAC Service & Installation Revenue</option>
+                        <option value="1100">1100 — Accounts Receivable (Customer Clearance)</option>
+                        <option value="4002">4002 — POS Counter Sales Revenue</option>
+                        <option value="3000">3000 — Owner Capital / Equity Injection</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="6100">6100 — Technician Travel & Fuel Expenses</option>
+                        <option value="6200">6200 — Office & Utility Expenses</option>
+                        <option value="6000">6000 — Salaries & Wages Expense</option>
+                        <option value="2000">2000 — Accounts Payable (Vendor Payment)</option>
+                        <option value="2100">2100 — Technician Reimbursement Settlement</option>
+                        <option value="3010">3010 — Owner Profit Drawings</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              )}
+
+              {/* Amount */}
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Amount (PKR) *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="50"
+                  placeholder="e.g. 15000"
+                  value={cashFormAmount}
+                  onChange={(e) => setCashFormAmount(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-mono font-bold text-sm text-[#18181B]"
+                  required
+                />
+              </div>
+
+              {/* Counterparty Name */}
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Counterparty / Person (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Packages Mall, Ali Raza (Tech), Lahore Electric..."
+                  value={cashFormParty}
+                  onChange={(e) => setCashFormParty(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+                />
+              </div>
+
+              {/* Memo */}
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Narration / Description *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Detailed description for the Cashbook journal voucher..."
+                  value={cashFormMemo}
+                  onChange={(e) => setCashFormMemo(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setShowRecordCashModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={cashFormSubmitting}
+                  className="px-5 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {cashFormSubmitting ? "Posting..." : "Post Cashbook Entry"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ENTERPRISE MODAL: REVERSE JOURNAL ENTRY */}
+      {/* ========================================================================= */}
+      {reversingEntry && (
+        <ReverseJournalEntryModal
+          entry={reversingEntry}
+          onClose={() => setReversingEntry(null)}
+          onSuccess={(reversal) => {
+            setReversingEntry(null);
+            setActionSuccessMsg(
+              `Journal Entry reversed. Reversal voucher #${reversal.id.slice(0, 8).toUpperCase()} posted to General Ledger.`
+            );
+            loadData();
+          }}
+        />
       )}
     </div>
   );

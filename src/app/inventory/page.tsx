@@ -21,6 +21,11 @@ import {
   X,
   Clock,
   Layers,
+  FileSpreadsheet,
+  ExternalLink,
+  Eye,
+  Info,
+  ShieldCheck,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 
@@ -45,6 +50,10 @@ export default function InventoryPurchasingPage() {
   const [isSubmittingPos, setIsSubmittingPos] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Stock Filter State & Allocations Modal
+  const [stockFilter, setStockFilter] = useState<"all" | "field" | "low">("all");
+  const [activeAllocationProduct, setActiveAllocationProduct] = useState<any>(null);
+
   // PR Form
   const [showPrModal, setShowPrModal] = useState(false);
   const [prProductId, setPrProductId] = useState("");
@@ -53,13 +62,21 @@ export default function InventoryPurchasingPage() {
 
   // Add Stock & Product Creation State
   const [showAddStockModal, setShowAddStockModal] = useState(false);
-  const [stockModalTab, setStockModalTab] = useState<"restock" | "new_product">("restock");
+  const [stockModalTab, setStockModalTab] = useState<"restock" | "opening_stock" | "new_product">("restock");
   const [restockProductId, setRestockProductId] = useState("");
   const [restockQuantity, setRestockQuantity] = useState("10");
   const [restockUnitCost, setRestockUnitCost] = useState("");
   const [restockSource, setRestockSource] = useState("Local Wholesale Market (Karachi/Lahore)");
   const [restockNotes, setRestockNotes] = useState("");
   const [isSubmittingStock, setIsSubmittingStock] = useState(false);
+
+  // Opening Stock State
+  const [openingProductId, setOpeningProductId] = useState("");
+  const [openingQuantity, setOpeningQuantity] = useState("50");
+  const [openingUnitCost, setOpeningUnitCost] = useState("");
+  const [openingValuationDate, setOpeningValuationDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [openingNotes, setOpeningNotes] = useState("Fiscal Year Opening Stock Balance Declaration");
+  const [isSubmittingOpeningStock, setIsSubmittingOpeningStock] = useState(false);
 
   const [newProductSku, setNewProductSku] = useState("");
   const [newProductName, setNewProductName] = useState("");
@@ -305,6 +322,41 @@ export default function InventoryPurchasingPage() {
     }
   };
 
+  // Declare / Set Opening Stock
+  const handleOpeningStockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!openingProductId) return;
+    try {
+      setIsSubmittingOpeningStock(true);
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_opening_stock",
+          productId: openingProductId,
+          quantity: Number(openingQuantity) || 1,
+          unitCost: Number(openingUnitCost) || 0,
+          openingDate: openingValuationDate,
+          notes: openingNotes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setShowAddStockModal(false);
+      const targetProduct = products.find((p) => p.id === openingProductId);
+      setNotification(
+        `Opening stock of ${openingQuantity} units declared for "${targetProduct?.name || "Product"}"! Posted Dr 1200 (Inventory Asset) / Cr 3000 (Owner Equity).`
+      );
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingOpeningStock(false);
+    }
+  };
+
   // Create New Product
   const handleCreateProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -401,10 +453,25 @@ export default function InventoryPurchasingPage() {
     (p) => p.stockQuantity <= (p.reorderPoint || 5)
   ).length;
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const totalWarehouseUnits = products.reduce((acc, p) => acc + (p.stockQuantity || 0), 0);
+  const totalStockOnJobUnits = products.reduce((acc, p) => acc + (p.stockOnJob || 0), 0);
+  const totalEnterpriseUnits = totalWarehouseUnits + totalStockOnJobUnits;
+  const productsOnJobCount = products.filter((p) => (p.stockOnJob || 0) > 0).length;
+
+  const filteredProducts = products.filter((p) => {
+    const matchesSearch =
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (stockFilter === "field") {
+      return (p.stockOnJob || 0) > 0;
+    }
+    if (stockFilter === "low") {
+      return p.stockQuantity <= (p.reorderPoint || 5);
+    }
+    return true;
+  });
 
   const tabs = [
     { id: "stock", label: "Stock Levels", icon: <Package className="w-3.5 h-3.5" />, badge: lowStockCount > 0 ? `${lowStockCount} Low` : undefined },
@@ -436,6 +503,21 @@ export default function InventoryPurchasingPage() {
             >
               <Plus className="w-3.5 h-3.5" />
               Add Stock / Restock
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (products.length > 0 && !openingProductId) {
+                  setOpeningProductId(products[0].id);
+                  setOpeningUnitCost(String(products[0].costPrice || ""));
+                }
+                setStockModalTab("opening_stock");
+                setShowAddStockModal(true);
+              }}
+              className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              Opening Stock
             </button>
             <button
               type="button"
@@ -516,26 +598,152 @@ export default function InventoryPurchasingPage() {
       {/* TAB 1: STOCK LEVELS */}
       {activeTab === "stock" && (
         <div className="space-y-6">
+          {/* Stock Metrics Overview Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">
+                  Warehouse Available
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                  <Package className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-[#18181B]">
+                  {totalWarehouseUnits.toLocaleString()}
+                </span>
+                <span className="text-xs text-[#71717A]">units in storage</span>
+              </div>
+              <p className="text-[11px] text-[#71717A] mt-1">Available for dispatch or counter sale</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-blue-200/80 bg-blue-50/20 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-900">
+                  Stock on Job / Field
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Truck className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-blue-900">
+                  {totalStockOnJobUnits.toLocaleString()}
+                </span>
+                <span className="text-xs text-blue-700">units issued</span>
+              </div>
+              <p className="text-[11px] text-blue-800/80 mt-1">
+                Issued to technicians across active work orders
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">
+                  Total Enterprise Stock
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
+                  <Layers className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-[#18181B]">
+                  {totalEnterpriseUnits.toLocaleString()}
+                </span>
+                <span className="text-xs text-[#71717A]">combined units</span>
+              </div>
+              <p className="text-[11px] text-[#71717A] mt-1">Warehouse + Field technician holdings</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">
+                  Reorder Alerts
+                </span>
+                <div
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                    lowStockCount > 0 ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-600"
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span
+                  className={`text-2xl font-bold font-mono ${
+                    lowStockCount > 0 ? "text-amber-700" : "text-[#18181B]"
+                  }`}
+                >
+                  {lowStockCount}
+                </span>
+                <span className="text-xs text-[#71717A]">items below minimum</span>
+              </div>
+              <p className="text-[11px] text-[#71717A] mt-1">Require purchase requisition replenishment</p>
+            </div>
+          </div>
+
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Warehouse Stock Inventory
+                  Enterprise Inventory & Field Allocations
                 </h3>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Live stock quantity, reorder alerts, and physical warehouse valuation.
+                  Live warehouse stock quantity, active field allocations on jobs, and opening stock valuations.
                 </p>
               </div>
 
-              <div className="relative w-64">
-                <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Filter by SKU or part name..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-                />
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Filter chips */}
+                <div className="inline-flex rounded-lg p-0.5 bg-[#F4F4F5] border border-[#E4E4E7] text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setStockFilter("all")}
+                    className={`px-2.5 py-1 rounded-md font-semibold transition ${
+                      stockFilter === "all"
+                        ? "bg-white text-[#18181B] shadow-2xs"
+                        : "text-[#71717A] hover:text-[#18181B]"
+                    }`}
+                  >
+                    All ({products.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilter("field")}
+                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                      stockFilter === "field"
+                        ? "bg-blue-600 text-white shadow-2xs"
+                        : "text-[#71717A] hover:text-blue-700"
+                    }`}
+                  >
+                    <Truck className="w-3 h-3" />
+                    On Job ({productsOnJobCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilter("low")}
+                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                      stockFilter === "low"
+                        ? "bg-amber-600 text-white shadow-2xs"
+                        : "text-[#71717A] hover:text-amber-700"
+                    }`}
+                  >
+                    <AlertTriangle className="w-3 h-3" />
+                    Low Stock ({lowStockCount})
+                  </button>
+                </div>
+
+                <div className="relative w-56">
+                  <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search SKU or part name..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                  />
+                </div>
               </div>
             </div>
 
@@ -545,7 +753,9 @@ export default function InventoryPurchasingPage() {
                   <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
                     <th className="py-2.5 px-4">SKU / Code</th>
                     <th className="py-2.5 px-4">Item Name</th>
-                    <th className="py-2.5 px-4 text-center">In Stock</th>
+                    <th className="py-2.5 px-4 text-center">In Warehouse</th>
+                    <th className="py-2.5 px-4 text-center">Stock on Job</th>
+                    <th className="py-2.5 px-4 text-center">Total Stock</th>
                     <th className="py-2.5 px-4 text-center">Reorder Point</th>
                     <th className="py-2.5 px-4 text-right">Unit Price</th>
                     <th className="py-2.5 px-4 text-center">Status</th>
@@ -556,12 +766,14 @@ export default function InventoryPurchasingPage() {
                   {filteredProducts.map((p) => {
                     const isLow = p.stockQuantity <= (p.reorderPoint || 5);
                     const isOut = p.stockQuantity <= 0;
+                    const onJobQty = p.stockOnJob || 0;
+                    const totalQty = (p.stockQuantity || 0) + onJobQty;
 
                     return (
                       <tr
                         key={p.id}
                         className={`transition hover:bg-[#FAFAFA] ${
-                          isLow ? "bg-amber-50/30" : ""
+                          isLow ? "bg-amber-50/20" : ""
                         }`}
                       >
                         <td className="py-3 px-4 font-mono font-bold text-[#18181B]">
@@ -580,8 +792,29 @@ export default function InventoryPurchasingPage() {
                                 : "text-emerald-700"
                             }
                           >
-                            {p.stockQuantity}
+                            {p.stockQuantity} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span>
                           </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          {onJobQty > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveAllocationProduct(p)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition cursor-pointer"
+                              title="Click to view technician allocations across active jobs"
+                            >
+                              <Truck className="w-3 h-3 text-blue-600 shrink-0" />
+                              <span>{onJobQty} {p.unit || "units"}</span>
+                              <span className="text-[9px] px-1 bg-blue-200/70 rounded-full font-mono text-blue-900 font-normal">
+                                {p.jobAllocations?.length || 1} {p.jobAllocations?.length === 1 ? "job" : "jobs"}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-[#A1A1AA] text-xs font-mono">0 on job</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-[#18181B]">
+                          {totalQty} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span>
                         </td>
                         <td className="py-3 px-4 text-center font-mono text-[#71717A]">
                           {p.reorderPoint || 5}
@@ -605,7 +838,7 @@ export default function InventoryPurchasingPage() {
                           )}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => {
@@ -614,17 +847,32 @@ export default function InventoryPurchasingPage() {
                                 setStockModalTab("restock");
                                 setShowAddStockModal(true);
                               }}
-                              className="text-[11px] font-semibold text-[#0D7A5F] hover:bg-[#0D7A5F]/10 px-2 py-0.5 rounded transition border border-[#0D7A5F]/30 focus-visible:outline-none inline-flex items-center gap-1"
+                              className="text-[11px] font-semibold text-[#0D7A5F] hover:bg-[#0D7A5F]/10 px-2 py-0.5 rounded transition border border-[#0D7A5F]/30 focus-visible:outline-none inline-flex items-center gap-0.5"
+                              title="Inward / Restock item"
                             >
                               <Plus className="w-3 h-3" />
-                              Add Stock
+                              Restock
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpeningProductId(p.id);
+                                setOpeningUnitCost(String(p.costPrice || ""));
+                                setStockModalTab("opening_stock");
+                                setShowAddStockModal(true);
+                              }}
+                              className="text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 px-2 py-0.5 rounded transition border border-emerald-300 focus-visible:outline-none inline-flex items-center gap-0.5"
+                              title="Set or audit opening stock"
+                            >
+                              <FileSpreadsheet className="w-3 h-3" />
+                              Opening
                             </button>
                             <button
                               type="button"
                               onClick={() => handleViewTimeline(p.id)}
                               className="text-[11px] font-semibold text-[#71717A] hover:text-[#18181B] hover:underline focus-visible:outline-none"
                             >
-                              Movements
+                              Log
                             </button>
                           </div>
                         </td>
@@ -636,7 +884,7 @@ export default function InventoryPurchasingPage() {
             </div>
           </div>
 
-          {/* Product Movement Timeline */}
+          {/* Product Movement Timeline & Allocations Drawer */}
           {selectedProduct && (
             <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4 animate-in fade-in">
               <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
@@ -644,9 +892,19 @@ export default function InventoryPurchasingPage() {
                   <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
                     Stock Audit Log: {selectedProduct.name} ({selectedProduct.sku})
                   </h3>
-                  <p className="text-[11px] text-[#71717A]">
-                    Current Physical Balance: {selectedProduct.stockQuantity} units
-                  </p>
+                  <div className="flex items-center gap-3 text-[11px] text-[#71717A] mt-0.5">
+                    <span>
+                      Warehouse: <strong className="text-[#18181B] font-mono">{selectedProduct.stockQuantity}</strong> {selectedProduct.unit || "unit"}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Stock on Job: <strong className="text-blue-700 font-mono">{selectedProduct.stockOnJob || 0}</strong> {selectedProduct.unit || "unit"}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Total Stock: <strong className="text-[#18181B] font-mono">{(selectedProduct.stockQuantity || 0) + (selectedProduct.stockOnJob || 0)}</strong> {selectedProduct.unit || "unit"}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -657,40 +915,96 @@ export default function InventoryPurchasingPage() {
                 </button>
               </div>
 
-              {!selectedProduct.movements || selectedProduct.movements.length === 0 ? (
-                <p className="text-xs text-[#71717A] py-4 text-center">No movements recorded yet.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                        <th className="py-2.5 px-3">Date</th>
-                        <th className="py-2.5 px-3">Type</th>
-                        <th className="py-2.5 px-3">Reference / Notes</th>
-                        <th className="py-2.5 px-3 text-right">Quantity</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E4E4E7]">
-                      {selectedProduct.movements.map((m: any) => (
-                        <tr key={m.id} className="hover:bg-[#FAFAFA]">
-                          <td className="py-2.5 px-3 font-mono text-[#71717A]">
-                            {formatDateTime(m.createdAt)}
-                          </td>
-                          <td className="py-2.5 px-3 font-bold capitalize text-[#18181B]">
-                            {m.type}
-                          </td>
-                          <td className="py-2.5 px-3 text-[#52525B]">{m.reference || "—"}</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold">
-                            <span className={m.quantity > 0 ? "text-emerald-600" : "text-rose-600"}>
-                              {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {/* Active Field Allocations in Timeline View */}
+              {selectedProduct.jobAllocations && selectedProduct.jobAllocations.length > 0 && (
+                <div className="p-3 bg-blue-50/50 border border-blue-200 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                    <span className="flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-blue-700" />
+                      Active Field Allocations ({selectedProduct.stockOnJob} {selectedProduct.unit || "units"} issued)
+                    </span>
+                    <span className="text-[11px] font-normal text-blue-800">
+                      Currently deployed on {selectedProduct.jobAllocations.length} active work orders
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    {selectedProduct.jobAllocations.map((alloc: any, idx: number) => (
+                      <div key={idx} className="p-2 bg-white rounded border border-blue-200/80 flex items-center justify-between">
+                        <div>
+                          <div className="font-mono font-bold text-[#18181B]">{alloc.jobNumber}</div>
+                          <div className="text-[11px] text-[#71717A]">{alloc.customerName} • Tech: <span className="text-[#18181B] font-medium">{alloc.technicianName}</span></div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-mono font-bold text-blue-700 text-xs">
+                            {alloc.quantity} {selectedProduct.unit || "unit"}
+                          </span>
+                          <span className="block text-[10px] text-[#71717A]">{alloc.jobStatus}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {/* Ledger Entries Table */}
+              {(() => {
+                const entries = selectedProduct.stockEntries || selectedProduct.movements || [];
+                if (entries.length === 0) {
+                  return (
+                    <p className="text-xs text-[#71717A] py-4 text-center">No movements recorded yet.</p>
+                  );
+                }
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Type</th>
+                          <th className="py-2.5 px-3">Direction</th>
+                          <th className="py-2.5 px-3">Reference / Notes</th>
+                          <th className="py-2.5 px-3 text-right">Quantity</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E4E4E7]">
+                        {entries.map((m: any) => {
+                          const isPositive = m.direction === "in" || m.quantity > 0 || m.refType === "opening_stock";
+                          const qty = m.qty ?? m.quantity ?? 0;
+                          return (
+                            <tr key={m.id} className="hover:bg-[#FAFAFA]">
+                              <td className="py-2.5 px-3 font-mono text-[#71717A]">
+                                {formatDateTime(m.createdAt)}
+                              </td>
+                              <td className="py-2.5 px-3 font-bold capitalize text-[#18181B]">
+                                <span className="inline-flex items-center gap-1">
+                                  {m.refType === "opening_stock" && <FileSpreadsheet className="w-3 h-3 text-emerald-600" />}
+                                  {m.refType || m.type || "Movement"}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`px-1.5 py-0.2 text-[10px] font-bold rounded uppercase ${
+                                    isPositive ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                                  }`}
+                                >
+                                  {m.direction || (isPositive ? "IN" : "OUT")}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-[#52525B]">{m.notes || m.reference || "—"}</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold">
+                                <span className={isPositive ? "text-emerald-600" : "text-rose-600"}>
+                                  {isPositive ? `+${qty}` : `-${qty}`}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -1092,11 +1406,17 @@ export default function InventoryPurchasingPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-[#18181B]">
-                    {stockModalTab === "restock" ? "Add / Inward Stock" : "Create New Inventory Item"}
+                    {stockModalTab === "restock"
+                      ? "Add / Inward Stock"
+                      : stockModalTab === "opening_stock"
+                      ? "Opening Stock Declaration"
+                      : "Create New Inventory Item"}
                   </h3>
                   <p className="text-[11px] text-[#71717A]">
                     {stockModalTab === "restock"
                       ? "Direct warehouse stock replenishment & automatic ledger posting"
+                      : stockModalTab === "opening_stock"
+                      ? "Establish verified opening balance & equity ledger (Dr 1200 / Cr 3000)"
                       : "Register a new HVAC product or spare part in the warehouse catalogue"}
                   </p>
                 </div>
@@ -1122,6 +1442,24 @@ export default function InventoryPurchasingPage() {
                 }`}
               >
                 Restock Existing Item
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (products.length > 0 && !openingProductId) {
+                    setOpeningProductId(products[0].id);
+                    setOpeningUnitCost(String(products[0].costPrice || ""));
+                  }
+                  setStockModalTab("opening_stock");
+                }}
+                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition inline-flex items-center gap-1.5 ${
+                  stockModalTab === "opening_stock"
+                    ? "border-[#0D7A5F] text-[#0D7A5F]"
+                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Opening Stock
               </button>
               <button
                 type="button"
@@ -1267,7 +1605,156 @@ export default function InventoryPurchasingPage() {
               </form>
             )}
 
-            {/* TAB 2: CREATE NEW PRODUCT */}
+            {/* TAB 2: OPENING STOCK DECLARATION */}
+            {stockModalTab === "opening_stock" && (
+              <form onSubmit={handleOpeningStockSubmit} className="p-5 space-y-4">
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-lg text-emerald-950 text-xs flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Double-Entry Accounting Compliance</span>
+                    <span className="text-[11px] text-emerald-800">
+                      Opening stock establishes verified baseline inventory on the Balance Sheet. 
+                      Posting directly debits <strong>Account 1200 (Inventory Asset)</strong> and credits <strong>Account 3000 (Owner Equity)</strong> without impacting P&L COGS.
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                    Select Product *
+                  </label>
+                  <select
+                    value={openingProductId || (products[0]?.id || "")}
+                    onChange={(e) => {
+                      setOpeningProductId(e.target.value);
+                      const sel = products.find((p) => p.id === e.target.value);
+                      if (sel) setOpeningUnitCost(String(sel.costPrice || ""));
+                    }}
+                    className="w-full bg-[#FAFAFA] p-2.5 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
+                    required
+                  >
+                    <option value="" disabled>-- Select a Product --</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.sku}) — Available: {p.stockQuantity} {p.unit || "units"} (Current Cost: {formatCurrency(p.costPrice || 0)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Opening Physical Quantity *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={openingQuantity}
+                      onChange={(e) => setOpeningQuantity(e.target.value)}
+                      placeholder="e.g. 50"
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Unit Cost (PKR) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={openingUnitCost}
+                      onChange={(e) => setOpeningUnitCost(e.target.value)}
+                      placeholder="e.g. 8500"
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Valuation / Effective Date
+                    </label>
+                    <input
+                      type="date"
+                      value={openingValuationDate}
+                      onChange={(e) => setOpeningValuationDate(e.target.value)}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Audit Notes / Memo
+                    </label>
+                    <input
+                      type="text"
+                      value={openingNotes}
+                      onChange={(e) => setOpeningNotes(e.target.value)}
+                      placeholder="e.g. FY 2026 Opening Count"
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+                    />
+                  </div>
+                </div>
+
+                {/* Journal Entry Impact Preview */}
+                {(() => {
+                  const qty = Number(openingQuantity) || 0;
+                  const cost = Number(openingUnitCost) || 0;
+                  const totalVal = qty * cost;
+                  const sel = products.find((p) => p.id === (openingProductId || products[0]?.id));
+
+                  return (
+                    <div className="p-3.5 bg-[#F4F4F5] rounded-lg border border-[#E4E4E7] space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-[#71717A] text-[11px] font-semibold uppercase">
+                        <span>Journal Entry Preview (Double-Entry)</span>
+                        <span className="font-mono text-[#18181B]">Valuation: {formatCurrency(totalVal)}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="p-2 bg-white rounded border border-[#E4E4E7]">
+                          <span className="text-[10px] text-emerald-700 font-bold uppercase block">Debit (Asset)</span>
+                          <span className="font-medium text-[#18181B] block">1200 - Inventory Asset</span>
+                          <span className="font-mono font-bold text-emerald-700">+{formatCurrency(totalVal)}</span>
+                        </div>
+                        <div className="p-2 bg-white rounded border border-[#E4E4E7]">
+                          <span className="text-[10px] text-blue-700 font-bold uppercase block">Credit (Equity)</span>
+                          <span className="font-medium text-[#18181B] block">3000 - Owner Capital / Equity</span>
+                          <span className="font-mono font-bold text-blue-700">+{formatCurrency(totalVal)}</span>
+                        </div>
+                      </div>
+                      {sel && (
+                        <div className="text-[11px] text-[#71717A] flex justify-between pt-1 border-t border-[#E4E4E7]">
+                          <span>Current Warehouse Stock: {sel.stockQuantity} {sel.unit || "unit"}</span>
+                          <span>New Stock Balance: <strong className="text-[#18181B]">{sel.stockQuantity + qty} {sel.unit || "unit"}</strong></span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E4E4E7]">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddStockModal(false)}
+                    className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingOpeningStock || !openingQuantity || Number(openingQuantity) <= 0}
+                    className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F] inline-flex items-center gap-1.5"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    {isSubmittingOpeningStock ? "Posting..." : "Declare Opening Stock"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 3: CREATE NEW PRODUCT */}
             {stockModalTab === "new_product" && (
               <form onSubmit={handleCreateProductSubmit} className="p-5 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
@@ -1394,6 +1881,125 @@ export default function InventoryPurchasingPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ACTIVE FIELD ALLOCATIONS (STOCK ON JOB) MODAL */}
+      {activeAllocationProduct && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-xl max-w-2xl w-full border border-[#E4E4E7] shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Truck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#18181B]">
+                    Active Field Allocations: {activeAllocationProduct.name}
+                  </h3>
+                  <p className="text-[11px] text-[#71717A]">
+                    SKU: <span className="font-mono font-semibold">{activeAllocationProduct.sku}</span> • Units issued to technicians on active service jobs
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveAllocationProduct(null)}
+                className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]">
+                  <span className="text-[10px] font-semibold uppercase text-[#71717A] block">Warehouse Storage</span>
+                  <span className="text-lg font-bold font-mono text-[#18181B]">
+                    {activeAllocationProduct.stockQuantity} {activeAllocationProduct.unit || "unit"}
+                  </span>
+                </div>
+                <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200">
+                  <span className="text-[10px] font-semibold uppercase text-blue-800 block">Stock on Job (Field)</span>
+                  <span className="text-lg font-bold font-mono text-blue-900">
+                    {activeAllocationProduct.stockOnJob || 0} {activeAllocationProduct.unit || "unit"}
+                  </span>
+                </div>
+                <div className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]">
+                  <span className="text-[10px] font-semibold uppercase text-[#71717A] block">Total Stock</span>
+                  <span className="text-lg font-bold font-mono text-[#18181B]">
+                    {(activeAllocationProduct.stockQuantity || 0) + (activeAllocationProduct.stockOnJob || 0)} {activeAllocationProduct.unit || "unit"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Allocations Table */}
+              <div>
+                <h4 className="text-xs font-bold text-[#18181B] uppercase tracking-wider mb-2">
+                  Active Work Order Deployments
+                </h4>
+                {(!activeAllocationProduct.jobAllocations || activeAllocationProduct.jobAllocations.length === 0) ? (
+                  <p className="text-xs text-[#71717A] py-6 text-center border rounded-lg border-dashed">
+                    No active job allocations found. All units are currently in physical warehouse storage.
+                  </p>
+                ) : (
+                  <div className="border border-[#E4E4E7] rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#F4F4F5] border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase">
+                        <tr>
+                          <th className="py-2 px-3">Job #</th>
+                          <th className="py-2 px-3">Customer</th>
+                          <th className="py-2 px-3">Technician</th>
+                          <th className="py-2 px-3 text-center">Status</th>
+                          <th className="py-2 px-3 text-right">Qty Issued</th>
+                          <th className="py-2 px-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E4E4E7]">
+                        {activeAllocationProduct.jobAllocations.map((alloc: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-[#FAFAFA]">
+                            <td className="py-2.5 px-3 font-mono font-bold text-[#18181B]">
+                              {alloc.jobNumber}
+                            </td>
+                            <td className="py-2.5 px-3 text-[#18181B]">{alloc.customerName}</td>
+                            <td className="py-2.5 px-3 font-medium text-[#18181B]">{alloc.technicianName}</td>
+                            <td className="py-2.5 px-3 text-center">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                                {alloc.jobStatus}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700">
+                              {alloc.quantity} {activeAllocationProduct.unit || "unit"}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <a
+                                href={`/jobs?jobId=${alloc.jobId}`}
+                                className="text-[11px] font-semibold text-[#0D7A5F] hover:underline inline-flex items-center gap-1"
+                              >
+                                View Job
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-[#FAFAFA] border-t border-[#E4E4E7] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveAllocationProduct(null)}
+                className="px-4 py-1.5 bg-white border border-[#D4D4D8] hover:bg-[#F4F4F5] rounded-lg text-xs font-semibold text-[#18181B] transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

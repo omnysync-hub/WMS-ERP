@@ -21,6 +21,7 @@ import {
   Smartphone,
   ExternalLink,
   RotateCcw,
+  ShoppingBag,
 } from "lucide-react";
 import { useRole, RoleType } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
@@ -313,6 +314,14 @@ export default function Topbar({
                   >
                     <Briefcase className="w-3.5 h-3.5 text-[#0D7A5F]" />
                     New HVAC Job
+                  </Link>
+                  <Link
+                    href="/pos"
+                    onClick={() => setIsQuickCreateOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-[#F4F4F5] transition"
+                  >
+                    <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" />
+                    New POS Counter Sale
                   </Link>
                   <button
                     onClick={() => {

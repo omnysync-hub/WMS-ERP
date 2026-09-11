@@ -3,16 +3,165 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { JobsService } from "@/lib/services/JobsService";
 import { AuditService } from "@/lib/services/AuditService";
+import {
+  buildChartOfAccountsTree,
+  flattenChartOfAccounts,
+  STANDARD_COA_DEFINITIONS,
+} from "@/lib/constants/chartOfAccountsHierarchy";
+import { FinancialReportingService } from "@/lib/services/FinancialReportingService";
+import { BankReconciliationService } from "@/lib/services/BankReconciliationService";
+import { SubLedgerService } from "@/lib/services/SubLedgerService";
+import { FixedAssetService } from "@/lib/services/FixedAssetService";
+import { TaxService } from "@/lib/services/TaxService";
+import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const view = searchParams.get("view"); // "technicians", "journal", "accounts", "invoices", "discounts", "parties", "party_ledger", "expenses", "pos_sales", "account_drilldown"
+    const view = searchParams.get("view"); // "technicians", "journal", "accounts", "invoices", "discounts", "parties", "party_ledger", "expenses", "pos_sales", "account_drilldown", "financial_statements", "bank_reconciliation", "subledger_reconciliation", "fixed_assets", "fiscal_periods", "vendors", "company_settings"
     const technicianId = searchParams.get("technicianId");
     const partyType = searchParams.get("partyType"); // "customer", "technician", "vendor"
     const partyId = searchParams.get("partyId");
     const accountId = searchParams.get("accountId");
     const accountCode = searchParams.get("accountCode");
+
+    // 0. COMPANY SETTINGS & ONBOARDING STATUS
+    if (view === "company_settings") {
+      const settings = await prisma.companySettings.findFirst();
+      return NextResponse.json({
+        success: true,
+        settings: settings || {
+          companyName: "Workman Services Private Limited",
+          currency: "PKR",
+          fiscalYearStartMonth: 7,
+          isSetupCompleted: false,
+        },
+      });
+    }
+
+    // 0.1 FINANCIAL STATEMENTS (Trial Balance, Balance Sheet, Income Statement, Cash Flow)
+    if (view === "financial_statements") {
+      const statement = searchParams.get("statement") || "all";
+      const asOfStr = searchParams.get("asOfDate");
+      const startStr = searchParams.get("startDate");
+      const endStr = searchParams.get("endDate");
+
+      const asOfDate = asOfStr ? new Date(asOfStr) : new Date();
+      const startDate = startStr ? new Date(startStr) : new Date(new Date().getFullYear(), 0, 1);
+      const endDate = endStr ? new Date(endStr) : new Date();
+
+      if (statement === "trial_balance") {
+        const tb = await FinancialReportingService.getTrialBalance(asOfDate);
+        return NextResponse.json({ success: true, trialBalance: tb });
+      } else if (statement === "balance_sheet") {
+        const bs = await FinancialReportingService.getBalanceSheet(asOfDate);
+        return NextResponse.json({ success: true, balanceSheet: bs });
+      } else if (statement === "income_statement") {
+        const is = await FinancialReportingService.getIncomeStatement(startDate, endDate);
+        return NextResponse.json({ success: true, incomeStatement: is });
+      } else if (statement === "cash_flow") {
+        const cf = await FinancialReportingService.getCashFlowStatement(startDate, endDate);
+        return NextResponse.json({ success: true, cashFlow: cf });
+      } else {
+        const [tb, bs, is, cf] = await Promise.all([
+          FinancialReportingService.getTrialBalance(asOfDate),
+          FinancialReportingService.getBalanceSheet(asOfDate),
+          FinancialReportingService.getIncomeStatement(startDate, endDate),
+          FinancialReportingService.getCashFlowStatement(startDate, endDate),
+        ]);
+        return NextResponse.json({
+          success: true,
+          trialBalance: tb,
+          balanceSheet: bs,
+          incomeStatement: is,
+          cashFlow: cf,
+        });
+      }
+    }
+
+    // 0.2 BANK RECONCILIATION
+    if (view === "bank_reconciliation") {
+      const bankAccountId = searchParams.get("bankAccountId");
+      if (!bankAccountId) {
+        const bankAccounts = await prisma.account.findMany({
+          where: {
+            OR: [
+              { code: "1010" },
+              { code: { startsWith: "101" } },
+              { name: { contains: "Bank", mode: "insensitive" } },
+            ],
+          },
+          orderBy: { code: "asc" },
+        });
+        return NextResponse.json({ success: true, bankAccounts });
+      }
+
+      const stmtDateStr = searchParams.get("statementDate");
+      const statementDate = stmtDateStr ? new Date(stmtDateStr) : new Date();
+
+      const [unreconciled, statement] = await Promise.all([
+        prisma.bankStatementLine.findMany({
+          where: { bankAccountId, status: "unreconciled" },
+          orderBy: { statementDate: "desc" },
+        }),
+        BankReconciliationService.generateReconciliationStatement(bankAccountId),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        statementDate,
+        reconciliationStatement: statement,
+        unreconciledLines: unreconciled,
+      });
+    }
+
+    // 0.3 SUB-LEDGER RECONCILIATION & DRIFT
+    if (view === "subledger_reconciliation") {
+      const asOfStr = searchParams.get("asOfDate");
+      const asOfDate = asOfStr ? new Date(asOfStr) : new Date();
+
+      const [drift, customerAging, vendorAging] = await Promise.all([
+        SubLedgerService.checkReconciliationDrift(),
+        SubLedgerService.getArAging(asOfDate),
+        SubLedgerService.getApAging(asOfDate),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        drift,
+        customerAging,
+        vendorAging,
+      });
+    }
+
+    // 0.4 FIXED ASSETS
+    if (view === "fixed_assets") {
+      const assets = await FixedAssetService.listAssets();
+      return NextResponse.json({
+        success: true,
+        assets,
+      });
+    }
+
+    // 0.5 FISCAL PERIODS
+    if (view === "fiscal_periods") {
+      const year = searchParams.get("year") ? parseInt(searchParams.get("year")!) : new Date().getFullYear();
+      const periods = await FiscalPeriodService.listPeriods(year);
+      return NextResponse.json({
+        success: true,
+        year,
+        periods,
+      });
+    }
+
+    // 0.6 VENDORS
+    if (view === "vendors") {
+      const vendors = await TaxService.getVendors();
+      return NextResponse.json({
+        success: true,
+        vendors,
+      });
+    }
 
     // 1. PENDING DISCOUNT REQUESTS QUEUE
     if (view === "discounts") {
@@ -220,43 +369,81 @@ export async function GET(req: NextRequest) {
         })
       );
 
-      // C. Vendors / Suppliers (from Purchase Orders or standard list)
-      const purchaseOrders = await prisma.purchaseOrder.findMany({
-        orderBy: { createdAt: "desc" },
+      // C. Vendors / Suppliers (from Vendor database model with WHT configuration)
+      let dbVendors = await prisma.vendor.findMany({
+        include: {
+          vendorLedgerEntries: {
+            orderBy: { postingDate: "desc" },
+            take: 1,
+          },
+          purchaseOrders: true,
+        },
+        orderBy: { name: "asc" },
       });
 
-      const vendorMap: Record<string, { totalPurchases: number; paid: number; count: number }> = {};
-      
-      // Default suppliers if none yet in DB
-      const defaultVendors = [
-        "Emirates Refrigeration Supplies LLC",
-        "Danfoss Middle East FZE",
-        "Gulf Air Conditioning Spares",
-        "Daikin Industrial Dubai",
-      ];
-      for (const v of defaultVendors) {
-        vendorMap[v] = { totalPurchases: 18500, paid: 15200, count: 3 };
+      if (dbVendors.length === 0) {
+        // Seed standard HVAC suppliers with custom WHT rates
+        await prisma.vendor.createMany({
+          data: [
+            {
+              name: "Pak Electron Limited (PEL Spares)",
+              contactPerson: "Kamran Siddiqui",
+              phone: "+92 300 1234567",
+              ntnNumber: "0819234-1",
+              whtRate: 8, // Section 153 standard goods
+              whtExempt: false,
+              paymentTermsDays: 30,
+            },
+            {
+              name: "Dawood Engineering Copper & Gas",
+              contactPerson: "Tariq Mahmood",
+              phone: "+92 321 9876543",
+              ntnNumber: "1482930-5",
+              whtRate: 11, // Section 153 services/mixed
+              whtExempt: false,
+              paymentTermsDays: 15,
+            },
+            {
+              name: "Al-Rehman Refrigerants & Chemicals",
+              contactPerson: "Hamza Farooq",
+              phone: "+92 333 4567890",
+              ntnNumber: "2948102-7",
+              whtRate: 5,
+              whtExempt: false,
+              paymentTermsDays: 30,
+            },
+          ],
+        });
+
+        dbVendors = await prisma.vendor.findMany({
+          include: {
+            vendorLedgerEntries: {
+              orderBy: { postingDate: "desc" },
+              take: 1,
+            },
+            purchaseOrders: true,
+          },
+          orderBy: { name: "asc" },
+        });
       }
 
-      for (const po of purchaseOrders) {
-        if (!vendorMap[po.supplierName]) {
-          vendorMap[po.supplierName] = { totalPurchases: 0, paid: 0, count: 0 };
-        }
-        vendorMap[po.supplierName].totalPurchases += po.totalAmount;
-        if (po.status === "completed") {
-          vendorMap[po.supplierName].paid += po.totalAmount;
-        }
-        vendorMap[po.supplierName].count += 1;
-      }
+      const vendors = dbVendors.map((v) => {
+        const totalPurchases = v.purchaseOrders.reduce((s, po) => s + po.totalAmount, 0);
+        const latestEntry = v.vendorLedgerEntries[0];
+        const balanceDue = latestEntry ? latestEntry.runningBalance : Math.round(totalPurchases * 100) / 100;
 
-      const vendors = Object.keys(vendorMap).map((name) => {
-        const v = vendorMap[name];
         return {
-          name,
-          totalPurchases: v.totalPurchases,
-          totalPaid: v.paid,
-          balanceDue: Math.round((v.totalPurchases - v.paid) * 100) / 100,
-          ordersCount: v.count,
+          id: v.id,
+          name: v.name,
+          contactPerson: v.contactPerson,
+          phone: v.phone,
+          ntnNumber: v.ntnNumber,
+          whtRate: v.whtRate,
+          whtExempt: v.whtExempt,
+          totalPurchases,
+          totalPaid: totalPurchases - balanceDue,
+          balanceDue,
+          ordersCount: v.purchaseOrders.length,
         };
       });
 
@@ -697,7 +884,135 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(invoices);
     }
 
-    // 10. DEFAULT: CHART OF ACCOUNTS
+    // 9.5 CASHBOOK (CASH & BANK BOOK)
+    if (view === "cashbook") {
+      const targetAccountCode = searchParams.get("accountCode");
+      const fromDate = searchParams.get("from");
+      const toDate = searchParams.get("to");
+
+      // Auto-provision standard cash/bank accounts if needed
+      await AccountsPostingService.getAccountByCode("1000").catch(() => null);
+      await AccountsPostingService.getAccountByCode("1010").catch(() => null);
+      await AccountsPostingService.getAccountByCode("1020").catch(() => null);
+
+      // Find all Cash and Bank accounts (level 4 asset accounts)
+      const cashAccounts = await prisma.account.findMany({
+        where: {
+          OR: [
+            { code: { in: ["1000", "1010", "1011", "1020"] } },
+            { name: { contains: "Cash", mode: "insensitive" } },
+            { name: { contains: "Bank", mode: "insensitive" } },
+          ],
+        },
+        orderBy: { code: "asc" },
+      });
+
+      const cashAccountIds = targetAccountCode && targetAccountCode !== "ALL"
+        ? cashAccounts.filter((a) => a.code === targetAccountCode).map((a) => a.id)
+        : cashAccounts.map((a) => a.id);
+
+      // Fetch all journal lines involving cash accounts along with entry details and companion lines
+      const entries = await prisma.journalEntry.findMany({
+        where: {
+          lines: {
+            some: {
+              accountId: { in: cashAccountIds },
+            },
+          },
+          ...(fromDate || toDate
+            ? {
+                date: {
+                  ...(fromDate ? { gte: new Date(fromDate) } : {}),
+                  ...(toDate ? { lte: new Date(toDate) } : {}),
+                },
+              }
+            : {}),
+        },
+        include: {
+          lines: {
+            include: {
+              account: true,
+            },
+          },
+        },
+        orderBy: { date: "asc" },
+      });
+
+      // Calculate running cashbook transactions
+      let runningBalance = 0;
+      let totalReceipts = 0;
+      let totalPayments = 0;
+
+      const cashbookLines: any[] = [];
+
+      for (const je of entries) {
+        // Find the cash line(s)
+        const cashLines = je.lines.filter((l) => cashAccountIds.includes(l.accountId));
+        // Find the contra line(s) (the non-cash lines in this balanced entry)
+        const contraLines = je.lines.filter((l) => !cashAccountIds.includes(l.accountId));
+
+        for (const cl of cashLines) {
+          const debit = cl.debit || 0;
+          const credit = cl.credit || 0;
+          const netEffect = debit - credit;
+          runningBalance += netEffect;
+
+          totalReceipts += debit;
+          totalPayments += credit;
+
+          // Determine contra account and description
+          const contraNames = contraLines.map((c) => `${c.account?.code} - ${c.account?.name}`).join(", ");
+
+          cashbookLines.push({
+            id: cl.id,
+            entryId: je.id,
+            date: je.date,
+            voucherRef: je.refId || `JV-${je.id.slice(0, 8).toUpperCase()}`,
+            refType: je.refType,
+            memo: je.memo,
+            cashAccount: {
+              id: cl.account.id,
+              code: cl.account.code,
+              name: cl.account.name,
+            },
+            contraAccount: contraNames || "Contra Posting / Balance",
+            contraLines: contraLines.map((c) => ({
+              accountCode: c.account.code,
+              accountName: c.account.name,
+              debit: c.debit,
+              credit: c.credit,
+            })),
+            receiptAmount: debit, // Cash Inflow (Dr)
+            paymentAmount: credit, // Cash Outflow (Cr)
+            runningBalance: Math.round(runningBalance * 100) / 100,
+          });
+        }
+      }
+
+      // Reverse so newest transactions are first for UI display
+      const sortedCashbook = [...cashbookLines].reverse();
+
+      return NextResponse.json({
+        success: true,
+        summary: {
+          totalReceipts: Math.round(totalReceipts * 100) / 100,
+          totalPayments: Math.round(totalPayments * 100) / 100,
+          netClosingBalance: Math.round(runningBalance * 100) / 100,
+          totalTransactions: cashbookLines.length,
+        },
+        entries: sortedCashbook,
+        cashAccounts: cashAccounts.map((a) => ({ id: a.id, code: a.code, name: a.name })),
+      });
+    }
+
+    // 10. CHART OF ACCOUNTS (LEVEL 4 HIERARCHY + TREE + TABULAR)
+    // Auto-provision standard accounts if missing
+    for (const def of STANDARD_COA_DEFINITIONS) {
+      if (!def.isGroup && def.level === 4) {
+        await AccountsPostingService.getAccountByCode(def.code).catch(() => null);
+      }
+    }
+
     const accounts = await prisma.account.findMany({
       include: {
         journalLines: true,
@@ -723,6 +1038,18 @@ export async function GET(req: NextRequest) {
         entriesCount: acc.journalLines.length,
       };
     });
+
+    const tree = buildChartOfAccountsTree(accountsWithBalance);
+    const flat = flattenChartOfAccounts(tree);
+
+    if (view === "chart") {
+      return NextResponse.json({
+        success: true,
+        tree,
+        flat,
+        rawAccounts: accountsWithBalance,
+      });
+    }
 
     return NextResponse.json(accountsWithBalance);
   } catch (err: any) {
@@ -1010,6 +1337,225 @@ export async function POST(req: NextRequest) {
         });
 
         return NextResponse.json({ success: true, journal });
+      }
+
+      // 8. RECORD CASHBOOK TRANSACTION (Receipt, Payment, or Contra Bank/Cash Transfer)
+      case "record_cash_transaction": {
+        const {
+          transactionType, // "receipt", "payment", "transfer"
+          cashAccountCode = "1000",
+          contraAccountCode,
+          transferToAccountCode,
+          amount,
+          memo,
+          partyName,
+          actorName = "Fatima Noor (Accountant)",
+        } = payload;
+
+        const numAmount = Number(amount);
+        if (!numAmount || numAmount <= 0) {
+          return NextResponse.json({ error: "A valid positive transaction amount is required" }, { status: 400 });
+        }
+
+        const cashAcc = await AccountsPostingService.getAccountByCode(cashAccountCode);
+        let postingLines: Array<{ accountId: string; debit: number; credit: number }> = [];
+
+        if (transactionType === "receipt") {
+          // Cash Inflow: Debit Cash/Bank, Credit Contra Account (e.g. 4000 Revenue or 1100 AR or 3000 Capital)
+          const targetContraCode = contraAccountCode || "4000";
+          const contraAcc = await AccountsPostingService.getAccountByCode(targetContraCode);
+          postingLines = [
+            { accountId: cashAcc.id, debit: numAmount, credit: 0 },
+            { accountId: contraAcc.id, debit: 0, credit: numAmount },
+          ];
+        } else if (transactionType === "payment") {
+          // Cash Outflow: Debit Contra Account (e.g. 6100 Expense or 2000 AP), Credit Cash/Bank
+          const targetContraCode = contraAccountCode || "6200";
+          const contraAcc = await AccountsPostingService.getAccountByCode(targetContraCode);
+          postingLines = [
+            { accountId: contraAcc.id, debit: numAmount, credit: 0 },
+            { accountId: cashAcc.id, debit: 0, credit: numAmount },
+          ];
+        } else if (transactionType === "transfer") {
+          // Contra Transfer: e.g. From Bank to Cash Drawer or Cash Drawer to Bank
+          if (!transferToAccountCode || transferToAccountCode === cashAccountCode) {
+            return NextResponse.json({ error: "A distinct destination account is required for transfers" }, { status: 400 });
+          }
+          const toAcc = await AccountsPostingService.getAccountByCode(transferToAccountCode);
+          postingLines = [
+            { accountId: toAcc.id, debit: numAmount, credit: 0 },
+            { accountId: cashAcc.id, debit: 0, credit: numAmount },
+          ];
+        } else {
+          return NextResponse.json({ error: `Invalid transaction type: ${transactionType}` }, { status: 400 });
+        }
+
+        const journal = await AccountsPostingService.post({
+          memo: memo || `Cashbook ${transactionType.toUpperCase()} - ${partyName || "Direct Transaction"}`,
+          refType: `cashbook_${transactionType}`,
+          lines: postingLines,
+        });
+
+        await AuditService.logActivity({
+          actorName,
+          actorRole: "accountant",
+          category: "DATA_MUTATION",
+          action: `Recorded Cashbook ${transactionType}: PKR ${numAmount} (${memo || "Direct Entry"})`,
+          target: `JournalEntry:${journal.id}`,
+          metadata: { transactionType, amount: numAmount, cashAccountCode, partyName },
+        });
+
+        return NextResponse.json({ success: true, journal });
+      }
+
+      // 9. REVERSE JOURNAL ENTRY (Immutable Reversal)
+      case "reverse_entry": {
+        const { entryId, reason, actorName = "Fatima Noor (Accountant)" } = payload;
+        if (!entryId) {
+          return NextResponse.json({ error: "Missing entryId to reverse" }, { status: 400 });
+        }
+        const reversal = await AccountsPostingService.reverseEntry({
+          journalEntryId: entryId,
+          reason: reason || "Manual correction via reversal voucher",
+          reversedBy: actorName,
+        });
+        return NextResponse.json({ success: true, reversal });
+      }
+
+      // 10. VENDOR PAYMENT WITH SECTION 153 WHT & CPR LOGGING
+      case "vendor_payment":
+      case "post_vendor_payment_wht": {
+        const {
+          vendorId,
+          grossAmount,
+          paymentAccountCode = "1000",
+          memo,
+          cprNumber,
+          actorName = "Fatima Noor (Accountant)",
+        } = payload;
+
+        if (!vendorId) {
+          return NextResponse.json({ error: "Missing vendorId" }, { status: 400 });
+        }
+
+        const result = await TaxService.postVendorPaymentWithWht({
+          vendorId,
+          grossAmount: Number(grossAmount) || 0,
+          disbursingAccountCode: paymentAccountCode,
+          memo,
+          cprNumber,
+          postedBy: actorName,
+        });
+
+        return NextResponse.json(result);
+      }
+
+      // 11. BANK RECONCILIATION - CSV IMPORT
+      case "bank_rec_import": {
+        const { bankAccountId, csvText } = payload;
+        if (!bankAccountId || !csvText) {
+          return NextResponse.json({ error: "Missing bankAccountId or csvText" }, { status: 400 });
+        }
+        const result = await BankReconciliationService.importCsvStatement(bankAccountId, csvText);
+        return NextResponse.json(result);
+      }
+
+      // 12. BANK RECONCILIATION - AUTO MATCH
+      case "bank_rec_automatch": {
+        const { bankAccountId } = payload;
+        if (!bankAccountId) {
+          return NextResponse.json({ error: "Missing bankAccountId" }, { status: 400 });
+        }
+        const result = await BankReconciliationService.autoMatch(bankAccountId);
+        return NextResponse.json(result);
+      }
+
+      // 13. BANK RECONCILIATION - MANUAL MATCH
+      case "bank_rec_manualmatch": {
+        const { statementLineId, journalLineId, actorName = "Fatima Noor (Accountant)" } = payload;
+        if (!statementLineId || !journalLineId) {
+          return NextResponse.json({ error: "Missing statementLineId or journalLineId" }, { status: 400 });
+        }
+        const matched = await BankReconciliationService.manualMatch(statementLineId, journalLineId, actorName);
+        return NextResponse.json({ success: true, matched });
+      }
+
+      // 14. BANK RECONCILIATION - UNMATCH
+      case "bank_rec_unmatch": {
+        const { statementLineId, actorName = "Fatima Noor (Accountant)" } = payload;
+        if (!statementLineId) {
+          return NextResponse.json({ error: "Missing statementLineId" }, { status: 400 });
+        }
+        const unmatched = await BankReconciliationService.unmatch(statementLineId, actorName);
+        return NextResponse.json({ success: true, unmatched });
+      }
+
+      // 15. FIXED ASSET - CREATE
+      case "add_fixed_asset": {
+        const {
+          assetTag,
+          name,
+          category,
+          cost,
+          salvageValue,
+          usefulLifeMonths,
+          inServiceDate,
+          assetAccountCode,
+          depExpenseAccountCode,
+          accumDepAccountCode,
+        } = payload;
+
+        const asset = await FixedAssetService.createAsset({
+          assetTag,
+          name,
+          category,
+          cost: Number(cost) || 0,
+          salvageValue: Number(salvageValue) || 0,
+          usefulLifeMonths: Number(usefulLifeMonths) || 12,
+          inServiceDate: inServiceDate ? new Date(inServiceDate) : new Date(),
+          assetAccountCode,
+          depExpenseAccountCode,
+          accumDepAccountCode,
+        });
+
+        return NextResponse.json({ success: true, asset });
+      }
+
+      // 16. FIXED ASSET - RUN DEPRECIATION
+      case "run_depreciation": {
+        const { year = new Date().getFullYear(), month = new Date().getMonth() + 1, actorName = "Fatima Noor (Accountant)" } = payload;
+        const periodStr = `${year}-${String(month).padStart(2, "0")}`;
+        const result = await FixedAssetService.runMonthlyDepreciation(
+          periodStr,
+          actorName
+        );
+        return NextResponse.json(result);
+      }
+
+      // 17. FISCAL PERIOD - LOCK PERIOD
+      case "lock_fiscal_period": {
+        const { periodId, actorName = "Fatima Noor (Accountant)" } = payload;
+        if (!periodId) {
+          return NextResponse.json({ error: "Missing periodId" }, { status: 400 });
+        }
+        const period = await FiscalPeriodService.lockPeriod(periodId, actorName);
+        return NextResponse.json({ success: true, period });
+      }
+
+      // 18. FISCAL PERIOD - YEAR END CLOSE
+      case "year_end_close": {
+        const { year, actorName = "Fatima Noor (Accountant)" } = payload;
+        if (!year) {
+          return NextResponse.json({ error: "Missing fiscal year" }, { status: 400 });
+        }
+        const result = await FiscalPeriodService.runYearEndClose(Number(year), actorName);
+        return NextResponse.json(result);
+      }
+
+      // 19. CREATE VENDOR
+      case "create_vendor": {
+        const vendor = await TaxService.createVendor(payload);
+        return NextResponse.json({ success: true, vendor });
       }
 
       default:
