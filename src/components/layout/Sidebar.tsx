@@ -118,10 +118,10 @@ export default function Sidebar({
             {!isCollapsed && (
               <div className="overflow-hidden">
                 <span className="font-bold text-sm tracking-tight text-white block leading-none">
-                  WORKMAN
+                  HVAC ERP
                 </span>
                 <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-mono mt-0.5 leading-none">
-                  HVAC ERP v2
+                  OPERATIONS v2
                 </span>
               </div>
             )}

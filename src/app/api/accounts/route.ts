@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         success: true,
         settings: settings || {
-          companyName: "Workman Services Private Limited",
+          companyName: "Enterprise Services Private Limited",
           currency: "PKR",
           fiscalYearStartMonth: 7,
           isSetupCompleted: false,

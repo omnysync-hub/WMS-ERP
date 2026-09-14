@@ -43,13 +43,13 @@ export default function SetupWizardPage() {
   const [isReadyToGoLive, setIsReadyToGoLive] = useState<boolean>(false);
 
   // Form State - Step 1: Company Profile
-  const [legalName, setLegalName] = useState("Workman Services (Pvt) Ltd");
-  const [tradeName, setTradeName] = useState("Workman Services");
+  const [legalName, setLegalName] = useState("Enterprise Services (Pvt) Ltd");
+  const [tradeName, setTradeName] = useState("Enterprise Services");
   const [ntnNumber, setNtnNumber] = useState("9482710-3");
   const [strnNumber, setStrnNumber] = useState("3277876123456");
   const [addressText, setAddressText] = useState("Main Boulevard, Gulberg III, Lahore, Pakistan");
-  const [phone, setPhone] = useState("042-111-WORKMAN");
-  const [email, setEmail] = useState("finance@workmanservices.pk");
+  const [phone, setPhone] = useState("042-111-0000");
+  const [email, setEmail] = useState("finance@company.com");
   const [fiscalYearStartMonth, setFiscalYearStartMonth] = useState<number>(7); // July
 
   // Form State - Step 3: Opening Balances
@@ -74,8 +74,8 @@ export default function SetupWizardPage() {
         setIsReadyToGoLive(data.isReadyToGoLive);
 
         if (data.settings) {
-          setLegalName(data.settings.legalName || "Workman Services (Pvt) Ltd");
-          setTradeName(data.settings.tradeName || "Workman Services");
+          setLegalName(data.settings.legalName || "Enterprise Services (Pvt) Ltd");
+          setTradeName(data.settings.tradeName || "Enterprise Services");
           setNtnNumber(data.settings.ntnNumber || "");
           setStrnNumber(data.settings.strnNumber || "");
           setAddressText(data.settings.addressText || "");
@@ -496,7 +496,7 @@ export default function SetupWizardPage() {
                 Step 2: Understanding the 4-Level Chart of Accounts (COA)
               </h2>
               <p className="text-xs text-[#71717A] mt-1">
-                Rather than forcing a basic template, Workman Services provides the full GAAP 4-tier hierarchy. Here is how your financial data is structured:
+                Rather than forcing a basic template, the platform provides the full GAAP 4-tier hierarchy. Here is how your financial data is structured:
               </p>
             </div>
 

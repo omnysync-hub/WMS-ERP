@@ -500,7 +500,7 @@ export default function PosTerminalPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-sm font-bold text-[#18181B] tracking-tight">
-                  Workman POS Terminal
+                  Enterprise POS Terminal
                 </h1>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-[#065F46] border border-emerald-200">
                   Live Counter
@@ -1526,10 +1526,10 @@ export default function PosTerminalPage() {
               {/* Header */}
               <div className="text-center space-y-0.5 border-b border-dashed border-[#A1A1AA] pb-3">
                 <h2 className="text-sm font-black uppercase tracking-wider text-[#18181B]">
-                  WORKMAN SERVICES
+                  HVAC ENTERPRISE SERVICES
                 </h2>
                 <p className="text-[10px] text-[#71717A]">HVAC, Electrical & Counter Sales</p>
-                <p className="text-[10px] text-[#71717A]">UAN: 042-111-WORKMAN | NTN: 9482710-3</p>
+                <p className="text-[10px] text-[#71717A]">UAN: 042-111-0000 | NTN: 9482710-3</p>
                 <p className="text-[10px] text-[#71717A]">Lahore, Pakistan</p>
               </div>
 
@@ -1617,9 +1617,9 @@ export default function PosTerminalPage() {
                 <div className="py-1 font-mono tracking-widest text-[11px] font-black border border-black/10 rounded">
                   ||||| | |||| ||| ||||||| | ||
                 </div>
-                <p>Thank you for choosing Workman Services!</p>
+                <p>Thank you for your business!</p>
                 <p>7-Day Warranty on original parts with invoice.</p>
-                <p className="text-[8px] text-[#A1A1AA]">Workman ERP v2.6 · Verified Posting</p>
+                <p className="text-[8px] text-[#A1A1AA]">Enterprise ERP v2.6 · Verified Posting</p>
               </div>
             </div>
 

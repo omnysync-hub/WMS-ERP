@@ -75,7 +75,7 @@ export default function PageHeader({
       <div className="relative">
         {breadcrumbs && breadcrumbs.length > 0 ? (
           <div className="flex items-center gap-1.5 text-xs text-[#71717A] font-normal mb-1">
-            <span>Workman</span>
+            <span>ERP</span>
             {breadcrumbs.map((b, i) => (
               <React.Fragment key={i}>
                 <span className="text-[#A1A1AA]">/</span>
@@ -91,7 +91,7 @@ export default function PageHeader({
           </div>
         ) : moduleName ? (
           <div className="flex items-center gap-1.5 text-xs text-[#71717A] font-normal mb-1">
-            <span>Workman</span>
+            <span>ERP</span>
             <span className="text-[#A1A1AA]">/</span>
             <span className="text-[#18181B] font-medium">{moduleName}</span>
           </div>

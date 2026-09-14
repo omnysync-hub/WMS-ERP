@@ -150,7 +150,7 @@ export default function AddEmployeeDrawer({
             </label>
             <input
               type="email"
-              placeholder="rashid@workman.ae"
+              placeholder="rashid@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full h-9 px-3 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"

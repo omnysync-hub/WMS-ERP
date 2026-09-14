@@ -6,7 +6,7 @@ import AppShell from "@/components/layout/AppShell";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Workman Services — HVAC Enterprise ERP",
+  title: "Enterprise ERP — HVAC Operations & Management",
   description: "Enterprise HVAC Operations, Dispatch, Mobile Execution & Accounts",
 };
 

@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("Seeding Workman Services Foundational System Infrastructure...");
+  console.log("Seeding Foundational System Infrastructure...");
 
   // 1. Chart of Accounts (Level 4 Standard Chart of Accounts)
   console.log("Ensuring Standard Chart of Accounts (PKR)...");
@@ -42,11 +42,11 @@ async function main() {
   if (!existingSettings) {
     await prisma.companySettings.create({
       data: {
-        legalName: "Workman Services (Pvt) Ltd",
-        tradeName: "Workman Services",
+        legalName: "Enterprise Services (Pvt) Ltd",
+        tradeName: "Enterprise Services",
         addressText: "Main Boulevard, Gulberg III, Lahore, Pakistan",
-        phone: "042-111-WORKMAN",
-        email: "finance@workmanservices.pk",
+        phone: "042-111-0000",
+        email: "finance@company.com",
         ntnNumber: "9482710-3",
         strnNumber: "3277876123456",
         baseCurrency: "PKR",

@@ -48,7 +48,10 @@ export function logActivity(payload: LogActivityPayload) {
   // Derive active persona from localStorage if not explicitly supplied
   if (!payload.actorName) {
     try {
-      const savedRole = (localStorage.getItem("workman_active_role") as RoleType) || "admin";
+      const savedRole =
+        (localStorage.getItem("active_erp_role") as RoleType) ||
+        (localStorage.getItem("workman_active_role") as RoleType) ||
+        "admin";
       const persona = ERP_PERSONAS[savedRole] || ERP_PERSONAS.admin;
       payload.actorId = persona.id;
       payload.actorName = persona.name;

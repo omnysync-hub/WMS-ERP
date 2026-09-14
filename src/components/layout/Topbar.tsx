@@ -91,8 +91,9 @@ export default function Topbar({
         }
 
         // Purge any lingering internal audit sync in last event
-        const lastEvt = localStorage.getItem("workman_erp_last_event");
+        const lastEvt = localStorage.getItem("erp_last_event") || localStorage.getItem("workman_erp_last_event");
         if (lastEvt && (lastEvt.includes("AUDIT_LOG_UPDATE") || lastEvt.includes("Sync event") || lastEvt.includes('"actor":"System"'))) {
+          localStorage.removeItem("erp_last_event");
           localStorage.removeItem("workman_erp_last_event");
         }
 

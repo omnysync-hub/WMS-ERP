@@ -869,11 +869,11 @@ export default function MobileCompanionPage() {
       <header className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-3 mb-4 px-4 py-2.5 rounded-2xl bg-[#16181D] border border-white/10 shadow-xl z-20">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-xl bg-[#0D7A5F] flex items-center justify-center shadow-md text-white font-black text-sm">
-            W
+            <Briefcase className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xs font-bold text-white tracking-tight">Workman Mobile Companion</h1>
+              <h1 className="text-xs font-bold text-white tracking-tight">Mobile Field Companion</h1>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Field Simulator Active

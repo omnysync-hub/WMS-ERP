@@ -299,7 +299,7 @@ export const STANDARD_COA_DEFINITIONS: CoaDefinition[] = [
     level: 4,
     parentCode: "3110",
     isGroup: false,
-    description: "Original capital investment into Workman Services",
+    description: "Original capital investment into the company",
   },
   {
     code: "3010",

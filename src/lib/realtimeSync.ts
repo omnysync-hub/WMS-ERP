@@ -1,6 +1,6 @@
 "use client";
 
-// Real-Time Cross-Tab & Cross-Device Event Bus for Workman Services ERP
+// Real-Time Cross-Tab & Cross-Device Event Bus for ERP
 
 export type SyncEventType =
   | "JOB_ASSIGNED"
@@ -34,8 +34,8 @@ export interface SyncEvent {
   isSilent?: boolean;
 }
 
-const CHANNEL_NAME = "workman_erp_realtime_bus";
-const STORAGE_KEY = "workman_erp_last_event";
+const CHANNEL_NAME = "erp_realtime_bus";
+const STORAGE_KEY = "erp_last_event";
 
 class RealtimeSyncManager {
   private channel: BroadcastChannel | null = null;

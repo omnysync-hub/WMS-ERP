@@ -164,7 +164,7 @@ export default function FinancialStatementsTab() {
           <div className="p-6 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
             <div>
               <span className="text-[10px] uppercase tracking-wider font-mono font-bold text-[#71717A] block">
-                Workman Services (Pvt) Ltd • General Ledger
+                Financial Accounts • General Ledger
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Extended 4-Level Trial Balance</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
@@ -285,7 +285,7 @@ export default function FinancialStatementsTab() {
           <div className="p-6 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
             <div>
               <span className="text-[10px] uppercase tracking-wider font-mono font-bold text-[#71717A] block">
-                Workman Services (Pvt) Ltd • Financial Position
+                Financial Accounts • Financial Position
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Statement of Financial Position (Balance Sheet)</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
@@ -442,7 +442,7 @@ export default function FinancialStatementsTab() {
           <div className="p-6 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
             <div>
               <span className="text-[10px] uppercase tracking-wider font-mono font-bold text-[#71717A] block">
-                Workman Services (Pvt) Ltd • Operating Performance
+                Financial Accounts • Operating Performance
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Statement of Comprehensive Income (P&L)</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
@@ -560,7 +560,7 @@ export default function FinancialStatementsTab() {
           <div className="p-6 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
             <div>
               <span className="text-[10px] uppercase tracking-wider font-mono font-bold text-[#71717A] block">
-                Workman Services (Pvt) Ltd • Liquidity
+                Financial Accounts • Liquidity
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Statement of Cash Flows (Indirect Method)</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
