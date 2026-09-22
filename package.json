@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.21.1",
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.453.0",
@@ -23,6 +24,7 @@
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/leaflet": "^1.9.14",
     "@types/node": "^20.17.0",
     "@types/react": "^18.3.12",

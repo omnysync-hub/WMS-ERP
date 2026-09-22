@@ -14,6 +14,7 @@ async function main() {
       role: "technician",
       department: "Field Operations",
       active: true,
+      mobileLoginActive: true,
       faceEnrolled: false,
     },
   });
@@ -27,6 +28,7 @@ async function main() {
       role: "technician",
       department: "Field Operations",
       active: true,
+      mobileLoginActive: true,
       faceEnrolled: false,
     },
   });
@@ -40,6 +42,7 @@ async function main() {
       role: "hr",
       department: "Human Resources",
       active: true,
+      mobileLoginActive: true,
       faceEnrolled: false,
     },
   });

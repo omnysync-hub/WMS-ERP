@@ -806,6 +806,12 @@ model Employee {
   faceEnrolledAt       DateTime?
   faceEnrollmentCount  Int                   @default(0)
   active               Boolean               @default(true)
+  mobileLoginActive    Boolean               @default(false)
+  mobilePinHash        String?
+  mobilePinSetAt       DateTime?
+  mustResetPinOnNextLogin Boolean            @default(false)
+  failedLoginAttempts  Int                   @default(0)
+  lockedUntil          DateTime?
   lat                  Float?
   lng                  Float?
   lastPingAt           DateTime?

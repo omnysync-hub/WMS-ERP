@@ -52,7 +52,7 @@ export class HrmService {
   }
 
   static async getEmployee(id: string) {
-    return await prisma.employee.findUnique({
+    const employee = await prisma.employee.findUnique({
       where: { id },
       include: {
         reportingManager: {
@@ -94,6 +94,10 @@ export class HrmService {
         },
       },
     });
+
+    if (!employee) return null;
+    const { mobilePinHash, ...safeEmployee } = employee;
+    return safeEmployee;
   }
 
   static async createEmployee(data: {
@@ -131,14 +135,17 @@ export class HrmService {
     // Auto-seed onboarding checklist
     await this.seedOnboardingChecklist(employee.id);
 
-    return employee;
+    const { mobilePinHash, ...safeEmployee } = employee;
+    return safeEmployee;
   }
 
   static async updateEmployee(id: string, data: any) {
-    return await prisma.employee.update({
+    const updated = await prisma.employee.update({
       where: { id },
       data,
     });
+    const { mobilePinHash, ...safeEmployee } = updated;
+    return safeEmployee;
   }
 
   static async getOrgHierarchy() {

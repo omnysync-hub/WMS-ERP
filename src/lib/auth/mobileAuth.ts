@@ -1,6 +1,39 @@
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * Maximum failed attempts before brute-force account lockout.
+ */
+export const MOBILE_LOGIN_LOCKOUT_THRESHOLD = 5;
+
+/**
+ * Lockout cooldown duration in minutes after exceeding maximum failed attempts.
+ */
+export const MOBILE_LOGIN_LOCKOUT_MINUTES = 15;
+
+/**
+ * Generates a cryptographically random 6-digit numeric PIN (100000 - 999999).
+ */
+export function generateTempPin(): string {
+  return crypto.randomInt(100000, 1000000).toString();
+}
+
+/**
+ * Securely hashes a PIN using bcrypt with 10 salt rounds.
+ */
+export async function hashPin(pin: string): Promise<string> {
+  return await bcrypt.hash(pin, 10);
+}
+
+/**
+ * Compares a candidate PIN against a stored bcrypt hash.
+ */
+export async function comparePin(pin: string, hash: string): Promise<boolean> {
+  if (!pin || !hash) return false;
+  return await bcrypt.compare(pin, hash);
+}
 
 /**
  * Reads the cryptographic secret key for signing/verifying mobile session tokens.
@@ -138,6 +171,7 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
   const authHeader = req.headers.get("authorization") || "";
   let callerId: string | null = null;
   let callerRole: string | null = null;
+  let isMobileToken = false;
 
   // 1. Mobile Bearer token with cryptographic HMAC-SHA256 signature verification
   if (authHeader.startsWith("Bearer wms_mobile_") || authHeader.startsWith("Bearer ")) {
@@ -146,6 +180,7 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
       return null; // Token is unsigned, forged, tampered, or expired
     }
     callerId = verified.employeeId;
+    isMobileToken = true;
   }
 
   // 2. Gateway / Internal session headers (trusted upstream proxies)
@@ -165,10 +200,15 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
   // 3. Database lookup to confirm active status and resolve authoritative role
   const callerEmp = await prisma.employee.findUnique({
     where: { id: callerId },
-    select: { id: true, name: true, role: true, active: true },
+    select: { id: true, name: true, role: true, active: true, mobileLoginActive: true },
   });
 
   if (!callerEmp || !callerEmp.active) {
+    return null;
+  }
+
+  // If request authenticated via a mobile token, immediately reject if mobile login is deactivated
+  if (isMobileToken && !callerEmp.mobileLoginActive) {
     return null;
   }
 
