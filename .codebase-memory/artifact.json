@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "d330adfaf4f3e82d629fa89cc6c85fda2526f68c",
-    "indexed_at": "2026-09-22T15:25:29Z",
+    "commit": "8b68fa3e07e0399b6ba908d2c01d2673b9c74448",
+    "indexed_at": "2026-09-22T16:16:03Z",
     "project": "D-WORKMAN-SERVICES",
-    "nodes": 2647,
-    "edges": 11325,
-    "original_size": 7077888,
-    "compressed_size": 1472076,
+    "nodes": 2658,
+    "edges": 11338,
+    "original_size": 7143424,
+    "compressed_size": 1476804,
     "compression_level": 9
 }

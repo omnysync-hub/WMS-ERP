@@ -14,26 +14,55 @@ export const MOBILE_LOGIN_LOCKOUT_THRESHOLD = 5;
 export const MOBILE_LOGIN_LOCKOUT_MINUTES = 15;
 
 /**
- * Generates a cryptographically random 6-digit numeric PIN (100000 - 999999).
+ * Minimum required characters for a mobile login password.
  */
-export function generateTempPin(): string {
-  return crypto.randomInt(100000, 1000000).toString();
+export const MIN_PASSWORD_LENGTH = 6;
+
+/**
+ * Validates that a password satisfies the minimum strength criteria (length >= 6).
+ */
+export function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
+  if (!password || typeof password !== "string") {
+    return { valid: false, error: "Password is required." };
+  }
+  const trimmed = password.trim();
+  if (trimmed.length < MIN_PASSWORD_LENGTH) {
+    return { valid: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.` };
+  }
+  return { valid: true };
 }
 
 /**
- * Securely hashes a PIN using bcrypt with 10 salt rounds.
+ * Securely hashes a password using bcrypt with 10 salt rounds.
  */
-export async function hashPin(pin: string): Promise<string> {
-  return await bcrypt.hash(pin, 10);
+export async function hashPassword(password: string): Promise<string> {
+  return await bcrypt.hash(password.trim(), 10);
 }
 
 /**
- * Compares a candidate PIN against a stored bcrypt hash.
+ * Compares a candidate password against a stored bcrypt hash.
  */
-export async function comparePin(pin: string, hash: string): Promise<boolean> {
-  if (!pin || !hash) return false;
-  return await bcrypt.compare(pin, hash);
+export async function comparePassword(password: string, hash: string): Promise<boolean> {
+  if (!password || !hash) return false;
+  return await bcrypt.compare(password.trim(), hash);
 }
+
+/**
+ * Generates a suggested strong alphanumeric password (e.g. "Wms#7xK92p") for admin convenience.
+ */
+export function generateSuggestedPassword(): string {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let randomPart = "";
+  for (let i = 0; i < 6; i++) {
+    randomPart += chars.charAt(crypto.randomInt(0, chars.length));
+  }
+  return `Wms#${randomPart}`;
+}
+
+// Backwards-compatible aliases
+export const hashPin = hashPassword;
+export const comparePin = comparePassword;
+export const generateTempPin = generateSuggestedPassword;
 
 /**
  * Reads the cryptographic secret key for signing/verifying mobile session tokens.

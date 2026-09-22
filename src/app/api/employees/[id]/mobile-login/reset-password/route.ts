@@ -3,14 +3,23 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AuditService } from "@/lib/services/AuditService";
-import { resolveCaller } from "@/lib/auth/mobileAuth";
+import {
+  resolveCaller,
+  ADMIN_HR_ROLES,
+  validatePasswordStrength,
+  hashPassword,
+} from "@/lib/auth/mobileAuth";
 
 /**
- * POST /api/employees/[id]/mobile-login/reactivate
- * Reactivates mobile app access without resetting the existing PIN credentials.
+ * POST /api/employees/[id]/mobile-login/reset-password
+ * Directly resets an employee's mobile app password.
+ * Clears failedLoginAttempts and lockedUntil so the employee can immediately log in.
  *
  * Security:
  * - Strictly requires ADMIN_HR_ROLES via resolveCaller() (no self-service).
+ * - Admin provides new password directly in the request body.
+ * - Password length & strength validated (min 6 chars).
+ * - Plaintext password is NOT returned in response body.
  */
 export async function POST(
   req: NextRequest,
@@ -31,7 +40,7 @@ export async function POST(
     // 2. Authorization check: Admin/HR roles only
     if (!caller.isAdminOrHr) {
       return NextResponse.json(
-        { error: "Forbidden: Only administrators and HR personnel can reactivate mobile app credentials." },
+        { error: "Forbidden: Only administrators and HR personnel can reset mobile credentials." },
         { status: 403 }
       );
     }
@@ -44,7 +53,6 @@ export async function POST(
         name: true,
         active: true,
         mobileLoginActive: true,
-        mobilePasswordHash: true,
       },
     });
 
@@ -57,43 +65,60 @@ export async function POST(
 
     if (!employee.active) {
       return NextResponse.json(
-        { error: "Cannot reactivate mobile access for an inactive or terminated employee." },
+        { error: "Cannot reset mobile password for an inactive or terminated employee." },
         { status: 403 }
       );
     }
 
-    // 4. Update status (preserving PIN and reset requirements)
+    // 4. Parse and validate input
+    const body = await req.json();
+    const passwordInput = body.password || body.pin;
+
+    const validation = validatePasswordStrength(passwordInput);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error || "Password does not meet minimum strength requirements." },
+        { status: 400 }
+      );
+    }
+
+    // 5. Hash and update password
+    const passwordHash = await hashPassword(passwordInput);
     const now = new Date();
+
     await prisma.employee.update({
       where: { id: employeeId },
       data: {
-        mobileLoginActive: true,
+        mobilePasswordHash: passwordHash,
+        mobilePasswordSetAt: now,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       },
     });
 
-    // 5. Audit Logging
+    // 6. Audit Logging (never log the password)
     await AuditService.logActivity({
       actorName: caller.name || "HR Administrator",
       actorRole: caller.role,
       actorId: caller.id,
       category: "DATA_MUTATION",
-      action: "MOBILE_LOGIN_REACTIVATED",
+      action: "MOBILE_LOGIN_PASSWORD_RESET",
       target: `Employee: ${employee.name} (${employee.id})`,
       metadata: {
         employeeId: employee.id,
         callerId: caller.id,
         callerRole: caller.role,
-        reactivatedAt: now.toISOString(),
+        resetAt: now.toISOString(),
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: "Mobile app access reactivated successfully.",
+      message: "Mobile password reset successfully. The employee can now log in immediately with this password.",
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Failed to reactivate mobile app access." },
+      { error: err.message || "Failed to reset mobile password." },
       { status: 500 }
     );
   }

@@ -6,20 +6,21 @@ import { AuditService } from "@/lib/services/AuditService";
 import {
   resolveCaller,
   ADMIN_HR_ROLES,
-  generateTempPin,
-  hashPin,
+  validatePasswordStrength,
+  hashPassword,
 } from "@/lib/auth/mobileAuth";
 
 /**
  * POST /api/employees/[id]/mobile-login/create
- * Generates a cryptographically random temporary PIN, provisions mobile credentials,
- * and sets mustResetPinOnNextLogin = true.
+ * Sets an employee's mobile app password (and optional username) directly from the ERP.
  *
  * Security:
  * - Strictly requires ADMIN_HR_ROLES via resolveCaller() (no self-service).
- * - Plaintext temp PIN returned ONCE in the response body only.
- * - Never logged or stored in plaintext.
- * - Rejects if mobile login is already active (must use reset-pin endpoint).
+ * - Admin supplies password directly in request body.
+ * - Password length & strength validated (min 6 chars).
+ * - Password hashed and stored in mobilePasswordHash.
+ * - Plaintext password is NOT returned in response body.
+ * - Rejects if mobile login already active (admin must use reset-password instead).
  */
 export async function POST(
   req: NextRequest,
@@ -73,29 +74,57 @@ export async function POST(
     // 4. Reject if already active
     if (employee.mobileLoginActive) {
       return NextResponse.json(
-        { error: "Mobile login is already active for this employee. Use the reset-pin endpoint to change credentials." },
+        { error: "Mobile login is already active for this employee. Use the reset-password endpoint to change credentials." },
         { status: 400 }
       );
     }
 
-    // 5. Generate and hash temporary PIN
-    const tempPin = generateTempPin();
-    const pinHash = await hashPin(tempPin);
+    // 5. Parse and validate input
+    const body = await req.json();
+    const passwordInput = body.password || body.pin;
+    const usernameInput = body.username ? String(body.username).trim().toLowerCase() : null;
+
+    const validation = validatePasswordStrength(passwordInput);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error || "Password does not meet minimum strength requirements." },
+        { status: 400 }
+      );
+    }
+
+    // Check username uniqueness if provided
+    if (usernameInput) {
+      const existingUser = await prisma.employee.findFirst({
+        where: {
+          mobileUsername: usernameInput,
+          id: { not: employeeId },
+        },
+      });
+      if (existingUser) {
+        return NextResponse.json(
+          { error: `Username "${usernameInput}" is already taken by another employee.` },
+          { status: 409 }
+        );
+      }
+    }
+
+    // 6. Hash and store password
+    const passwordHash = await hashPassword(passwordInput);
     const now = new Date();
 
     await prisma.employee.update({
       where: { id: employeeId },
       data: {
         mobileLoginActive: true,
-        mobilePinHash: pinHash,
-        mobilePinSetAt: now,
-        mustResetPinOnNextLogin: true,
+        mobileUsername: usernameInput || undefined,
+        mobilePasswordHash: passwordHash,
+        mobilePasswordSetAt: now,
         failedLoginAttempts: 0,
         lockedUntil: null,
       },
     });
 
-    // 6. Audit Logging (never include plaintext PIN or hash)
+    // 7. Audit Logging (never log the password)
     await AuditService.logActivity({
       actorName: caller.name || "HR Administrator",
       actorRole: caller.role,
@@ -107,14 +136,14 @@ export async function POST(
         employeeId: employee.id,
         callerId: caller.id,
         callerRole: caller.role,
+        hasCustomUsername: !!usernameInput,
         provisionedAt: now.toISOString(),
       },
     });
 
     return NextResponse.json({
       success: true,
-      tempPin,
-      message: "Mobile login created successfully. Please copy the temporary PIN immediately; it will not be displayed again.",
+      message: "Mobile login credentials created successfully. The employee can now log in immediately with this password.",
     });
   } catch (err: any) {
     return NextResponse.json(

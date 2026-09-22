@@ -807,9 +807,9 @@ model Employee {
   faceEnrollmentCount  Int                   @default(0)
   active               Boolean               @default(true)
   mobileLoginActive    Boolean               @default(false)
-  mobilePinHash        String?
-  mobilePinSetAt       DateTime?
-  mustResetPinOnNextLogin Boolean            @default(false)
+  mobileUsername       String?               @unique
+  mobilePasswordHash   String?
+  mobilePasswordSetAt  DateTime?
   failedLoginAttempts  Int                   @default(0)
   lockedUntil          DateTime?
   lat                  Float?

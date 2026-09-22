@@ -96,7 +96,7 @@ export class HrmService {
     });
 
     if (!employee) return null;
-    const { mobilePinHash, ...safeEmployee } = employee;
+    const { mobilePasswordHash, ...safeEmployee } = employee;
     return safeEmployee;
   }
 
@@ -135,7 +135,7 @@ export class HrmService {
     // Auto-seed onboarding checklist
     await this.seedOnboardingChecklist(employee.id);
 
-    const { mobilePinHash, ...safeEmployee } = employee;
+    const { mobilePasswordHash, ...safeEmployee } = employee;
     return safeEmployee;
   }
 
@@ -144,7 +144,7 @@ export class HrmService {
       where: { id },
       data,
     });
-    const { mobilePinHash, ...safeEmployee } = updated;
+    const { mobilePasswordHash, ...safeEmployee } = updated;
     return safeEmployee;
   }
 

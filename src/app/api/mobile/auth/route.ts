@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   signMobileToken,
-  comparePin,
+  comparePassword,
   MOBILE_LOGIN_LOCKOUT_THRESHOLD,
   MOBILE_LOGIN_LOCKOUT_MINUTES,
 } from "@/lib/auth/mobileAuth";
@@ -18,19 +18,28 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { phone, email, employeeId, pin } = body;
+    const { phone, email, employeeId, username, password, pin } = body;
+    const credentialInput = password || pin;
 
-    // 1. PIN is mandatory for mobile authentication
-    if (!pin || typeof pin !== "string" || pin.trim().length === 0) {
+    // 1. Password is mandatory for mobile authentication
+    if (!credentialInput || typeof credentialInput !== "string" || credentialInput.trim().length === 0) {
       return NextResponse.json(
-        { error: "PIN is required for mobile authentication." },
+        { error: "Password is required for mobile authentication." },
         { status: 400 }
       );
     }
 
     let employee = null;
 
-    if (employeeId) {
+    if (username) {
+      const cleanUsername = String(username).trim().toLowerCase();
+      employee = await prisma.employee.findFirst({
+        where: {
+          mobileUsername: { equals: cleanUsername, mode: "insensitive" },
+          active: true,
+        },
+      });
+    } else if (employeeId) {
       employee = await prisma.employee.findUnique({
         where: { id: employeeId },
       });
@@ -76,7 +85,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Brute-force lockout check
+    // 4. Brute-force lockout check (Checked strictly BEFORE password comparison)
     const now = new Date();
     if (employee.lockedUntil && new Date(employee.lockedUntil) > now) {
       const remainingSeconds = Math.ceil(
@@ -99,18 +108,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. PIN Hash presence check
-    if (!employee.mobilePinHash) {
+    // 5. Password Hash presence check
+    if (!employee.mobilePasswordHash) {
       return NextResponse.json(
-        { error: "Mobile PIN has not been provisioned. Please contact HR to set up your mobile login." },
+        { error: "Mobile password has not been provisioned. Please contact HR to set up your mobile login." },
         { status: 401 }
       );
     }
 
-    // 6. Cryptographic PIN verification
-    const isPinValid = await comparePin(pin.trim(), employee.mobilePinHash);
+    // 6. Cryptographic Password verification
+    const isPasswordValid = await comparePassword(credentialInput.trim(), employee.mobilePasswordHash);
 
-    if (!isPinValid) {
+    if (!isPasswordValid) {
       const nextFailedAttempts = (employee.failedLoginAttempts || 0) + 1;
 
       if (nextFailedAttempts >= MOBILE_LOGIN_LOCKOUT_THRESHOLD) {
@@ -125,7 +134,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json(
           {
-            error: `Incorrect PIN. Maximum failed attempts (${MOBILE_LOGIN_LOCKOUT_THRESHOLD}) reached. Account is locked for ${MOBILE_LOGIN_LOCKOUT_MINUTES} minutes.`,
+            error: `Incorrect password. Maximum failed attempts (${MOBILE_LOGIN_LOCKOUT_THRESHOLD}) reached. Account is locked for ${MOBILE_LOGIN_LOCKOUT_MINUTES} minutes.`,
             isLocked: true,
             lockedUntil: lockoutUntil,
             remainingAttempts: 0,
@@ -144,7 +153,7 @@ export async function POST(req: NextRequest) {
       const remainingAttempts = MOBILE_LOGIN_LOCKOUT_THRESHOLD - nextFailedAttempts;
       return NextResponse.json(
         {
-          error: `Incorrect PIN. Please try again. ${remainingAttempts} attempt(s) remaining.`,
+          error: `Incorrect password. Please try again. ${remainingAttempts} attempt(s) remaining.`,
           remainingAttempts,
         },
         { status: 401 }
@@ -168,7 +177,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       token,
-      mustResetPinOnNextLogin: employee.mustResetPinOnNextLogin,
       employee: {
         id: employee.id,
         name: employee.name,

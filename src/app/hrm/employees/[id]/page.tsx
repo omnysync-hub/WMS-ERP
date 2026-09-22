@@ -35,6 +35,9 @@ import {
   Unlock,
   RefreshCw,
   AlertTriangle,
+  Eye,
+  EyeOff,
+  Sparkles,
 } from "lucide-react";
 
 export default function EmployeeProfilePage() {
@@ -51,12 +54,14 @@ export default function EmployeeProfilePage() {
   // Notification
   const [notification, setNotification] = useState("");
 
-  // Mobile App Login State
+  // Mobile App Credentials Form Modal State
+  const [showCredentialModal, setShowCredentialModal] = useState(false);
+  const [credentialModalMode, setCredentialModalMode] = useState<"create" | "reset">("create");
+  const [formUsername, setFormUsername] = useState("");
+  const [formPassword, setFormPassword] = useState("");
+  const [showPasswordText, setShowPasswordText] = useState(true);
   const [mobileActionLoading, setMobileActionLoading] = useState(false);
   const [mobileActionError, setMobileActionError] = useState<string | null>(null);
-  const [oneTimePin, setOneTimePin] = useState<string | null>(null);
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinCopied, setPinCopied] = useState(false);
 
   // Edit / Status update modal
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -99,43 +104,76 @@ export default function EmployeeProfilePage() {
     if (employeeId) loadEmployee();
   }, [employeeId]);
 
-  // Mobile App Credentials Lifecycle Handlers
-  const handleCreateMobileLogin = async () => {
-    try {
-      setMobileActionLoading(true);
-      setMobileActionError(null);
-      const res = await fetch(`/api/employees/${employeeId}/mobile-login/create`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to create mobile login");
-      }
-      setOneTimePin(data.tempPin);
-      setShowPinModal(true);
-      setNotification("Mobile app credentials provisioned successfully.");
-      await loadEmployee();
-    } catch (err: any) {
-      setMobileActionError(err.message);
-    } finally {
-      setMobileActionLoading(false);
+  // Mobile Credential Form Handlers
+  const handleGeneratePassword = () => {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let randomPart = "";
+    for (let i = 0; i < 6; i++) {
+      randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
     }
+    setFormPassword(`Wms#${randomPart}`);
   };
 
-  const handleResetMobilePin = async () => {
+  const openCreateModal = () => {
+    setCredentialModalMode("create");
+    setFormUsername(employee?.mobileUsername || "");
+    handleGeneratePassword();
+    setMobileActionError(null);
+    setShowCredentialModal(true);
+  };
+
+  const openResetModal = () => {
+    setCredentialModalMode("reset");
+    handleGeneratePassword();
+    setMobileActionError(null);
+    setShowCredentialModal(true);
+  };
+
+  const closeCredentialModal = () => {
+    setShowCredentialModal(false);
+    setFormUsername("");
+    setFormPassword("");
+    setMobileActionError(null);
+  };
+
+  const handleSubmitCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formPassword || formPassword.trim().length < 6) {
+      setMobileActionError("Password must be at least 6 characters long.");
+      return;
+    }
+
     try {
       setMobileActionLoading(true);
       setMobileActionError(null);
-      const res = await fetch(`/api/employees/${employeeId}/mobile-login/reset-pin`, {
+
+      const endpoint =
+        credentialModalMode === "create"
+          ? `/api/employees/${employeeId}/mobile-login/create`
+          : `/api/employees/${employeeId}/mobile-login/reset-password`;
+
+      const payload: any = { password: formPassword.trim() };
+      if (credentialModalMode === "create" && formUsername.trim()) {
+        payload.username = formUsername.trim();
+      }
+
+      const res = await fetch(endpoint, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
+
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to reset mobile PIN");
+        throw new Error(data.error || "Failed to save mobile credentials");
       }
-      setOneTimePin(data.tempPin);
-      setShowPinModal(true);
-      setNotification("Mobile PIN reset successfully.");
+
+      setNotification(
+        credentialModalMode === "create"
+          ? "Mobile access provisioned. Employee can log in immediately."
+          : "Mobile password updated successfully."
+      );
+      closeCredentialModal();
       await loadEmployee();
     } catch (err: any) {
       setMobileActionError(err.message);
@@ -145,6 +183,13 @@ export default function EmployeeProfilePage() {
   };
 
   const handleDeactivateMobileLogin = async () => {
+    if (
+      !confirm(
+        "Are you sure you want to deactivate mobile app access for this employee? Any active sessions will be terminated immediately."
+      )
+    ) {
+      return;
+    }
     try {
       setMobileActionLoading(true);
       setMobileActionError(null);
@@ -165,6 +210,9 @@ export default function EmployeeProfilePage() {
   };
 
   const handleReactivateMobileLogin = async () => {
+    if (!confirm("Reactivate mobile app access for this employee? Their existing password will be restored.")) {
+      return;
+    }
     try {
       setMobileActionLoading(true);
       setMobileActionError(null);
@@ -182,23 +230,6 @@ export default function EmployeeProfilePage() {
     } finally {
       setMobileActionLoading(false);
     }
-  };
-
-  const copyPinToClipboard = async () => {
-    if (!oneTimePin) return;
-    try {
-      await navigator.clipboard.writeText(oneTimePin);
-      setPinCopied(true);
-      setTimeout(() => setPinCopied(false), 2500);
-    } catch (err) {
-      console.error("Clipboard copy failed:", err);
-    }
-  };
-
-  const dismissPinModal = () => {
-    setOneTimePin(null);
-    setShowPinModal(false);
-    setPinCopied(false);
   };
 
   // Toggle Onboarding Item
@@ -670,7 +701,7 @@ export default function EmployeeProfilePage() {
                     Mobile App Access & Security Lifecycle
                   </h2>
                   <p className="text-[11px] text-[#71717A] mt-0.5">
-                    Manage mobile credentials, one-time temporary PIN provisioning, brute-force lockouts, and access authorization.
+                    Manage direct mobile login credentials, custom usernames, brute-force lockouts, and access authorization.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -684,7 +715,7 @@ export default function EmployeeProfilePage() {
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                       Active Access
                     </span>
-                  ) : employee.mobilePinSetAt ? (
+                  ) : employee.mobilePasswordSetAt ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-700 border border-zinc-200">
                       <UserX className="w-3.5 h-3.5 text-zinc-500" />
                       Deactivated
@@ -702,49 +733,42 @@ export default function EmployeeProfilePage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                 <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
                   <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider">
-                    Provisioning Status
+                    Provisioning & Identifier
                   </span>
                   <p className="font-semibold text-[#18181B] mt-1 text-sm flex items-center gap-1.5">
                     {employee.mobileLoginActive ? (
                       <span className="text-emerald-700 font-bold">Enabled & Active</span>
-                    ) : employee.mobilePinSetAt ? (
+                    ) : employee.mobilePasswordSetAt ? (
                       <span className="text-zinc-600">Access Suspended</span>
                     ) : (
                       <span className="text-amber-700">No Mobile Account</span>
                     )}
                   </p>
                   <span className="text-[10px] text-[#94A3B8] block mt-1">
-                    {employee.mobilePinSetAt
-                      ? `Credentials updated ${formatDateTime(employee.mobilePinSetAt)}`
-                      : "Never provisioned"}
+                    {employee.mobileUsername
+                      ? `Username: @${employee.mobileUsername}`
+                      : "Login via phone, email, or employee ID"}
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
                   <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider">
-                    PIN Status & Force Reset
+                    Password Status
                   </span>
                   <p className="font-semibold text-[#18181B] mt-1 text-sm">
-                    {employee.mustResetPinOnNextLogin ? (
-                      <span className="text-amber-700 font-bold flex items-center gap-1">
-                        <RefreshCw className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                        Forced Reset Required
-                      </span>
-                    ) : employee.mobilePinSetAt ? (
+                    {employee.mobilePasswordSetAt ? (
                       <span className="text-emerald-700 font-bold flex items-center gap-1">
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        PIN Configured by User
+                        Direct Password Set
                       </span>
                     ) : (
                       <span className="text-zinc-500">Unprovisioned</span>
                     )}
                   </p>
                   <span className="text-[10px] text-[#94A3B8] block mt-1">
-                    {employee.mustResetPinOnNextLogin
-                      ? "User will be prompted to set personal PIN on next login"
-                      : employee.mobilePinSetAt
-                      ? "PIN active with no pending reset"
-                      : "Must provision account first"}
+                    {employee.mobilePasswordSetAt
+                      ? `Configured ${formatDateTime(employee.mobilePasswordSetAt)}`
+                      : "No credentials assigned yet"}
                   </span>
                 </div>
 
@@ -775,26 +799,26 @@ export default function EmployeeProfilePage() {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[#F1F5F9]">
-                {!employee.mobileLoginActive && !employee.mobilePinSetAt ? (
+                {!employee.mobileLoginActive && !employee.mobilePasswordSetAt ? (
                   <button
                     type="button"
                     disabled={mobileActionLoading}
-                    onClick={handleCreateMobileLogin}
+                    onClick={openCreateModal}
                     className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition disabled:opacity-50"
                   >
                     <KeyRound className="w-3.5 h-3.5" />
-                    {mobileActionLoading ? "Provisioning..." : "Provision Mobile Access"}
+                    Provision Mobile Access
                   </button>
                 ) : (
                   <>
                     <button
                       type="button"
                       disabled={mobileActionLoading}
-                      onClick={handleResetMobilePin}
+                      onClick={openResetModal}
                       className="px-4 py-2 bg-zinc-800 hover:bg-zinc-900 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition disabled:opacity-50"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      {mobileActionLoading ? "Generating PIN..." : "Reset Mobile PIN"}
+                      Reset Password
                     </button>
 
                     {employee.mobileLoginActive ? (
@@ -805,7 +829,7 @@ export default function EmployeeProfilePage() {
                         className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
                       >
                         <Lock className="w-3.5 h-3.5 text-rose-600" />
-                        {mobileActionLoading ? "Updating..." : "Deactivate Mobile Access"}
+                        Deactivate Access
                       </button>
                     ) : (
                       <button
@@ -815,7 +839,7 @@ export default function EmployeeProfilePage() {
                         className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition disabled:opacity-50"
                       >
                         <Unlock className="w-3.5 h-3.5 text-emerald-600" />
-                        {mobileActionLoading ? "Updating..." : "Reactivate Mobile Access"}
+                        Reactivate Access
                       </button>
                     )}
                   </>
@@ -1454,8 +1478,8 @@ export default function EmployeeProfilePage() {
         </div>
       )}
 
-      {/* One-Time Temporary PIN Modal */}
-      {showPinModal && oneTimePin && (
+      {/* Direct Mobile App Credential Modal */}
+      {showCredentialModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-zinc-200 text-xs">
             <div className="flex items-center gap-3">
@@ -1463,56 +1487,117 @@ export default function EmployeeProfilePage() {
                 <KeyRound className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-zinc-900">Temporary Mobile PIN Generated</h3>
-                <p className="text-zinc-500 text-xs">One-time provisioning credential for {employee?.name}</p>
+                <h3 className="text-base font-bold text-zinc-900">
+                  {credentialModalMode === "create" ? "Provision Mobile App Access" : "Reset Mobile App Password"}
+                </h3>
+                <p className="text-zinc-500 text-xs">
+                  {credentialModalMode === "create"
+                    ? `Set direct login credentials for ${employee?.name}`
+                    : `Configure a new password for ${employee?.name}`}
+                </p>
               </div>
             </div>
 
-            <div className="bg-zinc-950 text-white rounded-xl p-5 text-center border border-zinc-800 shadow-inner">
-              <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block mb-1">
-                One-Time Temporary PIN
-              </span>
-              <div className="text-3xl font-mono font-extrabold tracking-widest text-emerald-400 select-all py-1">
-                {oneTimePin}
+            <form onSubmit={handleSubmitCredentials} className="space-y-4">
+              {credentialModalMode === "create" && (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-zinc-700 block">
+                    Mobile Username <span className="text-zinc-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formUsername}
+                    onChange={(e) => setFormUsername(e.target.value)}
+                    placeholder={employee?.employeeId ? `e.g. ${employee.employeeId.toLowerCase()}` : "e.g. tech.username"}
+                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                  />
+                  <p className="text-[10px] text-zinc-400">
+                    If omitted, the employee can log in using their Employee ID ({employee?.employeeId || "—"}), Email, or Phone.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-zinc-700 block">
+                    Password <span className="text-rose-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGeneratePassword}
+                    className="text-[10px] font-semibold text-[#0D7A5F] hover:text-[#0A624C] flex items-center gap-1 transition"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Generate Suggested
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showPasswordText ? "text" : "password"}
+                    value={formPassword}
+                    onChange={(e) => setFormPassword(e.target.value)}
+                    placeholder="Enter at least 6 characters"
+                    required
+                    minLength={6}
+                    className="w-full px-3 py-2 pr-10 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordText(!showPasswordText)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
+                  >
+                    {showPasswordText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                  <span>Minimum 6 characters. Alphanumeric & symbols supported.</span>
+                  {formPassword.length >= 6 && (
+                    <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
+                      <Check className="w-3 h-3" /> Valid length
+                    </span>
+                  )}
+                </div>
               </div>
-              <span className="text-[10px] text-zinc-500 block mt-1">
-                Employee will be forced to configure their own PIN upon next login.
-              </span>
-            </div>
 
-            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-[11px] leading-relaxed">
-                <strong>Security Notice:</strong> This PIN is displayed only once and will <strong>never</strong> be shown again or stored in plaintext. Copy it and transmit it securely to the employee.
-              </p>
-            </div>
+              {mobileActionError && (
+                <div className="p-2.5 bg-rose-50 rounded-xl border border-rose-200 text-rose-800 text-[11px] flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{mobileActionError}</span>
+                </div>
+              )}
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-100">
-              <button
-                type="button"
-                onClick={copyPinToClipboard}
-                className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-bold rounded-xl text-xs flex items-center gap-2 transition"
-              >
-                {pinCopied ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    Copied to Clipboard!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    Copy PIN
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={dismissPinModal}
-                className="px-5 py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white font-bold rounded-xl text-xs shadow-xs transition"
-              >
-                Done
-              </button>
-            </div>
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-950 text-[11px] leading-relaxed">
+                <strong>Immediate Login:</strong> This password is saved as a secure bcrypt hash. The employee can log in immediately on the mobile app into their profile with no forced PIN reset.
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={closeCredentialModal}
+                  disabled={mobileActionLoading}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold rounded-xl text-xs transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={mobileActionLoading || formPassword.trim().length < 6}
+                  className="px-5 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
+                >
+                  {mobileActionLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : credentialModalMode === "create" ? (
+                    "Provision Mobile Access"
+                  ) : (
+                    "Update Password"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

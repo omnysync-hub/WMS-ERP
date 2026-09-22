@@ -7,7 +7,7 @@ import { resolveCaller } from "@/lib/auth/mobileAuth";
 /**
  * GET /api/employees/[id]/mobile-login/status
  * Retrieves the mobile login credentials status for an employee.
- * Strictly omits mobilePinHash.
+ * Strictly omits mobilePasswordHash.
  *
  * Security:
  * - Requires authentication.
@@ -46,8 +46,8 @@ export async function GET(
         name: true,
         active: true,
         mobileLoginActive: true,
-        mustResetPinOnNextLogin: true,
-        mobilePinSetAt: true,
+        mobileUsername: true,
+        mobilePasswordSetAt: true,
         failedLoginAttempts: true,
         lockedUntil: true,
       },
@@ -70,8 +70,8 @@ export async function GET(
       name: employee.name,
       employeeActive: employee.active,
       mobileLoginActive: employee.mobileLoginActive,
-      mustResetPinOnNextLogin: employee.mustResetPinOnNextLogin,
-      mobilePinSetAt: employee.mobilePinSetAt,
+      mobileUsername: employee.mobileUsername,
+      mobilePasswordSetAt: employee.mobilePasswordSetAt,
       failedLoginAttempts: employee.failedLoginAttempts,
       lockedUntil: employee.lockedUntil,
       isLocked,

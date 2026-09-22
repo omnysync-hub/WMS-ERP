@@ -5,20 +5,19 @@ import { prisma } from "@/lib/prisma";
 import { AuditService } from "@/lib/services/AuditService";
 import {
   resolveCaller,
-  comparePin,
-  hashPin,
+  comparePassword,
+  hashPassword,
+  validatePasswordStrength,
 } from "@/lib/auth/mobileAuth";
 
 /**
  * POST /api/mobile/auth/change-pin
- * Authenticated self-service endpoint for employees to update their mobile PIN.
- * Required during the forced first-login reset flow, and available for routine self-service changes.
+ * Authenticated self-service endpoint for employees to update their mobile password/PIN.
  *
  * Security:
  * - Requires a valid mobile session token or authenticated employee credentials.
- * - Requires verification of current PIN to prevent unauthorized hijacking.
- * - Clears mustResetPinOnNextLogin upon successful change.
- * - Enforces minimum complexity (4-8 numeric digits).
+ * - Requires verification of current password to prevent unauthorized changes.
+ * - Enforces minimum length >= 6.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -40,8 +39,7 @@ export async function POST(req: NextRequest) {
         role: true,
         active: true,
         mobileLoginActive: true,
-        mobilePinHash: true,
-        mustResetPinOnNextLogin: true,
+        mobilePasswordHash: true,
       },
     });
 
@@ -61,91 +59,79 @@ export async function POST(req: NextRequest) {
 
     // 3. Parse and validate body
     const body = await req.json();
-    const { currentPin, newPin } = body;
+    const currentInput = body.currentPassword || body.currentPin;
+    const newInput = body.newPassword || body.newPin;
 
-    if (!newPin || typeof newPin !== "string") {
+    const validation = validatePasswordStrength(newInput);
+    if (!validation.valid) {
       return NextResponse.json(
-        { error: "A new numeric PIN is required." },
+        { error: validation.error || "New password does not meet requirements." },
         { status: 400 }
       );
     }
 
-    const trimmedNewPin = newPin.trim();
-    if (!/^\d{4,8}$/.test(trimmedNewPin)) {
-      return NextResponse.json(
-        { error: "PIN must consist of 4 to 8 digits (e.g. 6 digits)." },
-        { status: 400 }
-      );
-    }
-
-    // 4. Verify current PIN
-    // If the employee already has a PIN hash, verify current PIN
-    if (employee.mobilePinHash) {
-      if (!currentPin || typeof currentPin !== "string") {
+    // 4. Verify current password
+    if (employee.mobilePasswordHash) {
+      if (!currentInput || typeof currentInput !== "string") {
         return NextResponse.json(
-          { error: "Current PIN is required to change your PIN." },
+          { error: "Current password is required to change your password." },
           { status: 400 }
         );
       }
 
-      const isCurrentValid = await comparePin(currentPin.trim(), employee.mobilePinHash);
+      const isCurrentValid = await comparePassword(currentInput.trim(), employee.mobilePasswordHash);
       if (!isCurrentValid) {
         return NextResponse.json(
-          { error: "Incorrect current PIN." },
+          { error: "Incorrect current password." },
           { status: 401 }
         );
       }
-    }
 
-    // Prevent re-using the exact same PIN
-    if (employee.mobilePinHash) {
-      const isSame = await comparePin(trimmedNewPin, employee.mobilePinHash);
+      // Prevent re-using the exact same password
+      const isSame = await comparePassword(String(newInput).trim(), employee.mobilePasswordHash);
       if (isSame) {
         return NextResponse.json(
-          { error: "New PIN must be different from your current PIN." },
+          { error: "New password must be different from your current password." },
           { status: 400 }
         );
       }
     }
 
-    // 5. Hash and persist new PIN
-    const newHash = await hashPin(trimmedNewPin);
+    // 5. Hash and persist new password
+    const newHash = await hashPassword(newInput);
     const now = new Date();
 
     await prisma.employee.update({
       where: { id: employee.id },
       data: {
-        mobilePinHash: newHash,
-        mobilePinSetAt: now,
-        mustResetPinOnNextLogin: false,
+        mobilePasswordHash: newHash,
+        mobilePasswordSetAt: now,
         failedLoginAttempts: 0,
         lockedUntil: null,
       },
     });
 
-    // 6. Audit Logging (never include plaintext PIN or hash)
+    // 6. Audit Logging (never include plaintext password or hash)
     await AuditService.logActivity({
       actorName: employee.name,
       actorRole: employee.role,
       actorId: employee.id,
       category: "DATA_MUTATION",
-      action: "MOBILE_LOGIN_PIN_CHANGED",
+      action: "MOBILE_LOGIN_PASSWORD_CHANGED",
       target: `Employee: ${employee.name} (${employee.id})`,
       metadata: {
         employeeId: employee.id,
-        wasForcedReset: employee.mustResetPinOnNextLogin,
         changedAt: now.toISOString(),
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: "Mobile PIN updated successfully.",
-      mustResetPinOnNextLogin: false,
+      message: "Mobile password updated successfully.",
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Failed to update mobile PIN." },
+      { error: err.message || "Failed to update mobile password." },
       { status: 500 }
     );
   }
