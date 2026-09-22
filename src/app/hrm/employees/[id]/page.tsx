@@ -6,6 +6,7 @@ import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 import {
   User,
   Phone,
@@ -44,6 +45,15 @@ export default function EmployeeProfilePage() {
   const params = useParams();
   const router = useRouter();
   const employeeId = params.id as string;
+
+  const { activeRole, currentPersona } = useRole();
+
+  const getAdminHeaders = () => ({
+    "Content-Type": "application/json",
+    "x-employee-id": currentPersona?.id || "bcf9ec77-796f-47cc-948e-196057876ed2",
+    "x-actor-role": activeRole || "admin",
+    "x-actor-name": currentPersona?.name || "Administrator",
+  });
 
   const [employee, setEmployee] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -159,7 +169,7 @@ export default function EmployeeProfilePage() {
 
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -195,6 +205,7 @@ export default function EmployeeProfilePage() {
       setMobileActionError(null);
       const res = await fetch(`/api/employees/${employeeId}/mobile-login/deactivate`, {
         method: "POST",
+        headers: getAdminHeaders(),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -218,6 +229,7 @@ export default function EmployeeProfilePage() {
       setMobileActionError(null);
       const res = await fetch(`/api/employees/${employeeId}/mobile-login/reactivate`, {
         method: "POST",
+        headers: getAdminHeaders(),
       });
       const data = await res.json();
       if (!res.ok) {

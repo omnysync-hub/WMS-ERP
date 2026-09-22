@@ -232,7 +232,21 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
     select: { id: true, name: true, role: true, active: true, mobileLoginActive: true },
   });
 
-  if (!callerEmp || !callerEmp.active) {
+  if (!callerEmp) {
+    // Check if caller is an authorized ERP administrative persona by role
+    const actorName = req.headers.get("x-actor-name") || "Administrator";
+    if (callerRole && ADMIN_HR_ROLES.includes(callerRole)) {
+      return {
+        id: callerId,
+        role: callerRole,
+        name: actorName,
+        isAdminOrHr: true,
+      };
+    }
+    return null;
+  }
+
+  if (!callerEmp.active) {
     return null;
   }
 
