@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
+import { AccountMappingService } from "@/lib/services/AccountMappingService";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,10 +40,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Post to Accounts Posting Engine:
-    // Debit Employee Advances Asset (1150), Credit Cash & Bank (1000)
-    const advAccount = await AccountsPostingService.getAccountByCode("1150");
-    const cashAccount = await AccountsPostingService.getAccountByCode("1000");
+    // Post to Accounts Posting Engine via AccountMappingService:
+    // Debit Employee Advances Asset, Credit Cash & Bank
+    const advAccount = await AccountMappingService.resolveAccount({
+      transactionType: "advance_granted_receivable",
+    });
+    const cashAccount = await AccountMappingService.resolveAccount({
+      transactionType: "advance_granted_disbursing",
+    });
 
     await AccountsPostingService.post({
       memo: `Salary/Field Advance granted to ${employee.name} (${employee.role})`,

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export class PayrollService {
   /**
@@ -112,10 +113,16 @@ export class PayrollService {
       throw new Error(`Payroll must be 'Approved' before disbursement. Current status: ${run.status}`);
     }
 
-    // Accounts:
-    const salaryExpenseAccount = await AccountsPostingService.getAccountByCode("6000"); // Salaries & Wages Expense
-    const bankAccount = await AccountsPostingService.getAccountByCode("1000"); // Cash and Bank
-    const advanceAccount = await AccountsPostingService.getAccountByCode("1150"); // Employee Advances (Asset)
+    // Accounts via AccountMappingService:
+    const salaryExpenseAccount = await AccountMappingService.resolveAccount({
+      transactionType: "payroll_salaries_expense",
+    });
+    const bankAccount = await AccountMappingService.resolveAccount({
+      transactionType: "payroll_net_disbursing",
+    });
+    const advanceAccount = await AccountMappingService.resolveAccount({
+      transactionType: "payroll_advance_deduction",
+    });
 
     const lines = [
       { accountId: salaryExpenseAccount.id, debit: run.totalGross, credit: 0 },

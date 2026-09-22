@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
+import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { JobsService } from "@/lib/services/JobsService";
 import { AuditService } from "@/lib/services/AuditService";
 import {
@@ -15,6 +16,7 @@ import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { FixedAssetService } from "@/lib/services/FixedAssetService";
 import { TaxService } from "@/lib/services/TaxService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
+import { AccountSuggestionAgent } from "@/lib/services/AccountSuggestionAgent";
 
 export async function GET(req: NextRequest) {
   try {
@@ -38,6 +40,22 @@ export async function GET(req: NextRequest) {
           isSetupCompleted: false,
         },
       });
+    }
+
+    // 0.05 ACCOUNT MAPPINGS & COMPLETENESS
+    if (view === "account_mappings") {
+      const companyId = searchParams.get("companyId") || "DEFAULT";
+      const mappings = await AccountMappingService.getAllMappings(companyId);
+      const completeness = await AccountMappingService.getCompleteness(companyId);
+      return NextResponse.json({ success: true, mappings, completeness });
+    }
+
+    // 0.06 AI MAPPING SUGGESTIONS REVIEW QUEUE
+    if (view === "mapping_suggestions") {
+      const status = searchParams.get("status") || "pending";
+      const companyId = searchParams.get("companyId") || "DEFAULT";
+      const suggestions = await AccountSuggestionAgent.getSuggestions(status, companyId);
+      return NextResponse.json({ success: true, suggestions });
     }
 
     // 0.1 FINANCIAL STATEMENTS (Trial Balance, Balance Sheet, Income Statement, Cash Flow)
@@ -891,11 +909,6 @@ export async function GET(req: NextRequest) {
       const fromDate = searchParams.get("from");
       const toDate = searchParams.get("to");
 
-      // Auto-provision standard cash/bank accounts if needed
-      await AccountsPostingService.getAccountByCode("1000").catch(() => null);
-      await AccountsPostingService.getAccountByCode("1010").catch(() => null);
-      await AccountsPostingService.getAccountByCode("1020").catch(() => null);
-
       // Find all Cash and Bank accounts (level 4 asset accounts)
       const cashAccounts = await prisma.account.findMany({
         where: {
@@ -1007,13 +1020,6 @@ export async function GET(req: NextRequest) {
     }
 
     // 10. CHART OF ACCOUNTS (LEVEL 4 HIERARCHY + TREE + TABULAR)
-    // Auto-provision standard accounts if missing
-    for (const def of STANDARD_COA_DEFINITIONS) {
-      if (!def.isGroup && def.level === 4) {
-        await AccountsPostingService.getAccountByCode(def.code).catch(() => null);
-      }
-    }
-
     const accounts = await prisma.account.findMany({
       include: {
         journalLines: true,
@@ -1035,6 +1041,12 @@ export async function GET(req: NextRequest) {
         code: acc.code,
         name: acc.name,
         type: acc.type,
+        level: acc.level,
+        parentId: acc.parentId,
+        isSystem: acc.isSystem,
+        isActive: acc.isActive,
+        currency: acc.currency,
+        description: acc.description,
         balance: Math.round(balance * 100) / 100,
         entriesCount: acc.journalLines.length,
       };
@@ -1135,8 +1147,12 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid expense amount" }, { status: 400 });
         }
 
-        const expenseAcc = await AccountsPostingService.getAccountByCode(expenseAccountCode);
-        const disbursingAcc = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+        const expenseAcc = expenseAccountCode && expenseAccountCode !== "6100"
+          ? await AccountsPostingService.getAccountByCode(expenseAccountCode)
+          : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_expense" });
+        const disbursingAcc = disbursingAccountCode && disbursingAccountCode !== "1000"
+          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_disbursing" });
 
         // Balanced double entry: Debit Expense, Credit Cash/Bank
         const journal = await AccountsPostingService.post({
@@ -1190,8 +1206,10 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid payment amount" }, { status: 400 });
         }
 
-        const cashAcc = await AccountsPostingService.getAccountByCode(receivingAccountCode);
-        const arAcc = await AccountsPostingService.getAccountByCode("1100"); // Accounts Receivable
+        const cashAcc = receivingAccountCode && receivingAccountCode !== "1000"
+          ? await AccountsPostingService.getAccountByCode(receivingAccountCode)
+          : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving" });
+        const arAcc = await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receivable" });
 
         const journal = await AccountsPostingService.post({
           memo: notes || `Customer payment received via ${paymentMethod.toUpperCase()}`,
@@ -1237,8 +1255,10 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid technician or advance amount" }, { status: 400 });
         }
 
-        const advanceAcc = await AccountsPostingService.getAccountByCode("1150"); // Employee & Tech Advances
-        const cashAcc = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+        const advanceAcc = await AccountMappingService.resolveAccount({ transactionType: "advance_granted_receivable" });
+        const cashAcc = disbursingAccountCode && disbursingAccountCode !== "1000"
+          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          : await AccountMappingService.resolveAccount({ transactionType: "advance_granted_disbursing" });
 
         const journal = await AccountsPostingService.post({
           memo: `Cash advance / float disbursed to technician`,
@@ -1286,8 +1306,10 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid vendor payment amount" }, { status: 400 });
         }
 
-        const apAcc = await AccountsPostingService.getAccountByCode("2000"); // Accounts Payable
-        const cashAcc = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+        const apAcc = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_payable" });
+        const cashAcc = disbursingAccountCode && disbursingAccountCode !== "1000"
+          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          : await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_disbursing" });
 
         const journal = await AccountsPostingService.post({
           memo: memo || `Payment to supplier: ${vendorName}`,
@@ -1363,16 +1385,18 @@ export async function POST(req: NextRequest) {
 
         if (transactionType === "receipt") {
           // Cash Inflow: Debit Cash/Bank, Credit Contra Account (e.g. 4000 Revenue or 1100 AR or 3000 Capital)
-          const targetContraCode = contraAccountCode || "4000";
-          const contraAcc = await AccountsPostingService.getAccountByCode(targetContraCode);
+          const contraAcc = contraAccountCode
+            ? await AccountsPostingService.getAccountByCode(contraAccountCode)
+            : await AccountMappingService.resolveAccount({ transactionType: "cashbook_contra_revenue" });
           postingLines = [
             { accountId: cashAcc.id, debit: numAmount, credit: 0 },
             { accountId: contraAcc.id, debit: 0, credit: numAmount },
           ];
         } else if (transactionType === "payment") {
-          // Cash Outflow: Debit Contra Account (e.g. 6100 Expense or 2000 AP), Credit Cash/Bank
-          const targetContraCode = contraAccountCode || "6200";
-          const contraAcc = await AccountsPostingService.getAccountByCode(targetContraCode);
+          // Cash Outflow: Debit Contra Account, Credit Cash/Bank
+          const contraAcc = contraAccountCode
+            ? await AccountsPostingService.getAccountByCode(contraAccountCode)
+            : await AccountMappingService.resolveAccount({ transactionType: "cashbook_contra_expense" });
           postingLines = [
             { accountId: contraAcc.id, debit: numAmount, credit: 0 },
             { accountId: cashAcc.id, debit: 0, credit: numAmount },
@@ -1557,6 +1581,263 @@ export async function POST(req: NextRequest) {
       case "create_vendor": {
         const vendor = await TaxService.createVendor(payload);
         return NextResponse.json({ success: true, vendor });
+      }
+
+      // 20. UPDATE ACCOUNT MAPPING
+      case "update_account_mapping": {
+        const { transactionType, accountId, categoryScope = null, companyId = "DEFAULT", actorName = "Fatima Noor (Accountant)" } = payload;
+        if (!transactionType || !accountId) {
+          return NextResponse.json({ error: "transactionType and accountId are required" }, { status: 400 });
+        }
+        const updated = await AccountMappingService.setMapping(companyId, transactionType, accountId, categoryScope, actorName);
+        return NextResponse.json({ success: true, mapping: updated });
+      }
+
+      // 20.1 AI AGENT: SCAN TRANSACTIONS FOR ACCOUNT MAPPING SUGGESTIONS
+      case "scan_suggestions": {
+        const { companyId = "DEFAULT" } = payload;
+        const result = await AccountSuggestionAgent.scanTransactions(companyId);
+        return NextResponse.json({ success: true, ...result });
+      }
+
+      // 20.2 AI AGENT: REVIEW SINGLE SUGGESTION (ACCEPT, SKIP, REJECT)
+      case "review_suggestion": {
+        const { auditId, decision, reviewAction, overrideAccountId, actorName = "Fatima Noor (Accountant)", companyId = "DEFAULT" } = payload;
+        const finalDecision = decision || reviewAction;
+        if (!auditId) {
+          return NextResponse.json({ error: "auditId is required" }, { status: 400 });
+        }
+        if (finalDecision === "accept") {
+          const res = await AccountSuggestionAgent.acceptSuggestion(auditId, actorName, overrideAccountId, companyId);
+          return NextResponse.json({ ...res });
+        } else if (finalDecision === "skip") {
+          const res = await AccountSuggestionAgent.skipSuggestion(auditId, actorName);
+          return NextResponse.json({ success: true, audit: res });
+        } else if (finalDecision === "reject") {
+          const res = await AccountSuggestionAgent.rejectSuggestion(auditId, actorName);
+          return NextResponse.json({ success: true, audit: res });
+        } else {
+          return NextResponse.json({ error: `Unknown review action '${finalDecision}'. Valid actions: accept, skip, reject.` }, { status: 400 });
+        }
+      }
+
+      // 20.3 AI AGENT: BATCH ACCEPT ALL HIGH CONFIDENCE SUGGESTIONS (>= 85%)
+      case "accept_high_confidence": {
+        const { companyId = "DEFAULT", actorName = "Fatima Noor (Accountant)", threshold = 0.85 } = payload;
+        const res = await AccountSuggestionAgent.acceptAllHighConfidence(companyId, actorName, Number(threshold));
+        return NextResponse.json({ success: true, ...res });
+      }
+
+      // 21. CREATE ACCOUNT (WITH 4-LEVEL HIERARCHY SUPPORT)
+      case "create_account": {
+        const { code, name, type, description, parentId, level = 4, currency = "PKR", companyId = "DEFAULT" } = payload;
+        if (!code || !name || !type) {
+          return NextResponse.json({ error: "code, name, and type are required" }, { status: 400 });
+        }
+        const existing = await prisma.account.findUnique({ where: { code } });
+        if (existing) {
+          return NextResponse.json({ error: `Account with code '${code}' already exists.` }, { status: 400 });
+        }
+        const account = await prisma.account.create({
+          data: {
+            code,
+            name,
+            type,
+            description: description || null,
+            parentId: parentId || null,
+            level: Number(level) || 4,
+            currency: currency || "PKR",
+            companyId: companyId || "DEFAULT",
+            isSystem: false,
+            isActive: true,
+          },
+        });
+        return NextResponse.json({ success: true, account });
+      }
+
+      // 22. UPDATE ACCOUNT (RENAME, REPARENT, DEACTIVATE WITH REASSIGNMENT GUARD)
+      case "update_account": {
+        const { id, name, description, isActive, parentId, level, forceDeactivate = false } = payload;
+        if (!id) return NextResponse.json({ error: "Account ID is required" }, { status: 400 });
+        
+        const existing = await prisma.account.findUnique({
+          where: { id },
+          include: {
+            mappings: true,
+          },
+        });
+        if (!existing) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+
+        // Deactivation Guard: check if account is currently used in active account mappings
+        if (isActive === false && existing.mappings.length > 0 && !forceDeactivate) {
+          const mappedTypes = existing.mappings.map((m) => m.transactionType);
+          return NextResponse.json(
+            {
+              success: false,
+              blockedByMappings: true,
+              mappedTransactionTypes: mappedTypes,
+              error: `Cannot deactivate account "${existing.code} — ${existing.name}" because it is currently assigned to ${mappedTypes.length} active transaction type(s). Please reassign these mappings first or force-confirm deactivation.`,
+            },
+            { status: 409 }
+          );
+        }
+
+        // Prevent reparenting system accounts
+        if (existing.isSystem && parentId !== undefined && parentId !== existing.parentId) {
+          return NextResponse.json(
+            { error: "System-defined control accounts cannot be reparented." },
+            { status: 400 }
+          );
+        }
+
+        const account = await prisma.account.update({
+          where: { id },
+          data: {
+            ...(name ? { name } : {}),
+            ...(description !== undefined ? { description } : {}),
+            ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
+            ...(parentId !== undefined ? { parentId } : {}),
+            ...(level !== undefined ? { level: Number(level) } : {}),
+          },
+        });
+        return NextResponse.json({ success: true, account });
+      }
+
+      // 22.1 CHECK ACCOUNT USAGE (MAPPINGS & JOURNAL LINES)
+      case "check_account_usage": {
+        const { id } = payload;
+        if (!id) return NextResponse.json({ error: "Account ID is required" }, { status: 400 });
+
+        const acc = await prisma.account.findUnique({
+          where: { id },
+          include: {
+            mappings: true,
+            journalLines: { select: { id: true }, take: 10 },
+          },
+        });
+
+        if (!acc) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+
+        const mappedTypes = acc.mappings.map((m) => m.transactionType);
+        const journalLinesCount = acc.journalLines.length;
+        const canDelete = !acc.isSystem && journalLinesCount === 0 && mappedTypes.length === 0;
+
+        return NextResponse.json({
+          success: true,
+          account: {
+            id: acc.id,
+            code: acc.code,
+            name: acc.name,
+            isSystem: acc.isSystem,
+            isActive: acc.isActive,
+          },
+          mappedTransactionTypes: mappedTypes,
+          journalLinesCount,
+          canDelete,
+          deleteBlockReason: acc.isSystem
+            ? "System-protected accounts cannot be deleted."
+            : journalLinesCount > 0
+            ? `Account has ${journalLinesCount} posted journal entry lines and must be retained for GAAP audit compliance.`
+            : mappedTypes.length > 0
+            ? `Account is mapped to ${mappedTypes.length} transaction type(s).`
+            : null,
+        });
+      }
+
+      // 22.2 DELETE ACCOUNT (STRICT AUDIT & SAFETY GATES)
+      case "delete_account": {
+        const { id } = payload;
+        if (!id) return NextResponse.json({ error: "Account ID is required" }, { status: 400 });
+
+        const existing = await prisma.account.findUnique({
+          where: { id },
+          include: {
+            mappings: true,
+            journalLines: { select: { id: true }, take: 1 },
+          },
+        });
+
+        if (!existing) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+
+        if (existing.isSystem) {
+          return NextResponse.json(
+            { error: `System account "${existing.code} — ${existing.name}" is permanently locked and cannot be deleted.` },
+            { status: 403 }
+          );
+        }
+
+        if (existing.journalLines.length > 0) {
+          return NextResponse.json(
+            { error: `Account "${existing.code} — ${existing.name}" has recorded general ledger activity and cannot be deleted. Deactivate it instead.` },
+            { status: 400 }
+          );
+        }
+
+        if (existing.mappings.length > 0) {
+          const types = existing.mappings.map((m) => m.transactionType).join(", ");
+          return NextResponse.json(
+            { error: `Account is actively mapped to transaction type(s): ${types}. Reassign these mappings before deletion.` },
+            { status: 400 }
+          );
+        }
+
+        // Safe to delete
+        await prisma.account.delete({ where: { id } });
+
+        await AuditService.logActivity({
+          actorName: payload.actorName || "Admin User",
+          actorRole: "admin",
+          category: "DATA_MUTATION",
+          action: `Permanently deleted unused Level 4 account ${existing.code} (${existing.name})`,
+          target: `Account:${existing.id}`,
+          metadata: { code: existing.code, name: existing.name },
+        });
+
+        return NextResponse.json({ success: true, deletedCode: existing.code });
+      }
+
+      // 23. BULK IMPORT ACCOUNTS (CSV BATCH IMPORT)
+      case "bulk_import_accounts": {
+        const { accounts: importAccounts, companyId = "DEFAULT" } = payload;
+        if (!Array.isArray(importAccounts) || importAccounts.length === 0) {
+          return NextResponse.json({ error: "A valid array of accounts is required" }, { status: 400 });
+        }
+        let createdCount = 0;
+        let updatedCount = 0;
+        for (const item of importAccounts) {
+          if (!item.code || !item.name || !item.type) continue;
+          const existing = await prisma.account.findUnique({ where: { code: item.code } });
+          if (existing) {
+            await prisma.account.update({
+              where: { id: existing.id },
+              data: {
+                name: item.name,
+                type: item.type,
+                description: item.description || existing.description,
+                level: item.level ? Number(item.level) : existing.level,
+                parentId: item.parentId !== undefined ? item.parentId : existing.parentId,
+              },
+            });
+            updatedCount++;
+          } else {
+            await prisma.account.create({
+              data: {
+                code: item.code,
+                name: item.name,
+                type: item.type,
+                description: item.description || null,
+                level: Number(item.level) || 4,
+                parentId: item.parentId || null,
+                companyId,
+                currency: item.currency || "PKR",
+                isSystem: false,
+                isActive: true,
+              },
+            });
+            createdCount++;
+          }
+        }
+        return NextResponse.json({ success: true, createdCount, updatedCount });
       }
 
       default:

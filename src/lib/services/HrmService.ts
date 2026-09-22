@@ -1,5 +1,6 @@
-import { prisma } from "../prisma";
+import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export class HrmService {
   // ==========================================
@@ -592,11 +593,18 @@ export class HrmService {
     const deductions = data.advanceDeduction;
     const netAmount = Math.max(0, grossAmount - deductions + (data.expenseAdjustment || 0));
 
-    // Get accounts from Spine
-    const salaryExpenseAcc = await AccountsPostingService.getAccountByCode("6000"); // Salary Expense
-    const disbursingCode = data.disbursingAccountCode === "1000" ? "1000" : "1000"; // Account 1000: Cash & Bank Balances
-    const disbursingAcc = await AccountsPostingService.getAccountByCode(disbursingCode);
-    const advanceAcc = await AccountsPostingService.getAccountByCode("1150"); // Employee & Tech Advances
+    // Get accounts via central AccountMappingService
+    const salaryExpenseAcc = await AccountMappingService.resolveAccount({
+      transactionType: "payroll_salaries_expense",
+    });
+    const disbursingAcc = data.disbursingAccountCode && data.disbursingAccountCode !== "1000"
+      ? await AccountsPostingService.getAccountByCode(data.disbursingAccountCode)
+      : await AccountMappingService.resolveAccount({
+          transactionType: "payroll_net_disbursing",
+        });
+    const advanceAcc = await AccountMappingService.resolveAccount({
+      transactionType: "payroll_advance_deduction",
+    });
 
     const lines: any[] = [];
 

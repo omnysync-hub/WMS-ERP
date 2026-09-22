@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export interface CreateFixedAssetParams {
   name: string;
@@ -52,7 +53,12 @@ export class FixedAssetService {
    * Straight-Line Formula: Monthly = (Acquisition Cost - Salvage Value) / Useful Life Months.
    * Idempotent: Will not double-post if run twice for the same period.
    */
-  static async runMonthlyDepreciation(period: string, postedBy: string) {
+  static async runMonthlyDepreciation(
+    periodOrParams: string | { period: string; postedBy?: string },
+    postedByParam: string = "System"
+  ) {
+    const period = typeof periodOrParams === "string" ? periodOrParams : periodOrParams.period;
+    const postedBy = typeof periodOrParams === "string" ? (postedByParam || "System") : (periodOrParams.postedBy || "System");
     // 1. Fetch all active assets that haven't been depreciated for this period yet
     const activeAssets = await prisma.fixedAsset.findMany({
       where: {
@@ -117,10 +123,10 @@ export class FixedAssetService {
       };
     }
 
-    // 3. Post Balanced General Journal Entry
-    // Dr 6350 Depreciation Expense / Cr 1590 Accumulated Depreciation
-    const deprExpenseAcc = await AccountsPostingService.getAccountByCode("6350");
-    const accumDeprAcc = await AccountsPostingService.getAccountByCode("1590");
+    // 3. Post Balanced General Journal Entry via AccountMappingService
+    // Dr Depreciation Expense / Cr Accumulated Depreciation
+    const deprExpenseAcc = await AccountMappingService.resolveAccount({ transactionType: "depreciation_expense" });
+    const accumDeprAcc = await AccountMappingService.resolveAccount({ transactionType: "accumulated_depreciation" });
 
     const journal = await AccountsPostingService.post({
       date: new Date(),
@@ -193,4 +199,6 @@ export class FixedAssetService {
       deprExpenseAccountCode: params.depExpenseAccountCode || params.deprExpenseAccountCode || "6350",
     });
   }
+
+  static postMonthlyDepreciation = this.runMonthlyDepreciation;
 }

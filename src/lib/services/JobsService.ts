@@ -1,6 +1,8 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "../prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 import { InventoryService } from "./InventoryService";
+import { MobilePushService } from "./MobilePushService";
 
 export class JobsService {
   /**
@@ -47,6 +49,33 @@ export class JobsService {
     await this.logStatusChange(jobId, job.status, "Assigned", assignedBy, {
       assignedTechnicianId: technicianId,
     });
+
+    // Automatically send mobile app dispatch request & push notification to the technician's device
+    try {
+      await MobilePushService.sendAppRequest({
+        recipientId: technicianId,
+        senderName: assignedBy,
+        senderRole: "dispatcher",
+        type: "JOB_DISPATCH",
+        title: `New Job Assigned: ${updated.jobNumber}`,
+        body: `You have been assigned to ${updated.customer?.name || "Customer"} for ${updated.jobType}. Tap to review and accept.`,
+        priority: "high",
+        actionRequired: true,
+        payload: {
+          jobId: updated.id,
+          jobNumber: updated.jobNumber,
+          customerName: updated.customer?.name,
+          customerPhone: updated.customer?.phone,
+          addressText: updated.customer?.addressText,
+          lat: updated.customer?.lat,
+          lng: updated.customer?.lng,
+          jobType: updated.jobType,
+          remarks: updated.remarks,
+        },
+      });
+    } catch (e) {
+      console.error("[JobsService] Failed to dispatch mobile push for job assignment:", e);
+    }
 
     return updated;
   }
@@ -317,6 +346,20 @@ export class JobsService {
       newRate,
     });
 
+    if (job.assignedTechnicianId) {
+      MobilePushService.sendAppRequest({
+        recipientId: job.assignedTechnicianId,
+        senderName: accountantName,
+        senderRole: "accountant",
+        type: "DISCOUNT_DECISION",
+        title: `Discount Approved for Job #${job.jobNumber}`,
+        body: `Item discount of PKR ${discountAmount} was approved for '${cleanDesc}'. New rate is PKR ${newRate}.`,
+        priority: "normal",
+        actionRequired: false,
+        payload: { jobId, itemId, discountAmount, newRate },
+      }).catch((e) => console.error("[JobsService] Failed to send discount push:", e));
+    }
+
     return await prisma.job.findUnique({
       where: { id: jobId },
       include: { items: true },
@@ -356,6 +399,20 @@ export class JobsService {
       itemId,
       reason: reason || "Discount request declined by accounting",
     });
+
+    if (job.assignedTechnicianId) {
+      MobilePushService.sendAppRequest({
+        recipientId: job.assignedTechnicianId,
+        senderName: accountantName,
+        senderRole: "accountant",
+        type: "DISCOUNT_DECISION",
+        title: `Discount Request Rejected for Job #${job.jobNumber}`,
+        body: `Discount request for '${cleanDesc}' was declined: ${reason || "Standard pricing applies."}`,
+        priority: "normal",
+        actionRequired: false,
+        payload: { jobId, itemId, reason },
+      }).catch((e) => console.error("[JobsService] Failed to send discount rejection push:", e));
+    }
 
     return await prisma.job.findUnique({
       where: { id: jobId },
@@ -417,11 +474,20 @@ export class JobsService {
     }
     const finalAmount = Math.max(0, revenueTotal - (job.discountAmount || 0));
 
-    // Post to Accounts Posting Engine (debit AR / credit Revenue, and debit Discount if applicable)
-    const arAccount = await AccountsPostingService.getAccountByCode("1100"); // Accounts Receivable
-    const revAccount = await AccountsPostingService.getAccountByCode("4000"); // Service Revenue
+    // Post to Accounts Posting Engine via central AccountMappingService
+    const arAccount = await AccountMappingService.resolveAccount({
+      transactionType: "job_revenue_receivable",
+      categoryScope: job.jobType,
+    });
+    const revAccount = await AccountMappingService.resolveAccount({
+      transactionType: "job_revenue_sales",
+      categoryScope: job.jobType,
+    });
     const discountAccount = job.discountAmount > 0 
-      ? await AccountsPostingService.getAccountByCode("4100") // Discounts Allowed
+      ? await AccountMappingService.resolveAccount({
+          transactionType: "job_revenue_discount",
+          categoryScope: job.jobType,
+        })
       : null;
 
     const postingLines = [];
@@ -540,9 +606,15 @@ export class JobsService {
       },
     });
 
-    // 2. Double-entry posting: Debit 6100 (Tech Expenses), Credit Cash/Bank
-    const expenseCostingAccount = await AccountsPostingService.getAccountByCode("6100");
-    const disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+    // 2. Double-entry posting: Debit Tech Expenses, Credit Cash/Bank via AccountMappingService
+    const expenseCostingAccount = await AccountMappingService.resolveAccount({
+      transactionType: "expense_reimbursement_expense",
+    });
+    const disbursingAccount = disbursingAccountCode && disbursingAccountCode !== "1000"
+      ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+      : await AccountMappingService.resolveAccount({
+          transactionType: "expense_reimbursement_disbursing",
+        });
 
     if (claim.amount > 0) {
       await AccountsPostingService.post({

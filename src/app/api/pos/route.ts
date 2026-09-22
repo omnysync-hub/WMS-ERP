@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
+import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { AuditService } from "@/lib/services/AuditService";
 
 export async function GET(req: NextRequest) {
@@ -237,13 +238,13 @@ export async function POST(req: NextRequest) {
 
       // Step 5: GAAP Double-Entry Accounting Postings
       try {
-        // Find Accounts
-        const cashAccount = await AccountsPostingService.getAccountByCode("1000"); // Cash on Hand
-        const bankAccount = await AccountsPostingService.getAccountByCode("1010"); // Operating Bank Account (Meezan)
-        const arAccount = await AccountsPostingService.getAccountByCode("1100");   // Trade Receivables
-        const revenueAccount = await AccountsPostingService.getAccountByCode("4000"); // Sales Revenue
-        const cogsAccount = await AccountsPostingService.getAccountByCode("5000"); // Cost of Goods Sold
-        const inventoryAccount = await AccountsPostingService.getAccountByCode("1200"); // Merchandise Inventory
+        // Find Accounts via central AccountMappingService
+        const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "pos_sale_cash" });
+        const bankAccount = await AccountMappingService.resolveAccount({ transactionType: "pos_sale_bank" });
+        const arAccount = await AccountMappingService.resolveAccount({ transactionType: "pos_sale_receivable" });
+        const revenueAccount = await AccountMappingService.resolveAccount({ transactionType: "pos_sale_revenue" });
+        const cogsAccount = await AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_expense" });
+        const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_asset" });
 
         // Journal Entry A: Sales Revenue & Payment Received
         const revenueLines: Array<{ accountId: string; debit: number; credit: number }> = [];

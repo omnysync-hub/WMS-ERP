@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { Phone, Briefcase, CheckCircle2, User, Clock } from "lucide-react";
+import { Phone, Briefcase, CheckCircle2, User, Clock, Smartphone, Send } from "lucide-react";
+import SendAppRequestModal from "@/components/modals/SendAppRequestModal";
 
 interface DispatchTechDrawerProps {
   isOpen: boolean;
@@ -22,6 +23,8 @@ export default function DispatchTechDrawer({
 }: DispatchTechDrawerProps) {
   const [selectedJobId, setSelectedJobId] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestFeedbackToast, setRequestFeedbackToast] = useState<string | null>(null);
 
   const handleAssign = () => {
     if (!selectedJobId || !technician) return;
@@ -77,6 +80,34 @@ export default function DispatchTechDrawer({
           </div>
           <StatusBadge status={technician.currentStatus} />
         </div>
+
+        {/* Direct Mobile App Request Action */}
+        <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[#0D7A5F] text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Smartphone className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-bold text-xs text-[#1A1D1F]">Mobile Companion Alert</p>
+              <p className="text-[11px] text-[#0D7A5F]">Send push instruction or re-route</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowRequestModal(true)}
+            className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A634D] text-white text-xs font-bold transition shadow-xs flex items-center gap-1"
+          >
+            <Send className="w-3 h-3" />
+            Send Alert
+          </button>
+        </div>
+
+        {requestFeedbackToast && (
+          <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-[#065F46] rounded-xl text-xs flex items-center gap-1.5 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-[#0D7A5F] shrink-0" />
+            <span>{requestFeedbackToast}</span>
+          </div>
+        )}
 
         {/* Current Active Job Info if any */}
         {technician.activeJob ? (
@@ -148,6 +179,16 @@ export default function DispatchTechDrawer({
           )}
         </div>
       </div>
+
+      <SendAppRequestModal
+        isOpen={showRequestModal}
+        onClose={() => setShowRequestModal(false)}
+        technician={technician}
+        onSuccess={(res) => {
+          setRequestFeedbackToast(`Alert dispatched to ${technician.name}'s mobile device!`);
+          setTimeout(() => setRequestFeedbackToast(null), 4000);
+        }}
+      />
     </SideDrawer>
   );
 }

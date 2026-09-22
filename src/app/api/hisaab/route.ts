@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
+import { AccountMappingService } from "@/lib/services/AccountMappingService";
 
 export async function GET() {
   try {
@@ -94,9 +95,9 @@ export async function POST(req: NextRequest) {
 
     // 3. Post Customer Collection to Accounts Posting Engine
     if (collected > 0) {
-      // Receiving account based on collection means
-      const cashAccount = await AccountsPostingService.getAccountByCode("1000"); // Cash and Bank Balances
-      const arAccount = await AccountsPostingService.getAccountByCode("1100"); // Accounts Receivable
+      // Receiving account based on collection means via AccountMappingService
+      const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" });
+      const arAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" });
 
       const meansLabel = paymentMeans ? `via ${paymentMeans.toUpperCase()}` : "in cash";
       await AccountsPostingService.post({
@@ -134,10 +135,12 @@ export async function POST(req: NextRequest) {
           data: { status: "paid", paidAt: new Date() },
         });
 
-        // Accounts lookup
-        const expenseCostingAccount = await AccountsPostingService.getAccountByCode("6100"); // Costing: Tech Travel & Expenses
-        const disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode || "1000");
-        const techPayableAccount = await AccountsPostingService.getAccountByCode("2100"); // Liability: Technician Payable
+        // Accounts lookup via AccountMappingService
+        const expenseCostingAccount = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_expense" });
+        const disbursingAccount = disbursingAccountCode && disbursingAccountCode !== "1000"
+          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          : await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_vault" });
+        const techPayableAccount = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_payable" });
 
         // Journal Lines
         const postingLines = [

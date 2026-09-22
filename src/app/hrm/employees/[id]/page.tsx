@@ -345,8 +345,10 @@ export default function EmployeeProfilePage() {
               <span className="text-[10px] uppercase font-bold text-[#71717A] block tracking-wider">
                 Biometric Enrolled
               </span>
-              <span className="font-semibold text-xs text-[#0D7A5F]">
-                {employee.faceEnrolled ? "✓ Face Profile Active" : "Pending Enrollment"}
+              <span className={`font-semibold text-xs ${employee.faceEnrolled ? "text-[#0D7A5F]" : "text-amber-700"}`}>
+                {employee.faceEnrolled
+                  ? `✓ Active (v${employee.faceEnrollmentCount || 1}${employee.faceEnrolledAt ? ` • ${formatDateTime(employee.faceEnrolledAt)}` : ""})`
+                  : "Pending Enrollment"}
               </span>
             </div>
           </div>

@@ -12,14 +12,64 @@ datasource db {
 // ==========================================
 
 model Account {
-  id           String        @id @default(uuid())
-  code         String        @unique
-  name         String
-  type         String        // asset, liability, equity, revenue, expense, contra_revenue
-  description  String?
-  isActive     Boolean       @default(true)
-  journalLines JournalLine[]
-  createdAt    DateTime      @default(now())
+  id               String                @id @default(uuid())
+  code             String                @unique
+  name             String
+  type             String                // asset, liability, equity, revenue, expense, contra_revenue
+  description      String?
+  isActive         Boolean               @default(true)
+  isSystem         Boolean               @default(false)
+  level            Int                   @default(4) // 1: Category, 2: Sub-category, 3: Control, 4: Leaf/Posting
+  parentId         String?
+  parent           Account?              @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Account[]             @relation("AccountHierarchy")
+  currency         String                @default("PKR")
+  companyId        String?               @default("DEFAULT")
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt @default(now())
+  journalLines     JournalLine[]
+  mappings         AccountMapping[]
+  auditSuggestions AccountMappingAudit[]
+
+  @@index([level])
+  @@index([parentId])
+  @@index([companyId])
+}
+
+model AccountMapping {
+  id              String   @id @default(uuid())
+  companyId       String   @default("DEFAULT")
+  transactionType String
+  categoryScope   String?
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  updatedBy       String?
+  updatedAt       DateTime @updatedAt @default(now())
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, transactionType, categoryScope])
+  @@index([transactionType])
+  @@index([companyId])
+}
+
+model AccountMappingAudit {
+  id                   String    @id @default(uuid())
+  transactionType      String
+  sourceTransactionIds String[]
+  suggestedAccountId   String?
+  suggestedAccount     Account?  @relation(fields: [suggestedAccountId], references: [id], onDelete: Restrict)
+  proposedAccountCode  String?
+  proposedAccountName  String?
+  proposedAccountType  String?
+  proposedParentCode   String?
+  confidenceScore      Float
+  status               String    @default("pending") // 'pending', 'accepted', 'rejected', 'skipped'
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  createdAt            DateTime  @default(now())
+
+  @@index([transactionType])
+  @@index([status])
 }
 
 model JournalEntry {
@@ -236,6 +286,8 @@ model Product {
   poItems      PurchaseOrderItem[]
   grnItems     GoodsReceiptItem[]
   posItems     PosSaleItem[]
+  rfqItems     RfqItem[]
+  supplierInvoiceItems SupplierInvoiceItem[]
   createdAt    DateTime           @default(now())
 }
 
@@ -252,72 +304,275 @@ model StockLedger {
 }
 
 model PurchaseRequisition {
-  id          String                    @id @default(uuid())
-  prNumber    String                    @unique
-  requestedBy String
-  status      String                    @default("pending") // pending, approved, rejected
-  notes       String?
-  items       PurchaseRequisitionItem[]
-  purchaseOrders PurchaseOrder[]
-  createdAt   DateTime                  @default(now())
+  id              String                    @id @default(uuid())
+  prNumber        String                    @unique
+  requestedBy     String
+  department      String?                   @default("HVAC Operations")
+  site            String?
+  dateRequired    DateTime?
+  costCenter      String?
+  projectCode     String?
+  budgetCode      String?
+  priority        String                    @default("Normal") // Normal, Urgent
+  status          String                    @default("draft") // draft, submitted, approved, rejected, converted_to_po, partially_converted
+  notes           String?
+  attachments     String?                   // Specifications, drawings notes or URLs
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectedBy      String?
+  rejectedAt      DateTime?
+  rejectionReason String?
+  items           PurchaseRequisitionItem[]
+  purchaseOrders  PurchaseOrder[]
+  rfqLinks        RfqRequisitionLink[]
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @default(now()) @updatedAt
 }
 
 model PurchaseRequisitionItem {
-  id        String              @id @default(uuid())
-  prId      String
-  pr        PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product             @relation(fields: [productId], references: [id])
-  quantity  Float
+  id                String              @id @default(uuid())
+  prId              String
+  pr                PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  productId         String?
+  product           Product?            @relation(fields: [productId], references: [id])
+  itemCode          String?
+  description       String?
+  quantity          Float
+  unit              String              @default("unit")
+  estimatedPrice    Float               @default(0)
+  convertedQuantity Float               @default(0)
+}
+
+model RequestForQuotation {
+  id             String                @id @default(uuid())
+  rfqNumber      String                @unique
+  title          String
+  dueDate        DateTime
+  status         String                @default("draft") // draft, sent, quotes_received, evaluated, awarded, closed
+  notes          String?
+  winnerVendorId String?
+  awardedAt      DateTime?
+  items          RfqItem[]
+  vendors        RfqVendor[]
+  prLinks        RfqRequisitionLink[]
+  purchaseOrders PurchaseOrder[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @default(now()) @updatedAt
+}
+
+model RfqItem {
+  id             String                @id @default(uuid())
+  rfqId          String
+  rfq            RequestForQuotation   @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?              @relation(fields: [productId], references: [id])
+  itemCode       String?
+  description    String
+  quantity       Float
+  unit           String                @default("unit")
+  targetPrice    Float?
+  quotationItems VendorQuotationItem[]
+}
+
+model RfqVendor {
+  id                 String                @id @default(uuid())
+  rfqId              String
+  rfq                RequestForQuotation   @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  vendorId           String
+  vendor             Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  status             String                @default("invited") // invited, quoted, declined, winner
+  deliveryDays       Int?
+  paymentTerms       String?
+  qualityScore       Float?                @default(85)
+  commercialScore    Float?
+  totalQuoted        Float?                @default(0)
+  isWinner           Boolean               @default(false)
+  remarks            String?
+  quotationReference String?
+  submittedAt        DateTime?
+  quotationItems     VendorQuotationItem[]
+}
+
+model VendorQuotationItem {
+  id          String    @id @default(uuid())
+  rfqVendorId String
+  rfqVendor   RfqVendor @relation(fields: [rfqVendorId], references: [id], onDelete: Cascade)
+  rfqItemId   String
+  rfqItem     RfqItem   @relation(fields: [rfqItemId], references: [id], onDelete: Cascade)
+  unitPrice   Float
+  taxRate     Float     @default(0)
+  lineTotal   Float
+  notes       String?
+}
+
+model RfqRequisitionLink {
+  id    String              @id @default(uuid())
+  rfqId String
+  rfq   RequestForQuotation @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  prId  String
+  pr    PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+
+  @@unique([rfqId, prId])
 }
 
 model PurchaseOrder {
-  id            String              @id @default(uuid())
-  poNumber      String              @unique
-  prId          String?
-  pr            PurchaseRequisition? @relation(fields: [prId], references: [id])
-  vendorId      String?
-  vendor        Vendor?             @relation(fields: [vendorId], references: [id])
-  supplierName  String
-  supplierEmail String
-  status        String              @default("issued") // issued, partially_received, completed
-  totalAmount   Float               @default(0)
-  whtAmount     Float               @default(0)
-  netPayable    Float               @default(0)
-  items         PurchaseOrderItem[]
-  goodsReceipts GoodsReceipt[]
-  createdAt     DateTime            @default(now())
+  id                 String              @id @default(uuid())
+  poNumber           String              @unique
+  poType             String              @default("standard") // standard, blanket, service
+  prId               String?
+  pr                 PurchaseRequisition? @relation(fields: [prId], references: [id])
+  rfqId              String?
+  rfq                RequestForQuotation? @relation(fields: [rfqId], references: [id])
+  vendorId           String?
+  vendor             Vendor?             @relation(fields: [vendorId], references: [id])
+  supplierName       String
+  supplierEmail      String
+  poDate             DateTime            @default(now())
+  expectedDeliveryDate DateTime?
+  paymentTerms       String              @default("Net 30")
+  currency           String              @default("PKR")
+  shippingAddress    String?
+  termsAndConditions String?
+  status             String              @default("draft") // draft, approved, sent_to_vendor, partially_received, fully_received, closed, cancelled
+  approvedBy         String?
+  approvedAt         DateTime?
+  sentAt             DateTime?
+  totalAmount        Float               @default(0)
+  whtAmount          Float               @default(0)
+  netPayable         Float               @default(0)
+  items              PurchaseOrderItem[]
+  goodsReceipts      GoodsReceipt[]
+  supplierInvoices   SupplierInvoice[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @default(now()) @updatedAt
 }
 
 model PurchaseOrderItem {
-  id        String        @id @default(uuid())
-  poId      String
-  po        PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product       @relation(fields: [productId], references: [id])
-  quantity  Float
-  unitCost  Float
+  id               String               @id @default(uuid())
+  poId             String
+  po               PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          Product?             @relation(fields: [productId], references: [id])
+  itemCode         String?
+  description      String?
+  unit             String               @default("unit")
+  quantity         Float
+  unitCost         Float
+  discountPercent  Float                @default(0)
+  taxPercent       Float                @default(0)
+  lineTotal        Float                @default(0)
+  deliverySchedule String?
+  prItemId         String?
+  quantityReceived Float                @default(0)
+  quantityInvoiced Float                @default(0)
+  grnItems         GoodsReceiptItem[]
+  invoiceItems     SupplierInvoiceItem[]
 }
 
 model GoodsReceipt {
-  id         String             @id @default(uuid())
-  grnNumber  String             @unique
-  poId       String
-  po         PurchaseOrder      @relation(fields: [poId], references: [id])
-  receivedBy String
-  status     String             @default("received")
-  notes      String?
-  items      GoodsReceiptItem[]
-  createdAt  DateTime           @default(now())
+  id                 String              @id @default(uuid())
+  grnNumber          String              @unique
+  poId               String
+  po                 PurchaseOrder       @relation(fields: [poId], references: [id])
+  receivedBy         String
+  receivedDate       DateTime            @default(now())
+  warehouseLocation  String              @default("Central Warehouse")
+  deliveryChallan    String?
+  qualityStatus      String              @default("Accepted") // Accepted, Rejected, Hold
+  status             String              @default("received")
+  notes              String?
+  accountingJournalId String?
+  items              GoodsReceiptItem[]
+  supplierInvoices   SupplierInvoice[]
+  createdAt          DateTime            @default(now())
 }
 
 model GoodsReceiptItem {
-  id               String       @id @default(uuid())
+  id               String               @id @default(uuid())
   grnId            String
-  grn              GoodsReceipt @relation(fields: [grnId], references: [id], onDelete: Cascade)
-  productId        String
-  product          Product      @relation(fields: [productId], references: [id])
+  grn              GoodsReceipt         @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poItemId         String?
+  poItem           PurchaseOrderItem?   @relation(fields: [poItemId], references: [id])
+  productId        String?
+  product          Product?             @relation(fields: [productId], references: [id])
+  itemCode         String?
+  description      String?
+  unit             String               @default("unit")
   quantityReceived Float
+  quantityAccepted Float                @default(0)
+  quantityRejected Float                @default(0)
+  qualityStatus    String               @default("Accepted")
+  rejectionReason  String?
+  batchNumber      String?
+  serialNumber     String?
+  expiryDate       DateTime?
+  invoiceItems     SupplierInvoiceItem[]
+}
+
+model SupplierInvoice {
+  id               String                @id @default(uuid())
+  invoiceNumber    String
+  referenceNumber  String                @unique
+  vendorId         String
+  vendor           Vendor                @relation(fields: [vendorId], references: [id])
+  poId             String?
+  po               PurchaseOrder?        @relation(fields: [poId], references: [id])
+  grnId            String?
+  grn              GoodsReceipt?         @relation(fields: [grnId], references: [id])
+  invoiceDate      DateTime              @default(now())
+  dueDate          DateTime?
+  subtotal         Float                 @default(0)
+  taxAmount        Float                 @default(0)
+  totalAmount      Float                 @default(0)
+  matchStatus      String                @default("pending_match") // pending_match, matched, discrepancy, approved_for_payment, paid
+  priceVariance    Float                 @default(0)
+  quantityVariance Float                 @default(0)
+  matchNotes       String?
+  approvedBy       String?
+  approvedAt       DateTime?
+  paidAmount       Float                 @default(0)
+  paymentStatus    String                @default("unpaid") // unpaid, partially_paid, paid
+  journalEntryId   String?
+  items            SupplierInvoiceItem[]
+  payments         SupplierPayment[]
+  createdAt        DateTime              @default(now())
+}
+
+model SupplierInvoiceItem {
+  id              String             @id @default(uuid())
+  invoiceId       String
+  invoice         SupplierInvoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  poItemId        String?
+  poItem          PurchaseOrderItem? @relation(fields: [poItemId], references: [id])
+  grnItemId       String?
+  grnItem         GoodsReceiptItem?  @relation(fields: [grnItemId], references: [id])
+  productId       String?
+  product         Product?           @relation(fields: [productId], references: [id])
+  description     String
+  billedQuantity  Float
+  billedUnitPrice Float
+  poUnitPrice     Float?
+  grnQuantity     Float?
+  lineTotal       Float
+  variance        Float              @default(0)
+}
+
+model SupplierPayment {
+  id                String          @id @default(uuid())
+  paymentNumber     String          @unique
+  supplierInvoiceId String
+  supplierInvoice   SupplierInvoice @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
+  vendorId          String
+  vendor            Vendor          @relation(fields: [vendorId], references: [id])
+  paymentDate       DateTime        @default(now())
+  amount            Float
+  paymentMethod     String          @default("bank_transfer") // bank_transfer, cheque, cash
+  reference         String?
+  bankAccountId     String?
+  whtAmount         Float           @default(0)
+  journalEntryId    String?
+  notes             String?
+  createdAt         DateTime        @default(now())
 }
 
 model PosSale {
@@ -388,6 +643,7 @@ model FiscalPeriod {
 
 model Vendor {
   id                  String              @id @default(uuid())
+  vendorCode          String?             @unique
   name                String              @unique
   contactPerson       String?
   phone               String?
@@ -395,11 +651,22 @@ model Vendor {
   addressText         String?
   ntnNumber           String?
   strnNumber          String?
+  taxId               String?
+  paymentTerms        String?             @default("Net 30")
+  currency            String              @default("PKR")
+  bankName            String?
+  bankAccountTitle    String?
+  bankAccountNumber   String?
+  category            String              @default("Spares & Raw Material") // Raw Material, Service, Capital, Spares, Consumables
+  status              String              @default("Active") // Active, Blocked, Blacklisted
   whtRate             Float               @default(0) // custom WHT percentage, e.g. 8.0, 11.0, 5.0, 0
   whtExempt           Boolean             @default(false)
   paymentTermsDays    Int                 @default(30)
   purchaseOrders      PurchaseOrder[]
   vendorLedgerEntries VendorLedgerEntry[]
+  rfqVendors          RfqVendor[]
+  supplierInvoices    SupplierInvoice[]
+  supplierPayments    SupplierPayment[]
   createdAt           DateTime            @default(now())
 }
 
@@ -535,6 +802,9 @@ model Employee {
   directReports        Employee[]            @relation("ReportingChain")
   faceEnrolled         Boolean               @default(false)
   faceTemplateUrl      String?
+  faceEmbedding        Float[]               @default([])
+  faceEnrolledAt       DateTime?
+  faceEnrollmentCount  Int                   @default(0)
   active               Boolean               @default(true)
   lat                  Float?
   lng                  Float?
@@ -552,6 +822,8 @@ model Employee {
   exitInterview        ExitInterview?
   finalSettlements     FinalSettlement[]
   grievanceTickets     GrievanceTicket[]
+  pushTokens           DevicePushToken[]
+  receivedAppRequests  MobileAppRequest[]
   createdAt            DateTime              @default(now())
 }
 
@@ -561,22 +833,31 @@ model GeofenceZone {
   lat          Float
   lng          Float
   radiusMeters Float           @default(150)
+  isActive     Boolean         @default(true)
   logs         AttendanceLog[]
   createdAt    DateTime        @default(now())
 }
 
 model AttendanceLog {
-  id             String        @id @default(uuid())
-  employeeId     String
-  employee       Employee      @relation(fields: [employeeId], references: [id])
-  timestamp      DateTime      @default(now())
-  faceMatchScore Float
-  lat            Float
-  lng            Float
-  geofenceZoneId String?
-  geofenceZone   GeofenceZone? @relation(fields: [geofenceZoneId], references: [id])
-  result         String        // pass, fail
-  notes          String?
+  id                  String        @id @default(uuid())
+  employeeId          String
+  employee            Employee      @relation(fields: [employeeId], references: [id])
+  timestamp           DateTime      @default(now())
+  faceMatchScore      Float
+  livenessScore       Float?
+  lat                 Float
+  lng                 Float
+  geofenceZoneId      String?
+  geofenceZone        GeofenceZone? @relation(fields: [geofenceZoneId], references: [id])
+  deviceId            String?
+  withinGeofence      Boolean       @default(false)
+  flaggedForReview    Boolean       @default(false)
+  flagReason          String?
+  flagResolvedAt      DateTime?
+  flagResolvedBy      String?
+  flagResolutionNotes String?
+  result              String        // pass, fail
+  notes               String?
 }
 
 model EmployeeAdvance {
@@ -929,5 +1210,46 @@ model RollbackLog {
   canRollback  Boolean   @default(true)
   reason       String?
   createdAt    DateTime  @default(now())
+}
+
+// ==========================================
+// MOBILE APP & DISPATCH INFRASTRUCTURE
+// ==========================================
+
+model DevicePushToken {
+  id           String   @id @default(uuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  token        String   @unique // e.g. ExponentPushToken[...] or APNs/FCM token
+  platform     String   // ios, android, web
+  deviceModel  String?  // e.g. iPhone 15 Pro, Samsung S24
+  osVersion    String?  // e.g. iOS 17.5, Android 14
+  appVersion   String?  // e.g. 1.0.0
+  isActive     Boolean  @default(true)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model MobileAppRequest {
+  id                 String    @id @default(uuid())
+  recipientId        String
+  recipient          Employee  @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  senderId           String?
+  senderName         String    @default("System")
+  senderRole         String    @default("dispatcher")
+  type               String    // JOB_DISPATCH, JOB_RESCHEDULED, JOB_CANCELLED, DISCOUNT_DECISION, INVENTORY_ISSUED, EMERGENCY_ALERT, HISAAB_CLEARED, PING_REQUEST, GENERAL_MESSAGE
+  title              String
+  body               String
+  priority           String    @default("normal") // urgent, high, normal, low
+  payloadJson        String?   // JSON payload: { jobId, jobNumber, customerName, lat, lng, items, etc. }
+  actionRequired     Boolean   @default(false)
+  actionStatus       String?   @default("pending") // pending, accepted, rejected, acknowledged, expired
+  actionResponseJson String?   // JSON response from technician: { note, reason, eta }
+  deliveryStatus     String    @default("queued") // queued, sent, delivered, read, failed
+  sentAt             DateTime?
+  readAt             DateTime?
+  respondedAt        DateTime?
+  createdAt          DateTime  @default(now())
 }
 

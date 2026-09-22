@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export class InventoryService {
   /**
@@ -38,9 +39,13 @@ export class InventoryService {
       },
     });
 
-    // 3. Post to Accounts Posting Engine: Debit COGS, Credit Inventory Asset
-    const cogsAccount = await AccountsPostingService.getAccountByCode("5000"); // Cost of Goods Sold
-    const inventoryAccount = await AccountsPostingService.getAccountByCode("1200"); // Inventory Asset
+    // 3. Post to Accounts Posting Engine via AccountMappingService: Debit COGS, Credit Inventory Asset
+    const cogsAccount = await AccountMappingService.resolveAccount({
+      transactionType: "inventory_cogs_expense",
+    });
+    const inventoryAccount = await AccountMappingService.resolveAccount({
+      transactionType: "inventory_cogs_asset",
+    });
 
     const costAmount = Math.round(quantity * product.costPrice * 100) / 100;
     if (costAmount > 0) {
@@ -99,9 +104,13 @@ export class InventoryService {
         },
       });
 
-      // Restore inventory asset from COGS
-      const cogsAccount = await AccountsPostingService.getAccountByCode("5000");
-      const inventoryAccount = await AccountsPostingService.getAccountByCode("1200");
+      // Restore inventory asset from COGS via AccountMappingService
+      const cogsAccount = await AccountMappingService.resolveAccount({
+        transactionType: "inventory_return_cogs",
+        });
+      const inventoryAccount = await AccountMappingService.resolveAccount({
+        transactionType: "inventory_return_asset",
+        });
       const value = Math.round(stockReturn.qtyReturned * product.costPrice * 100) / 100;
 
       if (value > 0) {
@@ -180,9 +189,13 @@ export class InventoryService {
       }
     }
 
-    // Post to accounts: Debit Inventory Asset, Credit Accounts Payable
-    const inventoryAccount = await AccountsPostingService.getAccountByCode("1200");
-    const apAccount = await AccountsPostingService.getAccountByCode("2000");
+    // Post to accounts: Debit Inventory Asset, Credit GR/IR Clearing via AccountMappingService
+    const inventoryAccount = await AccountMappingService.resolveAccount({
+      transactionType: "grn_receipt_asset",
+    });
+    const grirAccount = await AccountMappingService.resolveAccount({
+      transactionType: "grn_receipt_clearing",
+    });
     const roundedValue = Math.round(totalReceiptValue * 100) / 100;
 
     if (roundedValue > 0) {
@@ -192,7 +205,7 @@ export class InventoryService {
         refId: grn.id,
         lines: [
           { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
-          { accountId: apAccount.id, debit: 0, credit: roundedValue },
+          { accountId: grirAccount.id, debit: 0, credit: roundedValue },
         ],
       });
     }
@@ -203,6 +216,17 @@ export class InventoryService {
     });
 
     return grn;
+  }
+
+  /**
+   * Alias for processGRN conforming to recordGrnStock naming
+   */
+  static async recordGrnStock(
+    poId: string,
+    items: { productId: string; quantityReceived: number }[],
+    receivedBy: string = "Storekeeper"
+  ) {
+    return this.processGRN(poId, receivedBy, items);
   }
 
   /**
@@ -243,10 +267,14 @@ export class InventoryService {
       },
     });
 
-    // 3. Post to Accounts: Debit Inventory Asset, Credit Cash / Bank
+    // 3. Post to Accounts: Debit Inventory Asset, Credit Cash / Bank via AccountMappingService
     try {
-      const inventoryAccount = await AccountsPostingService.getAccountByCode("1200");
-      const cashAccount = await AccountsPostingService.getAccountByCode("1000");
+      const inventoryAccount = await AccountMappingService.resolveAccount({
+        transactionType: "stock_in_asset",
+        });
+      const cashAccount = await AccountMappingService.resolveAccount({
+        transactionType: "stock_in_disbursing",
+      });
       const totalVal = Math.round(quantity * effectiveCost);
       if (totalVal > 0) {
         await AccountsPostingService.post({
@@ -305,10 +333,14 @@ export class InventoryService {
         },
       });
 
-      // Post to accounts: Debit Inventory Asset, Credit Owner Capital
+      // Post to accounts: Debit Inventory Asset, Credit Owner Capital via AccountMappingService
       try {
-        const inventoryAccount = await AccountsPostingService.getAccountByCode("1200");
-        const capitalAccount = await AccountsPostingService.getAccountByCode("3000");
+        const inventoryAccount = await AccountMappingService.resolveAccount({
+          transactionType: "opening_stock_asset",
+            });
+        const capitalAccount = await AccountMappingService.resolveAccount({
+          transactionType: "opening_stock_equity",
+        });
         const totalVal = Math.round(product.stockQuantity * product.costPrice);
         if (totalVal > 0) {
           await AccountsPostingService.post({
@@ -372,10 +404,14 @@ export class InventoryService {
       },
     });
 
-    // 3. Post to Accounts: Debit 1200 (Inventory Asset), Credit 3000 (Owner Capital / Equity)
+    // 3. Post to Accounts: Debit 1200 (Inventory Asset), Credit 3000 (Owner Capital / Equity) via AccountMappingService
     try {
-      const inventoryAccount = await AccountsPostingService.getAccountByCode("1200");
-      const capitalAccount = await AccountsPostingService.getAccountByCode("3000");
+      const inventoryAccount = await AccountMappingService.resolveAccount({
+        transactionType: "opening_stock_asset",
+        });
+      const capitalAccount = await AccountMappingService.resolveAccount({
+        transactionType: "opening_stock_equity",
+      });
       const totalVal = Math.round(quantity * effectiveCost);
       if (totalVal > 0) {
         await AccountsPostingService.post({

@@ -106,6 +106,7 @@ export default function MobileCompanionPage() {
   // Notifications & Feedback
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
   const [newAssignmentAlert, setNewAssignmentAlert] = useState<any | null>(null);
+  const [incomingRequests, setIncomingRequests] = useState<any[]>([]);
 
   // Mobile attendance states
   const [simulatedFaceScore, setSimulatedFaceScore] = useState(98.2);
@@ -167,6 +168,17 @@ export default function MobileCompanionPage() {
       } catch (err) {
         // ignore
       }
+
+      // Fetch pending requests sent from ERP dispatcher / system
+      try {
+        const reqRes = await fetch(`/api/mobile/requests?technicianId=${tech.id}&limit=10`);
+        if (reqRes.ok) {
+          const reqJson = await reqRes.json();
+          setIncomingRequests(reqJson.requests || []);
+        }
+      } catch (err) {
+        // ignore
+      }
     } catch (e) {
       console.error("Failed loading technician details", e);
     }
@@ -216,6 +228,48 @@ export default function MobileCompanionPage() {
   useEffect(() => {
     loadMobileData();
   }, []);
+
+  // Server-Sent Events (SSE) Live Push Stream from ERP
+  useEffect(() => {
+    if (!technician?.id || typeof window === "undefined" || !("EventSource" in window)) return;
+    try {
+      const es = new EventSource(`/api/mobile/stream?employeeId=${technician.id}`);
+      es.addEventListener("NEW_APP_REQUEST", (e: any) => {
+        try {
+          const data = JSON.parse(e.data);
+          setNotificationToast(`🔔 Dispatch Alert: ${data.title}`);
+          fetchTechnicianDetails(technician);
+        } catch (err) {}
+      });
+      return () => {
+        es.close();
+      };
+    } catch (err) {}
+  }, [technician?.id]);
+
+  const handleRespondToIncomingRequest = async (
+    requestId: string,
+    actionStatus: "accepted" | "rejected" | "acknowledged"
+  ) => {
+    if (!technician) return;
+    try {
+      const res = await fetch(`/api/mobile/requests/${requestId}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: technician.id,
+          actionStatus,
+        }),
+      });
+      if (res.ok) {
+        setNotificationToast(`✓ Request ${actionStatus.toUpperCase()} successfully!`);
+        setTimeout(() => setNotificationToast(null), 3000);
+        await fetchTechnicianDetails(technician);
+      }
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
 
   // Real-time Event Subscription across ERP tabs/devices
   useEffect(() => {
@@ -845,7 +899,10 @@ export default function MobileCompanionPage() {
       setIsCapturingFace(true);
       const res = await fetch("/api/attendance", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-employee-id": technician.id,
+        },
         body: JSON.stringify({
           employeeId: technician.id,
           faceMatchScore: simulatedFaceScore,
@@ -1081,6 +1138,75 @@ export default function MobileCompanionPage() {
           </button>
         </div>
       )}
+
+      {/* DISPATCHER LIVE APP REQUESTS / PUSH ALERTS */}
+      {incomingRequests.filter((r) => r.actionStatus === "pending").map((req) => (
+        <div
+          key={req.id}
+          className={`mx-3 mt-2 p-3.5 rounded-xl shadow-xl border text-white flex flex-col gap-2 animate-in slide-in-from-top-2 z-30 ${
+            req.priority === "urgent"
+              ? "bg-red-950 border-red-500/60"
+              : req.priority === "high"
+              ? "bg-amber-950 border-amber-500/60"
+              : "bg-[#18181B] border-emerald-500/50"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">
+                {req.priority === "urgent" ? "🚨" : req.priority === "high" ? "⚡" : "📩"}
+              </span>
+              <div>
+                <p className="text-xs font-bold leading-tight">{req.title}</p>
+                <p className="text-[10px] text-zinc-400">
+                  From: {req.senderName} ({req.senderRole})
+                </p>
+              </div>
+            </div>
+            <span
+              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                req.priority === "urgent"
+                  ? "bg-red-600 text-white"
+                  : req.priority === "high"
+                  ? "bg-amber-600 text-white"
+                  : "bg-[#0D7A5F] text-white"
+              }`}
+            >
+              {req.priority}
+            </span>
+          </div>
+          <p className="text-[11px] text-zinc-200 leading-relaxed">{req.body}</p>
+          <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/10">
+            {req.actionRequired ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleRespondToIncomingRequest(req.id, "rejected")}
+                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-medium transition"
+                >
+                  Decline
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRespondToIncomingRequest(req.id, "accepted")}
+                  className="px-3 py-1 rounded-lg bg-[#0D7A5F] hover:bg-emerald-600 text-white text-[10px] font-bold transition shadow-xs flex items-center gap-1"
+                >
+                  <Check className="w-3 h-3" />
+                  Accept & Confirm
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleRespondToIncomingRequest(req.id, "acknowledged")}
+                className="px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-semibold transition"
+              >
+                Acknowledge
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
 
       {/* Main Content Area */}
       <main className="flex-1 p-3.5 overflow-y-auto">

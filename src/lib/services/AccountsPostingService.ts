@@ -275,55 +275,16 @@ export class AccountsPostingService {
   }
 
   /**
-   * Helper to look up system standard accounts by code.
-   * Auto-provisions standard enterprise GAAP accounts if missing.
+   * Helper to look up accounts by code.
+   * Throws an error if the account is not found in the Chart of Accounts.
+   * Does NOT auto-provision or create accounts on the fly.
    */
   static async getAccountByCode(code: string) {
     const account = await prisma.account.findUnique({
       where: { code },
     });
     if (!account) {
-      // Auto-provision standard account if missing
-      const defaults: Record<string, { name: string; type: string; description: string }> = {
-        "1000": { name: "Cash on Hand / Main Drawer", type: "asset", description: "Cash drawer balance" },
-        "1010": { name: "Operating Bank Account (Meezan Bank)", type: "asset", description: "Primary checking account" },
-        "1011": { name: "Secondary Bank Account (HBL)", type: "asset", description: "Secondary corporate bank account" },
-        "1020": { name: "Petty Cash Float", type: "asset", description: "Emergency cash float" },
-        "1100": { name: "Accounts Receivable (Trade Debtors)", type: "asset", description: "Customer invoice receivables" },
-        "1150": { name: "Employee & Tech Advances", type: "asset", description: "Staff cash advances" },
-        "1200": { name: "Merchandise Inventory Asset", type: "asset", description: "HVAC equipment and parts" },
-        "1500": { name: "Fixed Assets - Plant, Tools & Equipment", type: "asset", description: "Machinery, HVAC tools and vehicles" },
-        "1590": { name: "Accumulated Depreciation", type: "asset", description: "Contra-asset accumulated depreciation" },
-        "2000": { name: "Accounts Payable (Trade Creditors)", type: "liability", description: "Vendor and supplier payables" },
-        "2100": { name: "Technician Payable", type: "liability", description: "Field reimbursements pending" },
-        "2200": { name: "Withholding Tax (WHT) Payable (FBR)", type: "liability", description: "Tax withheld under ITO Section 153" },
-        "3000": { name: "Owner Capital / Equity", type: "equity", description: "Owner equity" },
-        "3200": { name: "Retained Earnings", type: "equity", description: "Accumulated prior periods net earnings" },
-        "3900": { name: "Opening Balance Equity", type: "equity", description: "Temporary offset account for opening balance setup" },
-        "4000": { name: "HVAC Service & Installation Revenue", type: "revenue", description: "Service revenue" },
-        "4100": { name: "Discounts Allowed", type: "contra_revenue", description: "Customer discounts" },
-        "5000": { name: "Cost of Goods Sold (COGS)", type: "expense", description: "Direct materials and parts" },
-        "6000": { name: "Salaries & Wages Expense", type: "expense", description: "Payroll expenses" },
-        "6100": { name: "Technician Travel & Field Expenses", type: "expense", description: "Travel, fuel, parking" },
-        "6200": { name: "General Office & Facility Overheads", type: "expense", description: "Rent, power, facility" },
-        "6201": { name: "Internet & Telecom Subscriptions", type: "expense", description: "Broadband, cellular, software" },
-        "6202": { name: "Printer Ink & Office Stationery", type: "expense", description: "Printer ink, paper, stationery" },
-        "6350": { name: "Depreciation Expense", type: "expense", description: "Monthly fixed asset depreciation" },
-      };
-
-      if (defaults[code]) {
-        return await prisma.account.create({
-          data: {
-            code,
-            name: defaults[code].name,
-            type: defaults[code].type,
-            description: defaults[code].description,
-            isActive: true,
-          },
-        });
-      }
-
-      throw new Error(`System account with code '${code}' not found in Chart of Accounts.`);
+      throw new Error(`Account with code '${code}' not found in Chart of Accounts.`);
     }
     return account;
   }

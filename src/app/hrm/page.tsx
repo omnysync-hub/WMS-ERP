@@ -98,8 +98,14 @@ export default function HrmPayrollPage() {
 
   // Existing Attendance States
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
+  const [attendanceSubTab, setAttendanceSubTab] = useState<"all" | "flagged">("all");
+  const [flaggedCount, setFlaggedCount] = useState(0);
+  const [resolveTargetLog, setResolveTargetLog] = useState<any>(null);
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [isResolving, setIsResolving] = useState(false);
   const [zones, setZones] = useState<any[]>([]);
   const [selectedEmpId, setSelectedEmpId] = useState("");
+  const [selectedZoneId, setSelectedZoneId] = useState("");
   const [faceScore, setFaceScore] = useState(96.5);
   const [checkInLat, setCheckInLat] = useState(25.2048);
   const [checkInLng, setCheckInLng] = useState(55.2708);
@@ -151,16 +157,23 @@ export default function HrmPayrollPage() {
         if (data.candidates) setCandidates(data.candidates);
         if (data.requisitions) setRequisitions(data.requisitions);
       } else if (activeTab === "attendance") {
-        const res = await fetch("/api/attendance");
+        const url = `/api/attendance${attendanceSubTab === "flagged" ? "?flagged=true" : ""}`;
+        const res = await fetch(url);
         const data = await res.json();
         if (data.logs) setAttendanceLogs(data.logs);
+        if (data.flaggedCount !== undefined) setFlaggedCount(data.flaggedCount);
         if (data.employees) {
           setEmployees(data.employees);
           if (!selectedEmpId && data.employees.length > 0) {
             setSelectedEmpId(data.employees[0].id);
           }
         }
-        if (data.zones) setZones(data.zones);
+        if (data.zones) {
+          setZones(data.zones);
+          if (!selectedZoneId && data.zones.length > 0) {
+            setSelectedZoneId(data.zones[0].id);
+          }
+        }
       } else if (activeTab === "payroll" || activeTab === "advances") {
         const res = await fetch("/api/hrm/payroll");
         const data = await res.json();
@@ -185,7 +198,7 @@ export default function HrmPayrollPage() {
 
   useEffect(() => {
     loadData();
-  }, [activeTab, employeeSubTab, leaveSubTab, assetSubTab, atsView, grievanceSubTab, essEmployeeId]);
+  }, [activeTab, employeeSubTab, leaveSubTab, assetSubTab, atsView, grievanceSubTab, essEmployeeId, attendanceSubTab]);
 
   // Leave approval / rejection
   const handleApproveLeave = async (requestId: string) => {
@@ -284,9 +297,12 @@ export default function HrmPayrollPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           employeeId: selectedEmpId,
+          geofenceZoneId: selectedZoneId || undefined,
           faceMatchScore: Number(faceScore),
           lat: Number(checkInLat),
           lng: Number(checkInLng),
+          timestamp: new Date().toISOString(),
+          deviceId: "admin-simulator-browser",
         }),
       });
       const data = await res.json();
@@ -296,6 +312,37 @@ export default function HrmPayrollPage() {
       alert(err.message);
     } finally {
       setIsSubmittingAttendance(false);
+    }
+  };
+
+  // Handle Resolving / Dismissing Flagged Attendance Entries
+  const handleResolveFlag = async (action: "approve" | "dismiss") => {
+    if (!resolveTargetLog) return;
+    try {
+      setIsResolving(true);
+      const res = await fetch("/api/attendance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          logId: resolveTargetLog.id,
+          action,
+          notes: resolutionNotes,
+          resolvedBy: "HR Administrator",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification(data.message || `Flag ${action}d successfully.`);
+        setResolveTargetLog(null);
+        setResolutionNotes("");
+        loadData();
+      } else {
+        alert(data.error || data.message || "Failed to resolve flag");
+      }
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setIsResolving(false);
     }
   };
 
@@ -1127,128 +1174,360 @@ export default function HrmPayrollPage() {
 
 
       {/* ========================================================================= */}
-      {/* TAB 7: ATTENDANCE & BIOMETRICS (PRESERVED)                                */}
+      {/* TAB 7: ATTENDANCE & BIOMETRICS & GEOFENCE REVIEW                         */}
       {/* ========================================================================= */}
       {activeTab === "attendance" && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Biometric Verification Simulation Form */}
-          <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-4">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
-              <Camera className="w-4 h-4 text-[#0D7A5F]" />
-              Dual-Gate Attendance Simulator
-            </h3>
-            <form onSubmit={handleCheckIn} className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">Employee</label>
-                <select
-                  value={selectedEmpId}
-                  onChange={(e) => setSelectedEmpId(e.target.value)}
-                  className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                >
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name} ({e.role})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">Facial Match Score (%)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={faceScore}
-                  onChange={(e) => setFaceScore(Number(e.target.value))}
-                  className="w-full h-9 px-3 font-mono font-bold bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">Check-in Lat</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={checkInLat}
-                    onChange={(e) => setCheckInLat(Number(e.target.value))}
-                    className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">Check-in Lng</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={checkInLng}
-                    onChange={(e) => setCheckInLng(Number(e.target.value))}
-                    className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmittingAttendance}
-                className="w-full py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white font-bold rounded-lg transition"
-              >
-                {isSubmittingAttendance ? "Verifying..." : "Verify & Log Attendance"}
-              </button>
-            </form>
-
-            {attendanceResult && (
-              <div
-                className={`p-3 rounded-lg text-xs font-semibold ${
-                  attendanceResult.result === "pass"
-                    ? "bg-emerald-50 text-emerald-900 border border-emerald-200"
-                    : "bg-rose-50 text-rose-900 border border-rose-200"
-                }`}
-              >
-                Result: {attendanceResult.result?.toUpperCase()} — {attendanceResult.message || "Audit logged"}
-              </div>
-            )}
-          </div>
-
-          {/* Attendance Audit Log Table */}
-          <div className="md:col-span-2 bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-[#E4E4E7]">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Immutable Attendance Logs ({attendanceLogs.length})
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Biometric Verification Simulation Form */}
+            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-4">
+              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-[#0D7A5F]" />
+                Dual-Gate Attendance Simulator
               </h3>
+              <form onSubmit={handleCheckIn} className="space-y-3 text-xs">
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">Employee</label>
+                  <select
+                    value={selectedEmpId}
+                    onChange={(e) => setSelectedEmpId(e.target.value)}
+                    className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
+                  >
+                    {employees.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name} ({e.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">Target Geofence Zone</label>
+                  <select
+                    value={selectedZoneId}
+                    onChange={(e) => setSelectedZoneId(e.target.value)}
+                    className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
+                  >
+                    <option value="">Auto-Detect Nearest Active Zone</option>
+                    {zones.map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name} (Radius: {z.radiusMeters}m)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">Facial Match Score (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={faceScore}
+                    onChange={(e) => setFaceScore(Number(e.target.value))}
+                    className="w-full h-9 px-3 font-mono font-bold bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="font-semibold text-[#18181B] block mb-1">Check-in Lat</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={checkInLat}
+                      onChange={(e) => setCheckInLat(Number(e.target.value))}
+                      className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-[#18181B] block mb-1">Check-in Lng</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={checkInLng}
+                      onChange={(e) => setCheckInLng(Number(e.target.value))}
+                      className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingAttendance}
+                  className="w-full py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white font-bold rounded-lg transition"
+                >
+                  {isSubmittingAttendance ? "Verifying with Geofence..." : "Verify & Punch Attendance"}
+                </button>
+              </form>
+
+              {attendanceResult && (
+                <div
+                  className={`p-3 rounded-lg text-xs font-semibold space-y-1 ${
+                    attendanceResult.status === "accepted"
+                      ? "bg-emerald-50 text-emerald-900 border border-emerald-200"
+                      : attendanceResult.status === "accepted-but-flagged"
+                      ? "bg-amber-50 text-amber-900 border border-amber-200"
+                      : "bg-rose-50 text-rose-900 border border-rose-200"
+                  }`}
+                >
+                  <div className="font-bold uppercase tracking-wider">
+                    Status: {attendanceResult.status || attendanceResult.result}
+                  </div>
+                  <div>{attendanceResult.message}</div>
+                  {attendanceResult.flagReason && (
+                    <div className="text-[11px] text-amber-800 font-normal">
+                      <strong>Flag Reason:</strong> {attendanceResult.flagReason}
+                    </div>
+                  )}
+                  {attendanceResult.distanceMeters !== undefined && (
+                    <div className="text-[11px] text-[#71717A] font-mono">
+                      Distance: {attendanceResult.distanceMeters}m | Within Zone: {attendanceResult.withinGeofence ? "Yes" : "No"}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="overflow-x-auto max-h-[450px]">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-[#F4F4F5] text-[#71717A] sticky top-0">
-                  <tr>
-                    <th className="p-3">Time</th>
-                    <th className="p-3">Staff</th>
-                    <th className="p-3">Face Score</th>
-                    <th className="p-3">Geofence</th>
-                    <th className="p-3">Outcome</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E4E4E7]">
-                  {attendanceLogs.map((lg) => (
-                    <tr key={lg.id} className="hover:bg-[#F9FAFB]">
-                      <td className="p-3 font-mono">{formatDateTime(lg.timestamp)}</td>
-                      <td className="p-3 font-semibold text-[#18181B]">{lg.employee?.name}</td>
-                      <td className="p-3 font-mono font-bold">{lg.faceMatchScore}%</td>
-                      <td className="p-3 text-[#71717A]">{lg.geofenceZone?.name || "Main Office"}</td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            lg.result === "pass" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
-                          }`}
-                        >
-                          {lg.result?.toUpperCase()}
-                        </span>
-                      </td>
+
+            {/* Attendance Audit Log Table & Flagged Review Console */}
+            <div className="md:col-span-2 bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-[#E4E4E7] flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAttendanceSubTab("all")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      attendanceSubTab === "all"
+                        ? "bg-[#0D7A5F] text-white shadow-xs"
+                        : "bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B]"
+                    }`}
+                  >
+                    All Immutable Logs ({attendanceLogs.length})
+                  </button>
+                  <button
+                    onClick={() => setAttendanceSubTab("flagged")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                      attendanceSubTab === "flagged"
+                        ? "bg-amber-600 text-white shadow-xs"
+                        : "bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B]"
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Flagged for Review
+                    {flaggedCount > 0 && (
+                      <span
+                        className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] ${
+                          attendanceSubTab === "flagged"
+                            ? "bg-white text-amber-700"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {flaggedCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {attendanceSubTab === "flagged" && (
+                <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 text-[11px] text-amber-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    The entries below were automatically flagged by server-side verification due to implausible travel velocity (&gt;150km/h) or coordinates outside designated geofences.
+                  </span>
+                </div>
+              )}
+
+              <div className="overflow-x-auto max-h-[480px]">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-[#F4F4F5] text-[#71717A] sticky top-0">
+                    <tr>
+                      <th className="p-3">Time</th>
+                      <th className="p-3">Staff</th>
+                      <th className="p-3">Zone / GPS</th>
+                      {attendanceSubTab === "flagged" ? (
+                        <>
+                          <th className="p-3">Flag Reason</th>
+                          <th className="p-3 text-right">Action</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="p-3">Face Score</th>
+                          <th className="p-3">Geofence</th>
+                          <th className="p-3">Outcome</th>
+                          <th className="p-3 text-right">Review</th>
+                        </>
+                      )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-[#E4E4E7]">
+                    {attendanceLogs.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={attendanceSubTab === "flagged" ? 5 : 7}
+                          className="p-8 text-center text-[#71717A]"
+                        >
+                          {attendanceSubTab === "flagged"
+                            ? "No flagged entries requiring review. All punches are within authorized boundaries."
+                            : "No attendance records found."}
+                        </td>
+                      </tr>
+                    ) : (
+                      attendanceLogs.map((lg) => (
+                        <tr key={lg.id} className="hover:bg-[#F9FAFB]">
+                          <td className="p-3 font-mono">{formatDateTime(lg.timestamp)}</td>
+                          <td className="p-3">
+                            <div className="font-semibold text-[#18181B]">{lg.employee?.name}</div>
+                            <div className="text-[10px] text-[#71717A]">{lg.employee?.role || lg.employee?.designation}</div>
+                          </td>
+                          <td className="p-3">
+                            <div className="font-semibold text-[#18181B]">{lg.geofenceZone?.name || "Nearest Zone"}</div>
+                            <div className="text-[10px] text-[#71717A] font-mono">
+                              {lg.lat?.toFixed(4)}, {lg.lng?.toFixed(4)}
+                            </div>
+                          </td>
+                          {attendanceSubTab === "flagged" ? (
+                            <>
+                              <td className="p-3 max-w-[280px]">
+                                <div className="p-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded text-[11px] leading-tight">
+                                  {lg.flagReason || "Flagged by security heuristics"}
+                                </div>
+                              </td>
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => setResolveTargetLog(lg)}
+                                  className="px-2.5 py-1 bg-[#18181B] hover:bg-[#27272A] text-white font-semibold rounded text-[11px] transition shadow-2xs"
+                                >
+                                  Resolve Flag
+                                </button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="p-3 font-mono font-bold">{lg.faceMatchScore}%</td>
+                              <td className="p-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                    lg.withinGeofence
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-rose-100 text-rose-800"
+                                  }`}
+                                >
+                                  {lg.withinGeofence ? "INSIDE" : "OUTSIDE"}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                    lg.flaggedForReview
+                                      ? "bg-amber-100 text-amber-800"
+                                      : lg.result === "pass"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-rose-100 text-rose-800"
+                                  }`}
+                                >
+                                  {lg.flaggedForReview ? "FLAGGED" : lg.result?.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="p-3 text-right">
+                                {lg.flaggedForReview ? (
+                                  <button
+                                    onClick={() => setResolveTargetLog(lg)}
+                                    className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded text-[10px] transition"
+                                  >
+                                    Review
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-[#A1A1AA]">Clean</span>
+                                )}
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
+
+          {/* Resolve Flagged Attendance Modal */}
+          {resolveTargetLog && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-[#E4E4E7]">
+                <div className="flex items-center justify-between border-b border-[#E4E4E7] pb-3">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-amber-600" />
+                    <h3 className="font-bold text-sm text-[#18181B]">Resolve Attendance Flag</h3>
+                  </div>
+                  <button
+                    onClick={() => setResolveTargetLog(null)}
+                    className="text-[#71717A] hover:text-[#18181B]"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="bg-[#F8FAFC] border border-[#E2E8F0] p-3 rounded-lg text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-[#71717A]">Employee:</span>
+                    <span className="font-semibold text-[#18181B]">{resolveTargetLog.employee?.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717A]">Time:</span>
+                    <span className="font-mono text-[#18181B]">{formatDateTime(resolveTargetLog.timestamp)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717A]">GPS Coordinates:</span>
+                    <span className="font-mono text-[#18181B]">{resolveTargetLog.lat}, {resolveTargetLog.lng}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#71717A]">Device ID:</span>
+                    <span className="font-mono text-[#18181B]">{resolveTargetLog.deviceId || "N/A"}</span>
+                  </div>
+                  <div className="pt-1 border-t border-[#E2E8F0]">
+                    <span className="text-[#71717A] block mb-0.5">Flag Reason:</span>
+                    <span className="text-amber-900 font-semibold">{resolveTargetLog.flagReason}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                    Administrative Resolution Notes
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={resolutionNotes}
+                    onChange={(e) => setResolutionNotes(e.target.value)}
+                    placeholder="E.g., Employee verified en route to remote site with manager's permission..."
+                    className="w-full text-xs p-2.5 border border-[#E4E4E7] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                  <button
+                    onClick={() => setResolveTargetLog(null)}
+                    className="px-3 py-2 text-xs font-semibold text-[#71717A] hover:bg-[#F4F4F5] rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={isResolving}
+                    onClick={() => handleResolveFlag("dismiss")}
+                    className="px-3 py-2 text-xs font-semibold bg-[#F4F4F5] hover:bg-rose-50 text-rose-700 border border-[#E4E4E7] rounded-lg transition"
+                  >
+                    {isResolving ? "Resolving..." : "Dismiss Flag"}
+                  </button>
+                  <button
+                    disabled={isResolving}
+                    onClick={() => handleResolveFlag("approve")}
+                    className="px-4 py-2 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-xs"
+                  >
+                    {isResolving ? "Resolving..." : "Approve & Clear Flag"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

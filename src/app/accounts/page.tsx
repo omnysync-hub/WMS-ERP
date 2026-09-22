@@ -10,6 +10,8 @@ import BankReconciliationTab from "@/components/accounts/BankReconciliationTab";
 import FixedAssetsTab from "@/components/accounts/FixedAssetsTab";
 import SubLedgerReconciliationTab from "@/components/accounts/SubLedgerReconciliationTab";
 import ReverseJournalEntryModal from "@/components/accounts/ReverseJournalEntryModal";
+import AccountMappingTab from "@/components/accounts/AccountMappingTab";
+import CoaManagerModal from "@/components/accounts/CoaManagerModal";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
 import {
@@ -50,6 +52,10 @@ import {
   Table as TableIcon,
   Sparkles,
   RotateCcw,
+  Sliders,
+  Upload,
+  Download,
+  Edit2,
 } from "lucide-react";
 
 export default function AccountsPage() {
@@ -61,6 +67,7 @@ export default function AccountsPage() {
     | "pos"
     | "cashbook"
     | "chart"
+    | "mapping"
     | "journal"
     | "reports"
     | "bankrec"
@@ -123,7 +130,28 @@ export default function AccountsPage() {
   // Chart of Accounts Drilldown Drawer state & Level 4 Hierarchy
   const [accounts, setAccounts] = useState<any[]>([]);
   const [coaTree, setCoaTree] = useState<any[]>([]);
-  const [coaFlat, setCoaFlat] = useState<any[]>([]);
+  const [coaFlat, setCoaFlat] = useState<any[]>([]);  // COA Hierarchy Manager Modal
+  const [showCoaModal, setShowCoaModal] = useState(false);
+  const [coaModalMode, setCoaModalMode] = useState<"create" | "edit" | "import">("create");
+  const [selectedAccountToEdit, setSelectedAccountToEdit] = useState<any>(null);
+
+  const handleExportCoaCsv = () => {
+    if (coaFlat.length === 0) return;
+    const headers = "code,name,type,parentCode,level,balance,entriesCount";
+    const rows = coaFlat.map(
+      (a) =>
+        `"${a.code}","${a.name}","${a.type}","${a.parentCode || ""}","${a.level}","${a.balance}","${a.entriesCount || 0}"`
+    );
+    const csvContent = [headers, ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `chart_of_accounts_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   const [coaViewMode, setCoaViewMode] = useState<"tree" | "table">("tree");
   const [coaSearch, setCoaSearch] = useState("");
   const [coaLevelFilter, setCoaLevelFilter] = useState<"ALL" | "1" | "2" | "3" | "4">("ALL");
@@ -858,6 +886,11 @@ export default function AccountsPage() {
       label: "Chart of Accounts (COA)",
       icon: <BookOpen className="w-3.5 h-3.5" />,
       count: coaFlat.length || accounts.length,
+    },
+    {
+      id: "mapping",
+      label: "Account Mapping",
+      icon: <Sliders className="w-3.5 h-3.5" />,
     },
     {
       id: "journal",
@@ -2040,8 +2073,8 @@ export default function AccountsPage() {
                 </div>
               </div>
 
-              {/* View Switcher: Tree View vs Tabular View */}
-              <div className="flex items-center gap-2">
+              {/* View Switcher & Actions */}
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex rounded-xl border border-[#EDEDED] p-1 bg-[#F4F4F5]">
                   <button
                     type="button"
@@ -2068,6 +2101,40 @@ export default function AccountsPage() {
                   >
                     <TableIcon className="w-3.5 h-3.5" />
                     Tabular View
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAccountToEdit(null);
+                      setCoaModalMode("create");
+                      setShowCoaModal(true);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New Account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCoaModalMode("import");
+                      setShowCoaModal(true);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Import CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportCoaCsv}
+                    className="px-2.5 py-1.5 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Export CSV
                   </button>
                 </div>
               </div>
@@ -2517,6 +2584,30 @@ export default function AccountsPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB: ACCOUNT MAPPING SETTINGS */}
+      {activeTab === "mapping" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-gradient-to-r from-emerald-950 via-[#18181B] to-[#18181B] border border-emerald-800/40 rounded-xl text-white shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0">
+                <Sliders className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold">Consolidated Accounting Settings Available</p>
+                <p className="text-[11px] text-zinc-400">Manage 4-Level Chart of Accounts, system protections, deactivation guards, and transaction mappings in one place.</p>
+              </div>
+            </div>
+            <Link
+              href="/settings/accounting"
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shrink-0 self-start sm:self-auto"
+            >
+              Open Settings <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <AccountMappingTab />
         </div>
       )}
 
@@ -3925,6 +4016,16 @@ export default function AccountsPage() {
           }}
         />
       )}
+
+      {/* COA HIERARCHY MANAGER MODAL */}
+      <CoaManagerModal
+        isOpen={showCoaModal}
+        mode={coaModalMode}
+        accountToEdit={selectedAccountToEdit}
+        allAccounts={coaFlat}
+        onClose={() => setShowCoaModal(false)}
+        onSuccess={() => loadData()}
+      />
     </div>
   );
 }

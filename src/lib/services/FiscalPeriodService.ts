@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export class FiscalPeriodService {
   /**
@@ -200,8 +201,8 @@ export class FiscalPeriodService {
       }
     }
 
-    // Offset net income into 3200 Retained Earnings
-    const retainedEarningsAcc = await AccountsPostingService.getAccountByCode("3200");
+    // Offset net income into Retained Earnings via AccountMappingService
+    const retainedEarningsAcc = await AccountMappingService.resolveAccount({ transactionType: "retained_earnings_equity" });
     const roundedNetIncome = Math.round(netIncome * 100) / 100;
 
     if (roundedNetIncome > 0) {

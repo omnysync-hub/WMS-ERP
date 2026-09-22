@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 import { SubLedgerService } from "./SubLedgerService";
 
 export interface PostVendorPaymentParams {
@@ -64,10 +65,24 @@ export class TaxService {
 
     const taxCalc = this.calculateWht(grossAmount, vendor.whtRate, vendor.whtExempt);
 
-    // 1. Get Accounts
-    const apAccount = await AccountsPostingService.getAccountByCode("2000"); // Accounts Payable
-    const whtAccount = await AccountsPostingService.getAccountByCode("2200"); // WHT Payable
-    const disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+    // 1. Get Accounts via AccountMappingService
+    const apAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_payable" });
+    const whtAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_wht" });
+    let disbursingAccount = null;
+    if (disbursingAccountCode) {
+      disbursingAccount = await prisma.account.findFirst({
+        where: {
+          OR: [
+            { code: disbursingAccountCode },
+            { id: disbursingAccountCode },
+          ],
+          isActive: true,
+        },
+      });
+    }
+    if (!disbursingAccount) {
+      disbursingAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_disbursing" });
+    }
 
     // 2. Prepare Balanced Journal Lines
     const lines = [];
@@ -129,6 +144,8 @@ export class TaxService {
       taxCalculation: taxCalc,
     };
   }
+
+  static recordVendorPaymentWithWht = this.postVendorPaymentWithWht;
 
   static async getVendors() {
     return await prisma.vendor.findMany({

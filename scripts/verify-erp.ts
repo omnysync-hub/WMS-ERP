@@ -5,6 +5,9 @@ import { InventoryService } from "../src/lib/services/InventoryService";
 import { AttendanceService } from "../src/lib/services/AttendanceService";
 import { FeedbackService } from "../src/lib/services/FeedbackService";
 import { HrmService } from "../src/lib/services/HrmService";
+import { ProcurementService } from "../src/lib/services/ProcurementService";
+import { TaxService } from "../src/lib/services/TaxService";
+import { FixedAssetService } from "../src/lib/services/FixedAssetService";
 
 async function runVerification() {
   console.log("==================================================");
@@ -193,6 +196,9 @@ async function runVerification() {
     const zone = await prisma.geofenceZone.findFirst();
     const zoneLat = zone?.lat || 31.5204;
     const zoneLng = zone?.lng || 74.3587;
+
+    // Clean prior test logs so repeated test runs don't trigger speed jump anti-spoofing
+    await prisma.attendanceLog.deleteMany({ where: { employeeId: tech.id } });
 
     // Pass: High face score + inside geofence
     const passResult = await AttendanceService.recordAttendance({
@@ -554,6 +560,324 @@ async function runVerification() {
     await prisma.product.delete({ where: { id: testProduct.id } });
   } catch (err: any) {
     assert(false, `Opening stock test failed: ${err.message}`);
+  }
+
+  // TEST 23: INVENTORY GRN POSTING - Proves recordGrnStock posts through GR/IR clearing (2050)
+  try {
+    const testVendor = await prisma.vendor.findFirst() || await prisma.vendor.create({
+      data: { name: `Test Vendor GRN ${Date.now()}` },
+    });
+
+    const testProd = await prisma.product.create({
+      data: {
+        sku: `SKU-GRN-${Date.now()}`,
+        name: "Test Copper Coils",
+        unit: "pcs",
+        unitPrice: 5000,
+        costPrice: 4000,
+      },
+    });
+
+    const po = await prisma.purchaseOrder.create({
+      data: {
+        poNumber: `PO-TEST-GRN-${Date.now()}`,
+        vendorId: testVendor.id,
+        supplierName: testVendor.name,
+        supplierEmail: testVendor.email || "vendor@test.pk",
+        totalAmount: 8000,
+        items: {
+          create: [
+            {
+              productId: testProd.id,
+              quantity: 2,
+              unitCost: 4000,
+              lineTotal: 8000,
+            },
+          ],
+        },
+      },
+    });
+
+    const grn = await InventoryService.recordGrnStock(
+      po.id,
+      [{ productId: testProd.id, quantityReceived: 2 }],
+      "Storekeeper"
+    );
+
+    const grnJournal = await prisma.journalEntry.findFirst({
+      where: { refType: "grn_receipt", refId: grn.id },
+      include: { lines: { include: { account: true } } },
+    });
+
+    const drLine = grnJournal?.lines.find((l) => l.debit > 0);
+    const crLine = grnJournal?.lines.find((l) => l.credit > 0);
+
+    assert(
+      drLine?.account.code === "1200" &&
+        crLine?.account.code === "2050" &&
+        drLine?.debit === 8000 &&
+        crLine?.credit === 8000,
+      "InventoryService.recordGrnStock() posts Dr 1200 (Inventory Asset) / Cr 2050 (GR/IR Clearing) - does NOT bypass into 2000 AP"
+    );
+  } catch (err: any) {
+    assert(false, `Inventory GRN test failed: ${err.message}`);
+  }
+
+  // TEST 24: PROCUREMENT PROCESS GRN - Proves processGrn posts through GR/IR clearing (2050)
+  try {
+    const testVendor = await prisma.vendor.findFirst();
+    const testProd = await prisma.product.findFirst();
+
+    const po = await prisma.purchaseOrder.create({
+      data: {
+        poNumber: `PO-PROC-GRN-${Date.now()}`,
+        vendorId: testVendor!.id,
+        supplierName: testVendor!.name,
+        supplierEmail: testVendor!.email || "vendor@test.pk",
+        totalAmount: 10000,
+        items: {
+          create: [
+            {
+              productId: testProd!.id,
+              quantity: 2,
+              unitCost: 5000,
+              lineTotal: 10000,
+            },
+          ],
+        },
+      },
+      include: { items: true },
+    });
+
+    const grn = await ProcurementService.processGrn({
+      poId: po.id,
+      deliveryChallan: `DC-${Date.now()}`,
+      receivedBy: "Inspector",
+      items: [
+        {
+          poItemId: po.items[0].id,
+          productId: testProd!.id,
+          description: "Accepted parts",
+          quantityReceived: 2,
+          quantityAccepted: 2,
+          quantityRejected: 0,
+        },
+      ],
+    });
+
+    const journal = await prisma.journalEntry.findFirst({
+      where: { refType: "grn_receipt", refId: grn.id },
+      include: { lines: { include: { account: true } } },
+    });
+
+    const drLine = journal?.lines.find((l) => l.debit > 0);
+    const crLine = journal?.lines.find((l) => l.credit > 0);
+
+    assert(
+      drLine?.account.code === "1200" &&
+        crLine?.account.code === "2050" &&
+        drLine?.debit === 10000 &&
+        crLine?.credit === 10000,
+      "ProcurementService.processGrn() posts Dr 1200 / Cr 2050 (GR/IR Clearing)"
+    );
+  } catch (err: any) {
+    assert(false, `Procurement processGrn failed: ${err.message}`);
+  }
+
+  // TEST 25: PROCUREMENT 3-WAY MATCH VENDOR BILL - Proves 2050 clearing into 2000 AP
+  try {
+    const testVendor = await prisma.vendor.findFirst();
+    const invoice = await ProcurementService.processVendorBill({
+      vendorId: testVendor!.id,
+      invoiceNumber: `INV-TEST-${Date.now()}`,
+      referenceNumber: `REF-TEST-${Date.now()}`,
+      subtotal: 10000,
+      totalAmount: 10000,
+      items: [
+        {
+          description: "Matched goods",
+          billedQuantity: 2,
+          billedUnitPrice: 5000,
+          poUnitPrice: 5000,
+          lineTotal: 10000,
+          variance: 0,
+        },
+      ],
+    });
+
+    const billJournal = await prisma.journalEntry.findFirst({
+      where: { refType: "vendor_bill", refId: invoice.id },
+      include: { lines: { include: { account: true } } },
+    });
+
+    const drLine = billJournal?.lines.find((l) => l.debit > 0);
+    const crLine = billJournal?.lines.find((l) => l.credit > 0);
+
+    assert(
+      drLine?.account.code === "2050" &&
+        crLine?.account.code === "2000" &&
+        drLine?.debit === 10000 &&
+        crLine?.credit === 10000,
+      "ProcurementService.processVendorBill() posts Dr 2050 (GR/IR Clearing) / Cr 2000 (Accounts Payable)"
+    );
+  } catch (err: any) {
+    assert(false, `Procurement processVendorBill failed: ${err.message}`);
+  }
+
+  // TEST 26: DYNAMIC DISBURSING BANK ACCOUNT IN payVendorBill (Meezan, HBL, Cash)
+  try {
+    const testVendor = await prisma.vendor.findFirst();
+
+    // Create 3 invoices to pay from 3 different sources
+    const invHBL = await ProcurementService.processVendorBill({
+      vendorId: testVendor!.id,
+      invoiceNumber: `INV-HBL-${Date.now()}`,
+      referenceNumber: `REF-HBL-${Date.now()}`,
+      subtotal: 6000,
+      totalAmount: 6000,
+      items: [{ description: "Bill 1", billedQuantity: 1, billedUnitPrice: 6000, lineTotal: 6000 }],
+    });
+
+    const invCash = await ProcurementService.processVendorBill({
+      vendorId: testVendor!.id,
+      invoiceNumber: `INV-CASH-${Date.now()}`,
+      referenceNumber: `REF-CASH-${Date.now()}`,
+      subtotal: 3000,
+      totalAmount: 3000,
+      items: [{ description: "Bill 2", billedQuantity: 1, billedUnitPrice: 3000, lineTotal: 3000 }],
+    });
+
+    const invMeezan = await ProcurementService.processVendorBill({
+      vendorId: testVendor!.id,
+      invoiceNumber: `INV-MEEZAN-${Date.now()}`,
+      referenceNumber: `REF-MEEZAN-${Date.now()}`,
+      subtotal: 9000,
+      totalAmount: 9000,
+      items: [{ description: "Bill 3", billedQuantity: 1, billedUnitPrice: 9000, lineTotal: 9000 }],
+    });
+
+    // Payment 1: From HBL (1011)
+    const payHBL = await ProcurementService.payVendorBill({
+      supplierInvoiceId: invHBL.id,
+      amount: 6000,
+      paymentMethod: "bank_transfer",
+      bankAccountId: "1011", // HBL
+    });
+
+    // Payment 2: From Cash (1000)
+    const payCash = await ProcurementService.payVendorBill({
+      supplierInvoiceId: invCash.id,
+      amount: 3000,
+      paymentMethod: "cash",
+      bankAccountId: "1000", // Cash
+    });
+
+    // Payment 3: From Meezan (1010)
+    const payMeezan = await ProcurementService.payVendorBill({
+      supplierInvoiceId: invMeezan.id,
+      amount: 9000,
+      paymentMethod: "bank_transfer",
+      bankAccountId: "1010", // Meezan
+    });
+
+    // Verify journal entries disbursed from the exact specified accounts
+    const jHBL = await prisma.journalEntry.findFirst({
+      where: { refType: "vendor_payment", refId: payHBL.paymentNumber },
+      include: { lines: { include: { account: true } } },
+    });
+    const jCash = await prisma.journalEntry.findFirst({
+      where: { refType: "vendor_payment", refId: payCash.paymentNumber },
+      include: { lines: { include: { account: true } } },
+    });
+    const jMeezan = await prisma.journalEntry.findFirst({
+      where: { refType: "vendor_payment", refId: payMeezan.paymentNumber },
+      include: { lines: { include: { account: true } } },
+    });
+
+    const crHBL = jHBL?.lines.find((l) => l.credit > 0);
+    const crCash = jCash?.lines.find((l) => l.credit > 0);
+    const crMeezan = jMeezan?.lines.find((l) => l.credit > 0);
+
+    assert(
+      crHBL?.account.code === "1011" &&
+        crCash?.account.code === "1000" &&
+        crMeezan?.account.code === "1010",
+      "ProcurementService.payVendorBill() dynamically disburses from HBL (1011), Cash (1000), or Meezan (1010) based on bankAccountId parameter"
+    );
+  } catch (err: any) {
+    assert(false, `Dynamic bank disbursement test failed: ${err.message}`);
+  }
+
+  // TEST 27: TAX SERVICE VENDOR PAYMENT WITH WITHHOLDING TAX (WHT)
+  try {
+    const testVendor = await prisma.vendor.findFirst();
+    const res = await TaxService.recordVendorPaymentWithWht({
+      vendorId: testVendor!.id,
+      grossAmount: 100000,
+      disbursingAccountCode: "1011", // HBL
+      memo: "Test Tax Payment with WHT",
+    });
+
+    const jLines = res.journal.lines;
+    const apLine = jLines.find((l) => l.debit > 0);
+    const whtLine = jLines.find((l) => l.credit > 0 && l.account.code === "2200");
+    const bankLine = jLines.find((l) => l.credit > 0 && l.account.code === "1011");
+    const totalCredits = (bankLine?.credit || 0) + (whtLine?.credit || 0);
+
+    assert(
+      apLine?.account.code === "2000" &&
+        apLine?.debit === 100000 &&
+        totalCredits === 100000 &&
+        res.journal.status === "posted",
+      "TaxService.recordVendorPaymentWithWht() posts balanced entry (Dr 2000 AP, Cr Disbursing Bank / Cr 2200 WHT)"
+    );
+  } catch (err: any) {
+    assert(false, `TaxService payment test failed: ${err.message}`);
+  }
+
+  // TEST 28: FIXED ASSET SERVICE MONTHLY DEPRECIATION RUN
+  try {
+    const testAsset = await prisma.fixedAsset.create({
+      data: {
+        assetNumber: `FA-TEST-${Date.now()}`,
+        name: "Test Workshop Vacuum Pump",
+        category: "Machinery",
+        acquisitionDate: new Date("2026-01-01"),
+        acquisitionCost: 120000,
+        salvageValue: 0,
+        usefulLifeMonths: 60, // 2,000 / month
+        bookValue: 120000,
+        accumulatedDepreciation: 0,
+      },
+    });
+
+    const period = `2026-TEST-${Date.now() % 10000}`;
+    const deprResult = await FixedAssetService.postMonthlyDepreciation(period, "System Auditor");
+
+    const deprJournal = await prisma.journalEntry.findFirst({
+      where: { refType: "asset_depreciation", refId: period },
+      include: { lines: { include: { account: true } } },
+    });
+
+    const drLine = deprJournal?.lines.find((l) => l.debit > 0);
+    const crLine = deprJournal?.lines.find((l) => l.credit > 0);
+
+    assert(
+      deprResult.processedCount >= 1 &&
+        drLine?.account.code === "6350" &&
+        crLine?.account.code === "1590" &&
+        drLine?.debit === crLine?.credit,
+      "FixedAssetService.postMonthlyDepreciation() posts balanced Dr 6350 (Depr Expense) / Cr 1590 (Accum Depr)"
+    );
+
+    // Clean up
+    await prisma.fixedAsset.delete({ where: { id: testAsset.id } });
+    if (deprJournal) {
+      await prisma.journalLine.deleteMany({ where: { journalEntryId: deprJournal.id } });
+      await prisma.journalEntry.delete({ where: { id: deprJournal.id } });
+    }
+  } catch (err: any) {
+    assert(false, `FixedAsset depreciation test failed: ${err.message}`);
   }
 
   console.log("\n==================================================");

@@ -8,7 +8,8 @@ Use this as the top-level brief when handing this project to a dev team or an AI
 1. `01-ARCHITECTURE.md` — tech stack, hosting, module boundaries, data model overview.
 2. `02-LOGICS.md` — the business rules: job state machine, accounting posting engine, hisaab/expense logic, attendance logic, payroll approval logic, feedback/call-center logic.
 3. `03-WORKFLOWS.md` — step-by-step workflows per actor (dispatcher, technician, accountant, admin/HR, call center), with the exact screens and transitions each role goes through.
-4. `04-DESIGN.md` — UI/UX design system: layout, components, typography, color, and screen-level guidance for every module.
+4. `04-DESIGN.md` — UI/UX design system: layout, components, typography, color, and screen-level guidance for the Web ERP.
+5. `05-MOBILE-DESIGN.md` — UI/UX design system for the companion mobile app: Dark OLED palette, single-hand thumb ergonomics, dual-persona navigation, offline caching, and micro-haptics.
 
 ---
 

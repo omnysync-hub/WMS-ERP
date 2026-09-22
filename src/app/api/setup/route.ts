@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
+import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { FinancialReportingService } from "@/lib/services/FinancialReportingService";
 import { STANDARD_COA_DEFINITIONS } from "@/lib/constants/chartOfAccountsHierarchy";
@@ -162,8 +163,8 @@ export async function POST(req: NextRequest) {
 
       const targetDate = goLiveDate ? new Date(goLiveDate) : new Date();
 
-      // Ensure 3900 Opening Balance Equity is provisioned
-      const equityOffsetAcc = await AccountsPostingService.getAccountByCode("3900");
+      // Ensure Opening Balance Equity is resolved via AccountMappingService
+      const equityOffsetAcc = await AccountMappingService.resolveAccount({ transactionType: "opening_balance_equity" });
 
       let totalDebits = 0;
       let totalCredits = 0;
