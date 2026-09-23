@@ -60,9 +60,7 @@ import {
 
 export default function AccountsPage() {
   const [activeTab, setActiveTab] = useState<
-    | "discounts"
     | "ledgers"
-    | "settlements"
     | "expenses"
     | "pos"
     | "cashbook"
@@ -73,7 +71,7 @@ export default function AccountsPage() {
     | "bankrec"
     | "fixedassets"
     | "subledgers"
-  >("discounts");
+  >("ledgers");
 
   // Sub-tabs for Party Ledgers
   const [partySubTab, setPartySubTab] = useState<"customers" | "technicians" | "vendors">("customers");
@@ -238,13 +236,7 @@ export default function AccountsPage() {
   // 1. DATA LOADER
   const loadData = useCallback(async () => {
     try {
-      if (activeTab === "discounts") {
-        setDiscountLoading(true);
-        const res = await fetch("/api/accounts?view=discounts");
-        const data = await res.json();
-        if (data.discounts) setPendingDiscounts(data.discounts);
-        setDiscountLoading(false);
-      } else if (activeTab === "ledgers") {
+      if (activeTab === "ledgers") {
         const res = await fetch("/api/accounts?view=parties");
         const data = await res.json();
         if (data.success) {
@@ -254,10 +246,6 @@ export default function AccountsPage() {
             vendors: data.vendors || [],
           });
         }
-      } else if (activeTab === "settlements") {
-        const res = await fetch("/api/hisaab");
-        const data = await res.json();
-        if (Array.isArray(data)) setPendingSettlements(data);
       } else if (activeTab === "expenses") {
         const res = await fetch("/api/accounts?view=expenses");
         const data = await res.json();
@@ -845,23 +833,10 @@ export default function AccountsPage() {
 
   const tabs = [
     {
-      id: "discounts",
-      label: "Discounts Queue",
-      icon: <Percent className="w-3.5 h-3.5" />,
-      count: pendingDiscounts.length,
-      alertBadge: pendingDiscounts.length > 0,
-    },
-    {
       id: "ledgers",
       label: "Party Ledgers (AR & AP)",
       icon: <Users className="w-3.5 h-3.5" />,
       count: partiesData.customers.length + partiesData.technicians.length,
-    },
-    {
-      id: "settlements",
-      label: "Field Settlements & Clearance",
-      icon: <Receipt className="w-3.5 h-3.5" />,
-      count: pendingSettlements.length,
     },
     {
       id: "expenses",
@@ -926,7 +901,7 @@ export default function AccountsPage() {
       <PageHeader
         breadcrumbs={[{ label: "Finance & Accounts" }]}
         title="Accountant Workstation & Financial Suite"
-        subtitle="Complete GAAP double-entry ledger, multi-party statements (AR/AP/Hisaab), pending discount queue, and expense clearance"
+        subtitle="Complete GAAP double-entry ledger, multi-party statements (AR/AP/Hisaab), cash book, and financial statements"
         badge={
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -1010,7 +985,7 @@ export default function AccountsPage() {
               {tab.count !== undefined && (
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                    tab.alertBadge
+                    (tab as any).alertBadge
                       ? "bg-amber-100 text-amber-800 border border-amber-300 animate-pulse"
                       : isActive
                       ? "bg-emerald-100 text-emerald-800"
@@ -1028,7 +1003,7 @@ export default function AccountsPage() {
       {/* ========================================================================= */}
       {/* TAB 1: PENDING TECHNICIAN DISCOUNT APPROVALS QUEUE */}
       {/* ========================================================================= */}
-      {activeTab === "discounts" && (
+      {(activeTab as string) === "discounts" && (
         <div className="space-y-4">
           <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-xl flex items-start gap-3">
             <Percent className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
@@ -1521,7 +1496,7 @@ export default function AccountsPage() {
       {/* ========================================================================= */}
       {/* TAB 3: FIELD SETTLEMENTS & CLEARANCE QUEUE */}
       {/* ========================================================================= */}
-      {activeTab === "settlements" && (
+      {(activeTab as string) === "settlements" && (
         <div className="space-y-4">
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
             <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
