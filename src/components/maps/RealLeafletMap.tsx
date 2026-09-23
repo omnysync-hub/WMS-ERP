@@ -30,8 +30,8 @@ export default function RealLeafletMap({
 
   const TILE_URLS: Record<MapLayerType, { url: string; attribution: string; maxZoom: number }> = {
     streets: {
-      url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
     },
     satellite: {
@@ -40,9 +40,9 @@ export default function RealLeafletMap({
       maxZoom: 18,
     },
     dark: {
-      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      maxZoom: 19,
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      attribution: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ",
+      maxZoom: 16,
     },
   };
 
@@ -63,7 +63,7 @@ export default function RealLeafletMap({
     const tileLayer = L.tileLayer(initialTileConfig.url, {
       attribution: initialTileConfig.attribution,
       maxZoom: initialTileConfig.maxZoom,
-      subdomains: "abcd",
+      subdomains: ["a", "b", "c"],
     }).addTo(map);
 
     tileLayerRef.current = tileLayer;
@@ -89,7 +89,7 @@ export default function RealLeafletMap({
     const newTileLayer = L.tileLayer(config.url, {
       attribution: config.attribution,
       maxZoom: config.maxZoom,
-      subdomains: activeLayer === "satellite" ? undefined : "abcd",
+      subdomains: activeLayer === "streets" ? ["a", "b", "c"] : undefined,
     }).addTo(map);
 
     tileLayerRef.current = newTileLayer;
