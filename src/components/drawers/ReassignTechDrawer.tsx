@@ -151,7 +151,7 @@ export default function ReassignTechDrawer({
                       </div>
                     </div>
 
-                    <div className="text-right">
+                    <div className="text-right flex flex-col items-end gap-1">
                       <span
                         className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
                           tech.currentStatus === "Available"
@@ -160,6 +160,17 @@ export default function ReassignTechDrawer({
                         }`}
                       >
                         {tech.currentStatus || "Available"}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                          (tech.activeJobsCount || 0) === 0
+                            ? "bg-zinc-100 text-zinc-600 border-zinc-200"
+                            : (tech.activeJobsCount || 0) < 3
+                            ? "bg-blue-50 text-blue-700 border-blue-200 font-bold"
+                            : "bg-rose-50 text-rose-700 border-rose-200 font-bold"
+                        }`}
+                      >
+                        {tech.activeJobsCount ?? 0} active job{(tech.activeJobsCount ?? 0) === 1 ? "" : "s"}
                       </span>
                     </div>
                   </label>

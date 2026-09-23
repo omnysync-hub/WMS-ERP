@@ -5,7 +5,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import LiveMap, { TechnicianPin } from "@/components/maps/LiveMap";
 import DispatchTechDrawer from "@/components/drawers/DispatchTechDrawer";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { Users, Briefcase, MapPin, RefreshCw, CheckCircle2, ChevronRight, Phone } from "lucide-react";
+import { Users, Briefcase, MapPin, RefreshCw, CheckCircle2, ChevronRight, Phone, ShieldCheck } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 
 export default function DispatchMapPage() {
@@ -99,6 +99,11 @@ export default function DispatchMapPage() {
           href: "/jobs/new",
         }}
         secondaryActions={[
+          {
+            label: "Surveillance & Playback",
+            icon: <ShieldCheck className="w-3.5 h-3.5" />,
+            href: "/dispatch/surveillance",
+          },
           {
             label: "Refresh Pins",
             icon: <RefreshCw className="w-3.5 h-3.5" />,

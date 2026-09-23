@@ -18,6 +18,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 
 interface ThreeWayMatchTabProps {
   invoices: any[];
@@ -36,8 +37,25 @@ export default function ThreeWayMatchTab({
   onRefresh,
   onNavigateToPayment,
 }: ThreeWayMatchTabProps) {
+  const { currentRole } = useRole();
+  const isStorekeeper = currentRole === "storekeeper";
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  if (isStorekeeper) {
+    return (
+      <div className="p-8 text-center bg-white border border-[#EDEDED] rounded-xl space-y-3 shadow-2xs">
+        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h3 className="text-sm font-bold text-[#18181B]">Vendor Invoicing & Rates Protected</h3>
+        <p className="text-xs text-[#71717A] max-w-md mx-auto">
+          In accordance with storekeeper role security protocols, vendor invoices, purchasing rates, and 3-way match financial reconciliations are restricted to Finance & Accounts personnel.
+        </p>
+      </div>
+    );
+  }
 
   // Create Supplier Invoice Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);

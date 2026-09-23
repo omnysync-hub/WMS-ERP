@@ -26,11 +26,20 @@ import {
   Eye,
   Info,
   ShieldCheck,
+  Building,
+  Wrench,
+  ArrowRightLeft,
+  Scale,
+  ClipboardList,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { useRole } from "@/contexts/RoleContext";
 
 export default function InventoryPurchasingPage() {
-  const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "purchasing" | "pos">("stock");
+  const { currentRole } = useRole();
+  const isStorekeeper = currentRole === "storekeeper";
+
+  const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "purchasing" | "pos" | "branches">("stock");
 
   const [products, setProducts] = useState<any[]>([]);
   const [techRequests, setTechRequests] = useState<any[]>([]);
@@ -53,6 +62,41 @@ export default function InventoryPurchasingPage() {
   // Stock Filter State & Allocations Modal
   const [stockFilter, setStockFilter] = useState<"all" | "field" | "low">("all");
   const [activeAllocationProduct, setActiveAllocationProduct] = useState<any>(null);
+
+  // Branches & Multi-Movement Hub State
+  const [selectedBranch, setSelectedBranch] = useState("Central Warehouse (Lahore Hub)");
+  const [branchMovements, setBranchMovements] = useState<any[]>([]);
+  const [equipmentList, setEquipmentList] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [activeMovementSubTab, setActiveMovementSubTab] = useState<"transfer" | "adjustment" | "workshop" | "equipment">("transfer");
+  const [isSubmittingMovement, setIsSubmittingMovement] = useState(false);
+
+  // Transfer Form State
+  const [transferProductId, setTransferProductId] = useState("");
+  const [transferQty, setTransferQty] = useState("5");
+  const [transferFromBranch, setTransferFromBranch] = useState("Central Warehouse (Lahore Hub)");
+  const [transferToBranch, setTransferToBranch] = useState("Karachi Regional Depot");
+  const [transferChallan, setTransferChallan] = useState("");
+  const [transferNotes, setTransferNotes] = useState("");
+
+  // Discrepancy Adjustment Form State
+  const [adjustProductId, setAdjustProductId] = useState("");
+  const [adjustQty, setAdjustQty] = useState("1");
+  const [adjustType, setAdjustType] = useState<"increase" | "decrease">("decrease");
+  const [adjustReason, setAdjustReason] = useState("Audit Physical Variance");
+  const [adjustNotes, setAdjustNotes] = useState("");
+
+  // Workshop Internal Consumption State
+  const [workshopProductId, setWorkshopProductId] = useState("");
+  const [workshopQty, setWorkshopQty] = useState("1");
+  const [workshopBench, setWorkshopBench] = useState("Compressor Test Bench & Brazing");
+  const [workshopTech, setWorkshopTech] = useState("Senior Workshop Tech");
+  const [workshopNotes, setWorkshopNotes] = useState("");
+
+  // Equipment Checkout Modal State
+  const [selectedAssetForCheckout, setSelectedAssetForCheckout] = useState<any>(null);
+  const [checkoutEmployeeId, setCheckoutEmployeeId] = useState("");
+  const [checkoutNotes, setCheckoutNotes] = useState("Tested, calibrated & functional");
 
   // PR Form
   const [showPrModal, setShowPrModal] = useState(false);
@@ -111,6 +155,21 @@ export default function InventoryPurchasingPage() {
         const res = await fetch("/api/inventory");
         const data = await res.json();
         if (Array.isArray(data)) setProducts(data);
+      } else if (activeTab === "branches") {
+        const [prodRes, moveRes, equipRes, techRes] = await Promise.all([
+          fetch("/api/inventory"),
+          fetch("/api/inventory?view=movements"),
+          fetch("/api/inventory?view=equipment"),
+          fetch("/api/technicians"),
+        ]);
+        const pData = await prodRes.json();
+        const mData = await moveRes.json();
+        const eData = await equipRes.json();
+        const tData = await techRes.json();
+        if (Array.isArray(pData)) setProducts(pData);
+        if (Array.isArray(mData)) setBranchMovements(mData);
+        if (Array.isArray(eData)) setEquipmentList(eData);
+        if (Array.isArray(tData)) setTechnicians(tData);
       }
     } catch (e) {
       console.error("Failed loading inventory data", e);
@@ -473,9 +532,160 @@ export default function InventoryPurchasingPage() {
     return true;
   });
 
+  const handleBranchTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transferProductId) return alert("Please select a product");
+    setIsSubmittingMovement(true);
+    try {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "branch_transfer",
+          productId: transferProductId,
+          quantity: Number(transferQty),
+          fromBranch: transferFromBranch,
+          toBranch: transferToBranch,
+          challanNumber: transferChallan || `TRF-${Date.now().toString().slice(-4)}`,
+          notes: transferNotes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to transfer stock");
+      }
+      setNotification(`Stock transfer dispatched successfully to ${transferToBranch}`);
+      setTransferNotes("");
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingMovement(false);
+    }
+  };
+
+  const handleStockAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustProductId) return alert("Please select a product");
+    setIsSubmittingMovement(true);
+    try {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "stock_adjustment",
+          productId: adjustProductId,
+          quantity: Number(adjustQty),
+          type: adjustType,
+          reason: adjustReason,
+          notes: adjustNotes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to record adjustment");
+      }
+      setNotification(`Stock audit adjustment recorded (${adjustType === "increase" ? "+" : "-"}${adjustQty})`);
+      setAdjustNotes("");
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingMovement(false);
+    }
+  };
+
+  const handleWorkshopConsumption = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workshopProductId) return alert("Please select a product");
+    setIsSubmittingMovement(true);
+    try {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "workshop_consumption",
+          productId: workshopProductId,
+          quantity: Number(workshopQty),
+          workshopUnit: workshopBench,
+          technicianName: workshopTech,
+          notes: workshopNotes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to log workshop consumption");
+      }
+      setNotification("Workshop internal consumption recorded and stock updated.");
+      setWorkshopNotes("");
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingMovement(false);
+    }
+  };
+
+  const handleCheckoutEquipment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAssetForCheckout || !checkoutEmployeeId) return alert("Please select equipment and technician");
+    setIsSubmittingMovement(true);
+    try {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "checkout_equipment",
+          assetId: selectedAssetForCheckout.id,
+          employeeId: checkoutEmployeeId,
+          assignedBy: "Storekeeper",
+          conditionNotes: checkoutNotes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to checkout equipment");
+      }
+      setNotification(`Equipment '${selectedAssetForCheckout.name}' checked out to technician`);
+      setSelectedAssetForCheckout(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingMovement(false);
+    }
+  };
+
+  const handleReturnEquipment = async (asset: any) => {
+    const latestAssignment = asset.assignments?.[0];
+    const notes = prompt("Enter return inspection condition (e.g. Returned clean, functional & calibrated):", "Returned clean & calibrated");
+    if (notes === null) return;
+    try {
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "return_equipment",
+          assetId: asset.id,
+          assignmentId: latestAssignment?.id,
+          conditionNotes: notes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to return equipment");
+      }
+      setNotification(`Equipment '${asset.name}' returned to tool crib storage.`);
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const tabs = [
     { id: "stock", label: "Stock Levels", icon: <Package className="w-3.5 h-3.5" />, badge: lowStockCount > 0 ? `${lowStockCount} Low` : undefined },
     { id: "storekeeper", label: "Storekeeper Queue", icon: <Truck className="w-3.5 h-3.5" />, count: pendingStorekeeperCount },
+    { id: "branches", label: "Branches & Movements", icon: <Building className="w-3.5 h-3.5" /> },
     { id: "purchasing", label: "Procurement (PR / PO / GRN)", icon: <FileText className="w-3.5 h-3.5" /> },
     { id: "pos", label: "Counter POS Terminal", icon: <ShoppingCart className="w-3.5 h-3.5" /> },
   ];
@@ -757,7 +967,9 @@ export default function InventoryPurchasingPage() {
                     <th className="py-2.5 px-4 text-center">Stock on Job</th>
                     <th className="py-2.5 px-4 text-center">Total Stock</th>
                     <th className="py-2.5 px-4 text-center">Reorder Point</th>
-                    <th className="py-2.5 px-4 text-right">Unit Price</th>
+                    <th className="py-2.5 px-4 text-right">
+                      {isStorekeeper ? "Valuation" : "Unit Price"}
+                    </th>
                     <th className="py-2.5 px-4 text-center">Status</th>
                     <th className="py-2.5 px-4 text-right">Actions</th>
                   </tr>
@@ -820,7 +1032,13 @@ export default function InventoryPurchasingPage() {
                           {p.reorderPoint || 5}
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B]">
-                          {formatCurrency(p.unitPrice)}
+                          {isStorekeeper ? (
+                            <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                              Price Masked
+                            </span>
+                          ) : (
+                            formatCurrency(p.unitPrice)
+                          )}
                         </td>
                         <td className="py-3 px-4 text-center">
                           {isOut ? (
@@ -1302,6 +1520,714 @@ export default function InventoryPurchasingPage() {
         </div>
       )}
 
+      {/* TAB 5: BRANCHES & MULTI-MOVEMENT HUB */}
+      {activeTab === "branches" && (
+        <div className="space-y-6">
+          {/* Branch Overview Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              {
+                name: "Central Warehouse (Lahore Hub)",
+                city: "Lahore (HQ)",
+                type: "Primary Distribution",
+                units: totalWarehouseUnits,
+                activeTransfers: 3,
+                accent: "border-[#0D7A5F] bg-[#0D7A5F]/5",
+                badge: "Hub Central",
+              },
+              {
+                name: "Karachi Regional Depot",
+                city: "Karachi (South)",
+                type: "Regional Bin",
+                units: Math.round(totalWarehouseUnits * 0.42),
+                activeTransfers: 1,
+                accent: "border-blue-200 bg-white",
+                badge: "Active Depot",
+              },
+              {
+                name: "Islamabad Regional Depot",
+                city: "Islamabad (North)",
+                type: "Regional Bin",
+                units: Math.round(totalWarehouseUnits * 0.28),
+                activeTransfers: 2,
+                accent: "border-purple-200 bg-white",
+                badge: "Active Depot",
+              },
+              {
+                name: "Faisalabad Workshop & Spares",
+                city: "Faisalabad",
+                type: "Workshop Depot",
+                units: Math.round(totalWarehouseUnits * 0.15),
+                activeTransfers: 0,
+                accent: "border-amber-200 bg-white",
+                badge: "Workshop Center",
+              },
+            ].map((b, idx) => (
+              <div
+                key={idx}
+                onClick={() => setSelectedBranch(b.name)}
+                className={`p-4 rounded-xl border transition cursor-pointer shadow-xs ${
+                  selectedBranch === b.name ? b.accent + " ring-2 ring-[#0D7A5F]" : "bg-white border-[#E4E4E7] hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#71717A]">
+                    {b.city}
+                  </span>
+                  <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-[#F4F4F5] text-[#18181B] font-mono">
+                    {b.badge}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  <h4 className="text-xs font-bold text-[#18181B] line-clamp-1">{b.name}</h4>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-xl font-bold font-mono text-[#18181B]">{b.units.toLocaleString()}</span>
+                    <span className="text-[11px] text-[#71717A]">units on hand</span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-[#0D7A5F] font-semibold">
+                    {b.activeTransfers > 0 ? `📦 ${b.activeTransfers} inter-branch dispatches` : "All transfers clear"}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Movement Hub Navigation */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+            <div className="flex items-center border-b border-[#E4E4E7] px-4 overflow-x-auto bg-[#FAFAFA]">
+              <button
+                type="button"
+                onClick={() => setActiveMovementSubTab("transfer")}
+                className={`py-3 px-4 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition ${
+                  activeMovementSubTab === "transfer"
+                    ? "border-[#0D7A5F] text-[#0D7A5F]"
+                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                <span>Inter-Branch Stock Transfer</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveMovementSubTab("adjustment")}
+                className={`py-3 px-4 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition ${
+                  activeMovementSubTab === "adjustment"
+                    ? "border-[#0D7A5F] text-[#0D7A5F]"
+                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>Discrepancy Adjustments (+/-)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveMovementSubTab("workshop")}
+                className={`py-3 px-4 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition ${
+                  activeMovementSubTab === "workshop"
+                    ? "border-[#0D7A5F] text-[#0D7A5F]"
+                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                <span>Internal Workshop Consumption</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveMovementSubTab("equipment")}
+                className={`py-3 px-4 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition ${
+                  activeMovementSubTab === "equipment"
+                    ? "border-[#0D7A5F] text-[#0D7A5F]"
+                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>Heavy Equipment & Vacuum Pump Tool-Crib ({equipmentList.length})</span>
+              </button>
+            </div>
+
+            {/* SUB-VIEW 1: INTER-BRANCH STOCK TRANSFER */}
+            {activeMovementSubTab === "transfer" && (
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <form onSubmit={handleBranchTransfer} className="lg:col-span-1 space-y-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#18181B] pb-2 border-b border-slate-200">
+                    <ArrowRightLeft className="w-4 h-4 text-[#0D7A5F]" />
+                    Dispatch Stock to Another Branch
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Source Branch (From) *</label>
+                    <select
+                      value={transferFromBranch}
+                      onChange={(e) => setTransferFromBranch(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                    >
+                      <option value="Central Warehouse (Lahore Hub)">Central Warehouse (Lahore Hub)</option>
+                      <option value="Karachi Regional Depot">Karachi Regional Depot</option>
+                      <option value="Islamabad Regional Depot">Islamabad Regional Depot</option>
+                      <option value="Faisalabad Workshop & Spares">Faisalabad Workshop & Spares</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Destination Branch (To) *</label>
+                    <select
+                      value={transferToBranch}
+                      onChange={(e) => setTransferToBranch(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                    >
+                      <option value="Karachi Regional Depot">Karachi Regional Depot</option>
+                      <option value="Islamabad Regional Depot">Islamabad Regional Depot</option>
+                      <option value="Faisalabad Workshop & Spares">Faisalabad Workshop & Spares</option>
+                      <option value="Central Warehouse (Lahore Hub)">Central Warehouse (Lahore Hub)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Select Item to Transfer *</label>
+                    <select
+                      value={transferProductId}
+                      onChange={(e) => setTransferProductId(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                      required
+                    >
+                      <option value="">-- Choose Inventory Item --</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.sku}) — Stock: {p.stockQuantity} {p.unit || "unit"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-mono text-[#71717A] mb-1">Quantity *</label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        value={transferQty}
+                        onChange={(e) => setTransferQty(e.target.value)}
+                        className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono text-[#71717A] mb-1">Challan #</label>
+                      <input
+                        type="text"
+                        placeholder="TRF-2026-X"
+                        value={transferChallan}
+                        onChange={(e) => setTransferChallan(e.target.value)}
+                        className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Transfer Notes & Vehicle Ref</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Daewoo Express cargo bilty #9102"
+                      value={transferNotes}
+                      onChange={(e) => setTransferNotes(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingMovement || !transferProductId}
+                    className="w-full py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50"
+                  >
+                    {isSubmittingMovement ? "Dispatching..." : "Dispatch Inter-Branch Transfer"}
+                  </button>
+                </form>
+
+                <div className="lg:col-span-2 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                    <h4 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Recent Branch Movement Challans
+                    </h4>
+                    <span className="text-[11px] text-[#71717A]">
+                      Tracking transfers between {selectedBranch} and regional depots
+                    </span>
+                  </div>
+
+                  {branchMovements.filter((m) => m.refType === "branch_transfer").length === 0 ? (
+                    <div className="p-8 text-center text-xs text-[#71717A] bg-[#FAFAFA] rounded-xl border border-dashed border-[#D4D4D8]">
+                      No active inter-branch transfers recorded yet. Dispatch a new transfer on the left.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {branchMovements
+                        .filter((m) => m.refType === "branch_transfer")
+                        .map((m) => (
+                          <div
+                            key={m.id}
+                            className="p-3 bg-white rounded-xl border border-[#E4E4E7] flex items-center justify-between hover:border-[#0D7A5F]/40 transition text-xs"
+                          >
+                            <div>
+                              <div className="font-bold text-[#18181B]">{m.product?.name || "Inventory Item"}</div>
+                              <div className="text-[11px] text-[#71717A]">{m.notes}</div>
+                              <div className="text-[10px] font-mono text-[#A1A1AA] mt-0.5">
+                                {formatDateTime(m.createdAt)}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-mono font-bold text-rose-600 block text-sm">
+                                -{m.qty} {m.product?.unit || "units"}
+                              </span>
+                              <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                Dispatched
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SUB-VIEW 2: DISCREPANCY ADJUSTMENTS */}
+            {activeMovementSubTab === "adjustment" && (
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <form onSubmit={handleStockAdjustment} className="lg:col-span-1 space-y-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#18181B] pb-2 border-b border-slate-200">
+                    <Scale className="w-4 h-4 text-amber-600" />
+                    Record Stock Audit Adjustment (+/-)
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Adjustment Type *</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAdjustType("increase")}
+                        className={`py-2 px-3 rounded-lg border text-xs font-bold transition ${
+                          adjustType === "increase"
+                            ? "bg-emerald-50 border-emerald-500 text-emerald-700 shadow-2xs"
+                            : "bg-white border-[#D4D4D8] text-[#71717A]"
+                        }`}
+                      >
+                        + Stock Surplus
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdjustType("decrease")}
+                        className={`py-2 px-3 rounded-lg border text-xs font-bold transition ${
+                          adjustType === "decrease"
+                            ? "bg-rose-50 border-rose-500 text-rose-700 shadow-2xs"
+                            : "bg-white border-[#D4D4D8] text-[#71717A]"
+                        }`}
+                      >
+                        - Stock Loss / Deficit
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Select Item *</label>
+                    <select
+                      value={adjustProductId}
+                      onChange={(e) => setAdjustProductId(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                      required
+                    >
+                      <option value="">-- Choose Item to Adjust --</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.sku}) — Current: {p.stockQuantity} {p.unit || "unit"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Quantity Variance *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={adjustQty}
+                      onChange={(e) => setAdjustQty(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Audit Discrepancy Reason *</label>
+                    <select
+                      value={adjustReason}
+                      onChange={(e) => setAdjustReason(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                    >
+                      <option value="Audit Physical Variance">Audit Physical Variance (Periodic Stock-Count)</option>
+                      <option value="Damaged in Warehouse Handling">Damaged in Warehouse Handling</option>
+                      <option value="Refrigerant Gas Cylinder Leakage">Refrigerant Gas Cylinder Leakage / Seal Vent</option>
+                      <option value="Expired Chemicals or Vacuum Oil">Expired Chemicals or Vacuum Oil</option>
+                      <option value="Incorrect Goods Inward Entry Correction">Inward Receipt Count Correction</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Auditor / Manager Notes</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Approved by Warehouse Supervisor Qasim"
+                      value={adjustNotes}
+                      onChange={(e) => setAdjustNotes(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingMovement || !adjustProductId}
+                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50"
+                  >
+                    {isSubmittingMovement ? "Recording..." : "Apply Audit Adjustment"}
+                  </button>
+                </form>
+
+                <div className="lg:col-span-2 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                    <h4 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Audit Adjustment Logs & Write-offs
+                    </h4>
+                  </div>
+                  {branchMovements.filter((m) => m.refType === "stock_adjustment").length === 0 ? (
+                    <div className="p-8 text-center text-xs text-[#71717A] bg-[#FAFAFA] rounded-xl border border-dashed border-[#D4D4D8]">
+                      No discrepancy adjustments logged for this period.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {branchMovements
+                        .filter((m) => m.refType === "stock_adjustment")
+                        .map((m) => (
+                          <div
+                            key={m.id}
+                            className="p-3 bg-white rounded-xl border border-[#E4E4E7] flex items-center justify-between hover:border-amber-400 transition text-xs"
+                          >
+                            <div>
+                              <div className="font-bold text-[#18181B]">{m.product?.name || "Stock Item"}</div>
+                              <div className="text-[11px] text-[#71717A]">{m.notes}</div>
+                              <div className="text-[10px] font-mono text-[#A1A1AA]">{formatDateTime(m.createdAt)}</div>
+                            </div>
+                            <div className="text-right font-mono font-bold text-sm">
+                              <span className={m.direction === "in" ? "text-emerald-600" : "text-rose-600"}>
+                                {m.direction === "in" ? `+${m.qty}` : `-${m.qty}`} {m.product?.unit || "unit"}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SUB-VIEW 3: WORKSHOP CONSUMPTION */}
+            {activeMovementSubTab === "workshop" && (
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <form onSubmit={handleWorkshopConsumption} className="lg:col-span-1 space-y-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#18181B] pb-2 border-b border-slate-200">
+                    <Wrench className="w-4 h-4 text-[#0D7A5F]" />
+                    Record In-House Workshop Consumption
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Select Consumed Item *</label>
+                    <select
+                      value={workshopProductId}
+                      onChange={(e) => setWorkshopProductId(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                      required
+                    >
+                      <option value="">-- Choose Consumed Material --</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.sku}) — Available: {p.stockQuantity} {p.unit || "unit"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Quantity Consumed *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={workshopQty}
+                      onChange={(e) => setWorkshopQty(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Workshop Unit / Bench *</label>
+                    <select
+                      value={workshopBench}
+                      onChange={(e) => setWorkshopBench(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                    >
+                      <option value="Compressor Test Bench & Brazing">Compressor Test Bench & Brazing</option>
+                      <option value="PCB & Inverter Circuit Diagnostic Lab">PCB & Inverter Circuit Diagnostic Lab</option>
+                      <option value="Motor Rewinding & Fan Balancing">Motor Rewinding & Fan Balancing</option>
+                      <option value="AC Outdoor Coil Chemical Cleaning Wash">AC Outdoor Coil Chemical Cleaning Wash</option>
+                      <option value="General Workshop Fleet Maintenance">General Workshop Fleet Maintenance</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Technician / Mechanic</label>
+                    <input
+                      type="text"
+                      value={workshopTech}
+                      onChange={(e) => setWorkshopTech(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">Work Description / Unit Ref</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Refurbishing Gree 2-Ton Inverter PCB"
+                      value={workshopNotes}
+                      onChange={(e) => setWorkshopNotes(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingMovement || !workshopProductId}
+                    className="w-full py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50"
+                  >
+                    {isSubmittingMovement ? "Logging..." : "Log Internal Consumption"}
+                  </button>
+                </form>
+
+                <div className="lg:col-span-2 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                    <h4 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Internal Maintenance & Bench Consumptions
+                    </h4>
+                  </div>
+                  {branchMovements.filter((m) => m.refType === "workshop_consumption").length === 0 ? (
+                    <div className="p-8 text-center text-xs text-[#71717A] bg-[#FAFAFA] rounded-xl border border-dashed border-[#D4D4D8]">
+                      No internal workshop consumptions recorded yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {branchMovements
+                        .filter((m) => m.refType === "workshop_consumption")
+                        .map((m) => (
+                          <div
+                            key={m.id}
+                            className="p-3 bg-white rounded-xl border border-[#E4E4E7] flex items-center justify-between hover:border-[#0D7A5F]/40 transition text-xs"
+                          >
+                            <div>
+                              <div className="font-bold text-[#18181B]">{m.product?.name || "Materials"}</div>
+                              <div className="text-[11px] text-[#71717A]">{m.notes}</div>
+                              <div className="text-[10px] font-mono text-[#A1A1AA]">{formatDateTime(m.createdAt)}</div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-mono font-bold text-rose-600 block text-sm">
+                                -{m.qty} {m.product?.unit || "units"}
+                              </span>
+                              <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                In-House Internal
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SUB-VIEW 4: HEAVY EQUIPMENT & VACUUM PUMP TOOL-CRIB */}
+            {activeMovementSubTab === "equipment" && (
+              <div className="p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E4E4E7]">
+                  <div>
+                    <h4 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Physical Tool & Heavy Equipment Register
+                    </h4>
+                    <p className="text-[11px] text-[#71717A]">
+                      Vacuum pumps, recovery units, digital manifolds, and oxy-acetylene torches issued to technicians
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-[#71717A]">
+                      {equipmentList.filter((e) => e.status === "Assigned").length} in field •{" "}
+                      {equipmentList.filter((e) => e.status === "In Storage").length} in storage
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {equipmentList.map((asset) => {
+                    const isAssigned = asset.status === "Assigned";
+                    const currentAssignment = asset.assignments?.[0];
+
+                    return (
+                      <div
+                        key={asset.id}
+                        className={`p-4 rounded-xl border transition shadow-xs flex flex-col justify-between ${
+                          isAssigned
+                            ? "bg-blue-50/30 border-blue-200"
+                            : "bg-white border-[#E4E4E7]"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-xs text-[#0D7A5F]">{asset.tag}</span>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold font-mono ${
+                                isAssigned
+                                  ? "bg-blue-100 text-blue-800"
+                                  : "bg-emerald-100 text-emerald-800"
+                              }`}
+                            >
+                              {asset.status}
+                            </span>
+                          </div>
+                          <h5 className="font-bold text-[#18181B] text-sm mt-1">{asset.name}</h5>
+                          <span className="text-[11px] text-[#71717A] font-mono block">
+                            Category: {asset.category}
+                          </span>
+
+                          {isAssigned && currentAssignment && (
+                            <div className="mt-3 p-2.5 rounded-lg bg-blue-100/60 border border-blue-200/80 text-xs text-blue-950 space-y-1">
+                              <div className="font-bold flex items-center justify-between">
+                                <span>Checked Out To:</span>
+                                <span className="font-mono">{currentAssignment.employee?.name || "Technician"}</span>
+                              </div>
+                              <div className="text-[11px] text-blue-800">
+                                Date: {new Date(currentAssignment.assignedAt).toLocaleDateString()}
+                              </div>
+                              {currentAssignment.conditionNotes && (
+                                <div className="text-[10px] text-blue-900 italic">
+                                  &quot;{currentAssignment.conditionNotes}&quot;
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pt-4 mt-3 border-t border-[#E4E4E7] flex items-center justify-end gap-2">
+                          {isAssigned ? (
+                            <button
+                              type="button"
+                              onClick={() => handleReturnEquipment(asset)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Return to Tool-Crib
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedAssetForCheckout(asset)}
+                              className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                            >
+                              <Package className="w-3.5 h-3.5" /> Check Out to Tech
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* CHECKOUT EQUIPMENT MODAL */}
+          {selectedAssetForCheckout && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+              <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
+                  <div>
+                    <h4 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                      <Package className="w-4 h-4 text-[#0D7A5F]" />
+                      Issue Equipment to Field Tech
+                    </h4>
+                    <span className="text-[11px] text-[#71717A] font-mono">
+                      {selectedAssetForCheckout.tag} — {selectedAssetForCheckout.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setSelectedAssetForCheckout(null)}
+                    className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleCheckoutEquipment} className="p-5 space-y-4 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                      Assign to Technician *
+                    </label>
+                    <select
+                      required
+                      value={checkoutEmployeeId}
+                      onChange={(e) => setCheckoutEmployeeId(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
+                    >
+                      <option value="">-- Select Field Technician --</option>
+                      {technicians.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.designation || "HVAC Tech"})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                      Pre-Issue Inspection & Calibration Notes
+                    </label>
+                    <input
+                      type="text"
+                      value={checkoutNotes}
+                      onChange={(e) => setCheckoutNotes(e.target.value)}
+                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B]"
+                      placeholder="e.g. Gauge calibrated, oil level ok"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-[#EDEDED]">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAssetForCheckout(null)}
+                      className="px-4 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingMovement || !checkoutEmployeeId}
+                      className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition disabled:opacity-50"
+                    >
+                      {isSubmittingMovement ? "Issuing..." : "Confirm Checkout"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* RAISE PR MODAL */}
       {showPrModal && (
         <div
@@ -1516,16 +2442,22 @@ export default function InventoryPurchasingPage() {
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Unit Cost (PKR)
+                      {isStorekeeper ? "Unit Cost (Masked)" : "Unit Cost (PKR)"}
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={restockUnitCost}
-                      onChange={(e) => setRestockUnitCost(e.target.value)}
-                      placeholder="e.g. 8500"
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
-                    />
+                    {isStorekeeper ? (
+                      <div className="w-full bg-amber-50/70 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 font-mono">
+                        Cost Masked for Storekeeper
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min="0"
+                        value={restockUnitCost}
+                        onChange={(e) => setRestockUnitCost(e.target.value)}
+                        placeholder="e.g. 8500"
+                        className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -1659,17 +2591,23 @@ export default function InventoryPurchasingPage() {
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Unit Cost (PKR) *
+                      {isStorekeeper ? "Unit Cost (Masked)" : "Unit Cost (PKR) *"}
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={openingUnitCost}
-                      onChange={(e) => setOpeningUnitCost(e.target.value)}
-                      placeholder="e.g. 8500"
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
-                      required
-                    />
+                    {isStorekeeper ? (
+                      <div className="w-full bg-amber-50/70 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 font-mono">
+                        Valuation Masked for Storekeeper
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min="0"
+                        value={openingUnitCost}
+                        onChange={(e) => setOpeningUnitCost(e.target.value)}
+                        placeholder="e.g. 8500"
+                        className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
+                        required
+                      />
+                    )}
                   </div>
                 </div>
 

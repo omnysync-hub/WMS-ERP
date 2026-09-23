@@ -180,6 +180,7 @@ model Job {
   expenseClaims        JobExpenseClaim[]
   hisaabSettlements    HisaabSettlement[]
   feedbackCalls        FeedbackCall[]
+  locationPings        TechnicianLocationPing[]
 }
 
 model JobItem {
@@ -830,6 +831,9 @@ model Employee {
   grievanceTickets     GrievanceTicket[]
   pushTokens           DevicePushToken[]
   receivedAppRequests  MobileAppRequest[]
+  locationPings        TechnicianLocationPing[]
+  consentRecords       TechnicianConsentRecord[]
+  offlineGaps          OfflineGapLog[]
   createdAt            DateTime              @default(now())
 }
 
@@ -1257,5 +1261,63 @@ model MobileAppRequest {
   readAt             DateTime?
   respondedAt        DateTime?
   createdAt          DateTime  @default(now())
+}
+
+// ==========================================
+// TECHNICIAN TELEMETRY & LOCATION SURVEILLANCE
+// ==========================================
+
+model TechnicianLocationPing {
+  id             String    @id @default(uuid())
+  employeeId     String
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lat            Float
+  lng            Float
+  accuracy       Float?
+  speed          Float?    // km/h
+  batteryLevel   Float?    // percentage 0-100
+  isMoving       Boolean   @default(false)
+  isShiftActive  Boolean   @default(false)
+  activeJobId    String?
+  activeJob      Job?      @relation(fields: [activeJobId], references: [id], onDelete: SetNull)
+  source         String    @default("mobile_gps") // mobile_gps, geofence_punch, manual
+  timestamp      DateTime  @default(now())
+
+  @@index([employeeId, timestamp])
+  @@index([timestamp])
+  @@index([activeJobId])
+}
+
+model TechnicianConsentRecord {
+  id              String    @id @default(uuid())
+  employeeId      String
+  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  consentType     String    @default("LOCATION_SURVEILLANCE")
+  policyVersion   String    @default("1.0")
+  disclosureText  String
+  isAcknowledged  Boolean   @default(true)
+  acknowledgedAt  DateTime  @default(now())
+  ipAddress       String?
+  deviceModel     String?
+
+  @@index([employeeId, consentType])
+}
+
+model OfflineGapLog {
+  id              String    @id @default(uuid())
+  employeeId      String
+  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  gapStartAt      DateTime
+  gapEndAt        DateTime?
+  durationMinutes Float?
+  lastKnownLat    Float
+  lastKnownLng    Float
+  resumeLat       Float?
+  resumeLng       Float?
+  lastBatteryLevel Float?
+  reason          String?   @default("HEARTBEAT_TIMEOUT") // HEARTBEAT_TIMEOUT, BATTERY_DEPLETED, PERMISSION_REVOKED
+  createdAt       DateTime  @default(now())
+
+  @@index([employeeId, gapStartAt])
 }
 

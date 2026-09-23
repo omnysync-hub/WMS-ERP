@@ -67,6 +67,24 @@ export default function JobsListPage() {
 
   // Filter based on active tab & role
   const filteredByTab = jobs.filter((j) => {
+    if (isStorekeeper) {
+      const hasInventory =
+        (j.inventoryRequests && j.inventoryRequests.length > 0) ||
+        (j.items && j.items.some((it: any) => it.quantityPlanned > 0)) ||
+        (j.stockReturns && j.stockReturns.length > 0);
+      if (!hasInventory) return false;
+
+      if (activeTab === "pending_materials") return j.inventoryRequests?.some((r: any) => r.status === "pending");
+      if (activeTab === "returnable") {
+        const isDone = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+        const hasUnused = j.items?.some((it: any) => it.quantityActual !== null && it.quantityPlanned > it.quantityActual);
+        return isDone && hasUnused;
+      }
+      if (activeTab === "active") return ["Assigned", "InProgress", "Paused"].includes(j.status);
+      if (activeTab === "completed") return ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
+      return true;
+    }
+
     if (activeTab === "all") return true;
 
     if (isAccountant) {
@@ -74,12 +92,8 @@ export default function JobsListPage() {
       if (activeTab === "discount_requests") return j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
       if (activeTab === "pending_expenses") return j.expenseClaims?.some((c: any) => c.status === "pending");
       if (activeTab === "completed") return ["Finalized", "Verified"].includes(j.status);
-    } else if (isStorekeeper) {
-      if (activeTab === "pending_materials") return j.inventoryRequests?.some((r: any) => r.status === "pending");
-      if (activeTab === "active") return ["Assigned", "InProgress", "Paused"].includes(j.status);
-      if (activeTab === "completed") return ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
     } else {
-      // Admin / Manager / Ops
+      // Admin / Manager / Ops / Call Center / Cashier / Auditor
       if (activeTab === "my") return j.assignedTechnician?.name?.includes("Ali") || j.assignedTechnicianId;
       if (activeTab === "assigned_today") return j.status === "Assigned" || j.status === "InProgress";
       if (activeTab === "needs_review") return j.qualityFlag === "disputed";
@@ -98,9 +112,12 @@ export default function JobsListPage() {
     const q = searchQuery.toLowerCase();
     return (
       j.jobNumber?.toLowerCase().includes(q) ||
+      j.manualJobNumber?.toLowerCase().includes(q) ||
       j.customer?.name?.toLowerCase().includes(q) ||
+      j.customer?.phone?.toLowerCase().includes(q) ||
       j.remarks?.toLowerCase().includes(q) ||
-      j.careOfParty?.companyName?.toLowerCase().includes(q)
+      j.careOfParty?.companyName?.toLowerCase().includes(q) ||
+      j.careOfParty?.personName?.toLowerCase().includes(q)
     );
   });
 
@@ -108,7 +125,7 @@ export default function JobsListPage() {
   const allColumns: ColumnDef<any>[] = [
     {
       id: "jobNumber",
-      header: "Job #",
+      header: "Job # & External Ref",
       accessorKey: "jobNumber",
       isPrimaryLink: true,
       getHref: (row) => `/jobs/${row.id}`,
@@ -117,8 +134,13 @@ export default function JobsListPage() {
           <span className="font-mono font-bold text-[#0D7A5F] hover:underline block">
             {row.jobNumber}
           </span>
+          {row.manualJobNumber && (
+            <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded font-mono inline-block mt-0.5">
+              Ext: #{row.manualJobNumber}
+            </span>
+          )}
           {row.careOfParty && (
-            <span className="text-[10px] text-purple-700 bg-purple-50 px-1 rounded font-medium inline-block mt-0.5">
+            <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-medium block mt-0.5">
               c/o {row.careOfParty.companyName}
             </span>
           )}
@@ -237,9 +259,53 @@ export default function JobsListPage() {
         );
       },
     },
-    // Strictly hide Amount column for Storekeeper
+    // Strictly hide Amount column for Storekeeper and show stock status instead
     ...(isStorekeeper
-      ? []
+      ? [
+          {
+            id: "storeInventorySummary",
+            header: "Warehouse Material Status",
+            cell: (row: any) => {
+              const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
+              const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued").length || 0;
+              const returnedCount = row.stockReturns?.length || 0;
+              const isDone = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
+              const returnableQty = row.items?.reduce((sum: number, it: any) => {
+                if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+                  return sum + (it.quantityPlanned - it.quantityActual);
+                }
+                return sum;
+              }, 0) || 0;
+
+              return (
+                <div className="space-y-1 text-[11px]">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {issuedCount > 0 && (
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold px-1.5 py-0.5 rounded">
+                        {issuedCount} Item{issuedCount === 1 ? "" : "s"} Issued
+                      </span>
+                    )}
+                    {pendingCount > 0 && (
+                      <span className="bg-amber-50 text-amber-800 border border-amber-200 font-bold px-1.5 py-0.5 rounded animate-pulse">
+                        {pendingCount} Pending Req
+                      </span>
+                    )}
+                    {isDone && returnableQty > 0 && (
+                      <span className="bg-purple-50 text-purple-800 border border-purple-200 font-bold px-1.5 py-0.5 rounded">
+                        {returnableQty} Returnable
+                      </span>
+                    )}
+                    {returnedCount > 0 && (
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200 font-semibold px-1.5 py-0.5 rounded">
+                        {returnedCount} Return Recorded
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            },
+          },
+        ]
       : [
           {
             id: "amount",
@@ -314,11 +380,20 @@ export default function JobsListPage() {
     { id: "completed", label: "Finalized / Verified", count: jobs.filter((j) => ["Finalized", "Verified"].includes(j.status)).length },
   ];
 
+  const storekeeperJobsCount = jobs.filter((j) => {
+    return (
+      (j.inventoryRequests && j.inventoryRequests.length > 0) ||
+      (j.items && j.items.some((it: any) => it.quantityPlanned > 0)) ||
+      (j.stockReturns && j.stockReturns.length > 0)
+    );
+  }).length;
+
   const storekeeperTabs = [
-    { id: "all", label: "All Work Orders", count: jobs.length },
+    { id: "all", label: "Inventory Requested Jobs", count: storekeeperJobsCount },
     { id: "pending_materials", label: "Pending Material Requests", count: jobs.filter((j) => j.inventoryRequests?.some((r: any) => r.status === "pending")).length },
-    { id: "active", label: "Active Jobs", count: jobs.filter((j) => ["Assigned", "InProgress", "Paused"].includes(j.status)).length },
-    { id: "completed", label: "Completed / Sign-Off", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)).length },
+    { id: "returnable", label: "Unused / Returnable Stock", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status) && j.items?.some((it: any) => it.quantityActual !== null && it.quantityPlanned > it.quantityActual)).length },
+    { id: "active", label: "Active Jobs", count: jobs.filter((j) => ["Assigned", "InProgress", "Paused"].includes(j.status) && ((j.inventoryRequests && j.inventoryRequests.length > 0) || j.items?.some((it: any) => it.quantityPlanned > 0))).length },
+    { id: "completed", label: "Completed Jobs", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status) && ((j.inventoryRequests && j.inventoryRequests.length > 0) || j.items?.some((it: any) => it.quantityPlanned > 0))).length },
   ];
 
   const adminTabs = [

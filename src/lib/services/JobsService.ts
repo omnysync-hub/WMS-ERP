@@ -732,5 +732,198 @@ export class JobsService {
       },
     };
   }
+
+  /**
+   * Accountant or Admin adds services / items to the job even after creation.
+   */
+  static async addJobServiceOrItem(
+    jobId: string,
+    description: string,
+    quantity: number,
+    unitRate: number,
+    addedBy: string
+  ) {
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) throw new Error("Job not found");
+
+    const qty = Number(quantity);
+    const rate = Number(unitRate);
+    if (!qty || qty <= 0) throw new Error("Quantity must be greater than zero");
+
+    const newItem = await prisma.jobItem.create({
+      data: {
+        jobId,
+        description: `${description} [Service Added by ${addedBy}]`,
+        quantityPlanned: qty,
+        quantityActual: qty,
+        unitRate: rate,
+      },
+    });
+
+    await this.logStatusChange(jobId, job.status, job.status, addedBy, {
+      action: "service_added",
+      itemId: newItem.id,
+      description,
+      quantity: qty,
+      unitRate: rate,
+    });
+
+    return newItem;
+  }
+
+  /**
+   * Storekeeper records stock returned by technician upon job completion or pause.
+   */
+  static async recordStockReturn(
+    jobId: string,
+    technicianId: string,
+    item: string,
+    qtyReturned: number,
+    storekeeperName: string,
+    notes?: string
+  ) {
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) throw new Error("Job not found");
+
+    const qty = Number(qtyReturned);
+    if (!qty || qty <= 0) throw new Error("Quantity returned must be greater than zero");
+
+    const record = await prisma.stockReturn.create({
+      data: {
+        jobId,
+        technicianId: technicianId || job.assignedTechnicianId || "unknown",
+        item,
+        qtyReturned: qty,
+        acknowledgedBy: storekeeperName,
+        acknowledgedAt: new Date(),
+      },
+    });
+
+    // Try to find matching Product in warehouse to restock
+    const product = await prisma.product.findFirst({
+      where: {
+        OR: [
+          { name: { contains: item } },
+          { sku: { equals: item } },
+        ],
+      },
+    });
+
+    if (product) {
+      await prisma.product.update({
+        where: { id: product.id },
+        data: { stockQuantity: { increment: qty } },
+      });
+
+      await prisma.stockLedger.create({
+        data: {
+          productId: product.id,
+          qty,
+          direction: "in",
+          refType: "stock_return",
+          refId: record.id,
+          notes: `Returned from Job ${job.jobNumber} by Tech via Storekeeper ${storekeeperName}${notes ? `: ${notes}` : ""}`,
+        },
+      });
+    }
+
+    await this.logStatusChange(jobId, job.status, job.status, storekeeperName, {
+      action: "stock_return_recorded",
+      returnId: record.id,
+      item,
+      qtyReturned: qty,
+      notes,
+    });
+
+    return record;
+  }
+
+  /**
+   * Storekeeper / Supervisor records misplaced or lost items by technician.
+   */
+  static async recordMisplacedItem(
+    jobId: string,
+    technicianId: string,
+    item: string,
+    qtyMisplaced: number,
+    reportedBy: string,
+    reason?: string
+  ) {
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) throw new Error("Job not found");
+
+    const qty = Number(qtyMisplaced);
+
+    await this.logStatusChange(jobId, job.status, job.status, reportedBy, {
+      action: "misplaced_item_by_technician",
+      technicianId: technicianId || job.assignedTechnicianId,
+      item,
+      qtyMisplaced: qty,
+      reason: reason || "Item misplaced/lost on site during execution",
+    });
+
+    return {
+      success: true,
+      message: `Recorded ${qty}x ${item} as misplaced by technician. Logged in audit trail.`,
+    };
+  }
+
+  /**
+   * Generate an official Invoice with custom invoice number sequence.
+   */
+  static async generateCustomInvoice(
+    jobId: string,
+    customInvoiceNumber: string,
+    createdBy: string
+  ) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { customer: true, items: true },
+    });
+    if (!job) throw new Error("Job not found");
+
+    // Compute billable total
+    let total = 0;
+    for (const it of job.items) {
+      const q = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
+      total += q * it.unitRate;
+    }
+    const net = Math.max(0, total - (job.discountAmount || 0));
+
+    const invoiceNum = customInvoiceNumber?.trim() || `INV-${job.jobNumber}`;
+
+    const existing = await prisma.invoice.findUnique({ where: { invoiceNumber: invoiceNum } });
+    if (existing) {
+      const updated = await prisma.invoice.update({
+        where: { invoiceNumber: invoiceNum },
+        data: {
+          amount: net,
+          jobId: job.id,
+          customerId: job.customerId,
+          customerName: job.customer.name,
+        },
+      });
+      return updated;
+    }
+
+    const created = await prisma.invoice.create({
+      data: {
+        invoiceNumber: invoiceNum,
+        jobId: job.id,
+        customerId: job.customerId,
+        customerName: job.customer.name,
+        amount: net,
+        status: "unpaid",
+      },
+    });
+
+    await this.logStatusChange(jobId, job.status, job.status, createdBy, {
+      action: "custom_invoice_generated",
+      invoiceNumber: invoiceNum,
+      amount: net,
+    });
+
+    return created;
+  }
 }
 

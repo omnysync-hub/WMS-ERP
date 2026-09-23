@@ -157,6 +157,46 @@ export async function PATCH(
         );
         break;
 
+      case "add_service":
+        result = await JobsService.addJobServiceOrItem(
+          params.id,
+          payload.description,
+          Number(payload.quantity || 1),
+          Number(payload.unitRate || 0),
+          actor
+        );
+        break;
+
+      case "record_stock_return":
+        result = await JobsService.recordStockReturn(
+          params.id,
+          payload.technicianId,
+          payload.item,
+          Number(payload.quantity || 1),
+          actor,
+          payload.notes
+        );
+        break;
+
+      case "record_misplaced_item":
+        result = await JobsService.recordMisplacedItem(
+          params.id,
+          payload.technicianId,
+          payload.item,
+          Number(payload.quantity || 1),
+          actor,
+          payload.reason
+        );
+        break;
+
+      case "generate_custom_invoice":
+        result = await JobsService.generateCustomInvoice(
+          params.id,
+          payload.invoiceNumber,
+          actor
+        );
+        break;
+
       default:
         return NextResponse.json(
           { error: `Unknown action: '${action}'` },

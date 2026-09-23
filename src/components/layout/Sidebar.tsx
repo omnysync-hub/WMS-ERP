@@ -28,6 +28,7 @@ import {
   ExternalLink,
   ShoppingBag,
   ShoppingCart,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -84,19 +85,24 @@ export default function Sidebar({
     { label: "Customer Care & QA", tab: "feedback", icon: Headphones },
   ];
 
-  const operationsItems = [
-    { label: "Jobs Directory", href: "/jobs", icon: Briefcase },
-    { label: "Job Reports & Audit", href: "/jobs?view=reports", icon: BarChart3 },
-    { label: "Live Dispatch Map", href: "/dispatch", icon: MapPin },
-    { label: "Accounts & Ledgers", href: "/accounts", icon: CreditCard },
-    { label: "Accounting Settings", href: "/settings/accounting", icon: Settings },
-    { label: "Procurement & Sourcing", href: "/procurement", icon: ShoppingCart },
-    { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag },
-    { label: "HRM & Payroll", href: "/hrm", icon: UserCheck },
-    { label: "Warehouse & Stock", href: "/inventory", icon: Package },
-    { label: "Feedback Queue", href: "/feedback", icon: Headphones },
-    { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw },
+  const allOperationsItems = [
+    { label: "Jobs Directory", href: "/jobs", icon: Briefcase, roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"] },
+    { label: "Job Reports & Audit", href: "/jobs?view=reports", icon: BarChart3, roles: ["admin", "accountant", "auditor"] },
+    { label: "Live Dispatch Map", href: "/dispatch", icon: MapPin, roles: ["admin", "dispatcher", "call_center", "auditor"] },
+    { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"] },
+    { label: "Accounts & Ledgers", href: "/accounts", icon: CreditCard, roles: ["admin", "accountant", "cashier", "auditor"] },
+    { label: "Accounting Settings", href: "/settings/accounting", icon: Settings, roles: ["admin", "accountant"] },
+    { label: "Procurement & Sourcing", href: "/procurement", icon: ShoppingCart, roles: ["admin", "accountant", "storekeeper", "auditor"] },
+    { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"] },
+    { label: "Stock Units Settings", href: "/settings/stock-units", icon: Layers, roles: ["admin", "storekeeper", "accountant"] },
+    { label: "HRM & Assets", href: "/hrm", icon: UserCheck, roles: ["admin", "hr", "auditor"] },
+    { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "hr", "auditor"] },
+    { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"] },
   ];
+
+  const operationsItems = allOperationsItems.filter((item) =>
+    item.roles.includes(activeRole)
+  );
 
   const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
 

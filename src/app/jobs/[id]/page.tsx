@@ -29,6 +29,7 @@ import {
   Check,
   X,
   Plus,
+  RotateCcw,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
@@ -76,7 +77,161 @@ export default function JobDetailPage() {
   const [issueRequestId, setIssueRequestId] = useState<string | undefined>(undefined);
   const [issueProductSearch, setIssueProductSearch] = useState("");
 
+  // Accountant adding service / extra item
+  const [addServiceModalOpen, setAddServiceModalOpen] = useState(false);
+  const [serviceDescription, setServiceDescription] = useState("");
+  const [serviceQty, setServiceQty] = useState("1");
+  const [serviceUnitRate, setServiceUnitRate] = useState("");
+
+  // Storekeeper Stock Return modal
+  const [stockReturnModalOpen, setStockReturnModalOpen] = useState(false);
+  const [returnItemName, setReturnItemName] = useState("");
+  const [returnQuantity, setReturnQuantity] = useState("1");
+  const [returnNotes, setReturnNotes] = useState("");
+
+  // Storekeeper Misplaced Item modal
+  const [misplacedModalOpen, setMisplacedModalOpen] = useState(false);
+  const [misplacedItemName, setMisplacedItemName] = useState("");
+  const [misplacedQuantity, setMisplacedQuantity] = useState("1");
+  const [misplacedReason, setMisplacedReason] = useState("Technician reported item misplaced/lost during site work");
+
+  // Custom Invoice Modal
+  const [customInvoiceModalOpen, setCustomInvoiceModalOpen] = useState(false);
+  const [customInvoiceNumber, setCustomInvoiceNumber] = useState("");
+
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Accountant Add Service / Item Submit Handler
+  const handleAddServiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serviceDescription.trim() || Number(serviceQty) <= 0) return;
+    try {
+      setIsProcessing(true);
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add_service",
+          description: serviceDescription.trim(),
+          quantity: Number(serviceQty),
+          unitRate: Number(serviceUnitRate || 0),
+          actor: `${currentPersona.name} (${currentPersona.designation})`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setAddServiceModalOpen(false);
+      setServiceDescription("");
+      setServiceQty("1");
+      setServiceUnitRate("");
+      setSuccessMsg(`Service / item added to Job #${job?.jobNumber || ""} successfully.`);
+      fetchJob();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Storekeeper Stock Return Submit Handler
+  const handleStockReturnSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!returnItemName.trim() || Number(returnQuantity) <= 0) return;
+    try {
+      setIsProcessing(true);
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_stock_return",
+          technicianId: job?.assignedTechnicianId,
+          item: returnItemName.trim(),
+          quantity: Number(returnQuantity),
+          notes: returnNotes.trim(),
+          actor: `${currentPersona.name} (${currentPersona.designation})`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setStockReturnModalOpen(false);
+      setReturnItemName("");
+      setReturnQuantity("1");
+      setReturnNotes("");
+      setSuccessMsg(`Stock return recorded and restocked in warehouse ledger.`);
+      fetchJob();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Storekeeper Misplaced Item Submit Handler
+  const handleMisplacedItemSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!misplacedItemName.trim() || Number(misplacedQuantity) <= 0) return;
+    try {
+      setIsProcessing(true);
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_misplaced_item",
+          technicianId: job?.assignedTechnicianId,
+          item: misplacedItemName.trim(),
+          quantity: Number(misplacedQuantity),
+          reason: misplacedReason.trim(),
+          actor: `${currentPersona.name} (${currentPersona.designation})`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setMisplacedModalOpen(false);
+      setMisplacedItemName("");
+      setMisplacedQuantity("1");
+      setSuccessMsg(`Misplaced item recorded in audit log. Technician accountability flagged.`);
+      fetchJob();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Custom Invoice Submit Handler
+  const handleGenerateCustomInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setIsProcessing(true);
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate_custom_invoice",
+          invoiceNumber: customInvoiceNumber.trim(),
+          actor: `${currentPersona.name} (${currentPersona.designation})`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      const data = await res.json();
+      setCustomInvoiceModalOpen(false);
+      setSuccessMsg(`Tax Invoice ${data.invoiceNumber} created successfully!`);
+      fetchJob();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // Accountant Expense Clearance Handler
   const handleClearExpense = async (e: React.FormEvent) => {
@@ -450,16 +605,58 @@ export default function JobDetailPage() {
           </div>
         }
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {(isStorekeeper || isAdmin) && (
-              <button
-                type="button"
-                onClick={() => openIssueInventoryModal()}
-                className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Package className="w-3.5 h-3.5 text-amber-700" />
-                + Issue Warehouse Stock
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => openIssueInventoryModal()}
+                  className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <Package className="w-3.5 h-3.5 text-amber-700" />
+                  + Issue Warehouse Stock
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStockReturnModalOpen(true)}
+                  className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
+                  Record Stock Return
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMisplacedModalOpen(true)}
+                  className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                  Report Misplaced Item
+                </button>
+              </>
+            )}
+
+            {(isAccountant || isAdmin) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAddServiceModalOpen(true)}
+                  className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-700" />
+                  + Add Service / Item
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomInvoiceNumber(`INV-${job.jobNumber}`);
+                    setCustomInvoiceModalOpen(true);
+                  }}
+                  className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <Receipt className="w-3.5 h-3.5 text-purple-700" />
+                  Tax Invoice
+                </button>
+              </>
             )}
 
             {!isStorekeeper && !job.finalizedAt && (
@@ -614,15 +811,108 @@ export default function JobDetailPage() {
             </div>
           </div>
 
+          {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
+          {(isAccountant || isAdmin) && (
+            <div className="bg-gradient-to-r from-emerald-950 via-zinc-900 to-zinc-900 text-white rounded-xl p-5 border border-emerald-800/40 shadow-sm space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-700/60">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                    <Briefcase className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                      Accountant End-to-End Job Reconciliation
+                    </h3>
+                    <p className="text-[10px] text-zinc-400">
+                      Material lifecycle: Used, Left, Returned & Financial Settlements
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddServiceModalOpen(true)}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    + Add Service
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomInvoiceNumber(`INV-${job.jobNumber}`);
+                      setCustomInvoiceModalOpen(true);
+                    }}
+                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    Invoice
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
+                  <span className="text-[10px] text-zinc-400 uppercase font-semibold block">Total Planned</span>
+                  <span className="text-base font-black font-mono text-white mt-0.5 block">
+                    {job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0} units
+                  </span>
+                  <span className="text-[10px] text-zinc-500">Scope of Work</span>
+                </div>
+                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
+                  <span className="text-[10px] text-emerald-400 uppercase font-semibold block">Installed / Used</span>
+                  <span className="text-base font-black font-mono text-emerald-400 mt-0.5 block">
+                    {job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0} units
+                  </span>
+                  <span className="text-[10px] text-emerald-500">Billable Actuals</span>
+                </div>
+                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
+                  <span className="text-[10px] text-amber-400 uppercase font-semibold block">Unused / Left</span>
+                  <span className="text-base font-black font-mono text-amber-400 mt-0.5 block">
+                    {Math.max(
+                      0,
+                      (job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0) -
+                      (job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0)
+                    )} units
+                  </span>
+                  <span className="text-[10px] text-amber-400">
+                    Returned: {job.stockReturns?.reduce((s: number, r: any) => s + (r.qtyReturned || 0), 0) || 0} units
+                  </span>
+                </div>
+                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
+                  <span className="text-[10px] text-purple-400 uppercase font-semibold block">Net Invoice Total</span>
+                  <span className="text-base font-black font-mono text-purple-300 mt-0.5 block">
+                    {formatCurrency(netPayable)}
+                  </span>
+                  <span className="text-[10px] text-purple-400">
+                    Collected: {formatCurrency(job.hisaabSettlements?.reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* PLANNED VS ACTUAL LINE ITEMS TABLE (Invariable rule: billing driven strictly by quantity_actual) */}
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7]">
-              <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Planned vs Actual Line Items
-              </h2>
-              <p className="text-[11px] text-[#71717A] mt-0.5">
-                Billing, invoices, and warehouse stock deductions are calculated strictly from actual completed quantities.
-              </p>
+            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  Planned vs Actual Line Items & Services
+                </h2>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  Billing, invoices, and warehouse stock deductions are calculated strictly from actual completed quantities.
+                </p>
+              </div>
+              {(isAccountant || isAdmin) && (
+                <button
+                  type="button"
+                  onClick={() => setAddServiceModalOpen(true)}
+                  className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
+                >
+                  <Plus className="w-3 h-3" />
+                  + Add Line Item
+                </button>
+              )}
             </div>
 
             <div className="overflow-x-auto">
@@ -1405,6 +1695,346 @@ export default function JobDetailPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ACCOUNTANT / ADMIN ADD SERVICE OR LINE ITEM MODAL */}
+      {addServiceModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-emerald-200 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <Plus className="w-4 h-4 text-emerald-700" />
+                Add Billable Service / Line Item
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAddServiceModalOpen(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddServiceSubmit} className="space-y-3.5">
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Service / Item Description *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Master Coil Chemical Servicing / Vacuum Testing"
+                  value={serviceDescription}
+                  onChange={(e) => setServiceDescription(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Quantity *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={serviceQty}
+                    onChange={(e) => setServiceQty(e.target.value)}
+                    className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Unit Rate (PKR) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    placeholder="e.g. 3500"
+                    value={serviceUnitRate}
+                    onChange={(e) => setServiceUnitRate(e.target.value)}
+                    className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-lg text-[11px] text-emerald-950 space-y-1 border border-emerald-200">
+                <p>• Added service will be immediately incorporated into actual billing & revenue.</p>
+                <p>• Line item marked as added by {currentPersona.name} in audit log.</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setAddServiceModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  {isProcessing ? "Adding..." : "Add to Job Order"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* STOREKEEPER RECORD STOCK RETURN MODAL */}
+      {stockReturnModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-blue-200 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-blue-700" />
+                Record Stock Return from Technician
+              </h3>
+              <button
+                type="button"
+                onClick={() => setStockReturnModalOpen(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleStockReturnSubmit} className="space-y-3.5">
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Returned Item / Product *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Copper Pipe 1/2' Roll or R410A Refrigerant"
+                  value={returnItemName}
+                  onChange={(e) => setReturnItemName(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Quantity Returned *
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="any"
+                  required
+                  value={returnQuantity}
+                  onChange={(e) => setReturnQuantity(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Condition / Verification Notes
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Unopened box, verified in Central Warehouse"
+                  value={returnNotes}
+                  onChange={(e) => setReturnNotes(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] text-xs focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="p-3 bg-blue-50 rounded-lg text-[11px] text-blue-950 space-y-1 border border-blue-200">
+                <p>• Automatically restocks matching inventory items in warehouse ledger.</p>
+                <p>• Acknowledged by Storekeeper {currentPersona.name} for Job #{job.jobNumber}.</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setStockReturnModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  {isProcessing ? "Recording..." : "Acknowledge Stock Return"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* STOREKEEPER REPORT MISPLACED ITEM BY TECHNICIAN MODAL */}
+      {misplacedModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-rose-200 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                Report Misplaced Item by Technician
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMisplacedModalOpen(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleMisplacedItemSubmit} className="space-y-3.5">
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Item Description *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Copper Fitting 3/4' or Gauge Adapter"
+                  value={misplacedItemName}
+                  onChange={(e) => setMisplacedItemName(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Quantity Misplaced *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={misplacedQuantity}
+                  onChange={(e) => setMisplacedQuantity(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Circumstances / Reason *
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={misplacedReason}
+                  onChange={(e) => setMisplacedReason(e.target.value)}
+                  placeholder="State reason item was not returned to warehouse..."
+                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="p-3 bg-rose-50 rounded-lg text-[11px] text-rose-950 space-y-1 border border-rose-200">
+                <p>• Records item shortage in audit log under technician accountability.</p>
+                <p>• Prevents false inventory restocking for unreturned stock.</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setMisplacedModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  {isProcessing ? "Logging..." : "Log Misplaced Item"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM TAX INVOICE MODAL */}
+      {customInvoiceModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-purple-200 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-purple-700" />
+                Generate Official Tax Invoice
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCustomInvoiceModalOpen(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateCustomInvoice} className="space-y-3.5">
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Custom Tax Invoice Number *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. INV-JOB-2026-0842"
+                  value={customInvoiceNumber}
+                  onChange={(e) => setCustomInvoiceNumber(e.target.value)}
+                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm focus:bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="p-3 bg-purple-50 rounded-lg text-[11px] text-purple-950 space-y-1 border border-purple-200">
+                <p>• Customer: <strong>{job.customer?.name}</strong></p>
+                <p>• Invoiced Total: <strong>{formatCurrency(netPayable)}</strong></p>
+                <p>• Invoice will be registered in Accounts module and customer receivables.</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setCustomInvoiceModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  {isProcessing ? "Generating..." : "Generate Invoice"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

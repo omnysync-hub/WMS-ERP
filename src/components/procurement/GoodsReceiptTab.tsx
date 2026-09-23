@@ -17,6 +17,7 @@ import {
   Hash,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 
 interface GoodsReceiptTabProps {
   grns: any[];
@@ -31,6 +32,8 @@ export default function GoodsReceiptTab({
   onRefresh,
   presetPoForGrn,
 }: GoodsReceiptTabProps) {
+  const { currentRole } = useRole();
+  const isStorekeeper = currentRole === "storekeeper";
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState("all");
 
@@ -399,7 +402,8 @@ export default function GoodsReceiptTab({
                       )
                       .map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.poNumber} — {p.supplierName} ({p.items?.length} items) - Value: {formatCurrency(p.totalAmount)}
+                          {p.poNumber} — {p.supplierName} ({p.items?.length} items)
+                          {!isStorekeeper ? ` - Value: ${formatCurrency(p.totalAmount)}` : ""}
                         </option>
                       ))}
                   </select>
@@ -606,16 +610,22 @@ export default function GoodsReceiptTab({
                   <ShieldCheck className="w-4 h-4 text-[#0D7A5F]" />
                   Double-Entry Accounting Posting Engine (Automated)
                 </div>
-                <div className="font-mono text-[11px] text-[#18181B] space-y-0.5">
-                  <div className="flex justify-between">
-                    <span>Debit: 1200 Merchandise Inventory Asset (+Asset)</span>
-                    <strong className="text-[#18181B]">{formatCurrency(totalAcceptedValue)}</strong>
+                {isStorekeeper ? (
+                  <div className="font-mono text-[11px] text-[#71717A] bg-white/70 p-2 rounded border border-emerald-100">
+                    <span className="text-emerald-700 font-semibold">✓ Automated Stock Ledger & GR/IR Clearing:</span> Financial valuations and unit costs are masked for Storekeeper. Ledger posting will post automatically in background.
                   </div>
-                  <div className="flex justify-between">
-                    <span>Credit: 2050 GR/IR Clearing Account (+Unbilled Liability)</span>
-                    <strong className="text-[#18181B]">{formatCurrency(totalAcceptedValue)}</strong>
+                ) : (
+                  <div className="font-mono text-[11px] text-[#18181B] space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>Debit: 1200 Merchandise Inventory Asset (+Asset)</span>
+                      <strong className="text-[#18181B]">{formatCurrency(totalAcceptedValue)}</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Credit: 2050 GR/IR Clearing Account (+Unbilled Liability)</span>
+                      <strong className="text-[#18181B]">{formatCurrency(totalAcceptedValue)}</strong>
+                    </div>
                   </div>
-                </div>
+                )}
                 <p className="text-[10px] text-[#71717A] pt-1 border-t border-emerald-200">
                   Physical stock will be immediately incremented in Warehouse. Unbilled receipt cleared upon 3-Way Match.
                 </p>

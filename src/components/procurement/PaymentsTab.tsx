@@ -15,6 +15,7 @@ import {
   Building,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 
 interface PaymentsTabProps {
   invoices: any[];
@@ -27,8 +28,25 @@ export default function PaymentsTab({
   onRefresh,
   presetInvoiceForPay,
 }: PaymentsTabProps) {
+  const { currentRole } = useRole();
+  const isStorekeeper = currentRole === "storekeeper";
+
   const [search, setSearch] = useState("");
   const [filterPaymentStatus, setFilterPaymentStatus] = useState("all");
+
+  if (isStorekeeper) {
+    return (
+      <div className="p-8 text-center bg-white border border-[#EDEDED] rounded-xl space-y-3 shadow-2xs">
+        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+          <CreditCard className="w-6 h-6" />
+        </div>
+        <h3 className="text-sm font-bold text-[#18181B]">Payment Disbursements Restricted</h3>
+        <p className="text-xs text-[#71717A] max-w-md mx-auto">
+          Supplier disbursements and bank payments are restricted to Finance & Accounts personnel. Storekeepers manage physical stock receiving (GRN) and material allocations.
+        </p>
+      </div>
+    );
+  }
 
   // Payment Modal State
   const [showPayModal, setShowPayModal] = useState(Boolean(presetInvoiceForPay));

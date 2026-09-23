@@ -33,6 +33,13 @@ export async function GET() {
         lng: tech.lng || 55.2708,
         lastPingAt: tech.lastPingAt,
         currentStatus,
+        activeJobsCount: tech.jobs.length,
+        assignedJobs: tech.jobs.map((j) => ({
+          id: j.id,
+          jobNumber: j.jobNumber,
+          status: j.status,
+          customerName: j.customer?.name,
+        })),
         activeJob: activeJob
           ? {
               id: activeJob.id,

@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 
 interface PurchaseOrdersTabProps {
   pos: any[];
@@ -34,6 +35,9 @@ export default function PurchaseOrdersTab({
   onRefresh,
   onOpenGrnModal,
 }: PurchaseOrdersTabProps) {
+  const { currentRole } = useRole();
+  const isStorekeeper = currentRole === "storekeeper";
+
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -309,7 +313,9 @@ export default function PurchaseOrdersTab({
                 <th className="py-3 px-3">Order Date</th>
                 <th className="py-3 px-3">Delivery Date</th>
                 <th className="py-3 px-3">Fulfillment Progress</th>
-                <th className="py-3 px-3 text-right">Order Value</th>
+                <th className="py-3 px-3 text-right">
+                  {isStorekeeper ? "Valuation" : "Order Value"}
+                </th>
                 <th className="py-3 px-3 text-center">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -416,7 +422,13 @@ export default function PurchaseOrdersTab({
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono font-bold text-[#18181B] text-sm">
-                        {formatCurrency(po.totalAmount || 0)}
+                        {isStorekeeper ? (
+                          <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            Cost Masked
+                          </span>
+                        ) : (
+                          formatCurrency(po.totalAmount || 0)
+                        )}
                       </td>
 
                       <td className="py-3 px-3 text-center">
@@ -977,10 +989,16 @@ export default function PurchaseOrdersTab({
                           {it.quantity} {it.unit}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono">
-                          {formatCurrency(it.unitCost)}
+                          {isStorekeeper ? "—" : formatCurrency(it.unitCost)}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-bold text-zinc-900">
-                          {formatCurrency(it.lineTotal || it.quantity * it.unitCost)}
+                          {isStorekeeper ? (
+                            <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                              Cost Masked
+                            </span>
+                          ) : (
+                            formatCurrency(it.lineTotal || it.quantity * it.unitCost)
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -994,10 +1012,10 @@ export default function PurchaseOrdersTab({
                   <div className="flex justify-between text-zinc-600">
                     <span>Subtotal:</span>
                     <span className="font-mono font-semibold">
-                      {formatCurrency(printablePo.totalAmount)}
+                      {isStorekeeper ? "Cost Masked" : formatCurrency(printablePo.totalAmount)}
                     </span>
                   </div>
-                  {printablePo.whtAmount > 0 && (
+                  {printablePo.whtAmount > 0 && !isStorekeeper && (
                     <div className="flex justify-between text-zinc-600">
                       <span>WHT Deduction:</span>
                       <span className="font-mono text-rose-600">
@@ -1008,7 +1026,9 @@ export default function PurchaseOrdersTab({
                   <div className="flex justify-between font-bold text-sm text-zinc-900 border-t border-zinc-300 pt-1.5">
                     <span>Net Order Value:</span>
                     <span className="font-mono text-[#0D7A5F]">
-                      {formatCurrency(printablePo.netPayable || printablePo.totalAmount)}
+                      {isStorekeeper
+                        ? "Storekeeper View (Rates Masked)"
+                        : formatCurrency(printablePo.netPayable || printablePo.totalAmount)}
                     </span>
                   </div>
                 </div>

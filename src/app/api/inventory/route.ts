@@ -42,6 +42,61 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ prs, pos, grns });
     }
 
+    if (view === "equipment") {
+      let assets = await prisma.asset.findMany({
+        where: {
+          category: { in: ["HVAC Gauges", "Hand Tools", "Vacuum Pump", "Equipment", "Recovery Unit", "Brazing Kit"] },
+        },
+        include: {
+          assignments: {
+            include: { employee: true },
+            orderBy: { assignedAt: "desc" },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      // Auto-seed default HVAC field equipment if none found
+      if (assets.length === 0) {
+        const seedItems = [
+          { tag: "EQ-VP-01", name: "Value 2-Stage Vacuum Pump 1/2 HP", category: "Vacuum Pump", status: "In Storage" },
+          { tag: "EQ-VP-02", name: "Yellow Jacket SuperEvac Vacuum Pump", category: "Vacuum Pump", status: "In Storage" },
+          { tag: "EQ-RU-01", name: "Appion G5Twin Refrigerant Recovery Unit", category: "Recovery Unit", status: "In Storage" },
+          { tag: "EQ-MN-01", name: "Testo 550s Digital Manifold Gauge Set", category: "HVAC Gauges", status: "In Storage" },
+          { tag: "EQ-BZ-01", name: "Oxygen/Acetylene Portable Brazing Torch Kit", category: "Brazing Kit", status: "In Storage" },
+        ];
+        for (const item of seedItems) {
+          await prisma.asset.create({ data: item });
+        }
+        assets = await prisma.asset.findMany({
+          where: {
+            category: { in: ["HVAC Gauges", "Hand Tools", "Vacuum Pump", "Equipment", "Recovery Unit", "Brazing Kit"] },
+          },
+          include: {
+            assignments: {
+              include: { employee: true },
+              orderBy: { assignedAt: "desc" },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+      }
+
+      return NextResponse.json(assets);
+    }
+
+    if (view === "movements") {
+      const movements = await prisma.stockLedger.findMany({
+        where: {
+          refType: { in: ["branch_transfer", "stock_adjustment", "workshop_consumption"] },
+        },
+        include: { product: true },
+        orderBy: { createdAt: "desc" },
+        take: 60,
+      });
+      return NextResponse.json(movements);
+    }
+
     // Query active jobs and their issued inventory requests & acknowledged stock returns for field stock computation
     const activeJobs = await prisma.job.findMany({
       where: {
@@ -417,6 +472,118 @@ export async function POST(req: NextRequest) {
           notes: payload.notes,
         });
         return NextResponse.json(product, { status: 201 });
+      }
+
+      case "branch_transfer": {
+        const { productId, quantity, fromBranch, toBranch, challanNumber, notes } = payload;
+        const product = await prisma.product.findUnique({ where: { id: productId } });
+        if (!product) throw new Error("Product not found");
+        if (product.stockQuantity < Number(quantity)) {
+          throw new Error(`Insufficient stock for branch transfer. Available: ${product.stockQuantity}`);
+        }
+        await prisma.product.update({
+          where: { id: productId },
+          data: { stockQuantity: { decrement: Number(quantity) } },
+        });
+        const ledger = await prisma.stockLedger.create({
+          data: {
+            productId,
+            qty: Number(quantity),
+            direction: "out",
+            refType: "branch_transfer",
+            notes: `[Transfer: ${fromBranch || "Central Warehouse"} ➔ ${toBranch || "Branch Depot"}] Challan #${challanNumber || "TRF-" + Date.now().toString().slice(-4)}: ${notes || ""}`.trim(),
+          },
+        });
+        return NextResponse.json({ success: true, ledger });
+      }
+
+      case "stock_adjustment": {
+        const { productId, quantity, type, reason, notes } = payload;
+        const product = await prisma.product.findUnique({ where: { id: productId } });
+        if (!product) throw new Error("Product not found");
+        const qtyNum = Math.abs(Number(quantity));
+        const direction = type === "increase" ? "in" : "out";
+        await prisma.product.update({
+          where: { id: productId },
+          data: {
+            stockQuantity: type === "increase" ? { increment: qtyNum } : { decrement: qtyNum },
+          },
+        });
+        const ledger = await prisma.stockLedger.create({
+          data: {
+            productId,
+            qty: qtyNum,
+            direction,
+            refType: "stock_adjustment",
+            notes: `[Audit Adjustment (${type === "increase" ? "+" : "-"}${qtyNum}): ${reason || "Variance"}] ${notes || ""}`.trim(),
+          },
+        });
+        return NextResponse.json({ success: true, ledger });
+      }
+
+      case "workshop_consumption": {
+        const { productId, quantity, workshopUnit, technicianName, notes } = payload;
+        const product = await prisma.product.findUnique({ where: { id: productId } });
+        if (!product) throw new Error("Product not found");
+        const qtyNum = Number(quantity);
+        if (product.stockQuantity < qtyNum) {
+          throw new Error(`Insufficient stock for workshop consumption. Available: ${product.stockQuantity}`);
+        }
+        await prisma.product.update({
+          where: { id: productId },
+          data: { stockQuantity: { decrement: qtyNum } },
+        });
+        const ledger = await prisma.stockLedger.create({
+          data: {
+            productId,
+            qty: qtyNum,
+            direction: "out",
+            refType: "workshop_consumption",
+            notes: `[Workshop Internal: ${workshopUnit || "Fabrication Bench"}] Tech: ${technicianName || "Shop Tech"}. ${notes || ""}`.trim(),
+          },
+        });
+        return NextResponse.json({ success: true, ledger });
+      }
+
+      case "checkout_equipment": {
+        const { assetId, employeeId, assignedBy, conditionNotes } = payload;
+        const assignment = await prisma.assetAssignment.create({
+          data: {
+            assetId,
+            employeeId,
+            assignedBy: assignedBy || "Storekeeper",
+            conditionNotes: conditionNotes || "Normal functional check pass / calibrated",
+          },
+        });
+        await prisma.asset.update({
+          where: { id: assetId },
+          data: {
+            status: "Assigned",
+            currentEmployeeId: employeeId,
+          },
+        });
+        return NextResponse.json(assignment);
+      }
+
+      case "return_equipment": {
+        const { assetId, assignmentId, conditionNotes } = payload;
+        if (assignmentId) {
+          await prisma.assetAssignment.update({
+            where: { id: assignmentId },
+            data: {
+              returnedAt: new Date(),
+              conditionNotes: conditionNotes ? `Returned: ${conditionNotes}` : undefined,
+            },
+          });
+        }
+        await prisma.asset.update({
+          where: { id: assetId },
+          data: {
+            status: "In Storage",
+            currentEmployeeId: null,
+          },
+        });
+        return NextResponse.json({ success: true });
       }
 
       default:

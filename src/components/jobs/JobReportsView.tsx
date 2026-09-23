@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   ChevronLeft,
+  Building,
 } from "lucide-react";
 
 import TechnicianReportDetail from "./TechnicianReportDetail";
@@ -57,7 +58,7 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
   const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Sub-view tab
-  const [activeReportTab, setActiveReportTab] = useState<"jobs" | "materials" | "technicians">("jobs");
+  const [activeReportTab, setActiveReportTab] = useState<"jobs" | "materials" | "technicians" | "care_of">("jobs");
 
   // Expanded row state for jobs
   const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
@@ -624,6 +625,18 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
             >
               <User className="w-3.5 h-3.5" />
               Technician Roster & Day Progress ({reportData?.technicianBreakdown?.length || 0})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveReportTab("care_of")}
+              className={`pb-3 px-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
+                activeReportTab === "care_of"
+                  ? "border-[#0D7A5F] text-[#0D7A5F]"
+                  : "border-transparent text-[#71717A] hover:text-[#18181B]"
+              }`}
+            >
+              <Building className="w-3.5 h-3.5" />
+              Care-Of Parties Reporting
             </button>
           </div>
 
@@ -1231,6 +1244,139 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
             )}
           </div>
         )}
+
+        {/* Tab 4: Care-Of Parties Analytics & Separate Reporting */}
+        {activeReportTab === "care_of" && (() => {
+          const careOfGroups: Record<string, { partyName: string; contactPerson?: string; jobs: any[]; totalBilled: number; totalCollected: number; doneCount: number }> = {};
+
+          for (const j of filteredJobs) {
+            const key = j.careOfParty?.companyName || "Direct / Independent Customer";
+            if (!careOfGroups[key]) {
+              careOfGroups[key] = {
+                partyName: key,
+                contactPerson: j.careOfParty?.personName,
+                jobs: [],
+                totalBilled: 0,
+                totalCollected: 0,
+                doneCount: 0,
+              };
+            }
+            careOfGroups[key].jobs.push(j);
+            careOfGroups[key].totalBilled += j.financials?.netBilled || 0;
+            careOfGroups[key].totalCollected += j.financials?.collected || 0;
+            if (["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)) {
+              careOfGroups[key].doneCount++;
+            }
+          }
+
+          const groupList = Object.values(careOfGroups);
+
+          return (
+            <div className="p-4 space-y-4">
+              <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl text-xs text-purple-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Building className="w-4 h-4 text-purple-700 shrink-0" />
+                  <span>
+                    <strong>Care-Of Parties & Subcontractor Reporting:</strong> Dedicated breakdown of work orders, customer accounts, and billings grouped by Care-Of affiliate.
+                  </span>
+                </div>
+                <span className="font-mono font-bold text-purple-900 text-xs">
+                  {groupList.length} Entity Group{groupList.length === 1 ? "" : "s"}
+                </span>
+              </div>
+
+              {groupList.length === 0 ? (
+                <div className="py-16 text-center text-xs text-[#71717A]">
+                  <Building className="w-8 h-8 mx-auto text-[#A1A1AA] mb-2" />
+                  <p className="font-semibold text-[#18181B]">No care-of party jobs recorded in this window</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {groupList.map((grp, gIdx) => (
+                    <div key={gIdx} className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-xl overflow-hidden shadow-2xs">
+                      <div className="p-4 bg-white border-b border-[#E4E4E7] flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-[#18181B]">{grp.partyName}</span>
+                            {grp.contactPerson && (
+                              <span className="text-xs text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full border border-[#E4E4E7]">
+                                Contact: {grp.contactPerson}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#71717A] mt-0.5">
+                            {grp.jobs.length} total work orders • {grp.doneCount} completed ({grp.jobs.length > 0 ? Math.round((grp.doneCount / grp.jobs.length) * 100) : 0}%)
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs font-mono">
+                          <div>
+                            <span className="text-[10px] text-[#71717A] block">Total Invoiced:</span>
+                            <span className="font-bold text-[#18181B]">{formatCurrency(grp.totalBilled)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-emerald-700 block">Collected:</span>
+                            <span className="font-bold text-emerald-700">{formatCurrency(grp.totalCollected)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-rose-700 block">Balance Due:</span>
+                            <span className="font-bold text-rose-700">{formatCurrency(Math.max(0, grp.totalBilled - grp.totalCollected))}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-[#F4F4F5] text-[#71717A] font-semibold border-b border-[#E4E4E7] text-[11px]">
+                              <th className="py-2 px-4">Job # & Ext Ref</th>
+                              <th className="py-2 px-4">Customer</th>
+                              <th className="py-2 px-4">Technician</th>
+                              <th className="py-2 px-4 text-center">Status</th>
+                              <th className="py-2 px-4 text-right">Invoiced</th>
+                              <th className="py-2 px-4 text-right">Collected</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#E4E4E7] bg-white">
+                            {grp.jobs.map((j: any) => (
+                              <tr key={j.id} className="hover:bg-[#FAFAFA]">
+                                <td className="py-2.5 px-4 font-mono font-bold text-[#0D7A5F]">
+                                  <Link href={`/jobs/${j.id}`} className="hover:underline">
+                                    {j.jobNumber}
+                                  </Link>
+                                  {j.manualJobNumber && (
+                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded ml-1.5 font-normal">
+                                      Ext: #{j.manualJobNumber}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  <span className="font-semibold text-[#18181B] block">{j.customer?.name}</span>
+                                  <span className="text-[10px] text-[#71717A] truncate block max-w-xs">{j.customer?.addressText}</span>
+                                </td>
+                                <td className="py-2.5 px-4 text-[#52525B]">
+                                  {j.assignedTechnician?.name || "Unassigned"}
+                                </td>
+                                <td className="py-2.5 px-4 text-center">
+                                  <StatusBadge status={j.status} />
+                                </td>
+                                <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
+                                  {formatCurrency(j.financials?.netBilled || 0)}
+                                </td>
+                                <td className="py-2.5 px-4 text-right font-mono text-emerald-700 font-semibold">
+                                  {formatCurrency(j.financials?.collected || 0)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

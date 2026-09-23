@@ -40,8 +40,10 @@ export default function RequisitionsTab({
 
   // Create PR Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [prAgainst, setPrAgainst] = useState<"store" | "job" | "project">("store");
+  const [linkedJobNumber, setLinkedJobNumber] = useState("");
   const [requestedBy, setRequestedBy] = useState("Bilal Sheikh (Warehouse)");
-  const [department, setDepartment] = useState("HVAC Operations");
+  const [department, setDepartment] = useState("Central Warehouse");
   const [site, setSite] = useState("Central Workshop, Lahore");
   const [dateRequired, setDateRequired] = useState(() => {
     const d = new Date();
@@ -49,9 +51,9 @@ export default function RequisitionsTab({
     return d.toISOString().split("T")[0];
   });
   const [priority, setPriority] = useState<"Normal" | "Urgent">("Normal");
-  const [costCenter, setCostCenter] = useState("CC-OPS-01");
+  const [costCenter, setCostCenter] = useState("CC-STORE-01");
   const [projectCode, setProjectCode] = useState("");
-  const [budgetCode, setBudgetCode] = useState("CAPEX-2026-Q3");
+  const [budgetCode, setBudgetCode] = useState("OPEX-2026-STORE");
   const [notes, setNotes] = useState("");
   const [attachments, setAttachments] = useState("");
 
@@ -156,6 +158,14 @@ export default function RequisitionsTab({
     setFormError("");
 
     try {
+      const formattedNotes = `[Target: ${
+        prAgainst === "store"
+          ? "Central Store Replenishment"
+          : prAgainst === "job"
+          ? `Job Order #${linkedJobNumber}`
+          : "Project Site Engineering"
+      }] ${notes}`.trim();
+
       const res = await fetch("/api/procurement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -167,9 +177,9 @@ export default function RequisitionsTab({
           dateRequired,
           priority,
           costCenter,
-          projectCode,
+          projectCode: prAgainst === "job" ? linkedJobNumber : projectCode,
           budgetCode,
-          notes,
+          notes: formattedNotes,
           attachments,
           items,
         }),
@@ -486,6 +496,78 @@ export default function RequisitionsTab({
                   {formError}
                 </div>
               )}
+
+              {/* Requisition Target Selector (Store Walay / Job Order / Project) */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <label className="block text-[11px] font-mono font-semibold uppercase tracking-wider text-[#3F3F46]">
+                  Requisition Target (Acquisition Purpose) *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPrAgainst("store")}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-left transition-all ${
+                      prAgainst === "store"
+                        ? "bg-[#0D7A5F]/10 border-[#0D7A5F] text-[#0D7A5F] shadow-xs"
+                        : "bg-white border-[#E4E4E7] text-[#71717A] hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="text-base mt-0.5">📦</span>
+                    <div>
+                      <div className="text-xs font-semibold text-[#18181B]">Store Replenishment</div>
+                      <div className="text-[10px] text-[#71717A]">Store walay general buffer & restock</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrAgainst("job")}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-left transition-all ${
+                      prAgainst === "job"
+                        ? "bg-[#0D7A5F]/10 border-[#0D7A5F] text-[#0D7A5F] shadow-xs"
+                        : "bg-white border-[#E4E4E7] text-[#71717A] hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="text-base mt-0.5">🔧</span>
+                    <div>
+                      <div className="text-xs font-semibold text-[#18181B]">Job Work Order</div>
+                      <div className="text-[10px] text-[#71717A]">Against dedicated Job # / Ticket</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrAgainst("project")}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-left transition-all ${
+                      prAgainst === "project"
+                        ? "bg-[#0D7A5F]/10 border-[#0D7A5F] text-[#0D7A5F] shadow-xs"
+                        : "bg-white border-[#E4E4E7] text-[#71717A] hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="text-base mt-0.5">🏗️</span>
+                    <div>
+                      <div className="text-xs font-semibold text-[#18181B]">Project Site</div>
+                      <div className="text-[10px] text-[#71717A]">Engineering project / client site</div>
+                    </div>
+                  </button>
+                </div>
+
+                {prAgainst === "job" && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200">
+                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                      Link Dedicated Job Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={linkedJobNumber}
+                      onChange={(e) => setLinkedJobNumber(e.target.value)}
+                      placeholder="e.g. JOB-2026-0042 or Manual Ref #..."
+                      className="w-full bg-white border border-[#0D7A5F] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono font-medium focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                    />
+                  </div>
+                )}
+              </div>
 
               {/* Header Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

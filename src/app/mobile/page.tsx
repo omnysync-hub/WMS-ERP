@@ -90,12 +90,11 @@ export default function MobileCompanionPage() {
     "Installed 3 AC units today; remaining 2 units scheduled for tomorrow morning."
   );
 
-  // Complete Job & Unused Inventory Return (e.g. customer changed mind: 10 requested, only 8 used)
+  // Complete Job & Unused Inventory Return
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [actualQuantities, setActualQuantities] = useState<Record<string, number | "">>({});
-  const [unusedRemarks, setUnusedRemarks] = useState(
-    "Customer changed mind on 2 units due to balcony space restriction."
-  );
+  const [unusedDisposition, setUnusedDisposition] = useState<"return" | "misplaced">("return");
+  const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
   const [completionWorkingRemarks, setCompletionWorkingRemarks] = useState(
     "Standard diagnostic & testing completed. Coils inspected, refrigerant charged, operating parameters normal."
   );
@@ -748,20 +747,36 @@ export default function MobileCompanionPage() {
         const unused = Math.max(0, it.quantityPlanned - actual);
         if (unused > 0) {
           hasUnusedItems = true;
-          // Automatically submit stock return with the mandatory technician remarks
-          await fetch(`/api/jobs/${selectedJob.id}/stock-return`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              technicianId: technician.id,
-              item: `${it.description} (Unused: ${unused} units — Reason: ${unusedRemarks})`,
-              qtyReturned: unused,
-            }),
-          });
+          if (unusedDisposition === "return") {
+            // Automatically submit stock return for Storekeeper Bilal Sheikh
+            await fetch(`/api/jobs/${selectedJob.id}/stock-return`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                technicianId: technician.id,
+                item: `${it.description} [Unused Returnable: ${unused} units]`,
+                qtyReturned: unused,
+              }),
+            });
+          } else {
+            // Report as misplaced by technician
+            await fetch(`/api/jobs/${selectedJob.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "record_misplaced_item",
+                technicianId: technician.id,
+                item: it.description,
+                quantity: unused,
+                reason: "Reported misplaced by technician upon job completion",
+                actor: technician.name,
+              }),
+            });
+          }
         }
       }
 
-      // Step 2: Complete the job with execution remarks and customer payment means
+      // Step 2: Complete the job with execution remarks, photos, and customer payment means
       const res = await fetch(`/api/jobs/${selectedJob.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -773,7 +788,8 @@ export default function MobileCompanionPage() {
             paymentAmount: paymentMeans === "unmarked" ? 0 : Number(paymentReceivedAmount) || 0,
             paymentMeans,
             paymentNotes,
-            unusedReason: hasUnusedItems ? unusedRemarks : undefined,
+            unusedDisposition: hasUnusedItems ? unusedDisposition : undefined,
+            photos: completionPhotos,
           },
           actor: technician.name,
         }),
@@ -2541,28 +2557,96 @@ export default function MobileCompanionPage() {
                 );
               })}
 
-              {/* Remarks for unused materials */}
+              {/* Unused materials handling: Return to storekeeper or report misplaced */}
               {selectedJob.items?.some((it: any) => {
                 const actual = Number(actualQuantities[it.id] ?? it.quantityPlanned);
                 return it.quantityPlanned > actual;
               }) && (
-                <div className="space-y-1.5 p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900">
+                <div className="space-y-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-950">
                   <span className="font-bold block">
-                    Reason Why Items Were Unused (Customer Change of Mind) *
+                    Unused Items Disposition:
                   </span>
-                  <input
-                    type="text"
-                    required
-                    value={unusedRemarks}
-                    onChange={(e) => setUnusedRemarks(e.target.value)}
-                    placeholder="e.g. Customer opted for 8 units instead of 10"
-                    className="w-full bg-white p-2.5 rounded-xl border border-rose-300 text-xs text-zinc-900 focus:outline-none"
-                  />
-                  <p className="text-[10px] text-rose-800">
-                    🛑 <strong>Rule 1.3:</strong> Stock return must be acknowledged by Storekeeper Bilal Sheikh.
-                  </p>
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-amber-200 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="unusedDisp"
+                        value="return"
+                        checked={unusedDisposition === "return"}
+                        onChange={() => setUnusedDisposition("return")}
+                        className="accent-[#0D7A5F]"
+                      />
+                      <span className="font-medium text-[11px] text-zinc-900">
+                        📦 Return unused items to Storekeeper (Bilal Sheikh)
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-amber-200 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="unusedDisp"
+                        value="misplaced"
+                        checked={unusedDisposition === "misplaced"}
+                        onChange={() => setUnusedDisposition("misplaced")}
+                        className="accent-rose-600"
+                      />
+                      <span className="font-medium text-[11px] text-zinc-900">
+                        ⚠️ Misplaced / Lost on site by technician
+                      </span>
+                    </label>
+                  </div>
                 </div>
               )}
+
+              {/* Job Completion Photos Capture */}
+              <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-zinc-800 text-xs flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                    Job Completion Photos (Proof of Work)
+                  </label>
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    {completionPhotos.length} photo{completionPhotos.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {completionPhotos.map((photo, pIdx) => (
+                    <div key={pIdx} className="relative w-14 h-14 rounded-lg overflow-hidden border border-zinc-300 shadow-2xs group">
+                      <img src={photo} alt={`Job work photo ${pIdx + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setCompletionPhotos(completionPhotos.filter((_, i) => i !== pIdx))}
+                        className="absolute top-0.5 right-0.5 w-4 h-4 bg-black/70 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px]"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+
+                  <label className="w-14 h-14 rounded-lg border-2 border-dashed border-zinc-300 hover:border-[#0D7A5F] flex flex-col items-center justify-center text-zinc-400 hover:text-[#0D7A5F] cursor-pointer transition bg-white">
+                    <Camera className="w-4 h-4" />
+                    <span className="text-[8px] font-bold mt-0.5">+ Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        files.forEach((file) => {
+                          const reader = new FileReader();
+                          reader.onload = (re) => {
+                            if (re.target?.result) {
+                              setCompletionPhotos((prev) => [...prev, re.target!.result as string]);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        });
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
 
               <div>
                 <label className="font-semibold text-zinc-800 text-xs block mb-1">
