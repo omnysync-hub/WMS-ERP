@@ -124,7 +124,7 @@ export default function RealSurveillanceMap({
     const newTileLayer = L.tileLayer(config.url, {
       attribution: config.attribution,
       maxZoom: config.maxZoom,
-      subdomains: activeLayer === "streets" ? ["a", "b", "c"] : undefined,
+      subdomains: "abc",
     }).addTo(map);
 
     tileLayerRef.current = newTileLayer;
