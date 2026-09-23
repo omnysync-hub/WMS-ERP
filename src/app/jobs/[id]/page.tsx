@@ -39,10 +39,19 @@ export default function JobDetailPage() {
   const router = useRouter();
   const jobId = params?.id as string;
 
-  const { activeRole, currentPersona } = useRole();
+  const { activeRole, currentPersona, hasPermission } = useRole();
   const isStorekeeper = activeRole === "storekeeper";
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
+  const canViewFinancials = hasPermission("jobs.view_financials");
+  const canAddService = hasPermission("jobs.add_service");
+  const canIssueStock = hasPermission("jobs.issue_stock");
+  const canStockReturn = hasPermission("jobs.stock_return");
+  const canMisplacedItem = hasPermission("jobs.misplaced_item");
+  const canGenerateInvoice = hasPermission("jobs.generate_invoice");
+  const canCollectPayment = hasPermission("jobs.collect_payment");
+  const canReassignTech = hasPermission("jobs.reassign_tech");
+  const canEditJob = hasPermission("jobs.edit_job");
 
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -606,60 +615,62 @@ export default function JobDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            {(isStorekeeper || isAdmin) && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => openIssueInventoryModal()}
-                  className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                >
-                  <Package className="w-3.5 h-3.5 text-amber-700" />
-                  + Issue Warehouse Stock
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStockReturnModalOpen(true)}
-                  className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
-                  Record Stock Return
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMisplacedModalOpen(true)}
-                  className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
-                  Report Misplaced Item
-                </button>
-              </>
+            {canIssueStock && (
+              <button
+                type="button"
+                onClick={() => openIssueInventoryModal()}
+                className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Package className="w-3.5 h-3.5 text-amber-700" />
+                + Issue Warehouse Stock
+              </button>
+            )}
+            {canStockReturn && (
+              <button
+                type="button"
+                onClick={() => setStockReturnModalOpen(true)}
+                className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
+                Record Stock Return
+              </button>
+            )}
+            {canMisplacedItem && (
+              <button
+                type="button"
+                onClick={() => setMisplacedModalOpen(true)}
+                className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                Report Misplaced Item
+              </button>
             )}
 
-            {(isAccountant || isAdmin) && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setAddServiceModalOpen(true)}
-                  className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-700" />
-                  + Add Service / Item
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomInvoiceNumber(`INV-${job.jobNumber}`);
-                    setCustomInvoiceModalOpen(true);
-                  }}
-                  className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                >
-                  <Receipt className="w-3.5 h-3.5 text-purple-700" />
-                  Tax Invoice
-                </button>
-              </>
+            {canAddService && (
+              <button
+                type="button"
+                onClick={() => setAddServiceModalOpen(true)}
+                className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-emerald-700" />
+                + Add Service / Item
+              </button>
+            )}
+            {canGenerateInvoice && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomInvoiceNumber(`INV-${job.jobNumber}`);
+                  setCustomInvoiceModalOpen(true);
+                }}
+                className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Receipt className="w-3.5 h-3.5 text-purple-700" />
+                Tax Invoice
+              </button>
             )}
 
-            {!isStorekeeper && !job.finalizedAt && (
+            {canViewFinancials && !job.finalizedAt && (
               <button
                 type="button"
                 onClick={() => setShowDiscountDrawer(true)}
@@ -670,7 +681,7 @@ export default function JobDetailPage() {
               </button>
             )}
 
-            {!isStorekeeper && job.status === "CompletedPendingVerification" && !job.finalizedAt && (
+            {(canGenerateInvoice || canCollectPayment) && job.status === "CompletedPendingVerification" && !job.finalizedAt && (
               <button
                 type="button"
                 onClick={handleFinalizeJob}
@@ -903,7 +914,7 @@ export default function JobDetailPage() {
                   Billing, invoices, and warehouse stock deductions are calculated strictly from actual completed quantities.
                 </p>
               </div>
-              {(isAccountant || isAdmin) && (
+              {canAddService && (
                 <button
                   type="button"
                   onClick={() => setAddServiceModalOpen(true)}
@@ -922,14 +933,13 @@ export default function JobDetailPage() {
                     <th className="py-2.5 px-4">Item Description</th>
                     <th className="py-2.5 px-4 text-center">Planned Qty</th>
                     <th className="py-2.5 px-4 text-center">Actual Qty</th>
-                    {!isStorekeeper && (
+                    {canViewFinancials ? (
                       <>
                         <th className="py-2.5 px-4 text-right">Unit Rate</th>
                         <th className="py-2.5 px-4 text-right">Row Total</th>
                         <th className="py-2.5 px-4 text-right">Discount Action</th>
                       </>
-                    )}
-                    {isStorekeeper && (
+                    ) : (
                       <th className="py-2.5 px-4 text-center">Warehouse Status</th>
                     )}
                   </tr>
@@ -952,14 +962,14 @@ export default function JobDetailPage() {
                         <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
                           <td className="py-2.5 px-4 font-medium text-[#18181B]">
                             <div>{cleanTitle}</div>
-                            {isRequested && !isStorekeeper && (
+                            {isRequested && canViewFinancials && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                                   ⏳ {item.description.match(/\[Discount Requested: ([^\]]+)\]/)?.[1] || "Discount Requested"}
                                 </span>
                               </div>
                             )}
-                            {isApproved && !isStorekeeper && (
+                            {isApproved && canViewFinancials && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                                   ✓ {item.description.match(/\[Discount Approved: ([^\]]+)\]/)?.[1] || "Discount Approved"}
@@ -988,7 +998,7 @@ export default function JobDetailPage() {
                               </span>
                             )}
                           </td>
-                          {!isStorekeeper ? (
+                          {canViewFinancials ? (
                             <>
                               <td className="py-2.5 px-4 text-right font-mono text-[#52525B]">
                                 {formatCurrency(item.unitRate)}
@@ -1035,7 +1045,7 @@ export default function JobDetailPage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={isStorekeeper ? 4 : 6} className="py-8 text-center text-[#71717A] text-xs">
+                      <td colSpan={canViewFinancials ? 6 : 4} className="py-8 text-center text-[#71717A] text-xs">
                         No planned line items recorded during intake. Scope of work and materials will be recorded by the technician or accountant.
                       </td>
                     </tr>
@@ -1045,7 +1055,7 @@ export default function JobDetailPage() {
             </div>
 
             {/* Financial Summary vs Physical Scope Footer */}
-            {!isStorekeeper ? (
+            {canViewFinancials ? (
               <div className="p-5 bg-[#FAFAFA] border-t border-[#E4E4E7] space-y-1.5 text-xs">
                 <div className="flex items-center justify-between text-[#71717A]">
                   <span>Planned Estimated Total:</span>
@@ -1082,14 +1092,14 @@ export default function JobDetailPage() {
                   </span>
                 </div>
                 <span className="text-[11px] text-[#71717A] font-mono">
-                  Financial pricing & billing rates masked for Storekeeper persona
+                  Financial pricing & billing rates masked for current permission level
                 </span>
               </div>
             )}
           </div>
 
-          {/* Settlements & Field Expenses (Masked from Storekeeper) */}
-          {!isStorekeeper && (
+          {/* Settlements & Field Expenses (Masked if lacks financial permission) */}
+          {canViewFinancials && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Settlements */}
               <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
@@ -1182,8 +1192,8 @@ export default function JobDetailPage() {
             </div>
           )}
 
-          {/* Central Warehouse Material & Inventory Issuance Card (Storekeeper & Admin) */}
-          {(isStorekeeper || isAdmin) && (
+          {/* Central Warehouse Material & Inventory Issuance Card (Controlled by permissions) */}
+          {(canIssueStock || canStockReturn) && (
             <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-amber-100">
                 <div className="flex items-center gap-2">
@@ -1192,14 +1202,16 @@ export default function JobDetailPage() {
                     Warehouse Inventory & Material Issuance
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => openIssueInventoryModal()}
-                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Issue Stock to Job
-                </button>
+                {canIssueStock && (
+                  <button
+                    type="button"
+                    onClick={() => openIssueInventoryModal()}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Issue Stock to Job
+                  </button>
+                )}
               </div>
 
               {/* Material Requests Table / List */}
@@ -1226,7 +1238,7 @@ export default function JobDetailPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <StatusBadge status={req.status} />
-                          {req.status === "pending" && (
+                          {req.status === "pending" && canIssueStock && (
                             <button
                               type="button"
                               onClick={() => openIssueInventoryModal(req)}
@@ -1295,7 +1307,7 @@ export default function JobDetailPage() {
                     <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
                   </div>
                 </div>
-                {!job.finalizedAt && (
+                {!job.finalizedAt && canReassignTech && (
                   <button
                     type="button"
                     onClick={() => setShowReassignDrawer(true)}
@@ -1308,7 +1320,7 @@ export default function JobDetailPage() {
             ) : (
               <div className="space-y-2.5">
                 <p className="text-xs text-[#A1A1AA] italic">No technician assigned to this work order.</p>
-                {!job.finalizedAt && (
+                {!job.finalizedAt && canReassignTech && (
                   <button
                     type="button"
                     onClick={() => setShowReassignDrawer(true)}

@@ -8,14 +8,19 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
 import JobReportsView from "@/components/jobs/JobReportsView";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
-import { Plus, User, AlertTriangle, Building, RefreshCw, Package, Receipt, DollarSign, ShieldCheck, BarChart3, Briefcase } from "lucide-react";
+import { Plus, User, AlertTriangle, Building, RefreshCw, Package, Receipt, DollarSign, ShieldCheck, BarChart3, Briefcase, Lock } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
 export default function JobsListPage() {
-  const { activeRole, currentPersona } = useRole();
+  const { activeRole, currentPersona, hasPermission } = useRole();
   const isStorekeeper = activeRole === "storekeeper";
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
+  const canViewFinancials = hasPermission("jobs.view_financials");
+  const canReassignTech = hasPermission("jobs.reassign_tech");
+  const canCreateJob = hasPermission("jobs.create_job");
+  const canViewDirectory = hasPermission("jobs.view_directory");
+  const canViewReports = hasPermission("jobs.reports");
 
   const [mainSectionView, setMainSectionView] = useState<"directory" | "reports">("directory");
   const [jobs, setJobs] = useState<any[]>([]);
@@ -188,7 +193,7 @@ export default function JobsListPage() {
                   {row.assignedTechnician.name}
                 </span>
               </div>
-              {!isStorekeeper && (
+              {canReassignTech && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -201,7 +206,7 @@ export default function JobsListPage() {
                 </button>
               )}
             </div>
-          ) : !isStorekeeper ? (
+          ) : canReassignTech ? (
             <button
               type="button"
               onClick={(e) => {
@@ -259,8 +264,8 @@ export default function JobsListPage() {
         );
       },
     },
-    // Strictly hide Amount column for Storekeeper and show stock status instead
-    ...(isStorekeeper
+    // Strictly hide Amount column if user lacks financial permission, showing warehouse material status instead
+    ...(!canViewFinancials
       ? [
           {
             id: "storeInventorySummary",
@@ -348,7 +353,7 @@ export default function JobsListPage() {
       align: "right",
       cell: (row) => (
         <div className="flex items-center justify-end gap-1.5">
-          {!isStorekeeper && (
+          {canReassignTech && (
             <button
               type="button"
               onClick={(e) => {
@@ -446,7 +451,33 @@ export default function JobsListPage() {
       </div>
 
       {mainSectionView === "reports" ? (
-        <JobReportsView onBackToDirectory={() => setMainSectionView("directory")} />
+        !canViewReports ? (
+          <div className="bg-white border border-rose-200 rounded-xl p-8 text-center space-y-3 shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-[#18181B]">
+              Daily Audit & Reports Access Restricted
+            </h3>
+            <p className="text-xs text-[#71717A] max-w-md mx-auto">
+              Permission to view aggregate job performance and stock usage reports is currently disabled for this account (<code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">jobs.reports</code>).
+            </p>
+          </div>
+        ) : (
+          <JobReportsView onBackToDirectory={() => setMainSectionView("directory")} />
+        )
+      ) : !canViewDirectory ? (
+        <div className="bg-white border border-rose-200 rounded-xl p-8 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-[#18181B]">
+            Work Orders Directory Access Restricted
+          </h3>
+          <p className="text-xs text-[#71717A] max-w-md mx-auto">
+            Permission to view the jobs directory has been toggled off for your user account or role (<code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">jobs.view_directory</code>). Please contact your administrator.
+          </p>
+        </div>
       ) : (
         <>
           {/* Role Banner / Context */}
@@ -494,7 +525,7 @@ export default function JobsListPage() {
               onClick: () => setActiveTab(tab.id),
             }))}
             primaryAction={
-              isAdmin
+              canCreateJob
                 ? {
                     label: "+ New Job",
                     onClick: () => {

@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Settings,
   ShieldAlert,
+  ShieldCheck,
   FileText,
   Smartphone,
   Flame,
@@ -45,7 +46,7 @@ export default function Sidebar({
   onToggleCollapse,
 }: SidebarProps) {
   const pathname = usePathname();
-  const { activeRole, currentPersona, isModulePrimary } = useRole();
+  const { activeRole, currentPersona, isModulePrimary, hasPermission } = useRole();
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [isDashboardsOpen, setIsDashboardsOpen] = useState(true);
 
@@ -86,23 +87,30 @@ export default function Sidebar({
   ];
 
   const allOperationsItems = [
-    { label: "Jobs Directory", href: "/jobs", icon: Briefcase, roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"] },
-    { label: "Job Reports & Audit", href: "/jobs?view=reports", icon: BarChart3, roles: ["admin", "accountant", "auditor"] },
-    { label: "Live Dispatch Map", href: "/dispatch", icon: MapPin, roles: ["admin", "dispatcher", "call_center", "auditor"] },
-    { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"] },
-    { label: "Accounts & Ledgers", href: "/accounts", icon: CreditCard, roles: ["admin", "accountant", "cashier", "auditor"] },
-    { label: "Accounting Settings", href: "/settings/accounting", icon: Settings, roles: ["admin", "accountant"] },
-    { label: "Procurement & Sourcing", href: "/procurement", icon: ShoppingCart, roles: ["admin", "accountant", "storekeeper", "auditor"] },
-    { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"] },
-    { label: "Stock Units Settings", href: "/settings/stock-units", icon: Layers, roles: ["admin", "storekeeper", "accountant"] },
-    { label: "HRM & Assets", href: "/hrm", icon: UserCheck, roles: ["admin", "hr", "auditor"] },
+    { label: "Jobs Directory", href: "/jobs", icon: Briefcase, roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"], perm: "jobs.view_directory" },
+    { label: "Job Reports & Audit", href: "/jobs?view=reports", icon: BarChart3, roles: ["admin", "accountant", "auditor"], perm: "jobs.reports" },
+    { label: "Live Dispatch Map", href: "/dispatch", icon: MapPin, roles: ["admin", "dispatcher", "call_center", "auditor"], perm: "dispatch.view_map" },
+    { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
+    { label: "Accounts & Ledgers", href: "/accounts", icon: CreditCard, roles: ["admin", "accountant", "cashier", "auditor"], perm: "accounts.general_ledger" },
+    { label: "Accounting Settings", href: "/settings/accounting", icon: Settings, roles: ["admin", "accountant"], perm: "settings.accounting" },
+    { label: "Procurement & Sourcing", href: "/procurement", icon: ShoppingCart, roles: ["admin", "accountant", "storekeeper", "auditor"], perm: "procurement.view_pr" },
+    { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
+    { label: "Stock Units Settings", href: "/settings/stock-units", icon: Layers, roles: ["admin", "storekeeper", "accountant"], perm: "inventory.stock_units" },
+    { label: "Users & Role Settings", href: "/settings/users-roles", icon: ShieldCheck, roles: ["admin", "auditor"], perm: "settings.manage_users" },
+    { label: "HRM & Assets", href: "/hrm", icon: UserCheck, roles: ["admin", "hr", "auditor"], perm: "hrm.view_employees" },
     { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "hr", "auditor"] },
-    { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"] },
+    { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"], perm: "audit.view_logs" },
   ];
 
-  const operationsItems = allOperationsItems.filter((item) =>
-    item.roles.includes(activeRole)
-  );
+  const operationsItems = allOperationsItems.filter((item) => {
+    // Check role inclusion or granular permission
+    const hasRole = item.roles.includes(activeRole);
+    if (!hasRole && !item.perm) return false;
+    if (item.perm) {
+      return hasRole || hasPermission(item.perm);
+    }
+    return hasRole;
+  });
 
   const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
 
