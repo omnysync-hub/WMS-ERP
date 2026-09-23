@@ -30,6 +30,7 @@ import {
   X,
   Plus,
   RotateCcw,
+  Wrench,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
@@ -91,6 +92,27 @@ export default function JobDetailPage() {
   const [serviceDescription, setServiceDescription] = useState("");
   const [serviceQty, setServiceQty] = useState("1");
   const [serviceUnitRate, setServiceUnitRate] = useState("");
+  const [catalogServices, setCatalogServices] = useState<any[]>([]);
+  const [selectedCatalogServiceId, setSelectedCatalogServiceId] = useState("");
+
+  useEffect(() => {
+    if (addServiceModalOpen) {
+      fetch("/api/inventory")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            const services = data.filter(
+              (p: any) =>
+                p.isService ||
+                (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
+                ["service", "visit", "job", "hr", "hour"].includes((p.unit || "").toLowerCase())
+            );
+            setCatalogServices(services);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [addServiceModalOpen]);
 
   // Storekeeper Stock Return modal
   const [stockReturnModalOpen, setStockReturnModalOpen] = useState(false);
@@ -133,6 +155,7 @@ export default function JobDetailPage() {
       }
       setAddServiceModalOpen(false);
       setServiceDescription("");
+      setSelectedCatalogServiceId("");
       setServiceQty("1");
       setServiceUnitRate("");
       setSuccessMsg(`Service / item added to Job #${job?.jobNumber || ""} successfully.`);
@@ -1734,6 +1757,38 @@ export default function JobDetailPage() {
             </div>
 
             <form onSubmit={handleAddServiceSubmit} className="space-y-3.5">
+              {catalogServices.length > 0 && (
+                <div>
+                  <label className="font-semibold text-purple-900 block mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 font-bold">
+                      <Wrench className="w-3.5 h-3.5 text-purple-700" />
+                      Select Predefined Service (Catalog)
+                    </span>
+                    <span className="text-[10px] text-purple-700 font-normal">Auto-fills description & rate</span>
+                  </label>
+                  <select
+                    value={selectedCatalogServiceId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedCatalogServiceId(id);
+                      const srv = catalogServices.find((s) => s.id === id);
+                      if (srv) {
+                        setServiceDescription(srv.name);
+                        setServiceUnitRate(String(srv.unitPrice || 0));
+                      }
+                    }}
+                    className="w-full bg-purple-50/70 p-2.5 rounded-lg border border-purple-200 font-medium text-xs focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none text-[#18181B]"
+                  >
+                    <option value="">-- Choose from Predefined Service Catalog or enter custom below --</option>
+                    {catalogServices.map((srv) => (
+                      <option key={srv.id} value={srv.id}>
+                        {srv.name} ({srv.sku}) — {formatCurrency(srv.unitPrice)} / {srv.unit || "service"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="font-semibold text-[#18181B] block mb-1">
                   Service / Item Description *

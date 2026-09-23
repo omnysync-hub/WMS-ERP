@@ -247,17 +247,93 @@ export async function GET(req: NextRequest) {
     }
 
     // Default: products list with low-stock alerts, warehouse stock, and stock on jobs
-    const products = await prisma.product.findMany({
+    let products = await prisma.product.findMany({
       orderBy: { name: "asc" },
     });
 
+    // Auto-seed standard predefined HVAC services if none exist in the database
+    const hasServices = products.some(
+      (p) =>
+        (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
+        p.unit === "service" ||
+        p.unit === "visit" ||
+        p.unit === "job"
+    );
+
+    if (!hasServices) {
+      const defaultServices = [
+        {
+          sku: "SRV-AC-WASH",
+          name: "Master Split AC Deep Chemical Jet Wash",
+          unit: "service",
+          unitPrice: 3500,
+          costPrice: 1200,
+          stockQuantity: 0,
+          reorderLevel: 0,
+        },
+        {
+          sku: "SRV-LEAK-DIAG",
+          name: "Refrigerant Leakage Pressure Test & Diagnostic",
+          unit: "service",
+          unitPrice: 2500,
+          costPrice: 800,
+          stockQuantity: 0,
+          reorderLevel: 0,
+        },
+        {
+          sku: "SRV-PCB-REP",
+          name: "Inverter PCB Diagnostic & Circuit Component Repair",
+          unit: "job",
+          unitPrice: 6500,
+          costPrice: 2500,
+          stockQuantity: 0,
+          reorderLevel: 0,
+        },
+        {
+          sku: "SRV-COMP-REP",
+          name: "AC Compressor Replacement & Brazing Labor",
+          unit: "service",
+          unitPrice: 5000,
+          costPrice: 2000,
+          stockQuantity: 0,
+          reorderLevel: 0,
+        },
+        {
+          sku: "SRV-ELEC-CK",
+          name: "Electrical Distribution & Voltage Stabilizer Inspection",
+          unit: "visit",
+          unitPrice: 1800,
+          costPrice: 600,
+          stockQuantity: 0,
+          reorderLevel: 0,
+        },
+      ];
+
+      for (const srv of defaultServices) {
+        const existing = await prisma.product.findUnique({ where: { sku: srv.sku } });
+        if (!existing) {
+          await prisma.product.create({ data: srv });
+        }
+      }
+
+      products = await prisma.product.findMany({
+        orderBy: { name: "asc" },
+      });
+    }
+
     const enrichedProducts = products.map((p) => {
-      const allocations = calculateAllocations(p);
+      const isService =
+        (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
+        ["service", "visit", "job", "hr", "hour"].includes((p.unit || "").toLowerCase());
+
+      const allocations = isService ? [] : calculateAllocations(p);
       const stockOnJob = allocations.reduce((sum, a) => sum + a.quantity, 0);
+
       return {
         ...p,
+        isService,
         stockOnJob,
-        totalStock: p.stockQuantity + stockOnJob,
+        totalStock: isService ? 0 : p.stockQuantity + stockOnJob,
         jobAllocations: allocations,
       };
     });
@@ -461,17 +537,36 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_product": {
+        const isService =
+          payload.itemType === "service" ||
+          (payload.sku && (payload.sku.startsWith("SRV-") || payload.sku.startsWith("SVC-"))) ||
+          ["service", "visit", "job", "hr", "hour"].includes((payload.unit || "").toLowerCase());
+
         const product = await InventoryService.createProduct({
           sku: payload.sku,
           name: payload.name,
-          unit: payload.unit || "unit",
+          unit: payload.unit || (isService ? "service" : "unit"),
           unitPrice: Number(payload.unitPrice) || 0,
           costPrice: Number(payload.costPrice) || 0,
-          stockQuantity: Number(payload.stockQuantity) || 0,
-          reorderLevel: Number(payload.reorderLevel) || 5,
-          notes: payload.notes,
+          stockQuantity: isService ? 0 : Number(payload.stockQuantity) || 0,
+          reorderLevel: isService ? 0 : Number(payload.reorderLevel) || 5,
+          notes: payload.notes || (isService ? "Predefined billable service" : "Inventory product setup"),
         });
         return NextResponse.json(product, { status: 201 });
+      }
+
+      case "update_product": {
+        const { id, unitPrice, costPrice, name, unit } = payload;
+        const updated = await prisma.product.update({
+          where: { id },
+          data: {
+            ...(name && { name }),
+            ...(unit && { unit }),
+            ...(unitPrice !== undefined && { unitPrice: Number(unitPrice) }),
+            ...(costPrice !== undefined && { costPrice: Number(costPrice) }),
+          },
+        });
+        return NextResponse.json(updated, { status: 200 });
       }
 
       case "branch_transfer": {

@@ -31,9 +31,23 @@ import {
   ArrowRightLeft,
   Scale,
   ClipboardList,
+  Pencil,
+  Sparkles,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
+
+function isServiceProduct(p: any) {
+  if (!p) return false;
+  if (p.isService) return true;
+  const s = (p.sku || "").toUpperCase();
+  const u = (p.unit || "").toLowerCase();
+  return (
+    s.startsWith("SRV-") ||
+    s.startsWith("SVC-") ||
+    ["service", "visit", "job", "hr", "hour"].includes(u)
+  );
+}
 
 export default function InventoryPurchasingPage() {
   const { currentRole } = useRole();
@@ -60,7 +74,7 @@ export default function InventoryPurchasingPage() {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Stock Filter State & Allocations Modal
-  const [stockFilter, setStockFilter] = useState<"all" | "field" | "low">("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "physical" | "services" | "field" | "low">("all");
   const [activeAllocationProduct, setActiveAllocationProduct] = useState<any>(null);
 
   // Branches & Multi-Movement Hub State
@@ -106,7 +120,7 @@ export default function InventoryPurchasingPage() {
 
   // Add Stock & Product Creation State
   const [showAddStockModal, setShowAddStockModal] = useState(false);
-  const [stockModalTab, setStockModalTab] = useState<"restock" | "opening_stock" | "new_product">("restock");
+  const [stockModalTab, setStockModalTab] = useState<"restock" | "opening_stock" | "new_product" | "new_service">("restock");
   const [restockProductId, setRestockProductId] = useState("");
   const [restockQuantity, setRestockQuantity] = useState("10");
   const [restockUnitCost, setRestockUnitCost] = useState("");
@@ -122,6 +136,7 @@ export default function InventoryPurchasingPage() {
   const [openingNotes, setOpeningNotes] = useState("Fiscal Year Opening Stock Balance Declaration");
   const [isSubmittingOpeningStock, setIsSubmittingOpeningStock] = useState(false);
 
+  // New Physical Product State
   const [newProductSku, setNewProductSku] = useState("");
   const [newProductName, setNewProductName] = useState("");
   const [newProductUnit, setNewProductUnit] = useState("unit");
@@ -129,6 +144,20 @@ export default function InventoryPurchasingPage() {
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductQty, setNewProductQty] = useState("10");
   const [newProductMinAlert, setNewProductMinAlert] = useState("5");
+
+  // Predefined Service State
+  const [newServiceSku, setNewServiceSku] = useState("SRV-");
+  const [newServiceName, setNewServiceName] = useState("");
+  const [newServiceUnit, setNewServiceUnit] = useState("service");
+  const [newServiceCost, setNewServiceCost] = useState("");
+  const [newServicePrice, setNewServicePrice] = useState("");
+  const [newServiceNotes, setNewServiceNotes] = useState("");
+
+  // Quick Edit Modal State (Rate / Cost update)
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [editPrice, setEditPrice] = useState("");
+  const [editCost, setEditCost] = useState("");
+  const [isUpdatingProduct, setIsUpdatingProduct] = useState(false);
 
   const [notification, setNotification] = useState("");
 
@@ -455,6 +484,77 @@ export default function InventoryPurchasingPage() {
     }
   };
 
+  // Create Predefined Service
+  const handleCreateServiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newServiceSku || !newServiceName) return;
+    try {
+      setIsSubmittingStock(true);
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_product",
+          itemType: "service",
+          sku: newServiceSku.trim().toUpperCase(),
+          name: newServiceName.trim(),
+          unit: newServiceUnit,
+          unitPrice: Number(newServicePrice) || 0,
+          costPrice: Number(newServiceCost) || 0,
+          stockQuantity: 0,
+          reorderLevel: 0,
+          notes: newServiceNotes || "Predefined billable service package",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setShowAddStockModal(false);
+      setNotification(`Predefined Service "${newServiceName}" (${newServiceSku}) added to catalog!`);
+      setNewServiceSku("SRV-");
+      setNewServiceName("");
+      setNewServicePrice("");
+      setNewServiceCost("");
+      setNewServiceNotes("");
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingStock(false);
+    }
+  };
+
+  // Quick Update Service / Product Rate
+  const handleQuickUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProduct) return;
+    try {
+      setIsUpdatingProduct(true);
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_product",
+          id: editingProduct.id,
+          unitPrice: Number(editPrice) || 0,
+          costPrice: Number(editCost) || 0,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setNotification(`Updated rates for "${editingProduct.name}" successfully.`);
+      setEditingProduct(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsUpdatingProduct(false);
+    }
+  };
+
   // POS Add to Cart
   const addToPosCart = (product: any) => {
     const existing = posCart.find((i) => i.product.id === product.id);
@@ -508,14 +608,17 @@ export default function InventoryPurchasingPage() {
     techRequests.filter((r) => r.status === "Pending").length +
     techReturns.filter((r) => r.status === "Pending").length;
 
-  const lowStockCount = products.filter(
+  const physicalProducts = products.filter((p) => !isServiceProduct(p));
+  const serviceProducts = products.filter((p) => isServiceProduct(p));
+
+  const lowStockCount = physicalProducts.filter(
     (p) => p.stockQuantity <= (p.reorderPoint || 5)
   ).length;
 
-  const totalWarehouseUnits = products.reduce((acc, p) => acc + (p.stockQuantity || 0), 0);
-  const totalStockOnJobUnits = products.reduce((acc, p) => acc + (p.stockOnJob || 0), 0);
+  const totalWarehouseUnits = physicalProducts.reduce((acc, p) => acc + (p.stockQuantity || 0), 0);
+  const totalStockOnJobUnits = physicalProducts.reduce((acc, p) => acc + (p.stockOnJob || 0), 0);
   const totalEnterpriseUnits = totalWarehouseUnits + totalStockOnJobUnits;
-  const productsOnJobCount = products.filter((p) => (p.stockOnJob || 0) > 0).length;
+  const productsOnJobCount = physicalProducts.filter((p) => (p.stockOnJob || 0) > 0).length;
 
   const filteredProducts = products.filter((p) => {
     const matchesSearch =
@@ -523,11 +626,17 @@ export default function InventoryPurchasingPage() {
       p.sku.toLowerCase().includes(searchTerm.toLowerCase());
     if (!matchesSearch) return false;
 
+    if (stockFilter === "physical") {
+      return !isServiceProduct(p);
+    }
+    if (stockFilter === "services") {
+      return isServiceProduct(p);
+    }
     if (stockFilter === "field") {
-      return (p.stockOnJob || 0) > 0;
+      return !isServiceProduct(p) && (p.stockOnJob || 0) > 0;
     }
     if (stockFilter === "low") {
-      return p.stockQuantity <= (p.reorderPoint || 5);
+      return !isServiceProduct(p) && p.stockQuantity <= (p.reorderPoint || 5);
     }
     return true;
   });
@@ -702,6 +811,28 @@ export default function InventoryPurchasingPage() {
             <button
               type="button"
               onClick={() => {
+                setStockModalTab("new_service");
+                setShowAddStockModal(true);
+              }}
+              className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              + Add Service
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStockModalTab("new_product");
+                setShowAddStockModal(true);
+              }}
+              className="h-8 px-3 rounded-lg border border-[#D4D4D8] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
+            >
+              <Package className="w-3.5 h-3.5 text-[#71717A]" />
+              New Material
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 if (products.length > 0 && !restockProductId) {
                   setRestockProductId(products[0].id);
                   setRestockUnitCost(String(products[0].costPrice || ""));
@@ -712,7 +843,7 @@ export default function InventoryPurchasingPage() {
               className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
             >
               <Plus className="w-3.5 h-3.5" />
-              Add Stock / Restock
+              Restock Item
             </button>
             <button
               type="button"
@@ -728,17 +859,6 @@ export default function InventoryPurchasingPage() {
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
               Opening Stock
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStockModalTab("new_product");
-                setShowAddStockModal(true);
-              }}
-              className="h-8 px-3 rounded-lg border border-[#D4D4D8] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
-            >
-              <Plus className="w-3.5 h-3.5 text-[#71717A]" />
-              New Product
             </button>
             <button
               type="button"
@@ -809,11 +929,11 @@ export default function InventoryPurchasingPage() {
       {activeTab === "stock" && (
         <div className="space-y-6">
           {/* Stock Metrics Overview Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
             <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">
-                  Warehouse Available
+                  Warehouse Stock
                 </span>
                 <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
                   <Package className="w-4 h-4" />
@@ -825,7 +945,7 @@ export default function InventoryPurchasingPage() {
                 </span>
                 <span className="text-xs text-[#71717A]">units in storage</span>
               </div>
-              <p className="text-[11px] text-[#71717A] mt-1">Available for dispatch or counter sale</p>
+              <p className="text-[11px] text-[#71717A] mt-1">Available physical materials & parts</p>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-blue-200/80 bg-blue-50/20 shadow-xs">
@@ -844,16 +964,16 @@ export default function InventoryPurchasingPage() {
                 <span className="text-xs text-blue-700">units issued</span>
               </div>
               <p className="text-[11px] text-blue-800/80 mt-1">
-                Issued to technicians across active work orders
+                Active parts held by field technicians
               </p>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">
-                  Total Enterprise Stock
+                  Total Material Stock
                 </span>
-                <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-zinc-100 text-zinc-700 flex items-center justify-center">
                   <Layers className="w-4 h-4" />
                 </div>
               </div>
@@ -864,6 +984,26 @@ export default function InventoryPurchasingPage() {
                 <span className="text-xs text-[#71717A]">combined units</span>
               </div>
               <p className="text-[11px] text-[#71717A] mt-1">Warehouse + Field technician holdings</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-purple-200/80 bg-purple-50/20 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-purple-900">
+                  Predefined Services
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Wrench className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold font-mono text-purple-900">
+                  {serviceProducts.length}
+                </span>
+                <span className="text-xs text-purple-700">active packages</span>
+              </div>
+              <p className="text-[11px] text-purple-800/80 mt-1">
+                On-demand labor, wash & repairs
+              </p>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
@@ -887,9 +1027,9 @@ export default function InventoryPurchasingPage() {
                 >
                   {lowStockCount}
                 </span>
-                <span className="text-xs text-[#71717A]">items below minimum</span>
+                <span className="text-xs text-[#71717A]">materials low</span>
               </div>
-              <p className="text-[11px] text-[#71717A] mt-1">Require purchase requisition replenishment</p>
+              <p className="text-[11px] text-[#71717A] mt-1">Parts requiring procurement PR</p>
             </div>
           </div>
 
@@ -897,10 +1037,10 @@ export default function InventoryPurchasingPage() {
             <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Enterprise Inventory & Field Allocations
+                  Catalog Inventory & Predefined Services
                 </h3>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Live warehouse stock quantity, active field allocations on jobs, and opening stock valuations.
+                  Physical warehouse stock, on-job allocations, and predefined billable technician service packages.
                 </p>
               </div>
 
@@ -917,6 +1057,30 @@ export default function InventoryPurchasingPage() {
                     }`}
                   >
                     All ({products.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilter("physical")}
+                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                      stockFilter === "physical"
+                        ? "bg-[#0D7A5F] text-white shadow-2xs"
+                        : "text-[#71717A] hover:text-[#0D7A5F]"
+                    }`}
+                  >
+                    <Package className="w-3 h-3" />
+                    Physical Stock ({physicalProducts.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStockFilter("services")}
+                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                      stockFilter === "services"
+                        ? "bg-indigo-600 text-white shadow-2xs"
+                        : "text-[#71717A] hover:text-indigo-700"
+                    }`}
+                  >
+                    <Wrench className="w-3 h-3" />
+                    Predefined Services ({serviceProducts.length})
                   </button>
                   <button
                     type="button"
@@ -948,7 +1112,7 @@ export default function InventoryPurchasingPage() {
                   <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-2.5" />
                   <input
                     type="text"
-                    placeholder="Search SKU or part name..."
+                    placeholder="Search SKU, part, or service..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
@@ -961,23 +1125,24 @@ export default function InventoryPurchasingPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                    <th className="py-2.5 px-4">SKU / Code</th>
-                    <th className="py-2.5 px-4">Item Name</th>
+                    <th className="py-2.5 px-4">Item Code & Type</th>
+                    <th className="py-2.5 px-4">Description / Service</th>
                     <th className="py-2.5 px-4 text-center">In Warehouse</th>
                     <th className="py-2.5 px-4 text-center">Stock on Job</th>
                     <th className="py-2.5 px-4 text-center">Total Stock</th>
                     <th className="py-2.5 px-4 text-center">Reorder Point</th>
                     <th className="py-2.5 px-4 text-right">
-                      {isStorekeeper ? "Valuation" : "Unit Price"}
+                      {isStorekeeper ? "Valuation" : "Billable Rate"}
                     </th>
-                    <th className="py-2.5 px-4 text-center">Status</th>
+                    <th className="py-2.5 px-4 text-center">Classification</th>
                     <th className="py-2.5 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E4E4E7]">
                   {filteredProducts.map((p) => {
-                    const isLow = p.stockQuantity <= (p.reorderPoint || 5);
-                    const isOut = p.stockQuantity <= 0;
+                    const isService = isServiceProduct(p);
+                    const isLow = !isService && p.stockQuantity <= (p.reorderPoint || 5);
+                    const isOut = !isService && p.stockQuantity <= 0;
                     const onJobQty = p.stockOnJob || 0;
                     const totalQty = (p.stockQuantity || 0) + onJobQty;
 
@@ -985,30 +1150,65 @@ export default function InventoryPurchasingPage() {
                       <tr
                         key={p.id}
                         className={`transition hover:bg-[#FAFAFA] ${
-                          isLow ? "bg-amber-50/20" : ""
+                          isService
+                            ? "bg-purple-50/15"
+                            : isLow
+                            ? "bg-amber-50/20"
+                            : ""
                         }`}
                       >
-                        <td className="py-3 px-4 font-mono font-bold text-[#18181B]">
-                          {p.sku}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-[#18181B]">{p.sku}</span>
+                            {isService ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200 shrink-0">
+                                <Wrench className="w-2.5 h-2.5" />
+                                Service
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                                <Package className="w-2.5 h-2.5" />
+                                Material
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="py-3 px-4 font-medium text-[#18181B]">
-                          {p.name}
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-[#18181B]">{p.name}</div>
+                          <div className="text-[10px] text-[#71717A] mt-0.5">
+                            {isService ? (
+                              <span className="text-purple-700 font-medium flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5" />
+                                Predefined Billable Labor / Diagnostic Package
+                              </span>
+                            ) : (
+                              <span>Physical Material / Spare Part ({p.unit || "unit"})</span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-bold">
-                          <span
-                            className={
-                              isOut
-                                ? "text-rose-600"
-                                : isLow
-                                ? "text-amber-600"
-                                : "text-emerald-700"
-                            }
-                          >
-                            {p.stockQuantity} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span>
-                          </span>
+                          {isService ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                              ⚡ On-Demand
+                            </span>
+                          ) : (
+                            <span
+                              className={
+                                isOut
+                                  ? "text-rose-600"
+                                  : isLow
+                                  ? "text-amber-600"
+                                  : "text-emerald-700"
+                              }
+                            >
+                              {p.stockQuantity} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span>
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          {onJobQty > 0 ? (
+                          {isService ? (
+                            <span className="text-xs text-[#A1A1AA] font-mono">—</span>
+                          ) : onJobQty > 0 ? (
                             <button
                               type="button"
                               onClick={() => setActiveAllocationProduct(p)}
@@ -1026,22 +1226,34 @@ export default function InventoryPurchasingPage() {
                           )}
                         </td>
                         <td className="py-3 px-4 text-center font-mono font-bold text-[#18181B]">
-                          {totalQty} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span>
+                          {isService ? (
+                            <span className="text-xs text-purple-700 font-semibold">Unlimited</span>
+                          ) : (
+                            <span>{totalQty} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span></span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-center font-mono text-[#71717A]">
-                          {p.reorderPoint || 5}
+                          {isService ? "—" : (p.reorderPoint || 5)}
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B]">
-                          {isStorekeeper ? (
+                          {isStorekeeper && !isService ? (
                             <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                               Price Masked
                             </span>
                           ) : (
-                            formatCurrency(p.unitPrice)
+                            <div>
+                              <span>{formatCurrency(p.unitPrice)}</span>
+                              <span className="text-[10px] font-normal text-[#71717A] ml-1">/{p.unit || (isService ? "service" : "unit")}</span>
+                            </div>
                           )}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          {isOut ? (
+                          {isService ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200 inline-flex items-center gap-1">
+                              <Wrench className="w-2.5 h-2.5" />
+                              Predefined Service
+                            </span>
+                          ) : isOut ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
                               Out of Stock
                             </span>
@@ -1051,47 +1263,74 @@ export default function InventoryPurchasingPage() {
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              Adequate Stock
+                              In Stock
                             </span>
                           )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRestockProductId(p.id);
-                                setRestockUnitCost(String(p.costPrice || ""));
-                                setStockModalTab("restock");
-                                setShowAddStockModal(true);
-                              }}
-                              className="text-[11px] font-semibold text-[#0D7A5F] hover:bg-[#0D7A5F]/10 px-2 py-0.5 rounded transition border border-[#0D7A5F]/30 focus-visible:outline-none inline-flex items-center gap-0.5"
-                              title="Inward / Restock item"
-                            >
-                              <Plus className="w-3 h-3" />
-                              Restock
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpeningProductId(p.id);
-                                setOpeningUnitCost(String(p.costPrice || ""));
-                                setStockModalTab("opening_stock");
-                                setShowAddStockModal(true);
-                              }}
-                              className="text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 px-2 py-0.5 rounded transition border border-emerald-300 focus-visible:outline-none inline-flex items-center gap-0.5"
-                              title="Set or audit opening stock"
-                            >
-                              <FileSpreadsheet className="w-3 h-3" />
-                              Opening
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleViewTimeline(p.id)}
-                              className="text-[11px] font-semibold text-[#71717A] hover:text-[#18181B] hover:underline focus-visible:outline-none"
-                            >
-                              Log
-                            </button>
+                            {isService ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingProduct(p);
+                                    setEditPrice(String(p.unitPrice || 0));
+                                    setEditCost(String(p.costPrice || 0));
+                                  }}
+                                  className="text-[11px] font-semibold text-purple-700 hover:bg-purple-100/70 px-2 py-0.5 rounded transition border border-purple-200 focus-visible:outline-none inline-flex items-center gap-1"
+                                  title="Edit service billing rate or technician cost"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                  Edit Rate
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleViewTimeline(p.id)}
+                                  className="text-[11px] font-semibold text-[#71717A] hover:text-[#18181B] hover:underline focus-visible:outline-none"
+                                >
+                                  Log
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRestockProductId(p.id);
+                                    setRestockUnitCost(String(p.costPrice || ""));
+                                    setStockModalTab("restock");
+                                    setShowAddStockModal(true);
+                                  }}
+                                  className="text-[11px] font-semibold text-[#0D7A5F] hover:bg-[#0D7A5F]/10 px-2 py-0.5 rounded transition border border-[#0D7A5F]/30 focus-visible:outline-none inline-flex items-center gap-0.5"
+                                  title="Inward / Restock item"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  Restock
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpeningProductId(p.id);
+                                    setOpeningUnitCost(String(p.costPrice || ""));
+                                    setStockModalTab("opening_stock");
+                                    setShowAddStockModal(true);
+                                  }}
+                                  className="text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 px-2 py-0.5 rounded transition border border-emerald-300 focus-visible:outline-none inline-flex items-center gap-0.5"
+                                  title="Set or audit opening stock"
+                                >
+                                  <FileSpreadsheet className="w-3 h-3" />
+                                  Opening
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleViewTimeline(p.id)}
+                                  className="text-[11px] font-semibold text-[#71717A] hover:text-[#18181B] hover:underline focus-visible:outline-none"
+                                >
+                                  Log
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2327,8 +2566,18 @@ export default function InventoryPurchasingPage() {
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-[#0D7A5F]/10 flex items-center justify-center text-[#0D7A5F]">
-                  <Package className="w-4 h-4" />
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    stockModalTab === "new_service"
+                      ? "bg-purple-100 text-purple-700"
+                      : "bg-[#0D7A5F]/10 text-[#0D7A5F]"
+                  }`}
+                >
+                  {stockModalTab === "new_service" ? (
+                    <Wrench className="w-4 h-4" />
+                  ) : (
+                    <Package className="w-4 h-4" />
+                  )}
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-[#18181B]">
@@ -2336,14 +2585,18 @@ export default function InventoryPurchasingPage() {
                       ? "Add / Inward Stock"
                       : stockModalTab === "opening_stock"
                       ? "Opening Stock Declaration"
-                      : "Create New Inventory Item"}
+                      : stockModalTab === "new_service"
+                      ? "Register Predefined Service"
+                      : "Register New Material / Spare Part"}
                   </h3>
                   <p className="text-[11px] text-[#71717A]">
                     {stockModalTab === "restock"
                       ? "Direct warehouse stock replenishment & automatic ledger posting"
                       : stockModalTab === "opening_stock"
                       ? "Establish verified opening balance & equity ledger (Dr 1200 / Cr 3000)"
-                      : "Register a new HVAC product or spare part in the warehouse catalogue"}
+                      : stockModalTab === "new_service"
+                      ? "Define billable labor, chemical wash, inspection, or diagnostic packages"
+                      : "Register physical parts, refrigerants, or equipment in warehouse catalog"}
                   </p>
                 </div>
               </div>
@@ -2357,17 +2610,17 @@ export default function InventoryPurchasingPage() {
             </div>
 
             {/* Sub-tab Navigation */}
-            <div className="flex border-b border-[#E4E4E7] px-5 bg-white">
+            <div className="flex border-b border-[#E4E4E7] px-5 bg-white overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setStockModalTab("restock")}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition ${
+                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
                   stockModalTab === "restock"
                     ? "border-[#0D7A5F] text-[#0D7A5F]"
                     : "border-transparent text-[#71717A] hover:text-[#18181B]"
                 }`}
               >
-                Restock Existing Item
+                Restock Item
               </button>
               <button
                 type="button"
@@ -2378,7 +2631,7 @@ export default function InventoryPurchasingPage() {
                   }
                   setStockModalTab("opening_stock");
                 }}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition inline-flex items-center gap-1.5 ${
+                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition inline-flex items-center gap-1.5 whitespace-nowrap ${
                   stockModalTab === "opening_stock"
                     ? "border-[#0D7A5F] text-[#0D7A5F]"
                     : "border-transparent text-[#71717A] hover:text-[#18181B]"
@@ -2390,13 +2643,26 @@ export default function InventoryPurchasingPage() {
               <button
                 type="button"
                 onClick={() => setStockModalTab("new_product")}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition ${
+                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition whitespace-nowrap inline-flex items-center gap-1.5 ${
                   stockModalTab === "new_product"
                     ? "border-[#0D7A5F] text-[#0D7A5F]"
                     : "border-transparent text-[#71717A] hover:text-[#18181B]"
                 }`}
               >
-                + Register New Product
+                <Package className="w-3.5 h-3.5" />
+                + New Material
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockModalTab("new_service")}
+                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition whitespace-nowrap inline-flex items-center gap-1.5 ${
+                  stockModalTab === "new_service"
+                    ? "border-indigo-600 text-indigo-700"
+                    : "border-transparent text-[#71717A] hover:text-indigo-600"
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                + Predefined Service
               </button>
             </div>
 
@@ -2819,6 +3085,205 @@ export default function InventoryPurchasingPage() {
                 </div>
               </form>
             )}
+
+            {/* TAB 4: CREATE PREDEFINED SERVICE */}
+            {stockModalTab === "new_service" && (
+              <form onSubmit={handleCreateServiceSubmit} className="p-5 space-y-4">
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-950 flex items-start gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Predefined Billable Service Package</span>
+                    <span className="text-[11px] text-purple-800">
+                      Predefined services represent standard technician labor, chemical cleaning, inspections, or repairs. They do not consume physical warehouse stock and are dispatched on-demand.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Service Code / SKU *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. SRV-AC-WASH"
+                      value={newServiceSku}
+                      onChange={(e) => setNewServiceSku(e.target.value.toUpperCase())}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold uppercase"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Billing Unit *
+                    </label>
+                    <select
+                      value={newServiceUnit}
+                      onChange={(e) => setNewServiceUnit(e.target.value)}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none text-[#18181B] font-medium"
+                    >
+                      <option value="service">per Service</option>
+                      <option value="job">per Job</option>
+                      <option value="visit">per Visit / Callout</option>
+                      <option value="hr">per Hour (Labor)</option>
+                      <option value="unit">per AC Unit</option>
+                      <option value="sqft">per Sq Ft</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                    Service Name & Title *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Split AC Deep Jet Wash & Anti-Bacterial Treatment"
+                    value={newServiceName}
+                    onChange={(e) => setNewServiceName(e.target.value)}
+                    className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Standard Labor Cost (PKR)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 1200 (Technician base pay/cost)"
+                      value={newServiceCost}
+                      onChange={(e) => setNewServiceCost(e.target.value)}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                      Customer Billable Rate (PKR) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 3500 (Invoice price)"
+                      value={newServicePrice}
+                      onChange={(e) => setNewServicePrice(e.target.value)}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold text-indigo-700"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                    Scope / Description Notes
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Includes blower disassembly, high pressure water jet, chemical foam coil cleaning"
+                    value={newServiceNotes}
+                    onChange={(e) => setNewServiceNotes(e.target.value)}
+                    className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none text-[#18181B]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E4E4E7]">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddStockModal(false)}
+                    className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingStock || !newServiceSku || !newServiceName}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 inline-flex items-center gap-1.5"
+                  >
+                    <Wrench className="w-3.5 h-3.5" />
+                    {isSubmittingStock ? "Saving..." : "Save Predefined Service"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* QUICK EDIT SERVICE / PRODUCT RATE MODAL */}
+      {editingProduct && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-xl max-w-sm w-full border border-purple-200 shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-purple-50/50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#18181B]">
+                    Edit Billing Rate & Cost
+                  </h3>
+                  <p className="text-[11px] text-[#71717A] font-mono truncate max-w-[200px]">
+                    {editingProduct.sku} • {editingProduct.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingProduct(null)}
+                className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickUpdateProduct} className="p-5 space-y-4 text-xs">
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Customer Billable Rate (PKR) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  required
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">
+                  Standard Labor / Base Cost (PKR)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editCost}
+                  onChange={(e) => setEditCost(e.target.value)}
+                  className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setEditingProduct(null)}
+                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingProduct}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  {isUpdatingProduct ? "Saving..." : "Update Rate"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
