@@ -260,7 +260,7 @@ export class AttendanceService {
       }
       // Accept either cosine (0–1) or percent (0–100) from older clients
       const match01 = match > 1 ? match / 100 : match;
-      if (Number.isNaN(match01) || match01 < 0.55) {
+      if (Number.isNaN(match01) || match01 < 0.5) {
         return {
           status: "rejected",
           code: "FACE_MATCH_FAILED",
