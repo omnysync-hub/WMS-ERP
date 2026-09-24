@@ -141,7 +141,7 @@ export class MobilePushService {
     if (activeTokens.length > 0) {
       const pushMessages = activeTokens.map((t: any) => ({
         to: t.token,
-        sound: priority === "urgent" ? "urgent.wav" : "default",
+        sound: "default",
         title,
         body,
         data: {
@@ -152,7 +152,11 @@ export class MobilePushService {
           ...payload,
         },
         priority: priority === "urgent" || priority === "high" ? "high" : "default",
-        channelId: priority === "urgent" ? "urgent-dispatch" : "general-dispatch",
+        channelId:
+          priority === "urgent" || priority === "high"
+            ? "urgent-dispatch"
+            : "general-dispatch",
+        _contentAvailable: true,
       }));
 
       // Non-blocking async push dispatch

@@ -80,6 +80,41 @@ export class JobsService {
     return updated;
   }
 
+  /** Notify technician when a job is created already assigned to them. */
+  static async notifyJobAssignedIfNeeded(
+    job: {
+      id: string;
+      jobNumber: string;
+      jobType: string;
+      assignedTechnicianId: string | null;
+      customer?: { name?: string | null; phone?: string | null; addressText?: string | null; lat?: number | null; lng?: number | null } | null;
+      remarks?: string | null;
+    },
+    assignedBy = "Dispatcher"
+  ) {
+    if (!job.assignedTechnicianId) return;
+    try {
+      await MobilePushService.sendAppRequest({
+        recipientId: job.assignedTechnicianId,
+        senderName: assignedBy,
+        senderRole: "dispatcher",
+        type: "JOB_DISPATCH",
+        title: `New Job: ${job.jobNumber}`,
+        body: `Assigned to ${job.customer?.name || "customer"} — ${job.jobType}. Open the app to accept.`,
+        priority: "high",
+        actionRequired: true,
+        payload: {
+          jobId: job.id,
+          jobNumber: job.jobNumber,
+          customerName: job.customer?.name,
+          jobType: job.jobType,
+        },
+      });
+    } catch (e) {
+      console.error("[JobsService] Failed to notify on job create:", e);
+    }
+  }
+
   /**
    * Technician accepts job
    */
@@ -449,6 +484,19 @@ export class JobsService {
       action: "discount_applied",
     });
 
+    if (job.assignedTechnicianId) {
+      MobilePushService.sendAppRequest({
+        recipientId: job.assignedTechnicianId,
+        senderName: accountantName,
+        senderRole: "accountant",
+        type: "DISCOUNT_DECISION",
+        title: `Discount approved — ${job.jobNumber}`,
+        body: `PKR ${discountAmount} discount applied. Reason: ${reason}`,
+        priority: "high",
+        payload: { jobId, discountAmount, reason },
+      }).catch((e) => console.error("[JobsService] discount push failed:", e));
+    }
+
     return updated;
   }
 
@@ -721,6 +769,24 @@ export class JobsService {
       quantity: qty,
       requestId,
     });
+
+    if (job.assignedTechnicianId) {
+      MobilePushService.sendAppRequest({
+        recipientId: job.assignedTechnicianId,
+        senderName: storekeeperName,
+        senderRole: "storekeeper",
+        type: "INVENTORY_ISSUED",
+        title: `Parts issued — ${job.jobNumber}`,
+        body: `${qty}× ${product.name} ready for your job. Check stock on the job screen.`,
+        priority: "high",
+        payload: {
+          jobId,
+          productId,
+          productName: product.name,
+          quantity: qty,
+        },
+      }).catch((e) => console.error("[JobsService] inventory push failed:", e));
+    }
 
     return {
       success: true,

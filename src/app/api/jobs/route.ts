@@ -124,6 +124,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (assignedTechnicianId) {
+      await JobsService.notifyJobAssignedIfNeeded(job, "Dispatcher");
+    }
+
     return NextResponse.json(job, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
