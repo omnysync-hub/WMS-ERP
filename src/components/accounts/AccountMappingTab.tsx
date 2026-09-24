@@ -520,49 +520,118 @@ export default function AccountMappingTab({
                   </div>
                 ) : (
                   <div className="text-[11px] font-bold text-amber-800 inline-flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Unmapped Postings Will Be Blocked
+                    <AlertTriangle className="w-3.5 h-3.5" /> Unmapped Postings Blocked
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Filters Bar */}
-          <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-xs flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selectedDomain}
-                onChange={(e) => setSelectedDomain(e.target.value)}
-                className="bg-[#F4F4F5] border border-[#EDEDED] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#18181B] focus:bg-white focus:outline-none"
-              >
-                <option value="ALL">All Operational Domains</option>
-                {domains.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+          {/* Manual Mapping Required Alert Banner */}
+          {mappings.filter((m) => !m.isConfigured).length > 0 && (
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950">
+                      Manual Mapping Required
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-200 text-amber-900 border border-amber-300">
+                      {mappings.filter((m) => !m.isConfigured).length} Operational Types Unset
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    Procurement bills, GRNs, job invoicing, and stock issue postings will fail until an active Level 4 Chart of Account is explicitly bound.
+                  </p>
+                </div>
+              </div>
 
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="bg-[#F4F4F5] border border-[#EDEDED] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#18181B] focus:bg-white focus:outline-none"
+              <button
+                type="button"
+                onClick={() => setStatusFilter("UNSET")}
+                className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition shrink-0 self-start sm:self-auto"
               >
-                <option value="ALL">All Statuses</option>
-                <option value="CONFIGURED">Configured Only</option>
-                <option value="UNSET">Unset / Incomplete</option>
-              </select>
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Filter to Required ({mappings.filter((m) => !m.isConfigured).length})
+              </button>
             </div>
+          )}
 
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
-              <input
-                type="text"
-                placeholder="Search transaction or account..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
-              />
+          {/* Filters Bar & Quick Status Pills */}
+          <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Quick Status Pills */}
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("ALL")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5",
+                    statusFilter === "ALL"
+                      ? "bg-[#18181B] text-white shadow-xs"
+                      : "bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B] border border-[#EDEDED]"
+                  )}
+                >
+                  All ({mappings.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("UNSET")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5",
+                    statusFilter === "UNSET"
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200"
+                  )}
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  Manual Mapping Required ({mappings.filter((m) => !m.isConfigured).length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("CONFIGURED")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5",
+                    statusFilter === "CONFIGURED"
+                      ? "bg-[#0D7A5F] text-white shadow-xs"
+                      : "bg-emerald-50 text-[#065F46] hover:bg-emerald-100 border border-emerald-200"
+                  )}
+                >
+                  <Check className="w-3 h-3" />
+                  Mapped ({mappings.filter((m) => m.isConfigured).length})
+                </button>
+
+                <div className="h-5 w-px bg-[#E4E4E7] mx-1" />
+
+                <select
+                  value={selectedDomain}
+                  onChange={(e) => setSelectedDomain(e.target.value)}
+                  className="bg-[#F4F4F5] border border-[#EDEDED] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#18181B] focus:bg-white focus:outline-none"
+                >
+                  <option value="ALL">All Operational Domains</option>
+                  {domains.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                <input
+                  type="text"
+                  placeholder="Search transaction or account..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
+                />
+              </div>
             </div>
           </div>
 
@@ -573,6 +642,8 @@ export default function AccountMappingTab({
               .map((domain) => {
                 const domainItems = filteredMappings.filter((m) => m.domain === domain);
                 if (domainItems.length === 0) return null;
+
+                const domainUnmapped = domainItems.filter((m) => !m.isConfigured).length;
 
                 return (
                   <div key={domain} className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
@@ -585,6 +656,12 @@ export default function AccountMappingTab({
                         <span className="text-[10px] bg-white border border-[#E4E4E7] font-mono px-1.5 py-0.2 rounded text-[#71717A]">
                           {domainItems.length} transactions
                         </span>
+                        {domainUnmapped > 0 && (
+                          <span className="text-[10px] bg-amber-100 border border-amber-300 text-amber-900 font-mono font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            {domainUnmapped} Manual Mapping Required
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -602,9 +679,14 @@ export default function AccountMappingTab({
                         return (
                           <div
                             key={item.transactionType}
-                            className="p-4 hover:bg-[#FAFAFA] transition flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                            className={cn(
+                              "p-4 transition flex flex-col lg:flex-row lg:items-center justify-between gap-4",
+                              !item.isConfigured
+                                ? "bg-amber-50/30 hover:bg-amber-50/60 border-l-4 border-l-amber-500"
+                                : "hover:bg-[#FAFAFA]"
+                            )}
                           >
-                            <div className="space-y-1 flex-1 min-w-0">
+                            <div className="space-y-1.5 flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-bold text-[#18181B]">
                                   {item.name}
@@ -622,10 +704,27 @@ export default function AccountMappingTab({
                                 >
                                   Normal: {item.defaultDebitOrCredit.toUpperCase()}
                                 </span>
+
+                                {!item.isConfigured ? (
+                                  <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1 font-mono">
+                                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                    Manual Mapping Required
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold bg-emerald-50 text-[#065F46] border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1 font-mono">
+                                    <Check className="w-3 h-3 text-[#0D7A5F]" />
+                                    Mapped
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[11px] text-[#71717A] leading-relaxed">
                                 {item.description}
                               </p>
+                              {item.allowedAccountTypes.length > 0 && (
+                                <p className="text-[10px] text-[#A1A1AA] font-mono">
+                                  Allowed Account Types: {item.allowedAccountTypes.join(", ")}
+                                </p>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
@@ -638,8 +737,8 @@ export default function AccountMappingTab({
                                     {item.accountCode}
                                   </span>
                                 ) : (
-                                  <span className="text-xs font-bold text-amber-600">
-                                    Unmapped
+                                  <span className="text-xs font-bold text-amber-600 font-mono">
+                                    UNBOUND
                                   </span>
                                 )}
                               </div>
@@ -655,11 +754,11 @@ export default function AccountMappingTab({
                                     "w-full text-xs font-medium rounded-lg border px-2.5 py-2 transition focus:outline-none",
                                     item.isConfigured
                                       ? "bg-white border-[#EDEDED] text-[#18181B] focus:border-[#0D7A5F]"
-                                      : "bg-amber-50 border-amber-300 text-amber-900 focus:border-amber-500 font-semibold"
+                                      : "bg-amber-50 border-amber-300 text-amber-950 focus:border-amber-500 font-semibold"
                                   )}
                                 >
                                   <option value="" disabled>
-                                    -- Select Chart of Account Target --
+                                    -- Select Level-4 Account to Bind --
                                   </option>
                                   {compatibleAccounts.map((acc) => (
                                     <option key={acc.id} value={acc.id}>

@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Default "all" view: fetch all module datasets for fast unified dashboard initialization
-    const [vendors, prs, rfqs, pos, grns, invoices, reportsData, products] = await Promise.all([
+    const [vendors, prs, rfqs, pos, grns, invoices, reportsData, products, employees, jobs] = await Promise.all([
       ProcurementService.getVendors(),
       ProcurementService.getPurchaseRequisitions(),
       ProcurementService.getRfqs(),
@@ -64,6 +64,22 @@ export async function GET(req: NextRequest) {
       ProcurementService.getSupplierInvoices(),
       ProcurementService.getProcurementReports(),
       prisma.product.findMany({ select: { id: true, name: true, sku: true, costPrice: true, unit: true, stockQuantity: true } }),
+      prisma.employee.findMany({
+        where: { status: "Active" },
+        select: { id: true, name: true, role: true, department: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.job.findMany({
+        where: { status: { notIn: ["Verified", "Cancelled"] } },
+        select: {
+          id: true,
+          jobNumber: true,
+          jobType: true,
+          customer: { select: { name: true, addressText: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
     ]);
 
     return NextResponse.json({
@@ -74,6 +90,8 @@ export async function GET(req: NextRequest) {
       grns,
       invoices,
       products,
+      employees,
+      jobs,
       kpi: reportsData.kpi,
       reports: reportsData.reports,
     });
@@ -132,6 +150,7 @@ export async function POST(req: NextRequest) {
           vendorId: payload.vendorId,
           poType: payload.poType,
           expectedDeliveryDate: payload.expectedDeliveryDate,
+          items: payload.items,
         });
         return NextResponse.json(po, { status: 201 });
       }

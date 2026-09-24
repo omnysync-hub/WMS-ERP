@@ -10,6 +10,7 @@ import LeaveRequestDrawer from "@/components/drawers/LeaveRequestDrawer";
 import AddAssetDrawer from "@/components/drawers/AddAssetDrawer";
 import AssignAssetDrawer from "@/components/drawers/AssignAssetDrawer";
 import NewRequisitionDrawer from "@/components/drawers/NewRequisitionDrawer";
+import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
 import {
   Users,
   Clock,
@@ -1178,6 +1179,13 @@ export default function HrmPayrollPage() {
       {/* ========================================================================= */}
       {activeTab === "attendance" && (
         <div className="space-y-6">
+          <GeofenceSitesPanel
+            employees={employees}
+            onZonesChanged={(list) => {
+              setZones(list.filter((z) => z.isActive));
+            }}
+          />
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Biometric Verification Simulation Form */}
             <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-4">
@@ -1331,7 +1339,7 @@ export default function HrmPayrollPage() {
                 <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 text-[11px] text-amber-800 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>
-                    The entries below were automatically flagged by server-side verification due to implausible travel velocity (&gt;150km/h) or coordinates outside designated geofences.
+                    The entries below were automatically flagged by server-side verification (outside geofence, implausible travel speed, or PIN override after face failure).
                   </span>
                 </div>
               )}
@@ -1350,7 +1358,8 @@ export default function HrmPayrollPage() {
                         </>
                       ) : (
                         <>
-                          <th className="p-3">Face Score</th>
+                          <th className="p-3">Face</th>
+                          <th className="p-3">Liveness</th>
                           <th className="p-3">Geofence</th>
                           <th className="p-3">Outcome</th>
                           <th className="p-3 text-right">Review</th>
@@ -1362,7 +1371,7 @@ export default function HrmPayrollPage() {
                     {attendanceLogs.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={attendanceSubTab === "flagged" ? 5 : 7}
+                          colSpan={attendanceSubTab === "flagged" ? 5 : 8}
                           className="p-8 text-center text-[#71717A]"
                         >
                           {attendanceSubTab === "flagged"
@@ -1402,7 +1411,16 @@ export default function HrmPayrollPage() {
                             </>
                           ) : (
                             <>
-                              <td className="p-3 font-mono font-bold">{lg.faceMatchScore}%</td>
+                              <td className="p-3 font-mono font-bold">
+                                {lg.faceMatchScore > 1
+                                  ? `${Number(lg.faceMatchScore).toFixed(1)}%`
+                                  : `${(Number(lg.faceMatchScore) * 100).toFixed(1)}%`}
+                              </td>
+                              <td className="p-3 font-mono">
+                                {lg.livenessScore != null
+                                  ? `${(Number(lg.livenessScore) * 100).toFixed(0)}%`
+                                  : "—"}
+                              </td>
                               <td className="p-3">
                                 <span
                                   className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${

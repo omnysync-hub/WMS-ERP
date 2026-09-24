@@ -834,18 +834,37 @@ model Employee {
   locationPings        TechnicianLocationPing[]
   consentRecords       TechnicianConsentRecord[]
   offlineGaps          OfflineGapLog[]
+  geofenceAssignments  EmployeeGeofenceAssignment[]
   createdAt            DateTime              @default(now())
 }
 
 model GeofenceZone {
-  id           String          @id @default(uuid())
+  id           String                       @id @default(uuid())
   name         String
   lat          Float
   lng          Float
-  radiusMeters Float           @default(150)
-  isActive     Boolean         @default(true)
+  radiusMeters Float                        @default(150)
+  isActive     Boolean                      @default(true)
+  address      String?
+  notes        String?
   logs         AttendanceLog[]
-  createdAt    DateTime        @default(now())
+  assignments  EmployeeGeofenceAssignment[]
+  createdAt    DateTime                     @default(now())
+}
+
+/// Staff may be assigned to one or more attendance sites; punch geofence
+/// is evaluated only against their assigned active zones when any exist.
+model EmployeeGeofenceAssignment {
+  id         String       @id @default(uuid())
+  employeeId String
+  employee   Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  zoneId     String
+  zone       GeofenceZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+
+  @@unique([employeeId, zoneId])
+  @@index([employeeId])
+  @@index([zoneId])
 }
 
 model AttendanceLog {

@@ -62,7 +62,7 @@ export default function ThreeWayMatchTab({
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [selectedPoId, setSelectedPoId] = useState("");
-  const [selectedGrnId, setSelectedGrnId] = useState("");
+  const [selectedGrnIds, setSelectedGrnIds] = useState<string[]>([]);
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date();
@@ -76,6 +76,7 @@ export default function ThreeWayMatchTab({
     {
       poItemId: string;
       grnItemId: string;
+      grnNumber?: string;
       productId?: string;
       description: string;
       poUnitPrice: number;
@@ -91,37 +92,76 @@ export default function ThreeWayMatchTab({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
+  const rebuildBilledItems = (poId: string, grnIds: string[]) => {
+    const po = pos.find((p) => p.id === poId);
+    if (!po) {
+      setBilledItems([]);
+      return;
+    }
+    const chosenGrns = grns.filter((g) => grnIds.includes(g.id));
+    const allAcceptedGrnItems = chosenGrns.flatMap((g) =>
+      (g.items || []).map((gi: any) => ({ ...gi, grnNumber: g.grnNumber }))
+    );
+
+    if (allAcceptedGrnItems.length > 0) {
+      setBilledItems(
+        allAcceptedGrnItems.map((gi: any) => {
+          const poItem = po.items.find((pi: any) => pi.id === gi.poItemId || pi.productId === gi.productId);
+          const acceptedQty = gi.quantityAccepted ?? gi.quantityReceived ?? 1;
+          const poCost = poItem?.unitCost || 0;
+
+          return {
+            poItemId: poItem?.id || "",
+            grnItemId: gi.id,
+            grnNumber: gi.grnNumber,
+            productId: gi.productId || poItem?.productId || undefined,
+            description: `${gi.description}${chosenGrns.length > 1 ? ` (${gi.grnNumber})` : ""}`,
+            poUnitPrice: poCost,
+            grnQuantity: acceptedQty,
+            billedQuantity: acceptedQty,
+            billedUnitPrice: poCost,
+          };
+        })
+      );
+    } else {
+      setBilledItems(
+        po.items.map((pi: any) => ({
+          poItemId: pi.id,
+          grnItemId: "",
+          grnNumber: "",
+          productId: pi.productId || undefined,
+          description: pi.description,
+          poUnitPrice: pi.unitCost || 0,
+          grnQuantity: pi.quantityReceived || pi.quantity,
+          billedQuantity: pi.quantityReceived || pi.quantity,
+          billedUnitPrice: pi.unitCost || 0,
+        }))
+      );
+    }
+  };
+
   const handlePoSelect = (poId: string) => {
     setSelectedPoId(poId);
     const po = pos.find((p) => p.id === poId);
     if (po) {
       setVendorId(po.vendorId || "");
-      // Find matching GRN
-      const grn = grns.find((g) => g.poId === poId);
-      if (grn) setSelectedGrnId(grn.id);
-
+      const matchingGrns = grns.filter((g) => g.poId === poId);
+      const allMatchingIds = matchingGrns.map((g) => g.id);
+      setSelectedGrnIds(allMatchingIds);
       setInvoiceNumber(`INV-VND-${Date.now().toString().slice(-5)}`);
-
-      setBilledItems(
-        po.items.map((pi: any) => {
-          const gi = grn?.items?.find((g: any) => g.poItemId === pi.id || g.productId === pi.productId);
-          const acceptedQty = gi ? gi.quantityAccepted : pi.quantityReceived || pi.quantity;
-
-          return {
-            poItemId: pi.id,
-            grnItemId: gi?.id || "",
-            productId: pi.productId || undefined,
-            description: pi.description,
-            poUnitPrice: pi.unitCost || 0,
-            grnQuantity: acceptedQty,
-            billedQuantity: acceptedQty, // default to what was received
-            billedUnitPrice: pi.unitCost || 0, // default to PO unit rate
-          };
-        })
-      );
+      rebuildBilledItems(poId, allMatchingIds);
     } else {
+      setSelectedGrnIds([]);
       setBilledItems([]);
     }
+  };
+
+  const toggleGrnSelection = (grnId: string) => {
+    const updated = selectedGrnIds.includes(grnId)
+      ? selectedGrnIds.filter((id) => id !== grnId)
+      : [...selectedGrnIds, grnId];
+    setSelectedGrnIds(updated);
+    rebuildBilledItems(selectedPoId, updated);
   };
 
   const handleItemChange = (index: number, field: string, val: any) => {
@@ -154,7 +194,8 @@ export default function ThreeWayMatchTab({
           invoiceNumber,
           vendorId,
           poId: selectedPoId || undefined,
-          grnId: selectedGrnId || undefined,
+          grnId: selectedGrnIds[0] || undefined,
+          grnIds: selectedGrnIds,
           invoiceDate,
           dueDate,
           taxAmount: Number(taxAmount) || 0,
@@ -314,7 +355,13 @@ export default function ThreeWayMatchTab({
                         PO: {inv.po?.poNumber || "Direct"}
                       </div>
                       <div className="text-[10px] text-[#71717A]">
-                        GRN: {inv.grn?.grnNumber || "Direct Receipt"}
+                        {inv.matchNotes && inv.matchNotes.includes("Consolidated Bill for") ? (
+                          <span className="text-purple-700 font-bold bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
+                            Multi-GRN Consolidated
+                          </span>
+                        ) : (
+                          `GRN: ${inv.grn?.grnNumber || "Direct Receipt"}`
+                        )}
                       </div>
                     </td>
 
@@ -483,6 +530,66 @@ export default function ThreeWayMatchTab({
                   />
                 </div>
               </div>
+
+              {/* Multi-GRN Selection Section */}
+              {selectedPoId && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-mono text-[#3F3F46] uppercase tracking-wider font-bold">
+                      Link Goods Receipt Notes (GRNs) to this Bill
+                    </label>
+                    <span className="text-[10px] text-purple-700 font-mono font-bold">
+                      {selectedGrnIds.length} of {grns.filter((g) => g.poId === selectedPoId).length} GRN(s) Selected
+                    </span>
+                  </div>
+
+                  {grns.filter((g) => g.poId === selectedPoId).length === 0 ? (
+                    <div className="text-xs text-amber-700 italic">
+                      No GRNs recorded yet for this PO. Goods must be physically received before 3-way matching.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {grns
+                        .filter((g) => g.poId === selectedPoId)
+                        .map((g) => {
+                          const isChecked = selectedGrnIds.includes(g.id);
+                          return (
+                            <div
+                              key={g.id}
+                              onClick={() => toggleGrnSelection(g.id)}
+                              className={cn(
+                                "p-2.5 rounded-lg border text-xs cursor-pointer transition flex items-center justify-between",
+                                isChecked
+                                  ? "bg-white border-[#0D7A5F] shadow-xs"
+                                  : "bg-white border-[#E4E4E7] text-[#71717A] opacity-70"
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {}}
+                                  className="rounded text-[#0D7A5F]"
+                                />
+                                <div>
+                                  <span className="font-mono font-bold text-[#18181B] block">
+                                    {g.grnNumber}
+                                  </span>
+                                  <span className="text-[10px] text-[#71717A]">
+                                    {g.items?.length || 0} item(s) • {new Date(g.receivedDate || g.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                {g.qualityStatus || "Accepted"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Dates & Tax */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export type ProcurementStage =
+  | "approvals"
   | "prs"
   | "rfqs"
   | "pos"
@@ -33,6 +34,7 @@ interface ProcessPipelineProps {
     overdueDeliveriesCount: number;
     grnPendingInvoiceCount: number;
     activeVendorsCount: number;
+    pendingApprovalsCount?: number;
   };
 }
 
@@ -43,10 +45,22 @@ export default function ProcurementProcessPipeline({
 }: ProcessPipelineProps) {
   const stages = [
     {
+      id: "approvals" as ProcurementStage,
+      step: "★",
+      label: "Approvals Hub",
+      subtext: "PR, PO & Bill Clearances",
+      icon: ShieldAlert,
+      badge:
+        metrics.pendingApprovalsCount && metrics.pendingApprovalsCount > 0
+          ? `${metrics.pendingApprovalsCount} action items`
+          : null,
+      badgeColor: "bg-rose-50 text-rose-700 border-rose-200 animate-pulse",
+    },
+    {
       id: "prs" as ProcurementStage,
       step: "1",
       label: "Requisition",
-      subtext: "PRs & Department Needs",
+      subtext: "Site / Store / Job Needs",
       icon: FileText,
       badge: metrics.pendingPrsCount > 0 ? `${metrics.pendingPrsCount} pending` : null,
       badgeColor: "bg-amber-50 text-amber-700 border-amber-200",

@@ -66,7 +66,7 @@ export class AttendanceService {
       lat,
       lng,
       timestamp: clientTimestamp,
-      faceMatchScore = 100, // Stub passthrough
+      faceMatchScore,
       livenessScore,
       deviceId = "unknown_device",
       notes,
@@ -130,12 +130,20 @@ export class AttendanceService {
       }
     }
 
-    // 3. Geofence Zone Recomputation (Never trust client-sent withinGeofence flag)
-    const activeZones = await prisma.geofenceZone.findMany({
+    // 3. Geofence — prefer staff-assigned sites; never trust client withinGeofence
+    const assignments = await prisma.employeeGeofenceAssignment.findMany({
+      where: { employeeId },
+      include: { zone: true },
+    });
+    const assignedActive = assignments
+      .map((a) => a.zone)
+      .filter((z) => z && z.isActive);
+
+    const allActiveZones = await prisma.geofenceZone.findMany({
       where: { isActive: true },
     });
 
-    if (activeZones.length === 0) {
+    if (allActiveZones.length === 0) {
       return {
         status: "rejected",
         code: "NO_ACTIVE_ZONES",
@@ -143,22 +151,24 @@ export class AttendanceService {
       };
     }
 
-    let targetZone = null;
+    const scopedToAssignment = assignedActive.length > 0;
+    const candidateZones = scopedToAssignment ? assignedActive : allActiveZones;
+
+    let targetZone = null as (typeof candidateZones)[0] | null;
     let distanceToTarget = Infinity;
 
-    // If client claimed a specific zone, test against that zone first
+    // Claimed zone only counts if it is in the candidate set
     if (geofenceZoneId) {
-      targetZone = activeZones.find((z) => z.id === geofenceZoneId) || null;
+      targetZone = candidateZones.find((z) => z.id === geofenceZoneId) || null;
       if (targetZone) {
         distanceToTarget = this.calculateDistance(lat, lng, targetZone.lat, targetZone.lng);
       }
     }
 
-    // If claimed zone was not found or not provided, calculate against the nearest active zone
     let nearestZone = targetZone;
     let minDistance = distanceToTarget;
 
-    for (const zone of activeZones) {
+    for (const zone of candidateZones) {
       const dist = this.calculateDistance(lat, lng, zone.lat, zone.lng);
       if (dist < minDistance) {
         minDistance = dist;
@@ -166,7 +176,6 @@ export class AttendanceService {
       }
     }
 
-    // Determine actual zone evaluated
     const evaluatedZone = targetZone || nearestZone;
     const evaluatedDistance = targetZone ? distanceToTarget : minDistance;
     const withinGeofence = evaluatedZone
@@ -188,14 +197,12 @@ export class AttendanceService {
       const distanceMeters = this.calculateDistance(lat, lng, priorLog.lat, priorLog.lng);
       const distanceKm = distanceMeters / 1000;
 
-      // Use a 1-second floor for timeDiff to avoid division by zero while catching instantaneous teleportation
       const effectiveHours = Math.max(timeDiffMs / (1000 * 60 * 60), 1 / 3600);
       calculatedSpeedKmH = Math.round(distanceKm / effectiveHours);
 
-      // Only flag if there is genuine movement (> 100 meters) and implied speed exceeds ~150 km/h
       if (distanceMeters > 100 && calculatedSpeedKmH > 150) {
         jumpDetected = true;
-        const elapsedMins = Math.max(1, Math.round((timeDiffMs / (1000 * 60))));
+        const elapsedMins = Math.max(1, Math.round(timeDiffMs / (1000 * 60)));
         jumpReason = `Implausible travel speed detected: ${calculatedSpeedKmH} km/h (${distanceKm.toFixed(
           1
         )} km in ~${elapsedMins} min). Exceeds 150 km/h threshold — potential GPS spoofing or shared credentials.`;
@@ -211,13 +218,58 @@ export class AttendanceService {
       flagReasons.push(jumpReason);
     }
 
+    if (!scopedToAssignment) {
+      flaggedForReview = true;
+      flagReasons.push(
+        "Staff is not assigned to any attendance site — matched nearest active zone. Assign sites in HRM → Attendance."
+      );
+    }
+
     if (!withinGeofence && evaluatedZone) {
       flaggedForReview = true;
       flagReasons.push(
-        `Outside authorized geofence radius. Measured ${Math.round(
-          evaluatedDistance
-        )}m from "${evaluatedZone.name}" (max radius: ${evaluatedZone.radiusMeters}m).`
+        scopedToAssignment
+          ? `Outside assigned site "${evaluatedZone.name}". Measured ${Math.round(
+              evaluatedDistance
+            )}m (allowed ${evaluatedZone.radiusMeters}m).`
+          : `Outside authorized geofence radius. Measured ${Math.round(
+              evaluatedDistance
+            )}m from "${evaluatedZone.name}" (max radius: ${evaluatedZone.radiusMeters}m).`
       );
+    }
+
+    // Biometric floors — mobile must send real ONNX scores (0–100 match, 0–1 liveness)
+    const match = Number(faceMatchScore);
+    const live =
+      livenessScore !== undefined && livenessScore !== null
+        ? Number(livenessScore)
+        : null;
+
+    const notesLower = (notes || "").toLowerCase();
+    const isPinOverride = notesLower.includes("pin_override");
+
+    if (!isPinOverride) {
+      if (live === null || Number.isNaN(live) || live < 0.88) {
+        return {
+          status: "rejected",
+          code: "LIVENESS_FAILED",
+          message:
+            "Attendance rejected: face liveness score too low or missing. Spoof / photo attempts are not accepted.",
+        };
+      }
+      // Accept either cosine (0–1) or percent (0–100) from older clients
+      const match01 = match > 1 ? match / 100 : match;
+      if (Number.isNaN(match01) || match01 < 0.72) {
+        return {
+          status: "rejected",
+          code: "FACE_MATCH_FAILED",
+          message:
+            "Attendance rejected: face did not match the enrolled employee profile.",
+        };
+      }
+    } else {
+      flaggedForReview = true;
+      flagReasons.push("PIN override used after face match exhaustion — HR review required.");
     }
 
     const flagReasonStr = flagReasons.length > 0 ? flagReasons.join(" | ") : null;

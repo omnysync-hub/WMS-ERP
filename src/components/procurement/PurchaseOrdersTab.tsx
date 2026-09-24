@@ -88,6 +88,10 @@ export default function PurchaseOrdersTab({
   // Selected PO for Printable Document View
   const [printablePo, setPrintablePo] = useState<any | null>(null);
 
+  // Dedicated PO Approval State
+  const [poToApprove, setPoToApprove] = useState<any | null>(null);
+  const [approvalNotes, setApprovalNotes] = useState("");
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -194,7 +198,7 @@ export default function PurchaseOrdersTab({
     }
   };
 
-  const handleApprovePo = async (id: string) => {
+  const handleApprovePo = async (id: string, notes?: string) => {
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -203,10 +207,13 @@ export default function PurchaseOrdersTab({
         body: JSON.stringify({
           action: "approve_po",
           id,
-          actorName: "Haris Qureshi (Managing Director)",
+          actorName: currentRole === "admin" ? "Haris Qureshi (Managing Director)" : "Finance & Operations Manager",
+          notes,
         }),
       });
       if (!res.ok) throw new Error("Failed to approve PO");
+      setPoToApprove(null);
+      setApprovalNotes("");
       onRefresh();
     } catch (err: any) {
       alert(err.message);
@@ -466,11 +473,14 @@ export default function PurchaseOrdersTab({
                           {/* Approval / Workflow Action */}
                           {po.status === "draft" && (
                             <button
-                              onClick={() => handleApprovePo(po.id)}
+                              onClick={() => {
+                                setApprovalNotes("");
+                                setPoToApprove(po);
+                              }}
                               disabled={isSubmitting}
-                              className="text-[10px] bg-purple-600 hover:bg-purple-500 text-white font-bold px-2.5 py-1 rounded-lg transition"
+                              className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
                             >
-                              Approve PO
+                              <ShieldCheck className="w-3 h-3" /> Approve PO
                             </button>
                           )}
 
@@ -1076,6 +1086,117 @@ export default function PurchaseOrdersTab({
                     Authorized Signatory (MD)
                   </span>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated PO Approval Modal */}
+      {poToApprove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  Executive PO Authorization · {poToApprove.poNumber}
+                </h3>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  Supplier: {poToApprove.supplierName} • Order Value: {formatCurrency(poToApprove.totalAmount)}
+                </p>
+              </div>
+              <button
+                onClick={() => setPoToApprove(null)}
+                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-[#EDEDED]">
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">PO Contract Type</span>
+                  <span className="font-bold uppercase font-mono">{poToApprove.poType} PO</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">Expected Delivery</span>
+                  <span className="font-bold font-mono">
+                    {poToApprove.expectedDeliveryDate ? new Date(poToApprove.expectedDeliveryDate).toLocaleDateString() : "Immediate"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">Payment Terms</span>
+                  <span className="font-semibold">{poToApprove.paymentTerms || "Net 30"}</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">Total Net Payable</span>
+                  <span className="font-bold font-mono text-emerald-800 text-sm">
+                    {formatCurrency(poToApprove.totalAmount)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Items Summary */}
+              <div className="space-y-1.5">
+                <span className="font-bold text-[#18181B] block">
+                  Commercial Items Breakdown ({poToApprove.items?.length || 0})
+                </span>
+                <div className="border border-[#EDEDED] rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
+                      <tr>
+                        <th className="py-2 px-3">Item Description</th>
+                        <th className="py-2 px-3 text-right">Qty</th>
+                        <th className="py-2 px-3 text-right">Unit Rate</th>
+                        <th className="py-2 px-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EDEDED]">
+                      {poToApprove.items?.map((it: any) => (
+                        <tr key={it.id}>
+                          <td className="py-2 px-3 font-semibold">{it.description}</td>
+                          <td className="py-2 px-3 text-right font-mono">{it.quantity} {it.unit}</td>
+                          <td className="py-2 px-3 text-right font-mono text-[#71717A]">{formatCurrency(it.unitCost)}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">{formatCurrency(it.lineTotal || (it.quantity * it.unitCost))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Approval Notes */}
+              <div>
+                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                  Authorization Remarks / Executive Notes
+                </label>
+                <input
+                  type="text"
+                  value={approvalNotes}
+                  onChange={(e) => setApprovalNotes(e.target.value)}
+                  placeholder="Approved per approved requisition & vendor quote..."
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-blue-600 outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#EDEDED]">
+                <button
+                  type="button"
+                  onClick={() => setPoToApprove(null)}
+                  className="px-3.5 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApprovePo(poToApprove.id, approvalNotes)}
+                  disabled={isSubmitting}
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Authorize & Sign PO
+                </button>
               </div>
             </div>
           </div>

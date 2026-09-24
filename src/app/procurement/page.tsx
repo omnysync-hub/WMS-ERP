@@ -14,6 +14,7 @@ import GoodsReceiptTab from "@/components/procurement/GoodsReceiptTab";
 import ThreeWayMatchTab from "@/components/procurement/ThreeWayMatchTab";
 import PaymentsTab from "@/components/procurement/PaymentsTab";
 import ProcurementReportsTab from "@/components/procurement/ProcurementReportsTab";
+import ProcurementApprovalsTab from "@/components/procurement/ProcurementApprovalsTab";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
 import {
@@ -44,6 +45,8 @@ export default function ProcurementPage() {
   const [grns, setGrns] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
 
   // KPI & Reports
   const [kpi, setKpi] = useState({
@@ -93,6 +96,8 @@ export default function ProcurementPage() {
       setGrns(data.grns || []);
       setInvoices(data.invoices || []);
       setProducts(data.products || []);
+      setEmployees(data.employees || []);
+      setJobs(data.jobs || []);
       if (data.kpi) setKpi(data.kpi);
       if (data.reports) setReportsData(data.reports);
     } catch (err) {
@@ -131,7 +136,15 @@ export default function ProcurementPage() {
     setActiveTab("pos");
   };
 
+  const pendingApprovalsCount =
+    prs.filter((p) => p.status === "submitted").length +
+    pos.filter((p) => p.status === "draft").length +
+    invoices.filter((i) =>
+      ["matched", "discrepancy", "pending_match"].includes(i.matchStatus)
+    ).length;
+
   const subTabButtons: { id: ProcurementStage; label: string; icon: any; count?: number }[] = [
+    { id: "approvals", label: "Approvals Hub", icon: ShieldAlert, count: pendingApprovalsCount },
     { id: "prs", label: "Requisitions (PR)", icon: FileText, count: kpi.pendingPrsCount },
     { id: "rfqs", label: "RFQ & Sourcing Matrix", icon: Scale, count: rfqs.length },
     { id: "pos", label: "Purchase Orders (PO)", icon: ShoppingCart, count: kpi.openPosCount },
@@ -277,6 +290,7 @@ export default function ProcurementPage() {
             overdueDeliveriesCount: kpi.overdueDeliveriesCount,
             grnPendingInvoiceCount: kpi.grnPendingInvoiceCount,
             activeVendorsCount: kpi.activeVendorsCount,
+            pendingApprovalsCount,
           }}
         />
 
@@ -322,13 +336,28 @@ export default function ProcurementPage() {
           </div>
         ) : (
           <div>
+            {activeTab === "approvals" && (
+              <ProcurementApprovalsTab
+                prs={prs}
+                pos={pos}
+                invoices={invoices}
+                onRefresh={loadAllData}
+                onNavigateToPr={() => setActiveTab("prs")}
+                onNavigateToPo={() => setActiveTab("pos")}
+                onNavigateToInvoice={() => setActiveTab("invoices")}
+              />
+            )}
+
             {activeTab === "prs" && (
               <RequisitionsTab
                 prs={prs}
                 vendors={vendors}
                 products={products}
+                employees={employees}
+                jobs={jobs}
                 onRefresh={loadAllData}
                 onNavigateToRfq={handleNavigateToRfq}
+                onNavigateToPo={() => setActiveTab("pos")}
               />
             )}
 

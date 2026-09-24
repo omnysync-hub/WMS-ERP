@@ -50,6 +50,10 @@ export interface CreatePrInput {
   notes?: string;
   attachments?: string;
   items: CreatePrItemInput[];
+  technicianName?: string;
+  supervisorName?: string;
+  targetType?: "store" | "site" | "job";
+  targetName?: string;
 }
 
 export interface CreateRfqInput {
@@ -144,6 +148,7 @@ export interface CreateSupplierInvoiceInput {
   vendorId: string;
   poId?: string;
   grnId?: string;
+  grnIds?: string[];
   invoiceDate?: string | Date;
   dueDate?: string | Date;
   subtotal?: number;
@@ -319,7 +324,7 @@ export class ProcurementService {
     for (const it of data.items) {
       let desc = it.description;
       let unit = it.unit || "unit";
-      let price = it.estimatedPrice || 0;
+      let price = it.estimatedPrice ?? 0;
       let code = it.itemCode;
 
       if (it.productId) {
@@ -327,7 +332,7 @@ export class ProcurementService {
         if (prod) {
           desc = desc || prod.name;
           unit = unit || prod.unit;
-          price = price || prod.costPrice;
+          price = price || prod.costPrice || 0;
           code = code || prod.sku;
         }
       }
@@ -343,19 +348,25 @@ export class ProcurementService {
       });
     }
 
+    const techInfo = data.technicianName ? `[Tech: ${data.technicianName}]` : "";
+    const supInfo = data.supervisorName ? `[Supervisor: ${data.supervisorName}]` : "";
+    const targetInfo = data.targetType ? `[Target: ${data.targetType.toUpperCase()}${data.targetName ? ` - ${data.targetName}` : ""}]` : "";
+    const prefix = [techInfo, supInfo, targetInfo].filter(Boolean).join(" ");
+    const finalNotes = prefix ? (data.notes ? `${prefix} ${data.notes}` : prefix) : data.notes || null;
+
     return await prisma.purchaseRequisition.create({
       data: {
         prNumber,
         requestedBy: data.requestedBy.trim(),
         department: data.department || "HVAC Operations",
-        site: data.site || "Head Office / Central Workshop",
+        site: data.site || (data.targetName || "Central Store / General"),
         dateRequired: data.dateRequired ? new Date(data.dateRequired) : null,
         costCenter: data.costCenter || null,
         projectCode: data.projectCode || null,
         budgetCode: data.budgetCode || null,
         priority: data.priority || "Normal",
         status: "draft",
-        notes: data.notes || null,
+        notes: finalNotes,
         attachments: data.attachments || null,
         items: {
           create: itemsData,
@@ -813,6 +824,7 @@ export class ProcurementService {
     vendorId: string;
     poType?: "standard" | "blanket" | "service";
     expectedDeliveryDate?: string | Date;
+    items?: CreatePoItemInput[];
   }) {
     const prs = await prisma.purchaseRequisition.findMany({
       where: { id: { in: params.prIds } },
@@ -823,20 +835,25 @@ export class ProcurementService {
     const vendor = await prisma.vendor.findUnique({ where: { id: params.vendorId } });
     if (!vendor) throw new Error("Vendor not found");
 
-    const poItems: CreatePoItemInput[] = [];
-    for (const pr of prs) {
-      for (const it of pr.items) {
-        const remainingQty = Math.max(0, it.quantity - it.convertedQuantity);
-        if (remainingQty > 0) {
-          poItems.push({
-            productId: it.productId || undefined,
-            itemCode: it.itemCode || it.product?.sku || undefined,
-            description: it.description || it.product?.name || "PR Item",
-            quantity: remainingQty,
-            unitCost: it.estimatedPrice || it.product?.costPrice || 0,
-            unit: it.unit,
-            prItemId: it.id,
-          });
+    let poItems: CreatePoItemInput[] = [];
+
+    if (params.items && params.items.length > 0) {
+      poItems = params.items;
+    } else {
+      for (const pr of prs) {
+        for (const it of pr.items) {
+          const remainingQty = Math.max(0, it.quantity - it.convertedQuantity);
+          if (remainingQty > 0) {
+            poItems.push({
+              productId: it.productId || undefined,
+              itemCode: it.itemCode || it.product?.sku || undefined,
+              description: it.description || it.product?.name || "PR Item",
+              quantity: remainingQty,
+              unitCost: it.estimatedPrice || it.product?.costPrice || 0,
+              unit: it.unit,
+              prItemId: it.id,
+            });
+          }
         }
       }
     }
@@ -845,7 +862,7 @@ export class ProcurementService {
       throw new Error("All items from selected PRs have already been converted to POs.");
     }
 
-    return await this.createPurchaseOrder({
+    const createdPo = await this.createPurchaseOrder({
       poType: params.poType || "standard",
       vendorId: vendor.id,
       supplierName: vendor.name,
@@ -855,6 +872,14 @@ export class ProcurementService {
       paymentTerms: vendor.paymentTerms || "Net 30",
       items: poItems,
     });
+
+    // Mark ALL source PRs as converted_to_po
+    await prisma.purchaseRequisition.updateMany({
+      where: { id: { in: params.prIds } },
+      data: { status: "converted_to_po" },
+    });
+
+    return createdPo;
   }
 
   // ==========================================
@@ -1045,23 +1070,33 @@ export class ProcurementService {
         })
       : null;
 
-    const grn = data.grnId
-      ? await prisma.goodsReceipt.findUnique({
-          where: { id: data.grnId },
+    // Support single or multiple GRNs
+    const allGrnIds = Array.from(new Set([
+      ...(data.grnId ? [data.grnId] : []),
+      ...(data.grnIds || []),
+    ])).filter(Boolean);
+
+    const grnList = allGrnIds.length > 0
+      ? await prisma.goodsReceipt.findMany({
+          where: { id: { in: allGrnIds } },
           include: { items: true },
         })
-      : null;
+      : [];
+
+    const primaryGrn = grnList[0] || null;
 
     let subtotal = 0;
     let totalQuantityVariance = 0;
     let totalPriceVariance = 0;
     let hasDiscrepancy = false;
 
+    const allGrnItems = grnList.flatMap((g) => g.items);
+
     const invoiceItemsData = [];
 
     for (const item of data.items) {
       const poItem = po?.items.find((p) => p.id === item.poItemId);
-      const grnItem = grn?.items.find((g) => g.id === item.grnItemId);
+      const grnItem = allGrnItems.find((g) => g.id === item.grnItemId);
 
       const billedQty = Number(item.billedQuantity) || 0;
       const billedPrice = Number(item.billedUnitPrice) || 0;
@@ -1109,6 +1144,13 @@ export class ProcurementService {
     const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
 
     const matchStatus = hasDiscrepancy ? "discrepancy" : "matched";
+    const grnNotesPrefix = allGrnIds.length > 1
+      ? `[Consolidated Bill for ${allGrnIds.length} GRNs: ${grnList.map(g => g.grnNumber).join(", ")}]`
+      : "";
+    const finalMatchNotes = [
+      grnNotesPrefix,
+      data.matchNotes || (hasDiscrepancy ? "Discrepancy detected during 3-Way Match calculation." : "3-Way Match Passed successfully.")
+    ].filter(Boolean).join(" ");
 
     return await prisma.supplierInvoice.create({
       data: {
@@ -1116,7 +1158,7 @@ export class ProcurementService {
         referenceNumber,
         vendorId: data.vendorId,
         poId: data.poId || null,
-        grnId: data.grnId || null,
+        grnId: primaryGrn?.id || data.grnId || null,
         invoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : new Date(),
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
         subtotal,
@@ -1125,7 +1167,7 @@ export class ProcurementService {
         matchStatus,
         priceVariance: totalPriceVariance,
         quantityVariance: totalQuantityVariance,
-        matchNotes: data.matchNotes || (hasDiscrepancy ? "Discrepancy detected during 3-Way Match calculation." : "3-Way Match Passed successfully."),
+        matchNotes: finalMatchNotes,
         items: {
           create: invoiceItemsData,
         },
