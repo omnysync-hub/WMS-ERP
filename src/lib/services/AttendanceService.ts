@@ -238,8 +238,8 @@ export class AttendanceService {
       );
     }
 
-    // Biometric floors — blink is required on mobile; MiniFASNet is a soft secondary
-    // (device scores often land 0.40–0.85 for real faces).
+    // Liveness is enforced on-device (blink challenge). ERP only stores the score —
+    // do not reject punches on MiniFASNet thresholds here.
     const match = Number(faceMatchScore);
     const live =
       livenessScore !== undefined && livenessScore !== null
@@ -250,14 +250,6 @@ export class AttendanceService {
     const isPinOverride = notesLower.includes("pin_override");
 
     if (!isPinOverride) {
-      if (live === null || Number.isNaN(live) || live < 0.4) {
-        return {
-          status: "rejected",
-          code: "LIVENESS_FAILED",
-          message:
-            "Attendance rejected: face liveness score too low or missing. Spoof / photo attempts are not accepted.",
-        };
-      }
       // Accept either cosine (0–1) or percent (0–100) from older clients
       const match01 = match > 1 ? match / 100 : match;
       if (Number.isNaN(match01) || match01 < 0.5) {
