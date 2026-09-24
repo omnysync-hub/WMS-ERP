@@ -241,10 +241,6 @@ export class AttendanceService {
     // Liveness is enforced on-device (blink challenge). ERP only stores the score —
     // do not reject punches on MiniFASNet thresholds here.
     const match = Number(faceMatchScore);
-    const live =
-      livenessScore !== undefined && livenessScore !== null
-        ? Number(livenessScore)
-        : null;
 
     const notesLower = (notes || "").toLowerCase();
     const isPinOverride = notesLower.includes("pin_override");
