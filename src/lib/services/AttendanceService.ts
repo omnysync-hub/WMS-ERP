@@ -238,7 +238,8 @@ export class AttendanceService {
       );
     }
 
-    // Biometric floors — mobile must send real ONNX scores (0–100 match, 0–1 liveness)
+    // Biometric floors — mobile ONNX (0–100 match, 0–1 liveness).
+    // MiniFASNet on-device typically lands 0.65–0.90 for live faces; 0.88 was false-rejecting.
     const match = Number(faceMatchScore);
     const live =
       livenessScore !== undefined && livenessScore !== null
@@ -249,7 +250,7 @@ export class AttendanceService {
     const isPinOverride = notesLower.includes("pin_override");
 
     if (!isPinOverride) {
-      if (live === null || Number.isNaN(live) || live < 0.88) {
+      if (live === null || Number.isNaN(live) || live < 0.65) {
         return {
           status: "rejected",
           code: "LIVENESS_FAILED",
@@ -259,7 +260,7 @@ export class AttendanceService {
       }
       // Accept either cosine (0–1) or percent (0–100) from older clients
       const match01 = match > 1 ? match / 100 : match;
-      if (Number.isNaN(match01) || match01 < 0.72) {
+      if (Number.isNaN(match01) || match01 < 0.58) {
         return {
           status: "rejected",
           code: "FACE_MATCH_FAILED",
