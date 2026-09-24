@@ -4,8 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 
-export const LOCATION_SURVEILLANCE_POLICY_VERSION = "1.0";
-export const LOCATION_SURVEILLANCE_DISCLOSURE_TEXT =
+const LOCATION_SURVEILLANCE_POLICY_VERSION = "1.0";
+const LOCATION_SURVEILLANCE_DISCLOSURE_TEXT =
   "Workman Services Field Operations collects background GPS location, speed, device movement, and battery telemetry while you are logged in and working on assigned jobs or company shifts. This data is used solely for proximity-based job dispatch, emergency field assistance, arrival verification, customer safety, and route optimization. Location data is retained for 90 days in accordance with company policy.";
 
 export async function GET(req: NextRequest) {

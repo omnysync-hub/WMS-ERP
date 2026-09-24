@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 import { AuditService } from "@/lib/services/AuditService";
 
-export const DEFAULT_RETENTION_DAYS = 90;
+const DEFAULT_RETENTION_DAYS = 90;
 
 export async function POST(req: NextRequest) {
   try {
