@@ -643,15 +643,19 @@ export class JobsService {
 
   /**
    * Clear technician expense claim by accountant:
-   * Updates claim to paid, creates double-entry journal entry:
-   * Debit 6100 (Tech Travel & Expenses)
-   * Credit 1000 (Cash in Hand) or 1010 (Bank)
+   * Supports selecting payment source (Cash on Hand, Meezan Bank, HBL, Petty Cash, etc.)
+   * Supports partial clearance when resources are constrained:
+   *  - Disburses partial amount now and records balanced double-entry in General Ledger
+   *  - Retains the remaining balance as a pending claim so it can be cleared afterwards
+   *  - Or clears full claim if paying in full
    */
   static async clearExpense(
     jobId: string,
     claimId: string,
     accountantName: string,
-    disbursingAccountCode: string = "1000"
+    disbursingAccountCode: string = "1000",
+    amountToPay?: number,
+    paymentNotes?: string
   ) {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
@@ -666,45 +670,125 @@ export class JobsService {
     if (claim.jobId !== jobId) throw new Error("Claim does not belong to this job");
     if (claim.status === "paid") throw new Error("Expense claim is already cleared/paid");
 
-    // 1. Mark claim as paid
-    const updatedClaim = await prisma.jobExpenseClaim.update({
-      where: { id: claimId },
-      data: {
-        status: "paid",
-        paidAt: new Date(),
-      },
-    });
+    const totalClaimAmount = claim.amount;
+    const paidNow =
+      amountToPay !== undefined && amountToPay !== null && Number(amountToPay) > 0
+        ? Math.min(Number(amountToPay), totalClaimAmount)
+        : totalClaimAmount;
 
-    // 2. Double-entry posting: Debit Tech Expenses, Credit Cash/Bank via AccountMappingService
-    const expenseCostingAccount = await AccountMappingService.resolveAccount({
-      transactionType: "expense_reimbursement_expense",
-    });
-    const disbursingAccount = disbursingAccountCode && disbursingAccountCode !== "1000"
-      ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
-      : await AccountMappingService.resolveAccount({
+    if (paidNow <= 0) {
+      throw new Error("Disbursement amount must be greater than 0");
+    }
+
+    const isPartial = paidNow < totalClaimAmount;
+    const remainingBalance = Math.round((totalClaimAmount - paidNow) * 100) / 100;
+
+    // 1. Resolve Disbursing Account (Cash / Bank / Float)
+    let disbursingAccount;
+    try {
+      if (disbursingAccountCode && disbursingAccountCode !== "1000") {
+        disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+      } else {
+        disbursingAccount = await AccountMappingService.resolveAccount({
           transactionType: "expense_reimbursement_disbursing",
         });
-
-    if (claim.amount > 0) {
-      await AccountsPostingService.post({
-        memo: `Technician expense clearance for Job ${job.jobNumber}: ${claim.note}`,
-        refType: "expense_reimbursement",
-        refId: claim.id,
-        lines: [
-          { accountId: expenseCostingAccount.id, debit: claim.amount, credit: 0 },
-          { accountId: disbursingAccount.id, debit: 0, credit: claim.amount },
-        ],
+      }
+    } catch {
+      disbursingAccount = await AccountMappingService.resolveAccount({
+        transactionType: "expense_reimbursement_disbursing",
       });
     }
 
-    // 3. Log status change history
-    await this.logStatusChange(jobId, job.status, job.status, accountantName, {
-      action: "expense_cleared",
-      claimId,
-      amount: claim.amount,
-      note: claim.note,
-      disbursingAccountCode,
+    const expenseCostingAccount = await AccountMappingService.resolveAccount({
+      transactionType: "expense_reimbursement_expense",
     });
+
+    let updatedClaim;
+    const paymentRefLabel = paymentNotes ? ` [Ref: ${paymentNotes}]` : "";
+
+    if (isPartial) {
+      // --- PARTIAL CLEARANCE ---
+      // Update the current claim record to represent the paid portion
+      const originalNote = claim.note;
+      updatedClaim = await prisma.jobExpenseClaim.update({
+        where: { id: claimId },
+        data: {
+          amount: paidNow,
+          status: "paid",
+          paidAt: new Date(),
+          note: `${originalNote} [Partially Cleared: PKR ${paidNow.toLocaleString()} via ${disbursingAccount.name} (${disbursingAccount.code})${paymentRefLabel}]`,
+        },
+      });
+
+      // Create a new pending claim for the remaining unpaid balance so it can be cleared afterwards
+      const remainingClaim = await prisma.jobExpenseClaim.create({
+        data: {
+          jobId: claim.jobId,
+          technicianId: claim.technicianId,
+          amount: remainingBalance,
+          note: `${originalNote} [Remaining Balance after PKR ${paidNow.toLocaleString()} partial payout]`,
+          receiptUrl: claim.receiptUrl,
+          status: "pending",
+        },
+      });
+
+      // Post balanced General Ledger journal entry for the disbursed portion
+      if (paidNow > 0) {
+        await AccountsPostingService.post({
+          memo: `Partial technician expense payout (PKR ${paidNow.toLocaleString()} of PKR ${totalClaimAmount.toLocaleString()}) for Job ${job.jobNumber}: ${originalNote}${paymentRefLabel}`,
+          refType: "expense_reimbursement",
+          refId: claim.id,
+          lines: [
+            { accountId: expenseCostingAccount.id, debit: paidNow, credit: 0 },
+            { accountId: disbursingAccount.id, debit: 0, credit: paidNow },
+          ],
+        });
+      }
+
+      // Log status change history
+      await this.logStatusChange(jobId, job.status, job.status, accountantName, {
+        action: "expense_partially_cleared",
+        claimId,
+        amountPaid: paidNow,
+        remainingBalance,
+        newRemainingClaimId: remainingClaim.id,
+        disbursingAccountCode: disbursingAccount.code,
+        disbursingAccountName: disbursingAccount.name,
+        paymentNotes,
+      });
+    } else {
+      // --- FULL CLEARANCE ---
+      updatedClaim = await prisma.jobExpenseClaim.update({
+        where: { id: claimId },
+        data: {
+          status: "paid",
+          paidAt: new Date(),
+          note: paymentRefLabel ? `${claim.note}${paymentRefLabel}` : claim.note,
+        },
+      });
+
+      if (paidNow > 0) {
+        await AccountsPostingService.post({
+          memo: `Technician expense clearance for Job ${job.jobNumber}: ${claim.note}${paymentRefLabel}`,
+          refType: "expense_reimbursement",
+          refId: claim.id,
+          lines: [
+            { accountId: expenseCostingAccount.id, debit: paidNow, credit: 0 },
+            { accountId: disbursingAccount.id, debit: 0, credit: paidNow },
+          ],
+        });
+      }
+
+      await this.logStatusChange(jobId, job.status, job.status, accountantName, {
+        action: "expense_cleared",
+        claimId,
+        amount: paidNow,
+        note: claim.note,
+        disbursingAccountCode: disbursingAccount.code,
+        disbursingAccountName: disbursingAccount.name,
+        paymentNotes,
+      });
+    }
 
     return updatedClaim;
   }

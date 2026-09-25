@@ -143,7 +143,11 @@ export async function PATCH(
           params.id,
           payload.claimId,
           actor,
-          payload.disbursingAccountCode || "1000"
+          payload.disbursingAccountCode || "1000",
+          payload.amountToPay !== undefined && payload.amountToPay !== null && payload.amountToPay !== ""
+            ? Number(payload.amountToPay)
+            : undefined,
+          payload.paymentNotes || payload.notes
         );
         break;
 
