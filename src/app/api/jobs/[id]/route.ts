@@ -139,16 +139,29 @@ export async function PATCH(
         break;
 
       case "clear_expense":
-        result = await JobsService.clearExpense(
-          params.id,
-          payload.claimId,
-          actor,
-          payload.disbursingAccountCode || "1000",
-          payload.amountToPay !== undefined && payload.amountToPay !== null && payload.amountToPay !== ""
-            ? Number(payload.amountToPay)
-            : undefined,
-          payload.paymentNotes || payload.notes
-        );
+      case "clear_job_expenses":
+        if (payload.claimId) {
+          result = await JobsService.clearExpense(
+            params.id,
+            payload.claimId,
+            actor,
+            payload.disbursingAccountCode || "1000",
+            payload.amountToPay !== undefined && payload.amountToPay !== null && payload.amountToPay !== ""
+              ? Number(payload.amountToPay)
+              : undefined,
+            payload.paymentNotes || payload.notes
+          );
+        } else {
+          result = await JobsService.clearJobExpenses(
+            params.id,
+            actor,
+            payload.disbursingAccountCode || "1000",
+            payload.amountToPay !== undefined && payload.amountToPay !== null && payload.amountToPay !== ""
+              ? Number(payload.amountToPay)
+              : undefined,
+            payload.paymentNotes || payload.notes
+          );
+        }
         break;
 
       case "issue_inventory":

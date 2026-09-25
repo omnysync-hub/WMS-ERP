@@ -794,6 +794,161 @@ export class JobsService {
   }
 
   /**
+   * Clear all or partial pending technician expenses for a job in one single action:
+   * Displays the aggregated total expense amount to the accountant.
+   * If paying in full: all pending claims on the job are cleared.
+   * If paying partially: allocates the available funds across claims, splits the partially covered claim,
+   * leaves the remaining balance pending to be cleared afterwards, and posts balanced GL entries.
+   */
+  static async clearJobExpenses(
+    jobId: string,
+    accountantName: string,
+    disbursingAccountCode: string = "1000",
+    amountToPay?: number,
+    paymentNotes?: string
+  ) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        expenseClaims: {
+          where: { status: "pending" },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+    if (!job) throw new Error("Job not found");
+
+    const pendingClaims = job.expenseClaims || [];
+    if (pendingClaims.length === 0) {
+      throw new Error("No pending expense claims to clear on this job");
+    }
+
+    const totalPending = pendingClaims.reduce((sum, c) => sum + c.amount, 0);
+    const paidNow =
+      amountToPay !== undefined && amountToPay !== null && Number(amountToPay) > 0
+        ? Math.min(Number(amountToPay), totalPending)
+        : totalPending;
+
+    if (paidNow <= 0) {
+      throw new Error("Disbursement amount must be greater than 0");
+    }
+
+    const isPartial = paidNow < totalPending;
+    const remainingBalance = Math.round((totalPending - paidNow) * 100) / 100;
+
+    // 1. Resolve Disbursing Account (Cash / Bank / Float)
+    let disbursingAccount;
+    try {
+      if (disbursingAccountCode && disbursingAccountCode !== "1000") {
+        disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
+      } else {
+        disbursingAccount = await AccountMappingService.resolveAccount({
+          transactionType: "expense_reimbursement_disbursing",
+        });
+      }
+    } catch {
+      disbursingAccount = await AccountMappingService.resolveAccount({
+        transactionType: "expense_reimbursement_disbursing",
+      });
+    }
+
+    const expenseCostingAccount = await AccountMappingService.resolveAccount({
+      transactionType: "expense_reimbursement_expense",
+    });
+
+    const paymentRefLabel = paymentNotes ? ` [Ref: ${paymentNotes}]` : "";
+
+    // 2. Allocate payment across pending claims in sequence
+    let remainingToAllocate = paidNow;
+    const updatedClaims = [];
+
+    for (const claim of pendingClaims) {
+      if (remainingToAllocate <= 0) {
+        // No more funds available in this disbursement; remains pending
+        break;
+      }
+
+      if (remainingToAllocate >= claim.amount) {
+        // This claim is fully covered
+        const updated = await prisma.jobExpenseClaim.update({
+          where: { id: claim.id },
+          data: {
+            status: "paid",
+            paidAt: new Date(),
+            note: paymentRefLabel ? `${claim.note}${paymentRefLabel}` : claim.note,
+          },
+        });
+        updatedClaims.push(updated);
+        remainingToAllocate = Math.round((remainingToAllocate - claim.amount) * 100) / 100;
+      } else {
+        // This claim is partially covered by the remaining allocated funds
+        const partialPaid = remainingToAllocate;
+        const claimRemainder = Math.round((claim.amount - partialPaid) * 100) / 100;
+        const originalNote = claim.note;
+
+        // Update the paid portion
+        const updated = await prisma.jobExpenseClaim.update({
+          where: { id: claim.id },
+          data: {
+            amount: partialPaid,
+            status: "paid",
+            paidAt: new Date(),
+            note: `${originalNote} [Partially Cleared: PKR ${partialPaid.toLocaleString()} via ${disbursingAccount.name} (${disbursingAccount.code})${paymentRefLabel}]`,
+          },
+        });
+        updatedClaims.push(updated);
+
+        // Create new pending claim for the remaining balance
+        await prisma.jobExpenseClaim.create({
+          data: {
+            jobId: claim.jobId,
+            technicianId: claim.technicianId,
+            amount: claimRemainder,
+            note: `${originalNote} [Remaining Balance after PKR ${partialPaid.toLocaleString()} partial payout]`,
+            receiptUrl: claim.receiptUrl,
+            status: "pending",
+          },
+        });
+
+        remainingToAllocate = 0;
+      }
+    }
+
+    // 3. Post General Ledger journal entry for the exact disbursed funds
+    if (paidNow > 0) {
+      await AccountsPostingService.post({
+        memo: `Technician field expense payout (PKR ${paidNow.toLocaleString()}${isPartial ? ` of total PKR ${totalPending.toLocaleString()}` : ""}) for Job ${job.jobNumber}${paymentRefLabel}`,
+        refType: "expense_reimbursement",
+        refId: job.id,
+        lines: [
+          { accountId: expenseCostingAccount.id, debit: paidNow, credit: 0 },
+          { accountId: disbursingAccount.id, debit: 0, credit: paidNow },
+        ],
+      });
+    }
+
+    // 4. Log status change history
+    await this.logStatusChange(jobId, job.status, job.status, accountantName, {
+      action: isPartial ? "job_expenses_partially_cleared" : "job_expenses_cleared",
+      amountPaid: paidNow,
+      totalPending,
+      remainingBalance,
+      disbursingAccountCode: disbursingAccount.code,
+      disbursingAccountName: disbursingAccount.name,
+      paymentNotes,
+    });
+
+    return {
+      success: true,
+      amountPaid: paidNow,
+      remainingBalance,
+      isPartial,
+      totalPending,
+      claimsClearedCount: updatedClaims.length,
+    };
+  }
+
+  /**
    * Storekeeper issues physical inventory to a job:
    * Deducts warehouse inventory, records stock ledger, posts COGS to accounts,
    * adds the item to the job's line items, and marks matching inventory request as issued.
