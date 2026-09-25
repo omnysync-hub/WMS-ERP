@@ -7,8 +7,24 @@ import DataTable, { ColumnDef } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
 import JobReportsView from "@/components/jobs/JobReportsView";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
-import { Plus, User, AlertTriangle, Building, RefreshCw, Package, Receipt, DollarSign, ShieldCheck, BarChart3, Briefcase, Lock } from "lucide-react";
+import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn } from "@/lib/utils";
+import {
+  Plus,
+  User,
+  AlertTriangle,
+  Building,
+  RefreshCw,
+  Package,
+  Receipt,
+  DollarSign,
+  ShieldCheck,
+  BarChart3,
+  Briefcase,
+  Lock,
+  MapPin,
+  ChevronRight,
+  ArrowUpRight,
+} from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
 export default function JobsListPage() {
@@ -20,7 +36,7 @@ export default function JobsListPage() {
   const canReassignTech = hasPermission("jobs.reassign_tech");
   const canCreateJob = hasPermission("jobs.create_job");
   const canViewDirectory = hasPermission("jobs.view_directory");
-  const canViewReports = hasPermission("jobs.reports");
+  const canViewReports = hasPermission("jobs.reports") && !isStorekeeper;
 
   const [mainSectionView, setMainSectionView] = useState<"directory" | "reports">("directory");
   const [jobs, setJobs] = useState<any[]>([]);
@@ -29,15 +45,22 @@ export default function JobsListPage() {
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Sync with URL query parameter
+  // Sync with URL query parameter (strictly disabled for storekeeper)
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("view") === "reports" || params.get("tab") === "reports") {
+      if (!isStorekeeper && (params.get("view") === "reports" || params.get("tab") === "reports")) {
         setMainSectionView("reports");
       }
     }
-  }, []);
+  }, [isStorekeeper]);
+
+  // Enforce directory view for storekeeper
+  useEffect(() => {
+    if (isStorekeeper && mainSectionView !== "directory") {
+      setMainSectionView("directory");
+    }
+  }, [isStorekeeper, mainSectionView]);
 
   // Reassign Drawer state
   const [reassignJob, setReassignJob] = useState<any>(null);
@@ -73,20 +96,27 @@ export default function JobsListPage() {
   // Filter based on active tab & role
   const filteredByTab = jobs.filter((j) => {
     if (isStorekeeper) {
-      const hasInventory =
-        (j.inventoryRequests && j.inventoryRequests.length > 0) ||
-        (j.items && j.items.some((it: any) => it.quantityPlanned > 0)) ||
-        (j.stockReturns && j.stockReturns.length > 0);
-      if (!hasInventory) return false;
+      // The storekeeper should see ONLY jobs with requests for inventory or returns, NEVER unrelated jobs
+      const hasInventoryReq = Boolean(j.inventoryRequests && j.inventoryRequests.length > 0);
+      const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
+      const isDoneOrPaused = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+      const returnableQty = j.items?.reduce((sum: number, it: any) => {
+        if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+          return sum + (it.quantityPlanned - it.quantityActual);
+        }
+        return sum;
+      }, 0) || 0;
+      const isReturnable = hasReturns || (isDoneOrPaused && returnableQty > 0);
 
-      if (activeTab === "pending_materials") return j.inventoryRequests?.some((r: any) => r.status === "pending");
-      if (activeTab === "returnable") {
-        const isDone = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
-        const hasUnused = j.items?.some((it: any) => it.quantityActual !== null && it.quantityPlanned > it.quantityActual);
-        return isDone && hasUnused;
+      // Strictly isolate: hide jobs that have no inventory activity or returnable materials
+      if (!hasInventoryReq && !isReturnable) return false;
+
+      if (activeTab === "pending_materials") {
+        return j.inventoryRequests?.some((r: any) => r.status === "pending");
       }
-      if (activeTab === "active") return ["Assigned", "InProgress", "Paused"].includes(j.status);
-      if (activeTab === "completed") return ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
+      if (activeTab === "returnable") {
+        return isReturnable;
+      }
       return true;
     }
 
@@ -99,7 +129,6 @@ export default function JobsListPage() {
       if (activeTab === "completed") return ["Finalized", "Verified"].includes(j.status);
     } else {
       // Admin / Manager / Ops / Call Center / Cashier / Auditor
-      if (activeTab === "my") return j.assignedTechnician?.name?.includes("Ali") || j.assignedTechnicianId;
       if (activeTab === "assigned_today") return j.status === "Assigned" || j.status === "InProgress";
       if (activeTab === "needs_review") return j.qualityFlag === "disputed";
       if (activeTab === "completed") return ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
@@ -115,6 +144,7 @@ export default function JobsListPage() {
     if (selectedTypeFilter && j.jobType !== selectedTypeFilter) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
+    const formattedType = formatJobType(j.jobType).toLowerCase();
     return (
       j.jobNumber?.toLowerCase().includes(q) ||
       j.manualJobNumber?.toLowerCase().includes(q) ||
@@ -122,9 +152,49 @@ export default function JobsListPage() {
       j.customer?.phone?.toLowerCase().includes(q) ||
       j.remarks?.toLowerCase().includes(q) ||
       j.careOfParty?.companyName?.toLowerCase().includes(q) ||
-      j.careOfParty?.personName?.toLowerCase().includes(q)
+      j.careOfParty?.personName?.toLowerCase().includes(q) ||
+      j.assignedTechnician?.name?.toLowerCase().includes(q) ||
+      j.jobType?.toLowerCase().includes(q) ||
+      formattedType.includes(q)
     );
   });
+
+  function getJobTypeBadge(type: string | null | undefined) {
+    const formatted = formatJobType(type);
+    const lower = (type || "").toLowerCase();
+
+    let colorClasses = "bg-zinc-100/90 text-zinc-700 border-zinc-200/90";
+    let dotColor = "bg-zinc-400";
+
+    if (lower.includes("install") || lower.includes("commission")) {
+      colorClasses = "bg-sky-50 text-sky-800 border-sky-200/90";
+      dotColor = "bg-sky-500";
+    } else if (lower.includes("duct") || lower.includes("clean") || lower.includes("sanitiz")) {
+      colorClasses = "bg-teal-50 text-teal-800 border-teal-200/90";
+      dotColor = "bg-teal-500";
+    } else if (lower.includes("repair") || lower.includes("breakdown") || lower.includes("leak")) {
+      colorClasses = "bg-amber-50 text-amber-800 border-amber-200/90";
+      dotColor = "bg-amber-500";
+    } else if (lower.includes("maint") || lower.includes("inspect") || lower.includes("audit") || lower.includes("amc")) {
+      colorClasses = "bg-emerald-50 text-emerald-800 border-emerald-200/90";
+      dotColor = "bg-emerald-500";
+    } else if (lower.includes("emergency") || lower.includes("overhaul")) {
+      colorClasses = "bg-rose-50 text-rose-800 border-rose-200/90";
+      dotColor = "bg-rose-500";
+    }
+
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border tracking-tight shadow-2xs whitespace-nowrap",
+          colorClasses
+        )}
+      >
+        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
+        <span>{formatted}</span>
+      </span>
+    );
+  }
 
   // Base columns
   const allColumns: ColumnDef<any>[] = [
@@ -135,94 +205,124 @@ export default function JobsListPage() {
       isPrimaryLink: true,
       getHref: (row) => `/jobs/${row.id}`,
       cell: (row) => (
-        <div>
-          <span className="font-mono font-bold text-[#0D7A5F] hover:underline block">
+        <div className="space-y-0.5">
+          <span className="font-mono font-bold text-xs text-[#0D7A5F] hover:underline block whitespace-nowrap">
             {row.jobNumber}
           </span>
-          {row.manualJobNumber && (
-            <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded font-mono inline-block mt-0.5">
-              Ext: #{row.manualJobNumber}
-            </span>
-          )}
-          {row.careOfParty && (
-            <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-medium block mt-0.5">
-              c/o {row.careOfParty.companyName}
-            </span>
-          )}
+          <div className="flex items-center gap-1 flex-wrap">
+            {row.manualJobNumber && (
+              <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded font-mono inline-block">
+                Ext: #{row.manualJobNumber}
+              </span>
+            )}
+            {row.careOfParty && (
+              <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-medium inline-flex items-center gap-0.5">
+                <Building className="w-2.5 h-2.5 text-purple-500" />
+                c/o {row.careOfParty.companyName}
+              </span>
+            )}
+          </div>
         </div>
       ),
     },
     {
       id: "customer",
       header: "Customer",
-      cell: (row) => (
-        <div>
-          <p className="font-semibold text-[#18181B]">{row.customer?.name}</p>
-          <p className="text-[11px] text-[#71717A] truncate max-w-[200px]">
-            {row.customer?.addressText}
-          </p>
-        </div>
-      ),
+      cell: (row) => {
+        const customerName = capitalizeWords(row.customer?.name || "Customer");
+        const address = row.customer?.addressText || "";
+        const formattedAddress = address.startsWith("GPS Location")
+          ? address.replace("GPS Location", "GPS: ")
+          : capitalizeWords(address);
+
+        return (
+          <div className="max-w-[210px]">
+            <p className="font-semibold text-[#18181B] text-xs truncate" title={customerName}>
+              {customerName}
+            </p>
+            {address ? (
+              <p
+                className="text-[11px] text-[#71717A] truncate flex items-center gap-1 mt-0.5"
+                title={address}
+              >
+                <MapPin className="w-3 h-3 text-[#A1A1AA] shrink-0" />
+                <span className="truncate">{formattedAddress}</span>
+              </p>
+            ) : (
+              <p className="text-[11px] text-[#A1A1AA] italic">No address on file</p>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "type",
       header: "Job Type",
       accessorKey: "jobType",
-      cell: (row) => (
-        <span className="capitalize text-[#52525B] font-medium text-[11px] bg-[#F4F4F5] px-2 py-0.5 rounded border border-[#EDEDED]">
-          {row.jobType}
-        </span>
-      ),
+      cell: (row) => getJobTypeBadge(row.jobType),
     },
     {
       id: "technician",
       header: "Technician",
-      cell: (row) => (
-        <div>
-          {row.assignedTechnician ? (
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="w-5 h-5 rounded-full bg-emerald-50 text-[#0D7A5F] text-[9px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
-                  {row.assignedTechnician.name
-                    .split(" ")
-                    .map((n: string) => n[0])
-                    .join("")
-                    .slice(0, 2)}
+      cell: (row) => {
+        const techName = row.assignedTechnician?.name
+          ? capitalizeWords(row.assignedTechnician.name)
+          : null;
+
+        const initials = techName
+          ? techName
+              .split(" ")
+              .map((n: string) => n[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase()
+          : "";
+
+        return (
+          <div className="flex items-center">
+            {row.assignedTechnician ? (
+              <div className="inline-flex items-center gap-2 bg-white border border-[#E4E4E7] hover:border-emerald-300 rounded-full pl-1 pr-2 py-0.5 shadow-2xs transition group max-w-full">
+                <span className="w-5 h-5 rounded-full bg-emerald-100 text-[#0D7A5F] text-[9px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
+                  {initials}
                 </span>
-                <span className="font-semibold text-[#18181B] truncate text-xs">
-                  {row.assignedTechnician.name}
-                </span>
-              </div>
-              {canReassignTech && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setReassignJob(row);
-                  }}
-                  className="text-[10px] font-semibold text-[#71717A] hover:text-[#0D7A5F] bg-[#F4F4F5] hover:bg-emerald-50 px-1.5 py-0.5 rounded border border-[#EDEDED] hover:border-emerald-200 transition shrink-0"
+                <span
+                  className="font-semibold text-[#18181B] truncate text-xs max-w-[110px]"
+                  title={techName || ""}
                 >
-                  Change
-                </button>
-              )}
-            </div>
-          ) : canReassignTech ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setReassignJob(row);
-              }}
-              className="text-[11px] font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs group"
-            >
-              <Plus className="w-3 h-3 group-hover:scale-110 transition" />
-              <span>+ Assign Tech</span>
-            </button>
-          ) : (
-            <span className="text-xs text-[#A1A1AA] italic">Unassigned</span>
-          )}
-        </div>
-      ),
+                  {techName}
+                </span>
+                {canReassignTech && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReassignJob(row);
+                    }}
+                    title="Change assigned technician"
+                    className="text-[10px] font-semibold text-[#71717A] hover:text-[#0D7A5F] bg-[#F4F4F5] hover:bg-emerald-50 px-1.5 py-0.5 rounded-full border border-[#E4E4E7] hover:border-emerald-200 transition shrink-0 ml-0.5"
+                  >
+                    Change
+                  </button>
+                )}
+              </div>
+            ) : canReassignTech ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReassignJob(row);
+                }}
+                className="text-[11px] font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200 transition inline-flex items-center gap-1 shadow-2xs group"
+              >
+                <Plus className="w-3 h-3 group-hover:scale-110 transition" />
+                <span>+ Assign Tech</span>
+              </button>
+            ) : (
+              <span className="text-xs text-[#A1A1AA] italic">Unassigned</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "status",
@@ -324,12 +424,12 @@ export default function JobsListPage() {
               const net = Math.max(0, total - (row.discountAmount || 0));
               return (
                 <div className="text-right">
-                  <span className="font-mono font-bold text-[#18181B] block">
+                  <span className="font-mono font-bold text-[#18181B] text-xs block">
                     {formatCurrency(net)}
                   </span>
                   {row.discountAmount > 0 && (
-                    <span className="text-[10px] text-amber-700 font-mono block">
-                      -{formatCurrency(row.discountAmount)} disc
+                    <span className="text-[10px] text-amber-700 font-mono inline-block bg-amber-50 border border-amber-200 px-1 rounded mt-0.5">
+                      -{formatCurrency(row.discountAmount)}
                     </span>
                   )}
                 </div>
@@ -341,35 +441,51 @@ export default function JobsListPage() {
       id: "createdAt",
       header: "Created",
       align: "right",
-      cell: (row) => (
-        <span className="text-[11px] text-[#71717A] font-mono">
-          {formatDateTime(row.createdAt)}
-        </span>
-      ),
+      cell: (row) => {
+        if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">—</span>;
+        const d = new Date(row.createdAt);
+        const dateStr = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);
+        const timeStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).format(d);
+        return (
+          <div className="text-right">
+            <span className="text-[11px] font-medium text-[#3F3F46] block">{dateStr}</span>
+            <span className="text-[10px] text-[#A1A1AA] font-mono block">{timeStr}</span>
+          </div>
+        );
+      },
     },
     {
       id: "actions",
       header: "Quick Action",
       align: "right",
       cell: (row) => (
-        <div className="flex items-center justify-end gap-1.5">
-          {canReassignTech && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setReassignJob(row);
-              }}
-              className="text-[10px] font-bold px-2 py-1 rounded-md text-[#0D7A5F] hover:bg-emerald-50 border border-emerald-200 transition"
-            >
-              {row.assignedTechnician ? "Reassign" : "Assign"}
-            </button>
-          )}
+        <div className="flex items-center justify-end">
           <Link
             href={`/jobs/${row.id}`}
-            className="text-[10px] font-semibold px-2 py-1 rounded-md text-[#0D7A5F] bg-emerald-50/70 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200 transition"
+            className={
+              isStorekeeper
+                ? "text-[11px] font-bold px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+                : isAccountant
+                ? "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition inline-flex items-center gap-1"
+                : "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-[#0D7A5F] bg-emerald-50/70 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200/90 transition inline-flex items-center gap-1 shadow-2xs group"
+            }
           >
-            {isStorekeeper ? "Details & Issue Stock →" : isAccountant ? "Review Financials →" : "Details"}
+            {isStorekeeper ? (
+              <>
+                <Package className="w-3.5 h-3.5" />
+                <span>Details & Issue Stock →</span>
+              </>
+            ) : isAccountant ? (
+              <>
+                <Receipt className="w-3 h-3" />
+                <span>Financials →</span>
+              </>
+            ) : (
+              <>
+                <span>Details</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform text-[#0D7A5F]" />
+              </>
+            )}
           </Link>
         </div>
       ),
@@ -385,25 +501,43 @@ export default function JobsListPage() {
     { id: "completed", label: "Finalized / Verified", count: jobs.filter((j) => ["Finalized", "Verified"].includes(j.status)).length },
   ];
 
-  const storekeeperJobsCount = jobs.filter((j) => {
-    return (
-      (j.inventoryRequests && j.inventoryRequests.length > 0) ||
-      (j.items && j.items.some((it: any) => it.quantityPlanned > 0)) ||
-      (j.stockReturns && j.stockReturns.length > 0)
-    );
-  }).length;
+  const storekeeperJobs = jobs.filter((j) => {
+    const hasInventoryReq = Boolean(j.inventoryRequests && j.inventoryRequests.length > 0);
+    const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
+    const isDoneOrPaused = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+    const returnableQty = j.items?.reduce((sum: number, it: any) => {
+      if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+        return sum + (it.quantityPlanned - it.quantityActual);
+      }
+      return sum;
+    }, 0) || 0;
+    return hasInventoryReq || hasReturns || (isDoneOrPaused && returnableQty > 0);
+  });
+
+  const storekeeperPendingJobs = storekeeperJobs.filter((j) =>
+    j.inventoryRequests?.some((r: any) => r.status === "pending")
+  );
+
+  const storekeeperReturnableJobs = storekeeperJobs.filter((j) => {
+    const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
+    const isDoneOrPaused = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+    const returnableQty = j.items?.reduce((sum: number, it: any) => {
+      if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+        return sum + (it.quantityPlanned - it.quantityActual);
+      }
+      return sum;
+    }, 0) || 0;
+    return hasReturns || (isDoneOrPaused && returnableQty > 0);
+  });
 
   const storekeeperTabs = [
-    { id: "all", label: "Inventory Requested Jobs", count: storekeeperJobsCount },
-    { id: "pending_materials", label: "Pending Material Requests", count: jobs.filter((j) => j.inventoryRequests?.some((r: any) => r.status === "pending")).length },
-    { id: "returnable", label: "Unused / Returnable Stock", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status) && j.items?.some((it: any) => it.quantityActual !== null && it.quantityPlanned > it.quantityActual)).length },
-    { id: "active", label: "Active Jobs", count: jobs.filter((j) => ["Assigned", "InProgress", "Paused"].includes(j.status) && ((j.inventoryRequests && j.inventoryRequests.length > 0) || j.items?.some((it: any) => it.quantityPlanned > 0))).length },
-    { id: "completed", label: "Completed Jobs", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status) && ((j.inventoryRequests && j.inventoryRequests.length > 0) || j.items?.some((it: any) => it.quantityPlanned > 0))).length },
+    { id: "all", label: "Inventory Requested Jobs", count: storekeeperJobs.length },
+    { id: "pending_materials", label: "Pending Material Requests", count: storekeeperPendingJobs.length },
+    { id: "returnable", label: "Unused / Returnable Stock", count: storekeeperReturnableJobs.length },
   ];
 
   const adminTabs = [
     { id: "all", label: "All Jobs", count: jobs.length },
-    { id: "my", label: "My Jobs", count: jobs.filter((j) => j.assignedTechnicianId).length },
     { id: "assigned_today", label: "Assigned Today", count: jobs.filter((j) => j.status === "Assigned" || j.status === "InProgress").length },
     { id: "needs_review", label: "Needs Review", count: jobs.filter((j) => j.qualityFlag === "disputed").length },
     { id: "completed", label: "Completed", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)).length },
@@ -413,44 +547,46 @@ export default function JobsListPage() {
 
   return (
     <div className="space-y-4">
-      {/* Primary Section Switcher: Directory vs Daily Audit & Reports */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-[#EDEDED] px-3.5 py-2 rounded-xl shadow-xs">
-        <div className="flex items-center gap-1.5 bg-[#F4F4F5] p-1 rounded-lg border border-[#E4E4E7]">
-          <button
-            type="button"
-            onClick={() => setMainSectionView("directory")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition ${
-              mainSectionView === "directory"
-                ? "bg-[#18181B] text-white shadow-xs"
-                : "text-[#52525B] hover:text-[#18181B]"
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            Jobs Directory ({jobs.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainSectionView("reports")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition ${
-              mainSectionView === "reports"
-                ? "bg-[#0D7A5F] text-white shadow-xs"
-                : "text-[#52525B] hover:text-[#0D7A5F]"
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            Daily Audit & Reports 📊
-          </button>
-        </div>
+      {/* Primary Section Switcher: Directory vs Daily Audit & Reports (Strictly Hidden for Storekeeper) */}
+      {!isStorekeeper && canViewReports && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-[#EDEDED] px-3.5 py-2 rounded-xl shadow-xs">
+          <div className="flex items-center gap-1.5 bg-[#F4F4F5] p-1 rounded-lg border border-[#E4E4E7]">
+            <button
+              type="button"
+              onClick={() => setMainSectionView("directory")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition ${
+                mainSectionView === "directory"
+                  ? "bg-[#18181B] text-white shadow-xs"
+                  : "text-[#52525B] hover:text-[#18181B]"
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              Jobs Directory ({jobs.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setMainSectionView("reports")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition ${
+                mainSectionView === "reports"
+                  ? "bg-[#0D7A5F] text-white shadow-xs"
+                  : "text-[#52525B] hover:text-[#0D7A5F]"
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Daily Audit & Reports 📊
+            </button>
+          </div>
 
-        <div className="flex items-center gap-2 text-xs text-[#71717A]">
-          <span className="hidden sm:inline">Section Mode:</span>
-          <span className="font-semibold text-[#18181B]">
-            {mainSectionView === "directory" ? "Work Orders Directory" : "End-to-End Daily Audit & Stock Usage"}
-          </span>
+          <div className="flex items-center gap-2 text-xs text-[#71717A]">
+            <span className="hidden sm:inline">Section Mode:</span>
+            <span className="font-semibold text-[#18181B]">
+              {mainSectionView === "directory" ? "Work Orders Directory" : "End-to-End Daily Audit & Stock Usage"}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
-      {mainSectionView === "reports" ? (
+      {mainSectionView === "reports" && !isStorekeeper ? (
         !canViewReports ? (
           <div className="bg-white border border-rose-200 rounded-xl p-8 text-center space-y-3 shadow-xs">
             <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
@@ -486,15 +622,12 @@ export default function JobsListPage() {
               <div className="flex items-center gap-2">
                 <Package className="w-4 h-4 text-amber-700 shrink-0" />
                 <span>
-                  <strong>Central Storekeeper View:</strong> Viewing work order scopes, physical inventory requirements, and material requests. Financial rates and billing amounts are strictly masked.
+                  <strong>Storekeeper Material Fulfillment Queue:</strong> You are strictly restricted to jobs with material requests. You have sole authorization to issue physical stock from warehouse inventory.
                 </span>
               </div>
-              <Link
-                href="/inventory"
-                className="font-bold text-amber-800 hover:text-amber-950 underline shrink-0 ml-2"
-              >
-                Warehouse Stock →
-              </Link>
+              <span className="font-mono font-bold bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded text-[11px] shrink-0 ml-2">
+                {storekeeperJobs.length} Requested {storekeeperJobs.length === 1 ? "Job" : "Jobs"}
+              </span>
             </div>
           )}
 
@@ -534,12 +667,16 @@ export default function JobsListPage() {
                   }
                 : undefined
             }
-            secondaryActions={[
-              {
-                label: "📊 Reports & Audit",
-                onClick: () => setMainSectionView("reports"),
-              },
-            ]}
+            secondaryActions={
+              !isStorekeeper && canViewReports
+                ? [
+                    {
+                      label: "📊 Reports & Audit",
+                      onClick: () => setMainSectionView("reports"),
+                    },
+                  ]
+                : undefined
+            }
             onExport={() => alert("Exporting jobs list...")}
           />
 
@@ -562,21 +699,36 @@ export default function JobsListPage() {
               {
                 id: "technician",
                 label: "Technician",
-                options: technicians.map((t) => t.name),
+                options: technicians.map((t) => ({
+                  label: capitalizeWords(t.name),
+                  value: t.name,
+                })),
                 selected: selectedTechFilter,
                 onSelect: setSelectedTechFilter,
               },
               {
                 id: "status",
                 label: "Status",
-                options: ["Created", "Assigned", "InProgress", "Paused", "CompletedPendingVerification", "Finalized", "Verified"],
+                options: [
+                  { label: "Created", value: "Created" },
+                  { label: "Assigned", value: "Assigned" },
+                  { label: "Accepted", value: "Accepted" },
+                  { label: "In Progress", value: "InProgress" },
+                  { label: "Paused", value: "Paused" },
+                  { label: "Pending Verification", value: "CompletedPendingVerification" },
+                  { label: "Finalized", value: "Finalized" },
+                  { label: "Verified", value: "Verified" },
+                ],
                 selected: selectedStatusFilter,
                 onSelect: setSelectedStatusFilter,
               },
               {
                 id: "jobType",
                 label: "Job Type",
-                options: ["maintenance", "repair", "installation", "emergency"],
+                options: Array.from(new Set(jobs.map((j) => j.jobType).filter(Boolean))).map((t) => ({
+                  label: formatJobType(t),
+                  value: t,
+                })),
                 selected: selectedTypeFilter,
                 onSelect: setSelectedTypeFilter,
               },

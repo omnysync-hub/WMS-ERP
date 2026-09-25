@@ -229,6 +229,8 @@ export class JobsService {
       paymentMeans?: string; // cash, online, cheque, unmarked
       paymentNotes?: string;
       unusedReason?: string;
+      /** Proof-of-work photos as data URLs or remote URLs */
+      photos?: string[];
     }
   ) {
     const job = await prisma.job.findUnique({
@@ -275,26 +277,45 @@ export class JobsService {
       if (completionDetails.unusedReason) {
         parts.push(`Unused Stock Reason: ${completionDetails.unusedReason}`);
       }
+      if (completionDetails.photos?.length) {
+        parts.push(`Proof photos: ${completionDetails.photos.length}`);
+      }
       if (parts.length > 0) {
         newRemarks = newRemarks ? `${newRemarks} | ${parts.join(" • ")}` : parts.join(" • ");
       }
     }
+
+    // Cap + keep only image-ish strings (data: or http) — avoid blowing the row with junk
+    const photos = (completionDetails?.photos ?? [])
+      .filter((p) => typeof p === "string" && /^(data:image\/|https?:\/\/)/i.test(p))
+      .slice(0, 12);
 
     const updated = await prisma.job.update({
       where: { id: jobId },
       data: {
         status: "CompletedPendingVerification",
         remarks: newRemarks,
+        ...(photos.length > 0
+          ? { completionPhotos: JSON.stringify(photos) }
+          : {}),
       },
       include: { items: true },
     });
 
+    // Don't re-store full base64 blobs in history meta — count only
+    const { photos: _photos, ...detailsSansPhotos } = completionDetails ?? {};
     await this.logStatusChange(
       jobId,
       "InProgress",
       "CompletedPendingVerification",
       technicianId,
-      { actualItems, completionDetails }
+      {
+        actualItems,
+        completionDetails: {
+          ...detailsSansPhotos,
+          photoCount: photos.length,
+        },
+      }
     );
 
     return updated;

@@ -9,10 +9,14 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status");
     const technicianId = searchParams.get("technicianId");
     const search = searchParams.get("search");
+    const hasInventoryRequest = searchParams.get("hasInventoryRequest") === "true";
 
     const where: any = {};
     if (status && status !== "ALL") where.status = status;
     if (technicianId) where.assignedTechnicianId = technicianId;
+    if (hasInventoryRequest) {
+      where.inventoryRequests = { some: {} };
+    }
     if (search) {
       where.OR = [
         { jobNumber: { contains: search } },
@@ -30,6 +34,7 @@ export async function GET(req: NextRequest) {
         items: true,
         expenseClaims: true,
         inventoryRequests: true,
+        stockReturns: true,
         statusHistory: {
           orderBy: { changedAt: "desc" },
           take: 1,

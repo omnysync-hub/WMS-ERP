@@ -47,8 +47,41 @@ export default function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const { activeRole, currentPersona, isModulePrimary, hasPermission } = useRole();
+  const isStorekeeper = activeRole === "storekeeper";
   const [internalCollapsed, setInternalCollapsed] = useState(false);
-  const [isDashboardsOpen, setIsDashboardsOpen] = useState(true);
+
+  const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
+  const isJobsActive = pathname.startsWith("/jobs") || pathname.startsWith("/dispatch");
+
+  // Single open menu state for strict accordion behavior (opening one collapses others)
+  const [openMenu, setOpenMenu] = useState<string | null>(() => {
+    if (isJobsActive) return "jobs";
+    if (isDashboardsActive) return "dashboards";
+    return null;
+  });
+
+  const [searchQuery, setSearchQuery] = useState("");
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setSearchQuery(window.location.search);
+    }
+  }, [pathname]);
+
+  // Sync open menu when pathname changes
+  useEffect(() => {
+    if (isJobsActive) {
+      setOpenMenu("jobs");
+    } else if (isDashboardsActive) {
+      setOpenMenu("dashboards");
+    }
+  }, [pathname, isJobsActive, isDashboardsActive]);
+
+  const toggleMenu = (menuId: string) => {
+    setOpenMenu((prev) => (prev === menuId ? null : menuId));
+  };
+
+  const isDashboardsOpen = openMenu === "dashboards";
+  const isJobsOpen = openMenu === "jobs";
 
   useEffect(() => {
     try {
@@ -86,10 +119,43 @@ export default function Sidebar({
     { label: "Customer Care & QA", tab: "feedback", icon: Headphones },
   ];
 
+  // Dedicated Jobs Accordion Sub-Items
+  const allJobSubItems = [
+    {
+      label: "Jobs Directory",
+      href: "/jobs",
+      icon: Briefcase,
+      roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"],
+      perm: "jobs.view_directory",
+    },
+    {
+      label: "Job Reports & Audit",
+      href: "/jobs?view=reports",
+      icon: BarChart3,
+      roles: ["admin", "accountant", "auditor"],
+      perm: "jobs.reports",
+    },
+    {
+      label: "Live Dispatch Map",
+      href: "/dispatch",
+      icon: MapPin,
+      roles: ["admin", "dispatcher", "call_center", "auditor"],
+      perm: "dispatch.view_map",
+    },
+  ];
+
+  const jobSubItems = allJobSubItems.filter((item) => {
+    // Strictly block daily audit & reports for storekeeper
+    if (item.href.includes("reports") && isStorekeeper) return false;
+    const hasRole = item.roles.includes(activeRole);
+    if (!hasRole && !item.perm) return false;
+    if (item.perm) {
+      return hasRole || hasPermission(item.perm);
+    }
+    return hasRole;
+  });
+
   const allOperationsItems = [
-    { label: "Jobs Directory", href: "/jobs", icon: Briefcase, roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"], perm: "jobs.view_directory" },
-    { label: "Job Reports & Audit", href: "/jobs?view=reports", icon: BarChart3, roles: ["admin", "accountant", "auditor"], perm: "jobs.reports" },
-    { label: "Live Dispatch Map", href: "/dispatch", icon: MapPin, roles: ["admin", "dispatcher", "call_center", "auditor"], perm: "dispatch.view_map" },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Accounts & Ledgers", href: "/accounts", icon: CreditCard, roles: ["admin", "accountant", "cashier", "auditor"], perm: "accounts.general_ledger" },
     { label: "Accounting Settings", href: "/settings/accounting", icon: Settings, roles: ["admin", "accountant"], perm: "settings.accounting" },
@@ -111,8 +177,6 @@ export default function Sidebar({
     }
     return hasRole;
   });
-
-  const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
 
   return (
     <aside
@@ -182,7 +246,7 @@ export default function Sidebar({
                 if (isCollapsed) {
                   window.location.href = "/dashboards";
                 } else {
-                  setIsDashboardsOpen(!isDashboardsOpen);
+                  toggleMenu("dashboards");
                 }
               }}
               className={cn(
@@ -216,13 +280,26 @@ export default function Sidebar({
               <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
                 {dashboardSubItems.map((sub) => {
                   const SubIcon = sub.icon;
+                  const isSubActive =
+                    pathname === "/dashboards" &&
+                    (searchQuery.includes(`tab=${sub.tab}`) || (!searchQuery.includes("tab=") && sub.tab === "overview"));
                   return (
                     <Link
                       key={sub.tab}
                       href={`/dashboards?tab=${sub.tab}`}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition group"
+                      className={cn(
+                        "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                        isSubActive
+                          ? "bg-[#27272A] text-emerald-400 font-bold"
+                          : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                      )}
                     >
-                      <SubIcon className="w-3.5 h-3.5 shrink-0 text-zinc-500 group-hover:text-emerald-400 transition" />
+                      <SubIcon
+                        className={cn(
+                          "w-3.5 h-3.5 shrink-0 transition",
+                          isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                        )}
+                      />
                       <span className="truncate">{sub.label}</span>
                     </Link>
                   );
@@ -239,6 +316,81 @@ export default function Sidebar({
               <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold">
                 Operations & Systems
               </span>
+            </div>
+          )}
+
+          {/* Dedicated Expandable Jobs Hub */}
+          {jobSubItems.length > 0 && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/jobs";
+                  } else {
+                    toggleMenu("jobs");
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isJobsActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <Briefcase
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isJobsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && <span>Jobs</span>}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isJobsOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Jobs Sub-Items List */}
+              {isJobsOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {jobSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      sub.href === "/jobs?view=reports"
+                        ? (pathname === "/jobs/reports" || (pathname === "/jobs" && searchQuery.includes("view=reports")))
+                        : sub.href === "/jobs"
+                        ? (pathname === "/jobs" && !searchQuery.includes("view=reports"))
+                        : (pathname === sub.href || pathname.startsWith(`${sub.href}/`));
+
+                    return (
+                      <Link
+                        key={sub.href}
+                        href={sub.href}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

@@ -416,8 +416,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.reassign_tech": false,
     "jobs.add_service": false,
     "jobs.issue_stock": true,
-    "jobs.stock_return": true,
-    "jobs.misplaced_item": true,
+    "jobs.stock_return": false, // Storekeeper on jobs can ONLY issue stock, no other option
+    "jobs.misplaced_item": false,
     "jobs.generate_invoice": false,
     "jobs.collect_payment": false,
     "jobs.cancel_job": false,

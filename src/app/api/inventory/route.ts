@@ -26,21 +26,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(returns);
     }
 
-    if (view === "purchasing") {
-      const prs = await prisma.purchaseRequisition.findMany({
-        include: { items: { include: { product: true } } },
-        orderBy: { createdAt: "desc" },
-      });
-      const pos = await prisma.purchaseOrder.findMany({
-        include: { items: { include: { product: true } }, goodsReceipts: true },
-        orderBy: { createdAt: "desc" },
-      });
-      const grns = await prisma.goodsReceipt.findMany({
-        include: { items: { include: { product: true } }, po: true },
-        orderBy: { createdAt: "desc" },
-      });
-      return NextResponse.json({ prs, pos, grns });
-    }
+
 
     if (view === "equipment") {
       let assets = await prisma.asset.findMany({
@@ -390,127 +376,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, request: invReq });
       }
 
-      case "create_pr": {
-        const { requestedBy, items, notes } = payload;
-        const count = await prisma.purchaseRequisition.count();
-        const prNumber = `PR-2026-${String(count + 1).padStart(4, "0")}`;
-        const pr = await prisma.purchaseRequisition.create({
-          data: {
-            prNumber,
-            requestedBy,
-            notes,
-            items: {
-              create: items.map((it: any) => ({
-                productId: it.productId,
-                quantity: Number(it.quantity) || 1,
-              })),
-            },
-          },
-        });
-        return NextResponse.json(pr, { status: 201 });
-      }
 
-      case "approve_pr_to_po": {
-        const { prId, supplierName, supplierEmail, items } = payload;
-        const count = await prisma.purchaseOrder.count();
-        const poNumber = `PO-2026-${String(count + 1).padStart(4, "0")}`;
-
-        let totalAmount = 0;
-        const poItemsData = [];
-
-        for (const it of items) {
-          const product = await prisma.product.findUnique({ where: { id: it.productId } });
-          const cost = Number(it.unitCost) || product?.costPrice || 0;
-          const qty = Number(it.quantity) || 1;
-          totalAmount += cost * qty;
-          poItemsData.push({
-            productId: it.productId,
-            quantity: qty,
-            unitCost: cost,
-          });
-        }
-
-        const po = await prisma.purchaseOrder.create({
-          data: {
-            poNumber,
-            prId,
-            supplierName,
-            supplierEmail,
-            totalAmount,
-            status: "issued",
-            items: {
-              create: poItemsData,
-            },
-          },
-        });
-
-        await prisma.purchaseRequisition.update({
-          where: { id: prId },
-          data: { status: "approved" },
-        });
-
-        return NextResponse.json(po, { status: 201 });
-      }
-
-      case "receive_grn": {
-        const { poId, receivedBy, items } = payload;
-        const grn = await InventoryService.processGRN(poId, receivedBy, items);
-        return NextResponse.json(grn);
-      }
-
-      case "pos_sale": {
-        // Fast POS Sale: instant invoice + inventory deduction + Accounts Posting
-        const { items, paymentMethod = "cash" } = payload;
-        const count = await prisma.posSale.count();
-        const saleNumber = `POS-${Date.now().toString().slice(-6)}`;
-
-        let totalAmount = 0;
-        for (const item of items) {
-          totalAmount += item.quantity * item.unitPrice;
-        }
-
-        const sale = await prisma.posSale.create({
-          data: {
-            saleNumber,
-            totalAmount,
-            paymentMethod,
-            items: {
-              create: items.map((it: any) => ({
-                productId: it.productId,
-                quantity: Number(it.quantity),
-                unitPrice: Number(it.unitPrice),
-              })),
-            },
-          },
-        });
-
-        // Deduct inventory for each item
-        for (const item of items) {
-          await InventoryService.consumeStock(
-            item.productId,
-            item.quantity,
-            "pos_sale",
-            sale.id,
-            `POS Sale #${saleNumber}`
-          );
-        }
-
-        // Post Revenue through Accounts Posting Engine
-        const cashAccount = await AccountsPostingService.getAccountByCode("1000");
-        const revAccount = await AccountsPostingService.getAccountByCode("4000");
-
-        await AccountsPostingService.post({
-          memo: `POS Over-the-counter sale #${saleNumber}`,
-          refType: "pos_sale",
-          refId: sale.id,
-          lines: [
-            { accountId: cashAccount.id, debit: totalAmount, credit: 0 },
-            { accountId: revAccount.id, debit: 0, credit: totalAmount },
-          ],
-        });
-
-        return NextResponse.json(sale, { status: 201 });
-      }
 
       case "add_stock": {
         const { productId, quantity, unitCost, notes, source } = payload;

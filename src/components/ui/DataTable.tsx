@@ -45,7 +45,7 @@ export interface TabView {
 export interface FilterChipOption {
   id: string;
   label: string;
-  options: string[];
+  options: (string | { label: string; value: string })[];
   selected?: string;
   onSelect?: (option: string) => void;
 }
@@ -190,6 +190,12 @@ export default function DataTable<T extends Record<string, any>>({
           {/* Individual Field Filter Chips ("Deal owner ▾" style) */}
           {filterChips.map((chip) => {
             const isOpen = activeChipDropdown === chip.id;
+            const normalizedOptions = chip.options.map((opt) =>
+              typeof opt === "string" ? { label: opt, value: opt } : opt
+            );
+            const selectedMatch = normalizedOptions.find((o) => o.value === chip.selected);
+            const displaySelectedLabel = selectedMatch ? selectedMatch.label : chip.selected;
+
             return (
               <div key={chip.id} className="relative">
                 <button
@@ -204,7 +210,7 @@ export default function DataTable<T extends Record<string, any>>({
                       : "bg-white border-[#EDEDED] text-[#71717A] hover:bg-[#F7F7F8] hover:text-[#18181B]"
                   )}
                 >
-                  <span>{chip.selected ? `${chip.label}: ${chip.selected}` : `${chip.label}`}</span>
+                  <span>{chip.selected ? `${chip.label}: ${displaySelectedLabel}` : `${chip.label}`}</span>
                   <ChevronDown className="w-3 h-3 text-[#71717A]" />
                 </button>
 
@@ -214,7 +220,7 @@ export default function DataTable<T extends Record<string, any>>({
                       className="fixed inset-0 z-30"
                       onClick={() => setActiveChipDropdown(null)}
                     />
-                    <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-48 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
+                    <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-52 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
                       <div className="px-3 py-1 text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
                         Filter: {chip.label}
                       </div>
@@ -228,21 +234,21 @@ export default function DataTable<T extends Record<string, any>>({
                       >
                         All / Clear
                       </button>
-                      {chip.options.map((opt, i) => (
+                      {normalizedOptions.map((opt, i) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => {
-                            chip.onSelect?.(opt);
+                            chip.onSelect?.(opt.value);
                             setActiveChipDropdown(null);
                           }}
                           className={cn(
                             "w-full text-left px-3 py-1.5 hover:bg-[#F4F4F5] flex items-center justify-between",
-                            chip.selected === opt && "font-bold text-[#0D7A5F] bg-emerald-50/50"
+                            chip.selected === opt.value && "font-bold text-[#0D7A5F] bg-emerald-50/50"
                           )}
                         >
-                          <span>{opt}</span>
-                          {chip.selected === opt && <Check className="w-3 h-3 text-[#0D7A5F]" />}
+                          <span className="truncate pr-2">{opt.label}</span>
+                          {chip.selected === opt.value && <Check className="w-3 h-3 text-[#0D7A5F] shrink-0" />}
                         </button>
                       ))}
                     </div>

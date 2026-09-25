@@ -163,6 +163,8 @@ model Job {
   manualJobNumber      String?
   jobType              String              // installation, maintenance, repair, inspection
   remarks              String?
+  /// JSON array of completion proof photos (data URLs or https URLs) from field tech
+  completionPhotos     String?
   status               String              @default("Created") // Created, Assigned, Accepted, InProgress, Paused, CompletedPendingVerification, Finalized, Verified
   assignedTechnicianId String?
   assignedTechnician   Employee?           @relation(fields: [assignedTechnicianId], references: [id])

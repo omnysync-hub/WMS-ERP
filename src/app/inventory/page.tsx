@@ -53,24 +53,15 @@ export default function InventoryPurchasingPage() {
   const { currentRole } = useRole();
   const isStorekeeper = currentRole === "storekeeper";
 
-  const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "purchasing" | "pos" | "branches">("stock");
+  const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "branches">("stock");
 
   const [products, setProducts] = useState<any[]>([]);
   const [techRequests, setTechRequests] = useState<any[]>([]);
   const [techReturns, setTechReturns] = useState<any[]>([]);
-  const [purchasingData, setPurchasingData] = useState<{ prs: any[]; pos: any[]; grns: any[] }>({
-    prs: [],
-    pos: [],
-    grns: [],
-  });
 
   // Selected product movement timeline
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
 
-  // POS State
-  const [posCart, setPosCart] = useState<{ product: any; quantity: number }[]>([]);
-  const [posSuccessMsg, setPosSuccessMsg] = useState("");
-  const [isSubmittingPos, setIsSubmittingPos] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
   // Stock Filter State & Allocations Modal
@@ -112,11 +103,7 @@ export default function InventoryPurchasingPage() {
   const [checkoutEmployeeId, setCheckoutEmployeeId] = useState("");
   const [checkoutNotes, setCheckoutNotes] = useState("Tested, calibrated & functional");
 
-  // PR Form
-  const [showPrModal, setShowPrModal] = useState(false);
-  const [prProductId, setPrProductId] = useState("");
-  const [prQty, setPrQty] = useState("10");
-  const [prNotes, setPrNotes] = useState("");
+
 
   // Add Stock & Product Creation State
   const [showAddStockModal, setShowAddStockModal] = useState(false);
@@ -176,14 +163,7 @@ export default function InventoryPurchasingPage() {
         const returns = await retRes.json();
         if (Array.isArray(requests)) setTechRequests(requests);
         if (Array.isArray(returns)) setTechReturns(returns);
-      } else if (activeTab === "purchasing") {
-        const res = await fetch("/api/inventory?view=purchasing");
-        const data = await res.json();
-        setPurchasingData(data);
-      } else if (activeTab === "pos") {
-        const res = await fetch("/api/inventory");
-        const data = await res.json();
-        if (Array.isArray(data)) setProducts(data);
+
       } else if (activeTab === "branches") {
         const [prodRes, moveRes, equipRes, techRes] = await Promise.all([
           fetch("/api/inventory"),
@@ -298,84 +278,7 @@ export default function InventoryPurchasingPage() {
     }
   };
 
-  // Convert PR to PO
-  const handleApprovePrToPo = async (pr: any) => {
-    try {
-      const res = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create_po",
-          prId: pr.id,
-          supplierName: "Apex HVAC Wholesalers LLC",
-          supplierEmail: "sales@apexhvac.ae",
-          items: [{ productId: pr.productId, quantity: pr.quantity, unitCost: 45 }],
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setNotification("PR approved! Purchase Order generated and sent to supplier.");
-      loadData();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
 
-  // Receive GRN
-  const handleReceiveGrn = async (po: any) => {
-    try {
-      const res = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "receive_grn",
-          poId: po.id,
-          receivedBy: "Bilal Sheikh (Storekeeper)",
-          items: po.items?.map((item: any) => ({
-            productId: item.productId,
-            qtyReceived: item.quantity,
-          })) || [],
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setNotification("GRN created! Stock received into warehouse and inventory balance updated.");
-      loadData();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  // Raise PR
-  const handleCreatePr = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create_pr",
-          productId: prProductId || products[0]?.id,
-          quantity: Number(prQty) || 1,
-          notes: prNotes,
-          requestedBy: "Bilal Sheikh (Storekeeper)",
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setShowPrModal(false);
-      setNotification("Purchase Requisition raised successfully.");
-      loadData();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
 
   // Restock Existing Item
   const handleRestockSubmit = async (e: React.FormEvent) => {
@@ -555,54 +458,7 @@ export default function InventoryPurchasingPage() {
     }
   };
 
-  // POS Add to Cart
-  const addToPosCart = (product: any) => {
-    const existing = posCart.find((i) => i.product.id === product.id);
-    if (existing) {
-      setPosCart(
-        posCart.map((i) =>
-          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
-        )
-      );
-    } else {
-      setPosCart([...posCart, { product, quantity: 1 }]);
-    }
-  };
 
-  // POS Checkout
-  const handlePosCheckout = async () => {
-    if (posCart.length === 0) return;
-    try {
-      setIsSubmittingPos(true);
-      const res = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "pos_sale",
-          customerName: "Walk-in Counter Customer",
-          items: posCart.map((it) => ({
-            productId: it.product.id,
-            quantity: it.quantity,
-            unitPrice: it.product.unitPrice,
-          })),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      const data = await res.json();
-      setPosSuccessMsg(`Cash sale completed! Receipt #${data.invoiceNumber || "INV-POS"}`);
-      setPosCart([]);
-      loadData();
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setIsSubmittingPos(false);
-    }
-  };
-
-  const posTotal = posCart.reduce((sum, it) => sum + it.quantity * it.product.unitPrice, 0);
 
   const pendingStorekeeperCount =
     techRequests.filter((r) => r.status === "Pending").length +
@@ -795,17 +651,15 @@ export default function InventoryPurchasingPage() {
     { id: "stock", label: "Stock Levels", icon: <Package className="w-3.5 h-3.5" />, badge: lowStockCount > 0 ? `${lowStockCount} Low` : undefined },
     { id: "storekeeper", label: "Storekeeper Queue", icon: <Truck className="w-3.5 h-3.5" />, count: pendingStorekeeperCount },
     { id: "branches", label: "Branches & Movements", icon: <Building className="w-3.5 h-3.5" /> },
-    { id: "purchasing", label: "Procurement (PR / PO / GRN)", icon: <FileText className="w-3.5 h-3.5" /> },
-    { id: "pos", label: "Counter POS Terminal", icon: <ShoppingCart className="w-3.5 h-3.5" /> },
   ];
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Enterprise Page Header */}
       <PageHeader
-        breadcrumbs={[{ label: "Purchasing & Inventory" }]}
-        title="Purchasing & Inventory Management"
-        subtitle="Warehouse stock tracking, storekeeper dispatch queue, PR/PO/GRN procurement, and OTC counter POS"
+        breadcrumbs={[{ label: "Warehouse & Stock" }]}
+        title="Warehouse & Stock Management"
+        subtitle="Warehouse stock tracking, storekeeper dispatch queue, and multi-branch movements"
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -843,7 +697,7 @@ export default function InventoryPurchasingPage() {
               className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
             >
               <Plus className="w-3.5 h-3.5" />
-              Restock Item
+              + Restock Item
             </button>
             <button
               type="button"
@@ -859,17 +713,6 @@ export default function InventoryPurchasingPage() {
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
               Opening Stock
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (products.length > 0 && !prProductId) setPrProductId(products[0].id);
-                setShowPrModal(true);
-              }}
-              className="h-8 px-3 rounded-lg border border-[#D4D4D8] hover:bg-[#F4F4F5] text-xs font-semibold text-[#71717A] hover:text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
-            >
-              <FileText className="w-3.5 h-3.5 text-[#71717A]" />
-              Raise PR
             </button>
           </div>
         }
@@ -1582,182 +1425,7 @@ export default function InventoryPurchasingPage() {
         </div>
       )}
 
-      {/* TAB 3: PURCHASING PIPELINE (PR -> PO -> GRN) */}
-      {activeTab === "purchasing" && (
-        <div className="space-y-6">
-          {/* Purchase Requisitions */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Stage 1: Purchase Requisitions (PR)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowPrModal(true)}
-                className="text-xs font-semibold text-[#0D7A5F] hover:underline"
-              >
-                + New PR
-              </button>
-            </div>
 
-            <div className="divide-y divide-[#E4E4E7]">
-              {purchasingData.prs.map((pr) => (
-                <div key={pr.id} className="p-4 flex items-center justify-between hover:bg-[#FAFAFA]">
-                  <div>
-                    <span className="font-mono font-bold text-[#18181B]">{pr.prNumber}</span>
-                    <p className="text-xs text-[#52525B] mt-0.5">
-                      Requested: <span className="font-semibold text-[#18181B]">{pr.quantity}x {pr.product?.name}</span> by {pr.requestedBy}
-                    </p>
-                  </div>
-                  {pr.status === "pending" ? (
-                    <button
-                      type="button"
-                      onClick={() => handleApprovePrToPo(pr)}
-                      className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                    >
-                      Approve & Convert to PO
-                    </button>
-                  ) : (
-                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
-                      ✓ PO Issued
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Purchase Orders */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7]">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Stage 2: Purchase Orders (PO) & GRN Receipt
-              </h3>
-            </div>
-
-            <div className="divide-y divide-[#E4E4E7]">
-              {purchasingData.pos.map((po) => (
-                <div key={po.id} className="p-4 flex items-center justify-between hover:bg-[#FAFAFA]">
-                  <div>
-                    <span className="font-mono font-bold text-[#18181B]">{po.poNumber}</span>
-                    <p className="text-xs text-[#52525B] mt-0.5">
-                      Supplier: <span className="font-semibold text-[#18181B]">{po.supplierName}</span>
-                    </p>
-                    <p className="text-xs font-mono font-bold text-[#0D7A5F] mt-0.5">
-                      Total: {formatCurrency(po.totalAmount)}
-                    </p>
-                  </div>
-
-                  {po.status === "issued" ? (
-                    <button
-                      type="button"
-                      onClick={() => handleReceiveGrn(po)}
-                      className="h-8 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                    >
-                      Receive Delivery & Generate GRN
-                    </button>
-                  ) : (
-                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
-                      ✓ GRN Received
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: POINT OF SALE (POS) */}
-      {activeTab === "pos" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Products grid */}
-          <div className="lg:col-span-2 space-y-4">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-              Select HVAC Part / Service
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {products.map((p) => (
-                <button
-                  type="button"
-                  key={p.id}
-                  onClick={() => addToPosCart(p)}
-                  className="bg-white rounded-xl border border-[#E4E4E7] p-4 text-left hover:border-[#0D7A5F] transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                >
-                  <p className="font-mono text-[11px] text-[#71717A]">{p.sku}</p>
-                  <p className="font-bold text-[#18181B] text-xs mt-0.5">{p.name}</p>
-                  <div className="flex items-center justify-between mt-3 pt-2 border-t border-[#E4E4E7]">
-                    <span className="text-[11px] text-[#71717A]">
-                      In Stock: {p.stockQuantity}
-                    </span>
-                    <span className="text-xs font-bold font-mono text-[#0D7A5F]">
-                      {formatCurrency(p.unitPrice)}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Cart Checkout */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] p-5 shadow-xs flex flex-col justify-between h-[520px]">
-            <div>
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-3 border-b border-[#E4E4E7]">
-                Point of Sale Cart
-              </h3>
-
-              {posSuccessMsg && (
-                <div className="p-3 my-2 bg-emerald-50 text-emerald-900 rounded-lg text-xs font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  {posSuccessMsg}
-                </div>
-              )}
-
-              <div className="space-y-2 mt-3 max-h-72 overflow-y-auto">
-                {posCart.length === 0 ? (
-                  <p className="text-xs text-[#71717A] text-center py-12">
-                    Cart is empty. Select any part on the left to add.
-                  </p>
-                ) : (
-                  posCart.map((it) => (
-                    <div
-                      key={it.product.id}
-                      className="flex items-center justify-between text-xs p-2.5 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]"
-                    >
-                      <div>
-                        <p className="font-bold text-[#18181B]">{it.product.name}</p>
-                        <p className="text-[11px] text-[#71717A] font-mono">
-                          {it.quantity} x {formatCurrency(it.product.unitPrice)}
-                        </p>
-                      </div>
-                      <span className="font-mono font-bold text-[#18181B]">
-                        {formatCurrency(it.quantity * it.product.unitPrice)}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-[#E4E4E7] space-y-3">
-              <div className="flex items-center justify-between text-sm font-bold text-[#18181B]">
-                <span>Total Amount:</span>
-                <span className="font-mono text-[#0D7A5F] text-base font-black">
-                  {formatCurrency(posTotal)}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handlePosCheckout}
-                disabled={posCart.length === 0 || isSubmittingPos}
-                className="w-full py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:bg-[#E4E4E7] disabled:text-[#A1A1AA] text-white rounded-lg text-xs font-bold shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-              >
-                {isSubmittingPos ? "Processing Cash Sale..." : "Complete Cash POS Sale"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* TAB 5: BRANCHES & MULTI-MOVEMENT HUB */}
       {activeTab === "branches" && (
@@ -2467,97 +2135,7 @@ export default function InventoryPurchasingPage() {
         </div>
       )}
 
-      {/* RAISE PR MODAL */}
-      {showPrModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="pr-dialog-title"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setShowPrModal(false);
-          }}
-        >
-          <div className="bg-white rounded-xl max-w-sm w-full p-6 space-y-4 shadow-xl border border-[#E4E4E7]">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 id="pr-dialog-title" className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <FileText className="w-4 h-4 text-[#0D7A5F]" />
-                Raise Purchase Requisition (PR)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowPrModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded hover:bg-[#F4F4F5] transition"
-                aria-label="Close dialog"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <form onSubmit={handleCreatePr} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">
-                  Product *
-                </label>
-                <select
-                  value={prProductId}
-                  onChange={(e) => setPrProductId(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
-                >
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.sku})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">
-                  Quantity Required *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={prQty}
-                  onChange={(e) => setPrQty(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">
-                  Requisition Notes
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Stock below critical threshold"
-                  value={prNotes}
-                  onChange={(e) => setPrNotes(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setShowPrModal(false)}
-                  className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                >
-                  Submit Requisition
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ADD STOCK / CREATE PRODUCT MODAL */}
       {showAddStockModal && (

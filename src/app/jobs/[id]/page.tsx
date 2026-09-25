@@ -638,104 +638,148 @@ export default function JobDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            {canIssueStock && (
-              <button
-                type="button"
-                onClick={() => openIssueInventoryModal()}
-                className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Package className="w-3.5 h-3.5 text-amber-700" />
-                + Issue Warehouse Stock
-              </button>
-            )}
-            {canStockReturn && (
-              <button
-                type="button"
-                onClick={() => setStockReturnModalOpen(true)}
-                className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
-                Record Stock Return
-              </button>
-            )}
-            {canMisplacedItem && (
-              <button
-                type="button"
-                onClick={() => setMisplacedModalOpen(true)}
-                className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
-                Report Misplaced Item
-              </button>
-            )}
+            {isStorekeeper ? (
+              // Storekeeper can ONLY issue stock, no other action
+              canIssueStock && (
+                <button
+                  type="button"
+                  onClick={() => openIssueInventoryModal()}
+                  className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-500 hover:bg-amber-600 text-xs font-bold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  + Issue Warehouse Stock
+                </button>
+              )
+            ) : (
+              <>
+                {canIssueStock && (
+                  <button
+                    type="button"
+                    onClick={() => openIssueInventoryModal()}
+                    className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <Package className="w-3.5 h-3.5 text-amber-700" />
+                    + Issue Warehouse Stock
+                  </button>
+                )}
+                {canStockReturn && (
+                  <button
+                    type="button"
+                    onClick={() => setStockReturnModalOpen(true)}
+                    className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
+                    Record Stock Return
+                  </button>
+                )}
+                {canMisplacedItem && (
+                  <button
+                    type="button"
+                    onClick={() => setMisplacedModalOpen(true)}
+                    className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                    Report Misplaced Item
+                  </button>
+                )}
 
-            {canAddService && (
-              <button
-                type="button"
-                onClick={() => setAddServiceModalOpen(true)}
-                className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5 text-emerald-700" />
-                + Add Service / Item
-              </button>
-            )}
-            {canGenerateInvoice && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomInvoiceNumber(`INV-${job.jobNumber}`);
-                  setCustomInvoiceModalOpen(true);
-                }}
-                className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Receipt className="w-3.5 h-3.5 text-purple-700" />
-                Tax Invoice
-              </button>
-            )}
+                {canAddService && (
+                  <button
+                    type="button"
+                    onClick={() => setAddServiceModalOpen(true)}
+                    className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-emerald-700" />
+                    + Add Service / Item
+                  </button>
+                )}
+                {canGenerateInvoice && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomInvoiceNumber(`INV-${job.jobNumber}`);
+                      setCustomInvoiceModalOpen(true);
+                    }}
+                    className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <Receipt className="w-3.5 h-3.5 text-purple-700" />
+                    Tax Invoice
+                  </button>
+                )}
 
-            {canViewFinancials && !job.finalizedAt && (
-              <button
-                type="button"
-                onClick={() => setShowDiscountDrawer(true)}
-                className="h-8 px-3 rounded-lg border border-[#E4E4E7] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-              >
-                <Percent className="w-3.5 h-3.5 text-[#D97706]" />
-                Mid-Job Discount
-              </button>
-            )}
+                {canViewFinancials && !job.finalizedAt && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscountDrawer(true)}
+                    className="h-8 px-3 rounded-lg border border-[#E4E4E7] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                  >
+                    <Percent className="w-3.5 h-3.5 text-[#D97706]" />
+                    Mid-Job Discount
+                  </button>
+                )}
 
-            {(canGenerateInvoice || canCollectPayment) && job.status === "CompletedPendingVerification" && !job.finalizedAt && (
-              <button
-                type="button"
-                onClick={handleFinalizeJob}
-                disabled={isProcessing}
-                className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-              >
-                <Lock className="w-3.5 h-3.5 text-white" />
-                Sync & Lock Record
-              </button>
-            )}
+                {(canGenerateInvoice || canCollectPayment) && job.status === "CompletedPendingVerification" && !job.finalizedAt && (
+                  <button
+                    type="button"
+                    onClick={handleFinalizeJob}
+                    disabled={isProcessing}
+                    className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                  >
+                    <Lock className="w-3.5 h-3.5 text-white" />
+                    Sync & Lock Record
+                  </button>
+                )}
 
-            {isAdmin && job.status === "Finalized" && (
-              <button
-                type="button"
-                onClick={() => setShowVerifyModal(true)}
-                className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                Admin Verify
-              </button>
-            )}
+                {isAdmin && job.status === "Finalized" && (
+                  <button
+                    type="button"
+                    onClick={() => setShowVerifyModal(true)}
+                    className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Admin Verify
+                  </button>
+                )}
 
-            {job.status === "Verified" && (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold rounded-lg">
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                Audited & Verified
-              </span>
+                {job.status === "Verified" && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold rounded-lg">
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    Audited & Verified
+                  </span>
+                )}
+              </>
             )}
           </div>
         }
       />
+
+      {/* Storekeeper Specific Queue & Fulfillment Banner */}
+      {isStorekeeper && (!job.inventoryRequests || job.inventoryRequests.length === 0) && (
+        <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-900 text-xs font-medium rounded-lg flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            <strong>Storekeeper Notice:</strong> This work order currently has no material or inventory requests logged. Storekeeper actions are restricted solely to fulfilling warehouse stock requests.
+          </span>
+        </div>
+      )}
+      {isStorekeeper && job.inventoryRequests && job.inventoryRequests.length > 0 && (
+        <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-950 text-xs font-medium rounded-lg flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>
+              <strong>Storekeeper Mode:</strong> Viewing material requests for Work Order #{job.jobNumber}. You have sole authorization to issue physical stock from warehouse inventory.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => openIssueInventoryModal()}
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md shadow-2xs transition shrink-0 inline-flex items-center gap-1"
+          >
+            <Package className="w-3.5 h-3.5" />
+            + Issue Stock Now
+          </button>
+        </div>
+      )}
 
       {/* Notifications */}
       {successMsg && (
@@ -842,34 +886,70 @@ export default function JobDetailPage() {
                   <p className="text-xs text-[#27272A] mt-0.5 leading-relaxed">{job.remarks}</p>
                 </div>
               )}
+
+              {(() => {
+                let photos: string[] = [];
+                try {
+                  const raw = job.completionPhotos;
+                  if (typeof raw === "string" && raw.trim()) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) photos = parsed.filter((p: unknown) => typeof p === "string");
+                  }
+                } catch {
+                  photos = [];
+                }
+                if (photos.length === 0) return null;
+                return (
+                  <div className="sm:col-span-2 pt-3 border-t border-[#E4E4E7]">
+                    <p className="text-[11px] font-semibold text-[#71717A] uppercase mb-2">
+                      Completion photos ({photos.length})
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {photos.map((src, i) => (
+                        <a
+                          key={i}
+                          href={src}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block w-20 h-20 rounded-lg overflow-hidden border border-[#E4E4E7] bg-zinc-100 hover:ring-2 hover:ring-[#0D7A5F]"
+                          title={`Proof photo ${i + 1}`}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={src} alt={`Job completion ${i + 1}`} className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
           {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
           {(isAccountant || isAdmin) && (
-            <div className="bg-gradient-to-r from-emerald-950 via-zinc-900 to-zinc-900 text-white rounded-xl p-5 border border-emerald-800/40 shadow-sm space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-700/60">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+            <div className="bg-white rounded-xl p-5 border border-[#E4E4E7] shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#F4F4F5]">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#0D7A5F] border border-emerald-200 flex items-center justify-center shrink-0">
                     <Briefcase className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#18181B]">
                       Accountant End-to-End Job Reconciliation
                     </h3>
-                    <p className="text-[10px] text-zinc-400">
+                    <p className="text-[11px] text-[#71717A]">
                       Material lifecycle: Used, Left, Returned & Financial Settlements
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => setAddServiceModalOpen(true)}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                    className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    + Add Service
+                    <span>Add Service</span>
                   </button>
                   <button
                     type="button"
@@ -877,48 +957,48 @@ export default function JobDetailPage() {
                       setCustomInvoiceNumber(`INV-${job.jobNumber}`);
                       setCustomInvoiceModalOpen(true);
                     }}
-                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
                   >
                     <Receipt className="w-3.5 h-3.5" />
-                    Invoice
+                    <span>Invoice</span>
                   </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
-                  <span className="text-[10px] text-zinc-400 uppercase font-semibold block">Total Planned</span>
-                  <span className="text-base font-black font-mono text-white mt-0.5 block">
-                    {job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0} units
+                <div className="p-3.5 bg-zinc-50/80 rounded-xl border border-zinc-200">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider block">Total Planned</span>
+                  <span className="text-xl font-black font-mono text-[#18181B] mt-1 block">
+                    {job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0} <span className="text-xs font-semibold text-zinc-500 font-sans">units</span>
                   </span>
-                  <span className="text-[10px] text-zinc-500">Scope of Work</span>
+                  <span className="text-[10px] text-zinc-500 mt-0.5 block">Scope of Work</span>
                 </div>
-                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
-                  <span className="text-[10px] text-emerald-400 uppercase font-semibold block">Installed / Used</span>
-                  <span className="text-base font-black font-mono text-emerald-400 mt-0.5 block">
-                    {job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0} units
+                <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200">
+                  <span className="text-[10px] text-emerald-800 uppercase font-bold tracking-wider block">Installed / Used</span>
+                  <span className="text-xl font-black font-mono text-[#0D7A5F] mt-1 block">
+                    {job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0} <span className="text-xs font-semibold text-emerald-700 font-sans">units</span>
                   </span>
-                  <span className="text-[10px] text-emerald-500">Billable Actuals</span>
+                  <span className="text-[10px] text-emerald-700 font-medium mt-0.5 block">Billable Actuals</span>
                 </div>
-                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
-                  <span className="text-[10px] text-amber-400 uppercase font-semibold block">Unused / Left</span>
-                  <span className="text-base font-black font-mono text-amber-400 mt-0.5 block">
+                <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200">
+                  <span className="text-[10px] text-amber-800 uppercase font-bold tracking-wider block">Unused / Left</span>
+                  <span className="text-xl font-black font-mono text-amber-900 mt-1 block">
                     {Math.max(
                       0,
                       (job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0) -
                       (job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0)
-                    )} units
+                    )} <span className="text-xs font-semibold text-amber-700 font-sans">units</span>
                   </span>
-                  <span className="text-[10px] text-amber-400">
+                  <span className="text-[10px] text-amber-700 font-medium mt-0.5 block">
                     Returned: {job.stockReturns?.reduce((s: number, r: any) => s + (r.qtyReturned || 0), 0) || 0} units
                   </span>
                 </div>
-                <div className="p-3 bg-zinc-800/60 rounded-xl border border-zinc-700/50">
-                  <span className="text-[10px] text-purple-400 uppercase font-semibold block">Net Invoice Total</span>
-                  <span className="text-base font-black font-mono text-purple-300 mt-0.5 block">
+                <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-200">
+                  <span className="text-[10px] text-purple-800 uppercase font-bold tracking-wider block">Net Invoice Total</span>
+                  <span className="text-xl font-black font-mono text-purple-950 mt-1 block">
                     {formatCurrency(netPayable)}
                   </span>
-                  <span className="text-[10px] text-purple-400">
+                  <span className="text-[10px] text-purple-700 font-medium mt-0.5 block">
                     Collected: {formatCurrency(job.hisaabSettlements?.reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
                   </span>
                 </div>

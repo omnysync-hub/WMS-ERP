@@ -50,8 +50,8 @@ export default function RealLeafletMap({
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    // Default center around Dubai / UAE Metro Area
-    const defaultCenter: [number, number] = [25.2048, 55.2708];
+    // Default center around Lahore / Pakistan Metro Area
+    const defaultCenter: [number, number] = [31.5204, 74.3587];
 
     const map = L.map(mapContainerRef.current, {
       center: defaultCenter,
