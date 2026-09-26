@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Package, AlertCircle } from "lucide-react";
 
 interface AddAssetDrawerProps {
@@ -129,18 +130,20 @@ export default function AddAssetDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Category *
             </label>
-            <select
+            <SearchableSelect
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="Tools & Equipment">Tools & Equipment</option>
-              <option value="HVAC Testing Gauges">HVAC Testing Gauges</option>
-              <option value="Refrigeration Equipment">Refrigeration Equipment</option>
-              <option value="Company Vehicles">Company Vehicles</option>
-              <option value="Laptops & Computing">Laptops & Computing</option>
-              <option value="Field Computing">Field Tablets / Computing</option>
-            </select>
+              onChange={setCategory}
+              placeholder="Select Category"
+              searchPlaceholder="Search category..."
+              options={[
+                "Tools & Equipment",
+                "HVAC Testing Gauges",
+                "Refrigeration Equipment",
+                "Company Vehicles",
+                "Laptops & Computing",
+                "Field Tablets / Computing",
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#18181B] mb-1">

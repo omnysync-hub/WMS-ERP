@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -43,7 +44,11 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export default function HrmPayrollPage() {
+function HrmPayrollContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const tabParam = searchParams.get("tab");
+
   const [activeTab, setActiveTab] = useState<
     | "analytics"
     | "employees"
@@ -54,7 +59,44 @@ export default function HrmPayrollPage() {
     | "payroll"
     | "advances"
     | "ess"
-  >("analytics");
+  >(() => {
+    if (
+      tabParam &&
+      [
+        "analytics",
+        "employees",
+        "leave",
+        "assets",
+        "recruitment",
+        "attendance",
+        "payroll",
+        "advances",
+        "ess",
+      ].includes(tabParam)
+    ) {
+      return tabParam as any;
+    }
+    return "analytics";
+  });
+
+  useEffect(() => {
+    if (
+      tabParam &&
+      [
+        "analytics",
+        "employees",
+        "leave",
+        "assets",
+        "recruitment",
+        "attendance",
+        "payroll",
+        "advances",
+        "ess",
+      ].includes(tabParam)
+    ) {
+      setActiveTab(tabParam as any);
+    }
+  }, [tabParam]);
 
   // General data
   const [employees, setEmployees] = useState<any[]>([]);
@@ -438,26 +480,66 @@ export default function HrmPayrollPage() {
     }
   };
 
-  // Main Tabs per 04-DESIGN.md
-  const tabs = [
-    { id: "analytics", label: "HR Dashboard", icon: <BarChart3 className="w-3.5 h-3.5" /> },
-    { id: "employees", label: "Employees", icon: <Users className="w-3.5 h-3.5" />, count: employees.length },
-    { id: "leave", label: "Leave Management", icon: <Calendar className="w-3.5 h-3.5" />, count: leaveRequests.filter((r) => r.status === "Pending").length },
-    { id: "assets", label: "Assets Register", icon: <Package className="w-3.5 h-3.5" />, count: assets.length },
-    { id: "recruitment", label: "Recruitment (ATS)", icon: <UserPlus className="w-3.5 h-3.5" />, count: candidates.length },
-    { id: "attendance", label: "Attendance & Face", icon: <Camera className="w-3.5 h-3.5" /> },
-    { id: "payroll", label: "Payroll Runs", icon: <CreditCard className="w-3.5 h-3.5" /> },
-    { id: "advances", label: "Advances", icon: <TrendingDown className="w-3.5 h-3.5" /> },
-    { id: "ess", label: "Self-Service (ESS)", icon: <Sparkles className="w-3.5 h-3.5" /> },
-  ];
+  const tabTitles: Record<string, { label: string; title: string; subtitle: string }> = {
+    analytics: {
+      label: "HR Dashboard",
+      title: "Human Resources & Workforce Overview",
+      subtitle: "Executive KPI widgets, department headcounts, live shifts, and workforce metrics",
+    },
+    employees: {
+      label: "Employees",
+      title: "Employee Directory & Organization Master",
+      subtitle: "Employee records, departments, designations, pay grades, and reporting hierarchies",
+    },
+    leave: {
+      label: "Leave Management",
+      title: "Leave Policy & Application Approvals",
+      subtitle: "Review pending employee leave requests, leave quotas, and statutory holiday schedules",
+    },
+    assets: {
+      label: "Assets Register",
+      title: "Company Assets & Equipment Tracking",
+      subtitle: "Company vehicle, tools, and hardware asset registry with assignment audit trails",
+    },
+    recruitment: {
+      label: "Recruitment (ATS)",
+      title: "Talent Acquisition & ATS Pipeline",
+      subtitle: "Job requisitions, applicant tracking system, interview stages, and offers",
+    },
+    attendance: {
+      label: "Attendance & Face",
+      title: "Geofenced Attendance & Facial Verification",
+      subtitle: "Multi-site geofencing, facial liveness verification, and dual-gate biometric audit logs",
+    },
+    payroll: {
+      label: "Payroll Runs",
+      title: "Automated Monthly Payroll Engine",
+      subtitle: "Salary structure calculations, deductions, allowances, bank disbursements, and payslips",
+    },
+    advances: {
+      label: "Advances",
+      title: "Staff Salary Advance Ledger",
+      subtitle: "Record and manage employee advance disbursements and automated payroll recovery",
+    },
+    ess: {
+      label: "Self-Service (ESS)",
+      title: "Employee Self-Service Portal",
+      subtitle: "Self-service payslip access, leave balance inquiries, and grievance helpdesk",
+    },
+  };
+
+  const currentTabInfo = tabTitles[activeTab] || tabTitles.analytics;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Page Header */}
       <PageHeader
-        breadcrumbs={[{ label: "HRM & Workforce" }]}
-        title="Human Resources & Workforce Management"
-        subtitle="End-to-end employee master, leave policies, asset tracking, ATS recruitment, grievance helpdesk, and automated payroll"
+        breadcrumbs={[
+          { label: "HRM & Workforce" },
+          ...(activeTab !== "analytics" ? [{ label: currentTabInfo.label }] : []),
+        ]}
+        title={currentTabInfo.title}
+        subtitle={currentTabInfo.subtitle}
         actions={
           activeTab === "employees" ? (
             <button
@@ -525,36 +607,6 @@ export default function HrmPayrollPage() {
           </button>
         </div>
       )}
-
-      {/* Primary Tab Navigation */}
-      <div className="flex items-center border-b border-[#E4E4E7] gap-2 overflow-x-auto bg-white px-4 rounded-xl border shadow-xs">
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`h-11 px-3 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition whitespace-nowrap ${
-                isActive
-                  ? "border-[#0D7A5F] text-[#0D7A5F]"
-                  : "border-transparent text-[#71717A] hover:text-[#18181B] hover:border-[#D4D4D8]"
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-              {tab.count !== undefined && tab.count > 0 && (
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                    isActive ? "bg-emerald-100 text-emerald-800" : "bg-[#F4F4F5] text-[#71717A]"
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
 
       {/* ========================================================================= */}
       {/* TAB 1: HR ANALYTICS DASHBOARD (ROLE-AWARE KPI WIDGETS)                     */}
@@ -1884,3 +1936,19 @@ export default function HrmPayrollPage() {
     </div>
   );
 }
+
+export default function HrmPayrollPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-12 text-center text-xs text-zinc-500 flex items-center justify-center gap-2">
+          <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+          <span>Loading HRM & Workforce...</span>
+        </div>
+      }
+    >
+      <HrmPayrollContent />
+    </Suspense>
+  );
+}
+

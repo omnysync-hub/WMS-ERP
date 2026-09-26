@@ -73,6 +73,37 @@ export default function AccountsPage() {
     | "subledgers"
   >("ledgers");
 
+  // Sync tab with URL query parameter (?tab=...)
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get("tab");
+        if (
+          tab &&
+          [
+            "ledgers",
+            "expenses",
+            "pos",
+            "cashbook",
+            "chart",
+            "mapping",
+            "journal",
+            "reports",
+            "bankrec",
+            "fixedassets",
+            "subledgers",
+          ].includes(tab)
+        ) {
+          setActiveTab(tab as any);
+        }
+      }
+    };
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => window.removeEventListener("popstate", syncTabFromUrl);
+  }, []);
+
   // Sub-tabs for Party Ledgers
   const [partySubTab, setPartySubTab] = useState<"customers" | "technicians" | "vendors">("customers");
 
@@ -831,69 +862,6 @@ export default function AccountsPage() {
     setExpandedTreeNodes(new Set());
   };
 
-  const tabs = [
-    {
-      id: "ledgers",
-      label: "Party Ledgers (AR & AP)",
-      icon: <Users className="w-3.5 h-3.5" />,
-      count: partiesData.customers.length + partiesData.technicians.length,
-    },
-    {
-      id: "expenses",
-      label: "Expenses & Outflows",
-      icon: <TrendingDown className="w-3.5 h-3.5" />,
-      count: expenses.length,
-    },
-    {
-      id: "pos",
-      label: "POS Sales Register",
-      icon: <ShoppingBag className="w-3.5 h-3.5" />,
-      count: posSales.length,
-    },
-    {
-      id: "cashbook",
-      label: "Cash & Bank Book",
-      icon: <Wallet className="w-3.5 h-3.5" />,
-      count: cashbookEntries.length,
-    },
-    {
-      id: "chart",
-      label: "Chart of Accounts (COA)",
-      icon: <BookOpen className="w-3.5 h-3.5" />,
-      count: coaFlat.length || accounts.length,
-    },
-    {
-      id: "mapping",
-      label: "Account Mapping",
-      icon: <Sliders className="w-3.5 h-3.5" />,
-    },
-    {
-      id: "journal",
-      label: "General Journal",
-      icon: <Scale className="w-3.5 h-3.5" />,
-      count: journalEntries.length,
-    },
-    {
-      id: "reports",
-      label: "Financial Statements",
-      icon: <FileText className="w-3.5 h-3.5" />,
-    },
-    {
-      id: "bankrec",
-      label: "Bank Reconciliation",
-      icon: <Building className="w-3.5 h-3.5" />,
-    },
-    {
-      id: "fixedassets",
-      label: "Fixed Assets & Depr",
-      icon: <Layers className="w-3.5 h-3.5" />,
-    },
-    {
-      id: "subledgers",
-      label: "Sub-Ledger Drift & Aging",
-      icon: <ArrowLeftRight className="w-3.5 h-3.5" />,
-    },
-  ];
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -963,42 +931,6 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* Enterprise Tab Navigation */}
-      <div className="flex items-center border-b border-[#E4E4E7] gap-2 overflow-x-auto bg-white px-4 rounded-xl border shadow-xs">
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id as any);
-                setSelectedTechId("");
-              }}
-              className={`h-11 px-3.5 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition whitespace-nowrap focus-visible:outline-none ${
-                isActive
-                  ? "border-[#0D7A5F] text-[#0D7A5F]"
-                  : "border-transparent text-[#71717A] hover:text-[#18181B] hover:border-[#D4D4D8]"
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-              {tab.count !== undefined && (
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                    (tab as any).alertBadge
-                      ? "bg-amber-100 text-amber-800 border border-amber-300 animate-pulse"
-                      : isActive
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-[#F4F4F5] text-[#71717A]"
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
 
       {/* ========================================================================= */}
       {/* TAB 1: PENDING TECHNICIAN DISCOUNT APPROVALS QUEUE */}

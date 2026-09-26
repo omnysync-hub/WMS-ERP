@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Calendar, AlertCircle } from "lucide-react";
 
 interface LeaveRequestDrawerProps {
@@ -111,17 +112,17 @@ export default function LeaveRequestDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Applying Employee *
             </label>
-            <select
-              value={employeeId || employees[0]?.id}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name} ({e.designation || e.role} — {e.department})
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={employeeId || employees[0]?.id || ""}
+              onChange={setEmployeeId}
+              placeholder="Select Employee"
+              searchPlaceholder="Search employee..."
+              options={employees.map((e) => ({
+                value: String(e.id),
+                label: e.name,
+                subLabel: `${e.designation || e.role} — ${e.department || ""}`,
+              }))}
+            />
           </div>
         )}
 
@@ -129,17 +130,17 @@ export default function LeaveRequestDrawer({
           <label className="block text-xs font-semibold text-[#18181B] mb-1">
             Leave Category *
           </label>
-          <select
-            value={leaveTypeId || leaveTypes[0]?.id}
-            onChange={(e) => setLeaveTypeId(e.target.value)}
-            className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-          >
-            {leaveTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} ({t.accrualRule})
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={leaveTypeId || leaveTypes[0]?.id || ""}
+            onChange={setLeaveTypeId}
+            placeholder="Select Leave Type"
+            searchPlaceholder="Search leave type..."
+            options={leaveTypes.map((t) => ({
+              value: String(t.id),
+              label: t.name,
+              subLabel: t.accrualRule,
+            }))}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">

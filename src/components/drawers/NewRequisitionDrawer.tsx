@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { UserPlus, AlertCircle } from "lucide-react";
 
 interface NewRequisitionDrawerProps {
@@ -115,17 +116,19 @@ export default function NewRequisitionDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Target Department *
             </label>
-            <select
+            <SearchableSelect
               value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="Operations">Operations</option>
-              <option value="Maintenance">Maintenance</option>
-              <option value="Accounts">Accounts</option>
-              <option value="HR">Human Resources</option>
-              <option value="Sales">Sales & Projects</option>
-            </select>
+              onChange={setDepartment}
+              placeholder="Select Department"
+              searchPlaceholder="Search department..."
+              options={[
+                "Operations",
+                "Maintenance",
+                "Accounts",
+                "HR",
+                "Sales & Projects",
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#18181B] mb-1">

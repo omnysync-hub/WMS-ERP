@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { UserCheck, AlertCircle } from "lucide-react";
 
 interface AssignAssetDrawerProps {
@@ -108,17 +109,17 @@ export default function AssignAssetDrawer({
           <label className="block text-xs font-semibold text-[#18181B] mb-1">
             Assign To Employee *
           </label>
-          <select
-            value={employeeId || employees[0]?.id}
-            onChange={(e) => setEmployeeId(e.target.value)}
-            className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-          >
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name} ({e.designation || e.role} — {e.department})
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={employeeId || employees[0]?.id || ""}
+            onChange={setEmployeeId}
+            placeholder="Select Employee"
+            searchPlaceholder="Search by name, role or department..."
+            options={employees.map((e) => ({
+              value: String(e.id),
+              label: e.name,
+              subLabel: `${e.designation || e.role} — ${e.department || ""}`,
+            }))}
+          />
         </div>
 
         <div>

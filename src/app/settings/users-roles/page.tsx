@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { useRole, SystemUser, RoleType } from "@/contexts/RoleContext";
 import { PERMISSION_GROUPS, ALL_PERMISSION_KEYS } from "@/lib/permissions";
 import {
@@ -360,18 +361,22 @@ export default function UsersAndRolesSettingsPage() {
                 />
               </div>
 
-              <select
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-                className="bg-white border border-[#D4D4D8] text-xs text-[#18181B] rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-              >
-                <option value="all">All Roles ({availablePersonas.length})</option>
-                {availablePersonas.map((p) => (
-                  <option key={p.role} value={p.role}>
-                    {p.name} ({p.role})
-                  </option>
-                ))}
-              </select>
+              <div className="w-56">
+                <SearchableSelect
+                  value={roleFilter}
+                  onChange={setRoleFilter}
+                  placeholder="All Roles"
+                  searchPlaceholder="Filter role..."
+                  options={[
+                    { value: "all", label: `All Roles (${availablePersonas.length})` },
+                    ...availablePersonas.map((p) => ({
+                      value: p.role,
+                      label: p.name,
+                      subLabel: p.role,
+                    })),
+                  ]}
+                />
+              </div>
             </div>
 
             <span className="text-xs font-mono text-[#71717A]">
@@ -763,17 +768,17 @@ export default function UsersAndRolesSettingsPage() {
 
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">Assigned Role *</label>
-                  <select
+                  <SearchableSelect
                     value={formRole}
-                    onChange={(e) => setFormRole(e.target.value as any)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
-                  >
-                    {availablePersonas.map((p) => (
-                      <option key={p.role} value={p.role}>
-                        {p.name} ({p.role})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormRole(val as any)}
+                    placeholder="Select Role"
+                    searchPlaceholder="Search role..."
+                    options={availablePersonas.map((p) => ({
+                      value: p.role,
+                      label: p.name,
+                      subLabel: p.role,
+                    }))}
+                  />
                 </div>
               </div>
 
@@ -939,17 +944,17 @@ export default function UsersAndRolesSettingsPage() {
                 <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                   Clone Initial Permissions From Template *
                 </label>
-                <select
+                <SearchableSelect
                   value={cloneFromRole}
-                  onChange={(e) => setCloneFromRole(e.target.value)}
-                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
-                >
-                  {availablePersonas.map((p) => (
-                    <option key={p.role} value={p.role}>
-                      Clone from: {p.name} ({p.role})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setCloneFromRole}
+                  placeholder="Select template role..."
+                  searchPlaceholder="Search role template..."
+                  options={availablePersonas.map((p) => ({
+                    value: p.role,
+                    label: `Clone from: ${p.name} (${p.role})`,
+                    subLabel: p.role,
+                  }))}
+                />
                 <p className="text-[10px] text-[#71717A] mt-1">
                   You can fine-tune every individual sub-part toggle immediately after creation.
                 </p>

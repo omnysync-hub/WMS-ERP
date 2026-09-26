@@ -29,6 +29,7 @@ import {
 import { realtimeSync, notifySync } from "@/lib/realtimeSync";
 import { logActivity } from "@/lib/telemetry";
 import { useRole } from "@/contexts/RoleContext";
+import SideDrawer from "@/components/ui/SideDrawer";
 
 interface RollbackRecord {
   id: string;
@@ -970,90 +971,76 @@ export default function AuditHubPage() {
       )}
 
       {/* TELEMETRY ACTIVITY DETAILS DRAWER */}
-      {isTelemetryDrawerOpen && selectedActivity && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-end bg-black/40 backdrop-blur-xs animate-in fade-in"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white h-full max-w-md w-full shadow-2xl border-l border-[#EDEDED] flex flex-col animate-in slide-in-from-right duration-200">
-            {/* Drawer Header */}
-            <div className="p-4 border-b border-[#EDEDED] flex items-center justify-between bg-[#F7F7F8]">
-              <div className="flex items-center gap-2">
-                <MousePointer className="w-4 h-4 text-purple-600" />
-                <h3 className="font-bold text-sm text-[#18181B]">
-                  Click Telemetry Event
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsTelemetryDrawerOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Drawer Content */}
-            <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold text-[#71717A]">Target Element</span>
-                <p className="font-semibold text-sm text-[#18181B] break-words">
-                  {selectedActivity.target}
-                </p>
-              </div>
-
-              <div className="p-3 bg-[#F4F4F5] rounded-xl space-y-2 border border-[#EDEDED]">
-                <div className="flex justify-between">
-                  <span className="text-[#71717A]">Member Account:</span>
-                  <strong className="text-[#18181B]">{selectedActivity.actorName}</strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#71717A]">Role:</span>
-                  <span className="font-mono font-bold text-purple-700">{selectedActivity.actorRole}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#71717A]">Category:</span>
-                  <span className="font-mono text-[#18181B]">{selectedActivity.category}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#71717A]">Action:</span>
-                  <span className="font-mono text-[#18181B]">{selectedActivity.action}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#71717A]">Timestamp:</span>
-                  <span className="text-[#18181B]">{new Date(selectedActivity.timestamp).toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Technical Telemetry Metadata */}
-              <div className="space-y-1.5">
-                <span className="text-[10px] uppercase font-bold text-[#71717A]">
-                  Technical Telemetry Context
-                </span>
-                <pre className="text-[11px] font-mono bg-[#18181B] text-[#E4E4E7] p-3 rounded-xl overflow-x-auto whitespace-pre-wrap">
-                  {(() => {
-                    try {
-                      return JSON.stringify(JSON.parse(selectedActivity.metadata || "{}"), null, 2);
-                    } catch {
-                      return selectedActivity.metadata || "No additional metadata";
-                    }
-                  })()}
-                </pre>
-              </div>
-            </div>
-
-            {/* Drawer Footer */}
-            <div className="p-4 border-t border-[#EDEDED] bg-[#F7F7F8] flex justify-end">
-              <button
-                onClick={() => setIsTelemetryDrawerOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-[#EDEDED] text-[#18181B] hover:bg-[#F4F4F5]"
-              >
-                Close Details
-              </button>
-            </div>
+      <SideDrawer
+        isOpen={Boolean(isTelemetryDrawerOpen && selectedActivity)}
+        onClose={() => setIsTelemetryDrawerOpen(false)}
+        width="max-w-md"
+        title={
+          <div className="flex items-center gap-2">
+            <MousePointer className="w-4 h-4 text-purple-600" />
+            <span>Click Telemetry Event</span>
           </div>
-        </div>
-      )}
+        }
+        bodyClassName="p-5 overflow-y-auto space-y-4 flex-1 text-xs"
+        footer={
+          <button
+            onClick={() => setIsTelemetryDrawerOpen(false)}
+            className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-[#EDEDED] text-[#18181B] hover:bg-[#F4F4F5] transition"
+          >
+            Close Details
+          </button>
+        }
+      >
+        {selectedActivity && (
+          <>
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-[#71717A]">Target Element</span>
+              <p className="font-semibold text-sm text-[#18181B] break-words">
+                {selectedActivity.target}
+              </p>
+            </div>
+
+            <div className="p-3 bg-[#F4F4F5] rounded-xl space-y-2 border border-[#EDEDED]">
+              <div className="flex justify-between">
+                <span className="text-[#71717A]">Member Account:</span>
+                <strong className="text-[#18181B]">{selectedActivity.actorName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#71717A]">Role:</span>
+                <span className="font-mono font-bold text-purple-700">{selectedActivity.actorRole}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#71717A]">Category:</span>
+                <span className="font-mono text-[#18181B]">{selectedActivity.category}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#71717A]">Action:</span>
+                <span className="font-mono text-[#18181B]">{selectedActivity.action}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#71717A]">Timestamp:</span>
+                <span className="text-[#18181B]">{new Date(selectedActivity.timestamp).toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Technical Telemetry Metadata */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] uppercase font-bold text-[#71717A]">
+                Technical Telemetry Context
+              </span>
+              <pre className="text-[11px] font-mono bg-[#18181B] text-[#E4E4E7] p-3 rounded-xl overflow-x-auto whitespace-pre-wrap">
+                {(() => {
+                  try {
+                    return JSON.stringify(JSON.parse(selectedActivity.metadata || "{}"), null, 2);
+                  } catch {
+                    return selectedActivity.metadata || "No additional metadata";
+                  }
+                })()}
+              </pre>
+            </div>
+          </>
+        )}
+      </SideDrawer>
     </div>
   );
 }

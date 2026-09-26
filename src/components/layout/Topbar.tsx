@@ -7,7 +7,6 @@ import {
   Search,
   Plus,
   Bell,
-  Phone,
   HelpCircle,
   Briefcase,
   User,
@@ -356,18 +355,8 @@ export default function Topbar({
           </div>
         </div>
 
-        {/* Right: Softphone Dialer, Notifications & Role Switcher */}
+        {/* Right: Notifications & Role Switcher */}
         <div className="flex items-center gap-2.5">
-          {/* Quick Dialer Icon Button */}
-          <button
-            title="Click to dial (CTI Softphone)"
-            aria-label="Click to dial softphone"
-            className="p-1.5 text-[#A1A1AA] hover:text-white hover:bg-[#27272A] rounded-lg transition relative focus-visible:outline-none"
-          >
-            <Phone className="w-4 h-4" />
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 absolute top-1.5 right-1.5" />
-          </button>
-
           {/* Notifications Bell with Popover Dropdown */}
           <div className="relative">
             <button

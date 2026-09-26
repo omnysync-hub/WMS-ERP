@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import SideDrawer from "@/components/ui/SideDrawer";
 import {
   Package,
   ShoppingCart,
@@ -33,6 +34,11 @@ import {
   ClipboardList,
   Pencil,
   Sparkles,
+  History,
+  XCircle,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
@@ -47,6 +53,28 @@ function isServiceProduct(p: any) {
     s.startsWith("SVC-") ||
     ["service", "visit", "job", "hr", "hour"].includes(u)
   );
+}
+
+function generateServiceSku(prods: any[] = []) {
+  const existingSkus = new Set(
+    prods.map((p) => (p.sku || "").toUpperCase().trim())
+  );
+  let maxNum = 0;
+  prods.forEach((p) => {
+    const sku = (p.sku || "").toUpperCase().trim();
+    const match = sku.match(/^SRV-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  });
+  let nextNum = maxNum > 0 ? maxNum + 1 : 1;
+  let candidate = `SRV-${String(nextNum).padStart(3, "0")}`;
+  while (existingSkus.has(candidate)) {
+    nextNum++;
+    candidate = `SRV-${String(nextNum).padStart(3, "0")}`;
+  }
+  return candidate;
 }
 
 export default function InventoryPurchasingPage() {
@@ -107,21 +135,13 @@ export default function InventoryPurchasingPage() {
 
   // Add Stock & Product Creation State
   const [showAddStockModal, setShowAddStockModal] = useState(false);
-  const [stockModalTab, setStockModalTab] = useState<"restock" | "opening_stock" | "new_product" | "new_service">("restock");
+  const [stockModalTab, setStockModalTab] = useState<"restock" | "new_product" | "new_service">("restock");
   const [restockProductId, setRestockProductId] = useState("");
   const [restockQuantity, setRestockQuantity] = useState("10");
   const [restockUnitCost, setRestockUnitCost] = useState("");
   const [restockSource, setRestockSource] = useState("Local Wholesale Market (Karachi/Lahore)");
   const [restockNotes, setRestockNotes] = useState("");
   const [isSubmittingStock, setIsSubmittingStock] = useState(false);
-
-  // Opening Stock State
-  const [openingProductId, setOpeningProductId] = useState("");
-  const [openingQuantity, setOpeningQuantity] = useState("50");
-  const [openingUnitCost, setOpeningUnitCost] = useState("");
-  const [openingValuationDate, setOpeningValuationDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [openingNotes, setOpeningNotes] = useState("Fiscal Year Opening Stock Balance Declaration");
-  const [isSubmittingOpeningStock, setIsSubmittingOpeningStock] = useState(false);
 
   // New Physical Product State
   const [newProductSku, setNewProductSku] = useState("");
@@ -133,11 +153,9 @@ export default function InventoryPurchasingPage() {
   const [newProductMinAlert, setNewProductMinAlert] = useState("5");
 
   // Predefined Service State
-  const [newServiceSku, setNewServiceSku] = useState("SRV-");
+  const [newServiceSku, setNewServiceSku] = useState("");
   const [newServiceName, setNewServiceName] = useState("");
-  const [newServiceUnit, setNewServiceUnit] = useState("service");
   const [newServiceCost, setNewServiceCost] = useState("");
-  const [newServicePrice, setNewServicePrice] = useState("");
   const [newServiceNotes, setNewServiceNotes] = useState("");
 
   // Quick Edit Modal State (Rate / Cost update)
@@ -188,6 +206,12 @@ export default function InventoryPurchasingPage() {
   useEffect(() => {
     loadData();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (products.length > 0 && (!newServiceSku || newServiceSku === "SRV-")) {
+      setNewServiceSku(generateServiceSku(products));
+    }
+  }, [products]);
 
   // Real-time synchronization for storekeeper requests and stock returns
   useEffect(() => {
@@ -313,40 +337,6 @@ export default function InventoryPurchasingPage() {
     }
   };
 
-  // Declare / Set Opening Stock
-  const handleOpeningStockSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!openingProductId) return;
-    try {
-      setIsSubmittingOpeningStock(true);
-      const res = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "set_opening_stock",
-          productId: openingProductId,
-          quantity: Number(openingQuantity) || 1,
-          unitCost: Number(openingUnitCost) || 0,
-          openingDate: openingValuationDate,
-          notes: openingNotes,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setShowAddStockModal(false);
-      const targetProduct = products.find((p) => p.id === openingProductId);
-      setNotification(
-        `Opening stock of ${openingQuantity} units declared for "${targetProduct?.name || "Product"}"! Posted Dr 1200 (Inventory Asset) / Cr 3000 (Owner Equity).`
-      );
-      loadData();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsSubmittingOpeningStock(false);
-    }
-  };
 
   // Create New Product
   const handleCreateProductSubmit = async (e: React.FormEvent) => {
@@ -393,6 +383,7 @@ export default function InventoryPurchasingPage() {
     if (!newServiceSku || !newServiceName) return;
     try {
       setIsSubmittingStock(true);
+      const cost = Number(newServiceCost) || 0;
       const res = await fetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -401,9 +392,9 @@ export default function InventoryPurchasingPage() {
           itemType: "service",
           sku: newServiceSku.trim().toUpperCase(),
           name: newServiceName.trim(),
-          unit: newServiceUnit,
-          unitPrice: Number(newServicePrice) || 0,
-          costPrice: Number(newServiceCost) || 0,
+          unit: "service",
+          unitPrice: cost,
+          costPrice: cost,
           stockQuantity: 0,
           reorderLevel: 0,
           notes: newServiceNotes || "Predefined billable service package",
@@ -415,9 +406,9 @@ export default function InventoryPurchasingPage() {
       }
       setShowAddStockModal(false);
       setNotification(`Predefined Service "${newServiceName}" (${newServiceSku}) added to catalog!`);
-      setNewServiceSku("SRV-");
+      const nextSku = generateServiceSku([...products, { sku: newServiceSku }]);
+      setNewServiceSku(nextSku);
       setNewServiceName("");
-      setNewServicePrice("");
       setNewServiceCost("");
       setNewServiceNotes("");
       loadData();
@@ -434,6 +425,7 @@ export default function InventoryPurchasingPage() {
     if (!editingProduct) return;
     try {
       setIsUpdatingProduct(true);
+      const isService = isServiceProduct(editingProduct);
       const res = await fetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -441,7 +433,7 @@ export default function InventoryPurchasingPage() {
           action: "update_product",
           id: editingProduct.id,
           unitPrice: Number(editPrice) || 0,
-          costPrice: Number(editCost) || 0,
+          costPrice: isService ? (Number(editPrice) || 0) : (Number(editCost) || 0),
         }),
       });
       if (!res.ok) {
@@ -496,6 +488,35 @@ export default function InventoryPurchasingPage() {
     }
     return true;
   });
+
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const inventoryPageSize = 20;
+
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [stockFilter, searchTerm, products.length]);
+
+  const sortedProducts = React.useMemo(() => {
+    return [...filteredProducts].sort((a, b) => {
+      const parseDate = (item: any) => {
+        const val = item?.createdAt || item?.created_at || item?.updatedAt || item?.updated_at || item?.date;
+        if (!val) return 0;
+        const d = new Date(val).getTime();
+        return isNaN(d) ? 0 : d;
+      };
+      const dateA = parseDate(a);
+      const dateB = parseDate(b);
+      if (dateA && dateB && dateA !== dateB) return dateB - dateA;
+      return 0;
+    });
+  }, [filteredProducts]);
+
+  const invTotalItems = sortedProducts.length;
+  const invTotalPages = Math.max(1, Math.ceil(invTotalItems / inventoryPageSize));
+  const validInvPage = Math.min(Math.max(1, inventoryPage), invTotalPages);
+  const invStartIndex = (validInvPage - 1) * inventoryPageSize;
+  const invEndIndex = Math.min(invStartIndex + inventoryPageSize, invTotalItems);
+  const paginatedProducts = sortedProducts.slice(invStartIndex, invEndIndex);
 
   const handleBranchTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -647,9 +668,8 @@ export default function InventoryPurchasingPage() {
     }
   };
 
-  const tabs = [
+  const tabs: Array<{ id: string; label: string; icon: React.ReactNode; badge?: string; count?: number }> = [
     { id: "stock", label: "Stock Levels", icon: <Package className="w-3.5 h-3.5" />, badge: lowStockCount > 0 ? `${lowStockCount} Low` : undefined },
-    { id: "storekeeper", label: "Storekeeper Queue", icon: <Truck className="w-3.5 h-3.5" />, count: pendingStorekeeperCount },
     { id: "branches", label: "Branches & Movements", icon: <Building className="w-3.5 h-3.5" /> },
   ];
 
@@ -659,13 +679,14 @@ export default function InventoryPurchasingPage() {
       <PageHeader
         breadcrumbs={[{ label: "Warehouse & Stock" }]}
         title="Warehouse & Stock Management"
-        subtitle="Warehouse stock tracking, storekeeper dispatch queue, and multi-branch movements"
+        subtitle="Comprehensive inventory levels, parts tracking, on-job field allocations, and multi-branch movements"
         actions={
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => {
                 setStockModalTab("new_service");
+                setNewServiceSku(generateServiceSku(products));
                 setShowAddStockModal(true);
               }}
               className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
@@ -698,21 +719,6 @@ export default function InventoryPurchasingPage() {
             >
               <Plus className="w-3.5 h-3.5" />
               + Restock Item
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (products.length > 0 && !openingProductId) {
-                  setOpeningProductId(products[0].id);
-                  setOpeningUnitCost(String(products[0].costPrice || ""));
-                }
-                setStockModalTab("opening_stock");
-                setShowAddStockModal(true);
-              }}
-              className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-              Opening Stock
             </button>
           </div>
         }
@@ -876,26 +882,32 @@ export default function InventoryPurchasingPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+            {/* Header & Controls Toolbar */}
+            <div className="px-5 py-4 bg-gradient-to-r from-zinc-50/80 to-white border-b border-[#E4E4E7] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
-                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Catalog Inventory & Predefined Services
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                    Catalog Inventory & Predefined Services
+                  </h3>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 font-semibold border border-zinc-200">
+                    {filteredProducts.length} {filteredProducts.length === 1 ? "item" : "items"}
+                  </span>
+                </div>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Physical warehouse stock, on-job allocations, and predefined billable technician service packages.
+                  Physical warehouse stock, live job dispatches, and predefined billable technician service packages.
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2.5">
                 {/* Filter chips */}
-                <div className="inline-flex rounded-lg p-0.5 bg-[#F4F4F5] border border-[#E4E4E7] text-xs">
+                <div className="inline-flex rounded-xl p-1 bg-[#F4F4F5] border border-[#E4E4E7] text-xs">
                   <button
                     type="button"
                     onClick={() => setStockFilter("all")}
-                    className={`px-2.5 py-1 rounded-md font-semibold transition ${
+                    className={`px-3 py-1 rounded-lg font-semibold transition ${
                       stockFilter === "all"
-                        ? "bg-white text-[#18181B] shadow-2xs"
+                        ? "bg-white text-[#18181B] shadow-2xs font-bold"
                         : "text-[#71717A] hover:text-[#18181B]"
                     }`}
                   >
@@ -904,33 +916,33 @@ export default function InventoryPurchasingPage() {
                   <button
                     type="button"
                     onClick={() => setStockFilter("physical")}
-                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                    className={`px-2.5 py-1 rounded-lg font-semibold inline-flex items-center gap-1.5 transition ${
                       stockFilter === "physical"
-                        ? "bg-[#0D7A5F] text-white shadow-2xs"
+                        ? "bg-[#0D7A5F] text-white shadow-2xs font-bold"
                         : "text-[#71717A] hover:text-[#0D7A5F]"
                     }`}
                   >
                     <Package className="w-3 h-3" />
-                    Physical Stock ({physicalProducts.length})
+                    Physical ({physicalProducts.length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setStockFilter("services")}
-                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                    className={`px-2.5 py-1 rounded-lg font-semibold inline-flex items-center gap-1.5 transition ${
                       stockFilter === "services"
-                        ? "bg-indigo-600 text-white shadow-2xs"
+                        ? "bg-indigo-600 text-white shadow-2xs font-bold"
                         : "text-[#71717A] hover:text-indigo-700"
                     }`}
                   >
                     <Wrench className="w-3 h-3" />
-                    Predefined Services ({serviceProducts.length})
+                    Services ({serviceProducts.length})
                   </button>
                   <button
                     type="button"
                     onClick={() => setStockFilter("field")}
-                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                    className={`px-2.5 py-1 rounded-lg font-semibold inline-flex items-center gap-1.5 transition ${
                       stockFilter === "field"
-                        ? "bg-blue-600 text-white shadow-2xs"
+                        ? "bg-blue-600 text-white shadow-2xs font-bold"
                         : "text-[#71717A] hover:text-blue-700"
                     }`}
                   >
@@ -940,248 +952,327 @@ export default function InventoryPurchasingPage() {
                   <button
                     type="button"
                     onClick={() => setStockFilter("low")}
-                    className={`px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 transition ${
+                    className={`px-2.5 py-1 rounded-lg font-semibold inline-flex items-center gap-1.5 transition ${
                       stockFilter === "low"
-                        ? "bg-amber-600 text-white shadow-2xs"
+                        ? "bg-amber-600 text-white shadow-2xs font-bold"
                         : "text-[#71717A] hover:text-amber-700"
                     }`}
                   >
                     <AlertTriangle className="w-3 h-3" />
-                    Low Stock ({lowStockCount})
+                    Low ({lowStockCount})
                   </button>
                 </div>
 
-                <div className="relative w-56">
-                  <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-2.5" />
+                {/* Search Bar */}
+                <div className="relative w-64">
+                  <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
                   <input
                     type="text"
                     placeholder="Search SKU, part, or service..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                    className="w-full pl-8.5 pr-7 py-1.5 rounded-xl border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] placeholder:text-zinc-400"
                   />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm("")}
+                      className="absolute right-2.5 top-2 text-zinc-400 hover:text-zinc-600 text-xs"
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                    <th className="py-2.5 px-4">Item Code & Type</th>
-                    <th className="py-2.5 px-4">Description / Service</th>
-                    <th className="py-2.5 px-4 text-center">In Warehouse</th>
-                    <th className="py-2.5 px-4 text-center">Stock on Job</th>
-                    <th className="py-2.5 px-4 text-center">Total Stock</th>
-                    <th className="py-2.5 px-4 text-center">Reorder Point</th>
-                    <th className="py-2.5 px-4 text-right">
-                      {isStorekeeper ? "Valuation" : "Billable Rate"}
-                    </th>
-                    <th className="py-2.5 px-4 text-center">Classification</th>
-                    <th className="py-2.5 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E4E4E7]">
-                  {filteredProducts.map((p) => {
-                    const isService = isServiceProduct(p);
-                    const isLow = !isService && p.stockQuantity <= (p.reorderPoint || 5);
-                    const isOut = !isService && p.stockQuantity <= 0;
-                    const onJobQty = p.stockOnJob || 0;
-                    const totalQty = (p.stockQuantity || 0) + onJobQty;
+            {/* Table or Empty State */}
+            {filteredProducts.length === 0 ? (
+              <div className="py-14 px-4 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-zinc-100 text-zinc-400 flex items-center justify-center mx-auto mb-3">
+                  <Package className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-zinc-800">No inventory items or services found</h4>
+                <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
+                  {searchTerm
+                    ? `No results match "${searchTerm}". Try checking your spelling or clearing filters.`
+                    : "No items match the selected category filter."}
+                </p>
+                {(searchTerm || stockFilter !== "all") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTerm("");
+                      setStockFilter("all");
+                    }}
+                    className="mt-3.5 px-3 py-1.5 rounded-lg border border-zinc-300 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition"
+                  >
+                    Reset Filters & Search
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto max-h-[640px]">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 bg-[#F8FAFC] z-10 border-b border-[#E4E4E7]">
+                    <tr className="text-[11px] font-semibold text-[#71717A] uppercase tracking-wider">
+                      <th className="py-3 px-4">Item Code & Type</th>
+                      <th className="py-3 px-4">Description / Service</th>
+                      <th className="py-3 px-4 text-center">In Warehouse</th>
+                      <th className="py-3 px-4 text-center">Stock on Job</th>
+                      <th className="py-3 px-4 text-center">Total Stock</th>
+                      <th className="py-3 px-4 text-center">Reorder Point</th>
+                      <th className="py-3 px-4 text-right">
+                        {isStorekeeper ? "Valuation" : "Billable Rate"}
+                      </th>
+                      <th className="py-3 px-4 text-center">Classification</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E4E4E7]">
+                    {paginatedProducts.map((p) => {
+                      const isService = isServiceProduct(p);
+                      const isLow = !isService && p.stockQuantity <= (p.reorderPoint || 5);
+                      const isOut = !isService && p.stockQuantity <= 0;
+                      const onJobQty = p.stockOnJob || 0;
+                      const totalQty = (p.stockQuantity || 0) + onJobQty;
 
-                    return (
-                      <tr
-                        key={p.id}
-                        className={`transition hover:bg-[#FAFAFA] ${
-                          isService
-                            ? "bg-purple-50/15"
-                            : isLow
-                            ? "bg-amber-50/20"
-                            : ""
-                        }`}
-                      >
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-bold text-[#18181B]">{p.sku}</span>
+                      return (
+                        <tr
+                          key={p.id}
+                          className={`transition-colors hover:bg-zinc-50/80 ${
+                            isService
+                              ? "bg-purple-50/15"
+                              : isLow
+                              ? "bg-amber-50/25"
+                              : ""
+                          }`}
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-xs text-[#18181B] bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-md shadow-2xs">
+                                {p.sku}
+                              </span>
+                              {isService ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200 shrink-0">
+                                  <Wrench className="w-2.5 h-2.5 text-purple-700" />
+                                  Service
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                                  <Package className="w-2.5 h-2.5 text-emerald-700" />
+                                  Material
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 max-w-xs">
+                            <div className="font-semibold text-xs text-[#18181B]">{p.name}</div>
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono">
                             {isService ? (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200 shrink-0">
-                                <Wrench className="w-2.5 h-2.5" />
+                              <span className="text-xs text-zinc-300 font-mono">—</span>
+                            ) : isOut ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                0 <span className="font-normal text-[10px] text-rose-600">{p.unit || "unit"}</span>
+                              </span>
+                            ) : isLow ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                {p.stockQuantity} <span className="font-normal text-[10px] text-amber-700">{p.unit || "unit"}</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                {p.stockQuantity} <span className="font-normal text-[10px] text-emerald-700">{p.unit || "unit"}</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {isService ? (
+                              <span className="text-xs text-zinc-300 font-mono">—</span>
+                            ) : onJobQty > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setActiveAllocationProduct(p)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition shadow-2xs cursor-pointer group"
+                                title="Click to view technician allocations across active jobs"
+                              >
+                                <Truck className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-105 transition-transform" />
+                                <span>{onJobQty} <span className="text-[10px] font-normal">{p.unit || "units"}</span></span>
+                                <span className="text-[10px] px-1.5 py-0.2 bg-blue-200/80 rounded-full font-mono text-blue-900 font-semibold">
+                                  {p.jobAllocations?.length || 1} {p.jobAllocations?.length === 1 ? "job" : "jobs"}
+                                </span>
+                              </button>
+                            ) : (
+                              <span className="text-xs text-zinc-300 font-mono">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {isService ? (
+                              <span className="text-xs text-zinc-300 font-mono">—</span>
+                            ) : (
+                              <div className="font-mono font-bold text-xs text-[#18181B]">
+                                {totalQty} <span className="text-[10px] font-normal text-zinc-500">{p.unit || "unit"}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono">
+                            {isService ? (
+                              <span className="text-xs text-zinc-300 font-mono">—</span>
+                            ) : (
+                              <span className="text-xs text-zinc-600 font-medium">
+                                {p.reorderPoint || 5} <span className="text-[10px] text-zinc-400 font-normal">{p.unit || "unit"}</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isStorekeeper && !isService ? (
+                              <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                Price Masked
+                              </span>
+                            ) : (
+                              <div className="font-mono text-xs font-bold text-[#18181B]">
+                                <span>{formatCurrency(p.unitPrice || p.costPrice || 0)}</span>
+                                {!isService && (
+                                  <span className="text-[10px] font-normal text-zinc-500 ml-1">/{p.unit || "unit"}</span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {isService ? (
+                              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200 whitespace-nowrap inline-flex items-center gap-1.5 shadow-2xs">
+                                <Sparkles className="w-3 h-3 text-purple-600 shrink-0" />
                                 Service
                               </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
-                                <Package className="w-2.5 h-2.5" />
-                                Material
+                            ) : isOut ? (
+                              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-800 border border-rose-200 whitespace-nowrap inline-flex items-center gap-1.5 shadow-2xs">
+                                <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                Out of Stock
                               </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-[#18181B]">{p.name}</div>
-                          <div className="text-[10px] text-[#71717A] mt-0.5">
-                            {isService ? (
-                              <span className="text-purple-700 font-medium flex items-center gap-1">
-                                <Sparkles className="w-2.5 h-2.5" />
-                                Predefined Billable Labor / Diagnostic Package
+                            ) : isLow ? (
+                              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap inline-flex items-center gap-1.5 shadow-2xs">
+                                <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                Low Stock
                               </span>
                             ) : (
-                              <span>Physical Material / Spare Part ({p.unit || "unit"})</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono font-bold">
-                          {isService ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                              ⚡ On-Demand
-                            </span>
-                          ) : (
-                            <span
-                              className={
-                                isOut
-                                  ? "text-rose-600"
-                                  : isLow
-                                  ? "text-amber-600"
-                                  : "text-emerald-700"
-                              }
-                            >
-                              {p.stockQuantity} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          {isService ? (
-                            <span className="text-xs text-[#A1A1AA] font-mono">—</span>
-                          ) : onJobQty > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveAllocationProduct(p)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition cursor-pointer"
-                              title="Click to view technician allocations across active jobs"
-                            >
-                              <Truck className="w-3 h-3 text-blue-600 shrink-0" />
-                              <span>{onJobQty} {p.unit || "units"}</span>
-                              <span className="text-[9px] px-1 bg-blue-200/70 rounded-full font-mono text-blue-900 font-normal">
-                                {p.jobAllocations?.length || 1} {p.jobAllocations?.length === 1 ? "job" : "jobs"}
+                              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-nowrap inline-flex items-center gap-1.5 shadow-2xs">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                In Stock
                               </span>
-                            </button>
-                          ) : (
-                            <span className="text-[#A1A1AA] text-xs font-mono">0 on job</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono font-bold text-[#18181B]">
-                          {isService ? (
-                            <span className="text-xs text-purple-700 font-semibold">Unlimited</span>
-                          ) : (
-                            <span>{totalQty} <span className="text-[10px] font-normal text-[#71717A]">{p.unit || "unit"}</span></span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono text-[#71717A]">
-                          {isService ? "—" : (p.reorderPoint || 5)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B]">
-                          {isStorekeeper && !isService ? (
-                            <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                              Price Masked
-                            </span>
-                          ) : (
-                            <div>
-                              <span>{formatCurrency(p.unitPrice)}</span>
-                              <span className="text-[10px] font-normal text-[#71717A] ml-1">/{p.unit || (isService ? "service" : "unit")}</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {isService ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingProduct(p);
+                                      setEditPrice(String(p.unitPrice || 0));
+                                      setEditCost(String(p.costPrice || 0));
+                                    }}
+                                    className="h-7 px-2.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-semibold inline-flex items-center gap-1 transition shadow-2xs cursor-pointer focus-visible:outline-none"
+                                    title="Edit service billing rate or technician cost"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                    Edit Cost
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewTimeline(p.id)}
+                                    className="h-7 px-2 rounded-lg text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer focus-visible:outline-none"
+                                    title="View Stock Audit Log"
+                                  >
+                                    <History className="w-3.5 h-3.5" />
+                                    Log
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRestockProductId(p.id);
+                                      setRestockUnitCost(String(p.costPrice || ""));
+                                      setStockModalTab("restock");
+                                      setShowAddStockModal(true);
+                                    }}
+                                    className="h-7 px-2.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1 transition shadow-xs cursor-pointer focus-visible:outline-none"
+                                    title="Inward / Restock item"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    Restock
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewTimeline(p.id)}
+                                    className="h-7 px-2 rounded-lg text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer focus-visible:outline-none"
+                                    title="View Stock Audit Log"
+                                  >
+                                    <History className="w-3.5 h-3.5" />
+                                    Log
+                                  </button>
+                                </>
+                              )}
                             </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          {isService ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200 inline-flex items-center gap-1">
-                              <Wrench className="w-2.5 h-2.5" />
-                              Predefined Service
-                            </span>
-                          ) : isOut ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                              Out of Stock
-                            </span>
-                          ) : isLow ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                              Low Stock Warning
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              In Stock
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {isService ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingProduct(p);
-                                    setEditPrice(String(p.unitPrice || 0));
-                                    setEditCost(String(p.costPrice || 0));
-                                  }}
-                                  className="text-[11px] font-semibold text-purple-700 hover:bg-purple-100/70 px-2 py-0.5 rounded transition border border-purple-200 focus-visible:outline-none inline-flex items-center gap-1"
-                                  title="Edit service billing rate or technician cost"
-                                >
-                                  <Pencil className="w-3 h-3" />
-                                  Edit Rate
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleViewTimeline(p.id)}
-                                  className="text-[11px] font-semibold text-[#71717A] hover:text-[#18181B] hover:underline focus-visible:outline-none"
-                                >
-                                  Log
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setRestockProductId(p.id);
-                                    setRestockUnitCost(String(p.costPrice || ""));
-                                    setStockModalTab("restock");
-                                    setShowAddStockModal(true);
-                                  }}
-                                  className="text-[11px] font-semibold text-[#0D7A5F] hover:bg-[#0D7A5F]/10 px-2 py-0.5 rounded transition border border-[#0D7A5F]/30 focus-visible:outline-none inline-flex items-center gap-0.5"
-                                  title="Inward / Restock item"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  Restock
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpeningProductId(p.id);
-                                    setOpeningUnitCost(String(p.costPrice || ""));
-                                    setStockModalTab("opening_stock");
-                                    setShowAddStockModal(true);
-                                  }}
-                                  className="text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 px-2 py-0.5 rounded transition border border-emerald-300 focus-visible:outline-none inline-flex items-center gap-0.5"
-                                  title="Set or audit opening stock"
-                                >
-                                  <FileSpreadsheet className="w-3 h-3" />
-                                  Opening
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleViewTimeline(p.id)}
-                                  className="text-[11px] font-semibold text-[#71717A] hover:text-[#18181B] hover:underline focus-visible:outline-none"
-                                >
-                                  Log
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Table Footer with Pagination Controls */}
+              <div className="px-4 py-3 bg-[#FAFAFA] border-t border-[#EDEDED] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#71717A]">
+                <div className="flex items-center gap-3">
+                  <span>
+                    Showing{" "}
+                    <strong className="text-[#18181B] font-mono">
+                      {invTotalItems === 0 ? 0 : invStartIndex + 1}–{invEndIndex}
+                    </strong>{" "}
+                    of <strong className="text-[#18181B] font-mono">{invTotalItems}</strong> catalog items
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-[#71717A]">
+                    Page <strong className="text-[#18181B]">{validInvPage}</strong> of{" "}
+                    <strong className="text-[#18181B]">{invTotalPages}</strong>
+                  </span>
+
+                  <div className="inline-flex items-center rounded-lg border border-[#D4D4D8] bg-white shadow-2xs overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setInventoryPage((p) => Math.max(1, p - 1))}
+                      disabled={validInvPage <= 1}
+                      className="px-3 py-1.5 text-xs font-semibold text-[#18181B] hover:bg-[#F4F4F5] disabled:opacity-40 disabled:cursor-not-allowed transition border-r border-[#E4E4E7] flex items-center gap-1 cursor-pointer disabled:pointer-events-none"
+                      aria-label="Previous page"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryPage((p) => Math.min(invTotalPages, p + 1))}
+                      disabled={validInvPage >= invTotalPages}
+                      className="px-3 py-1.5 text-xs font-semibold text-[#18181B] hover:bg-[#F4F4F5] disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer disabled:pointer-events-none"
+                      aria-label="Next page"
+                    >
+                      Next
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
           </div>
 
           {/* Product Movement Timeline & Allocations Drawer */}
@@ -2057,142 +2148,138 @@ export default function InventoryPurchasingPage() {
             )}
           </div>
 
-          {/* CHECKOUT EQUIPMENT MODAL */}
-          {selectedAssetForCheckout && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-              <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-                  <div>
-                    <h4 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                      <Package className="w-4 h-4 text-[#0D7A5F]" />
-                      Issue Equipment to Field Tech
-                    </h4>
-                    <span className="text-[11px] text-[#71717A] font-mono">
-                      {selectedAssetForCheckout.tag} — {selectedAssetForCheckout.name}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => setSelectedAssetForCheckout(null)}
-                    className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <form onSubmit={handleCheckoutEquipment} className="p-5 space-y-4 text-xs">
-                  <div>
-                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                      Assign to Technician *
-                    </label>
-                    <select
-                      required
-                      value={checkoutEmployeeId}
-                      onChange={(e) => setCheckoutEmployeeId(e.target.value)}
-                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
-                    >
-                      <option value="">-- Select Field Technician --</option>
-                      {technicians.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.designation || "HVAC Tech"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                      Pre-Issue Inspection & Calibration Notes
-                    </label>
-                    <input
-                      type="text"
-                      value={checkoutNotes}
-                      onChange={(e) => setCheckoutNotes(e.target.value)}
-                      className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B]"
-                      placeholder="e.g. Gauge calibrated, oil level ok"
-                    />
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-2 border-t border-[#EDEDED]">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedAssetForCheckout(null)}
-                      className="px-4 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A]"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmittingMovement || !checkoutEmployeeId}
-                      className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition disabled:opacity-50"
-                    >
-                      {isSubmittingMovement ? "Issuing..." : "Confirm Checkout"}
-                    </button>
-                  </div>
-                </form>
+          {/* CHECKOUT EQUIPMENT SIDE DRAWER */}
+          <SideDrawer
+            isOpen={Boolean(selectedAssetForCheckout)}
+            onClose={() => setSelectedAssetForCheckout(null)}
+            width="max-w-md"
+            title={
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-[#0D7A5F]" />
+                <span>Issue Equipment to Field Tech</span>
               </div>
-            </div>
-          )}
+            }
+            subtitle={
+              selectedAssetForCheckout ? (
+                <span className="font-mono">
+                  {selectedAssetForCheckout.tag} — {selectedAssetForCheckout.name}
+                </span>
+              ) : undefined
+            }
+            bodyClassName="p-0 flex flex-col flex-1 overflow-hidden"
+          >
+            <form onSubmit={handleCheckoutEquipment} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+              <div>
+                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                  Assign to Technician *
+                </label>
+                <select
+                  required
+                  value={checkoutEmployeeId}
+                  onChange={(e) => setCheckoutEmployeeId(e.target.value)}
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+                >
+                  <option value="">-- Select Field Technician --</option>
+                  {technicians.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.designation || "HVAC Tech"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                  Pre-Issue Inspection & Calibration Notes
+                </label>
+                <input
+                  type="text"
+                  value={checkoutNotes}
+                  onChange={(e) => setCheckoutNotes(e.target.value)}
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] focus:ring-2 focus:ring-[#0D7A5F] outline-none"
+                  placeholder="e.g. Gauge calibrated, oil level ok"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-[#EDEDED]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAssetForCheckout(null)}
+                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] font-semibold hover:bg-zinc-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMovement || !checkoutEmployeeId}
+                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {isSubmittingMovement ? "Issuing..." : "Confirm Checkout"}
+                </button>
+              </div>
+            </form>
+          </SideDrawer>
         </div>
       )}
 
 
 
-      {/* ADD STOCK / CREATE PRODUCT MODAL */}
-      {showAddStockModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-lg w-full border border-[#E4E4E7] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    stockModalTab === "new_service"
-                      ? "bg-purple-100 text-purple-700"
-                      : "bg-[#0D7A5F]/10 text-[#0D7A5F]"
-                  }`}
-                >
-                  {stockModalTab === "new_service" ? (
-                    <Wrench className="w-4 h-4" />
-                  ) : (
-                    <Package className="w-4 h-4" />
-                  )}
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#18181B]">
-                    {stockModalTab === "restock"
-                      ? "Add / Inward Stock"
-                      : stockModalTab === "opening_stock"
-                      ? "Opening Stock Declaration"
-                      : stockModalTab === "new_service"
-                      ? "Register Predefined Service"
-                      : "Register New Material / Spare Part"}
-                  </h3>
-                  <p className="text-[11px] text-[#71717A]">
-                    {stockModalTab === "restock"
-                      ? "Direct warehouse stock replenishment & automatic ledger posting"
-                      : stockModalTab === "opening_stock"
-                      ? "Establish verified opening balance & equity ledger (Dr 1200 / Cr 3000)"
-                      : stockModalTab === "new_service"
-                      ? "Define billable labor, chemical wash, inspection, or diagnostic packages"
-                      : "Register physical parts, refrigerants, or equipment in warehouse catalog"}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddStockModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+      {/* ADD STOCK / CREATE PRODUCT SIDE DRAWER */}
+      <SideDrawer
+        isOpen={showAddStockModal}
+        onClose={() => setShowAddStockModal(false)}
+        width="max-w-xl"
+        customHeader={
+          <div className="px-6 py-4.5 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA] shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  stockModalTab === "new_service"
+                    ? "bg-purple-100 text-purple-700"
+                    : "bg-[#0D7A5F]/10 text-[#0D7A5F]"
+                }`}
               >
-                <X className="w-4 h-4" />
-              </button>
+                {stockModalTab === "new_service" ? (
+                  <Wrench className="w-4 h-4" />
+                ) : (
+                  <Package className="w-4 h-4" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B]">
+                  {stockModalTab === "restock"
+                    ? "Add / Inward Stock"
+                    : stockModalTab === "new_service"
+                    ? "Register Predefined Service"
+                    : "Register New Material / Spare Part"}
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  {stockModalTab === "restock"
+                    ? "Direct warehouse stock replenishment & automatic ledger posting"
+                    : stockModalTab === "new_service"
+                    ? "Define billable labor, chemical wash, inspection, or diagnostic packages"
+                    : "Register physical parts, refrigerants, or equipment in warehouse catalog"}
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowAddStockModal(false)}
+              className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        }
+        bodyClassName="p-0 flex flex-col flex-1 overflow-hidden"
+      >
 
             {/* Sub-tab Navigation */}
-            <div className="flex border-b border-[#E4E4E7] px-5 bg-white overflow-x-auto">
+            <div className="flex border-b border-[#E4E4E7] px-6 bg-white overflow-x-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setStockModalTab("restock")}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                className={`py-3 px-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
                   stockModalTab === "restock"
                     ? "border-[#0D7A5F] text-[#0D7A5F]"
                     : "border-transparent text-[#71717A] hover:text-[#18181B]"
@@ -2202,26 +2289,8 @@ export default function InventoryPurchasingPage() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (products.length > 0 && !openingProductId) {
-                    setOpeningProductId(products[0].id);
-                    setOpeningUnitCost(String(products[0].costPrice || ""));
-                  }
-                  setStockModalTab("opening_stock");
-                }}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition inline-flex items-center gap-1.5 whitespace-nowrap ${
-                  stockModalTab === "opening_stock"
-                    ? "border-[#0D7A5F] text-[#0D7A5F]"
-                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
-                }`}
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                Opening Stock
-              </button>
-              <button
-                type="button"
                 onClick={() => setStockModalTab("new_product")}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition whitespace-nowrap inline-flex items-center gap-1.5 ${
+                className={`py-3 px-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap inline-flex items-center gap-1.5 ${
                   stockModalTab === "new_product"
                     ? "border-[#0D7A5F] text-[#0D7A5F]"
                     : "border-transparent text-[#71717A] hover:text-[#18181B]"
@@ -2232,8 +2301,13 @@ export default function InventoryPurchasingPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setStockModalTab("new_service")}
-                className={`py-2.5 px-3 text-xs font-semibold border-b-2 transition whitespace-nowrap inline-flex items-center gap-1.5 ${
+                onClick={() => {
+                  setStockModalTab("new_service");
+                  if (!newServiceSku || newServiceSku === "SRV-") {
+                    setNewServiceSku(generateServiceSku(products));
+                  }
+                }}
+                className={`py-3 px-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap inline-flex items-center gap-1.5 ${
                   stockModalTab === "new_service"
                     ? "border-indigo-600 text-indigo-700"
                     : "border-transparent text-[#71717A] hover:text-indigo-600"
@@ -2243,6 +2317,9 @@ export default function InventoryPurchasingPage() {
                 + Predefined Service
               </button>
             </div>
+
+            {/* Drawer Scrollable Body */}
+            <div className="flex-1 overflow-y-auto">
 
             {/* TAB 1: RESTOCK EXISTING ITEM */}
             {stockModalTab === "restock" && (
@@ -2381,160 +2458,7 @@ export default function InventoryPurchasingPage() {
               </form>
             )}
 
-            {/* TAB 2: OPENING STOCK DECLARATION */}
-            {stockModalTab === "opening_stock" && (
-              <form onSubmit={handleOpeningStockSubmit} className="p-5 space-y-4">
-                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-lg text-emerald-950 text-xs flex items-start gap-2.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">Double-Entry Accounting Compliance</span>
-                    <span className="text-[11px] text-emerald-800">
-                      Opening stock establishes verified baseline inventory on the Balance Sheet. 
-                      Posting directly debits <strong>Account 1200 (Inventory Asset)</strong> and credits <strong>Account 3000 (Owner Equity)</strong> without impacting P&L COGS.
-                    </span>
-                  </div>
-                </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                    Select Product *
-                  </label>
-                  <select
-                    value={openingProductId || (products[0]?.id || "")}
-                    onChange={(e) => {
-                      setOpeningProductId(e.target.value);
-                      const sel = products.find((p) => p.id === e.target.value);
-                      if (sel) setOpeningUnitCost(String(sel.costPrice || ""));
-                    }}
-                    className="w-full bg-[#FAFAFA] p-2.5 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
-                    required
-                  >
-                    <option value="" disabled>-- Select a Product --</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku}) — Available: {p.stockQuantity} {p.unit || "units"} (Current Cost: {formatCurrency(p.costPrice || 0)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Opening Physical Quantity *
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={openingQuantity}
-                      onChange={(e) => setOpeningQuantity(e.target.value)}
-                      placeholder="e.g. 50"
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      {isStorekeeper ? "Unit Cost (Masked)" : "Unit Cost (PKR) *"}
-                    </label>
-                    {isStorekeeper ? (
-                      <div className="w-full bg-amber-50/70 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 font-mono">
-                        Valuation Masked for Storekeeper
-                      </div>
-                    ) : (
-                      <input
-                        type="number"
-                        min="0"
-                        value={openingUnitCost}
-                        onChange={(e) => setOpeningUnitCost(e.target.value)}
-                        placeholder="e.g. 8500"
-                        className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold text-[#18181B]"
-                        required
-                      />
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Valuation / Effective Date
-                    </label>
-                    <input
-                      type="date"
-                      value={openingValuationDate}
-                      onChange={(e) => setOpeningValuationDate(e.target.value)}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Audit Notes / Memo
-                    </label>
-                    <input
-                      type="text"
-                      value={openingNotes}
-                      onChange={(e) => setOpeningNotes(e.target.value)}
-                      placeholder="e.g. FY 2026 Opening Count"
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
-                    />
-                  </div>
-                </div>
-
-                {/* Journal Entry Impact Preview */}
-                {(() => {
-                  const qty = Number(openingQuantity) || 0;
-                  const cost = Number(openingUnitCost) || 0;
-                  const totalVal = qty * cost;
-                  const sel = products.find((p) => p.id === (openingProductId || products[0]?.id));
-
-                  return (
-                    <div className="p-3.5 bg-[#F4F4F5] rounded-lg border border-[#E4E4E7] space-y-2 text-xs">
-                      <div className="flex items-center justify-between text-[#71717A] text-[11px] font-semibold uppercase">
-                        <span>Journal Entry Preview (Double-Entry)</span>
-                        <span className="font-mono text-[#18181B]">Valuation: {formatCurrency(totalVal)}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="p-2 bg-white rounded border border-[#E4E4E7]">
-                          <span className="text-[10px] text-emerald-700 font-bold uppercase block">Debit (Asset)</span>
-                          <span className="font-medium text-[#18181B] block">1200 - Inventory Asset</span>
-                          <span className="font-mono font-bold text-emerald-700">+{formatCurrency(totalVal)}</span>
-                        </div>
-                        <div className="p-2 bg-white rounded border border-[#E4E4E7]">
-                          <span className="text-[10px] text-blue-700 font-bold uppercase block">Credit (Equity)</span>
-                          <span className="font-medium text-[#18181B] block">3000 - Owner Capital / Equity</span>
-                          <span className="font-mono font-bold text-blue-700">+{formatCurrency(totalVal)}</span>
-                        </div>
-                      </div>
-                      {sel && (
-                        <div className="text-[11px] text-[#71717A] flex justify-between pt-1 border-t border-[#E4E4E7]">
-                          <span>Current Warehouse Stock: {sel.stockQuantity} {sel.unit || "unit"}</span>
-                          <span>New Stock Balance: <strong className="text-[#18181B]">{sel.stockQuantity + qty} {sel.unit || "unit"}</strong></span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E4E4E7]">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddStockModal(false)}
-                    className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingOpeningStock || !openingQuantity || Number(openingQuantity) <= 0}
-                    className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F] inline-flex items-center gap-1.5"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    {isSubmittingOpeningStock ? "Posting..." : "Declare Opening Stock"}
-                  </button>
-                </div>
-              </form>
-            )}
 
             {/* TAB 3: CREATE NEW PRODUCT */}
             {stockModalTab === "new_product" && (
@@ -2667,46 +2591,48 @@ export default function InventoryPurchasingPage() {
             {/* TAB 4: CREATE PREDEFINED SERVICE */}
             {stockModalTab === "new_service" && (
               <form onSubmit={handleCreateServiceSubmit} className="p-5 space-y-4">
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-950 flex items-start gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">Predefined Billable Service Package</span>
-                    <span className="text-[11px] text-purple-800">
-                      Predefined services represent standard technician labor, chemical cleaning, inspections, or repairs. They do not consume physical warehouse stock and are dispatched on-demand.
-                    </span>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Service Code / SKU *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-[#18181B]">
+                        Service Code / SKU *
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-purple-700 bg-purple-100/80 px-1.5 py-0.2 rounded font-bold uppercase tracking-wider border border-purple-200">
+                          Auto
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setNewServiceSku(generateServiceSku(products))}
+                          className="text-[#71717A] hover:text-purple-700 transition p-0.5 rounded hover:bg-purple-100"
+                          title="Regenerate Service Code"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
                     <input
                       type="text"
-                      placeholder="e.g. SRV-AC-WASH"
+                      placeholder="e.g. SRV-001"
                       value={newServiceSku}
                       onChange={(e) => setNewServiceSku(e.target.value.toUpperCase())}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold uppercase"
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold uppercase text-[#18181B]"
                       required
                     />
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Billing Unit *
+                      Cost (PKR) *
                     </label>
-                    <select
-                      value={newServiceUnit}
-                      onChange={(e) => setNewServiceUnit(e.target.value)}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none text-[#18181B] font-medium"
-                    >
-                      <option value="service">per Service</option>
-                      <option value="job">per Job</option>
-                      <option value="visit">per Visit / Callout</option>
-                      <option value="hr">per Hour (Labor)</option>
-                      <option value="unit">per AC Unit</option>
-                      <option value="sqft">per Sq Ft</option>
-                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 3500"
+                      value={newServiceCost}
+                      onChange={(e) => setNewServiceCost(e.target.value)}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold text-indigo-700"
+                      required
+                    />
                   </div>
                 </div>
 
@@ -2719,39 +2645,9 @@ export default function InventoryPurchasingPage() {
                     placeholder="e.g. Split AC Deep Jet Wash & Anti-Bacterial Treatment"
                     value={newServiceName}
                     onChange={(e) => setNewServiceName(e.target.value)}
-                    className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium"
+                    className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium text-[#18181B]"
                     required
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Standard Labor Cost (PKR)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      placeholder="e.g. 1200 (Technician base pay/cost)"
-                      value={newServiceCost}
-                      onChange={(e) => setNewServiceCost(e.target.value)}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Customer Billable Rate (PKR) *
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      placeholder="e.g. 3500 (Invoice price)"
-                      value={newServicePrice}
-                      onChange={(e) => setNewServicePrice(e.target.value)}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono font-bold text-indigo-700"
-                      required
-                    />
-                  </div>
                 </div>
 
                 <div>
@@ -2786,114 +2682,145 @@ export default function InventoryPurchasingPage() {
                 </div>
               </form>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* QUICK EDIT SERVICE / PRODUCT RATE MODAL */}
-      {editingProduct && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-xl max-w-sm w-full border border-purple-200 shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-purple-50/50">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
-                  <Pencil className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#18181B]">
-                    Edit Billing Rate & Cost
-                  </h3>
-                  <p className="text-[11px] text-[#71717A] font-mono truncate max-w-[200px]">
-                    {editingProduct.sku} • {editingProduct.name}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingProduct(null)}
-                className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
+      </SideDrawer>
 
-            <form onSubmit={handleQuickUpdateProduct} className="p-5 space-y-4 text-xs">
+      {/* QUICK EDIT SERVICE / PRODUCT RATE SIDE DRAWER */}
+      <SideDrawer
+        isOpen={Boolean(editingProduct)}
+        onClose={() => setEditingProduct(null)}
+        width="max-w-md"
+        customHeader={
+          <div className="px-6 py-4.5 border-b border-[#E4E4E7] flex items-center justify-between bg-purple-50/50 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                <Pencil className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B]">
+                  {editingProduct && isServiceProduct(editingProduct) ? "Edit Service Cost" : "Edit Price & Cost"}
+                </h3>
+                <p className="text-[11px] text-[#71717A] font-mono truncate max-w-[220px]">
+                  {editingProduct?.sku} • {editingProduct?.name}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingProduct(null)}
+              className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        }
+        bodyClassName="p-0 flex flex-col flex-1 overflow-hidden"
+      >
+        {editingProduct && (
+          <form onSubmit={handleQuickUpdateProduct} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+            {isServiceProduct(editingProduct) ? (
               <div>
                 <label className="font-semibold text-[#18181B] block mb-1">
-                  Customer Billable Rate (PKR) *
+                  Cost (PKR) *
                 </label>
                 <input
                   type="number"
                   min="0"
                   required
                   value={editPrice}
-                  onChange={(e) => setEditPrice(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  onChange={(e) => {
+                    setEditPrice(e.target.value);
+                    setEditCost(e.target.value);
+                  }}
+                  className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none text-indigo-700"
                 />
               </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Standard Labor / Base Cost (PKR)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={editCost}
-                  onChange={(e) => setEditCost(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setEditingProduct(null)}
-                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingProduct}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs"
-                >
-                  {isUpdatingProduct ? "Saving..." : "Update Rate"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ACTIVE FIELD ALLOCATIONS (STOCK ON JOB) MODAL */}
-      {activeAllocationProduct && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-xl max-w-2xl w-full border border-[#E4E4E7] shadow-xl overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA]">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                  <Truck className="w-4 h-4" />
-                </div>
+            ) : (
+              <>
                 <div>
-                  <h3 className="text-sm font-bold text-[#18181B]">
-                    Active Field Allocations: {activeAllocationProduct.name}
-                  </h3>
-                  <p className="text-[11px] text-[#71717A]">
-                    SKU: <span className="font-mono font-semibold">{activeAllocationProduct.sku}</span> • Units issued to technicians on active service jobs
-                  </p>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Customer Billable Rate (PKR) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={editPrice}
+                    onChange={(e) => setEditPrice(e.target.value)}
+                    className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
                 </div>
-              </div>
+
+                <div>
+                  <label className="font-semibold text-[#18181B] block mb-1">
+                    Standard Labor / Base Cost (PKR)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editCost}
+                    onChange={(e) => setEditCost(e.target.value)}
+                    className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-[#E4E4E7]">
               <button
                 type="button"
-                onClick={() => setActiveAllocationProduct(null)}
-                className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+                onClick={() => setEditingProduct(null)}
+                className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
               >
-                <X className="w-4 h-4" />
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isUpdatingProduct}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs"
+              >
+                {isUpdatingProduct ? "Saving..." : isServiceProduct(editingProduct) ? "Update Cost" : "Update Rate"}
               </button>
             </div>
+          </form>
+        )}
+      </SideDrawer>
 
-            <div className="p-5 space-y-4">
+      {/* ACTIVE FIELD ALLOCATIONS (STOCK ON JOB) SIDE DRAWER */}
+      <SideDrawer
+        isOpen={Boolean(activeAllocationProduct)}
+        onClose={() => setActiveAllocationProduct(null)}
+        width="max-w-2xl"
+        customHeader={
+          <div className="px-6 py-4.5 border-b border-[#E4E4E7] flex items-center justify-between bg-[#FAFAFA] shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                <Truck className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B]">
+                  Active Field Allocations: {activeAllocationProduct?.name}
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  SKU: <span className="font-mono font-semibold">{activeAllocationProduct?.sku}</span> • Units issued to technicians on active service jobs
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveAllocationProduct(null)}
+              className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        }
+        bodyClassName="p-0 flex flex-col flex-1 overflow-hidden"
+      >
+
+        {activeAllocationProduct && (
+          <>
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
               {/* Summary Stats */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]">
@@ -2922,7 +2849,7 @@ export default function InventoryPurchasingPage() {
                   Active Work Order Deployments
                 </h4>
                 {(!activeAllocationProduct.jobAllocations || activeAllocationProduct.jobAllocations.length === 0) ? (
-                  <p className="text-xs text-[#71717A] py-6 text-center border rounded-lg border-dashed">
+                  <p className="text-xs text-[#71717A] py-8 text-center border rounded-lg border-dashed">
                     No active job allocations found. All units are currently in physical warehouse storage.
                   </p>
                 ) : (
@@ -2930,12 +2857,12 @@ export default function InventoryPurchasingPage() {
                     <table className="w-full text-left text-xs">
                       <thead className="bg-[#F4F4F5] border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase">
                         <tr>
-                          <th className="py-2 px-3">Job #</th>
-                          <th className="py-2 px-3">Customer</th>
-                          <th className="py-2 px-3">Technician</th>
-                          <th className="py-2 px-3 text-center">Status</th>
-                          <th className="py-2 px-3 text-right">Qty Issued</th>
-                          <th className="py-2 px-3 text-right">Action</th>
+                          <th className="py-2.5 px-3">Job #</th>
+                          <th className="py-2.5 px-3">Customer</th>
+                          <th className="py-2.5 px-3">Technician</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                          <th className="py-2.5 px-3 text-right">Qty Issued</th>
+                          <th className="py-2.5 px-3 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E4E4E7]">
@@ -2972,18 +2899,18 @@ export default function InventoryPurchasingPage() {
               </div>
             </div>
 
-            <div className="px-5 py-3 bg-[#FAFAFA] border-t border-[#E4E4E7] flex justify-end">
+            <div className="px-6 py-3.5 bg-[#FAFAFA] border-t border-[#E4E4E7] flex justify-end shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveAllocationProduct(null)}
-                className="px-4 py-1.5 bg-white border border-[#D4D4D8] hover:bg-[#F4F4F5] rounded-lg text-xs font-semibold text-[#18181B] transition"
+                className="px-5 py-2 bg-white border border-[#D4D4D8] hover:bg-[#F4F4F5] rounded-lg text-xs font-semibold text-[#18181B] transition shadow-2xs"
               >
                 Close
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </SideDrawer>
     </div>
   );
 }

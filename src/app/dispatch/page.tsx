@@ -39,6 +39,14 @@ export default function DispatchMapPage() {
   const handleSelectTech = (tech: TechnicianPin) => {
     setSelectedTech(tech);
     setIsDrawerOpen(true);
+    // Smoothly scroll map into view if scrolled down
+    const mapEl = document.getElementById("dispatch-live-map");
+    if (mapEl) {
+      const rect = mapEl.getBoundingClientRect();
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        mapEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
   };
 
   const handleAssignJob = async (jobId: string, technicianId: string) => {
@@ -188,7 +196,7 @@ export default function DispatchMapPage() {
       </div>
 
       {/* Main Full-Bleed Map Container */}
-      <div className="relative">
+      <div id="dispatch-live-map" className="relative">
         <LiveMap
           technicians={technicians}
           unassignedJobs={unassignedJobs}

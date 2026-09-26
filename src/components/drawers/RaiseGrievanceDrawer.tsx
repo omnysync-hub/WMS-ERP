@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { LifeBuoy, AlertCircle } from "lucide-react";
 
 interface RaiseGrievanceDrawerProps {
@@ -103,17 +104,17 @@ export default function RaiseGrievanceDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Raised By Employee *
             </label>
-            <select
-              value={employeeId || employees[0]?.id}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name} ({e.designation || e.role})
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={employeeId || employees[0]?.id || ""}
+              onChange={setEmployeeId}
+              placeholder="Select Employee"
+              searchPlaceholder="Search employee..."
+              options={employees.map((e) => ({
+                value: String(e.id),
+                label: e.name,
+                subLabel: e.designation || e.role,
+              }))}
+            />
           </div>
         )}
 
@@ -121,17 +122,19 @@ export default function RaiseGrievanceDrawer({
           <label className="block text-xs font-semibold text-[#18181B] mb-1">
             Ticket Category *
           </label>
-          <select
+          <SearchableSelect
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-          >
-            <option value="Equipment & Tools">Equipment & Tools</option>
-            <option value="Payroll & Advances">Payroll & Advance Discrepancy</option>
-            <option value="Workplace Safety">Workplace Safety & Field PPE</option>
-            <option value="Scheduling & Dispatch">Scheduling & Dispatch Conflict</option>
-            <option value="HR Policy & Conduct">HR Policy & Workplace Conduct</option>
-          </select>
+            onChange={setCategory}
+            placeholder="Select Category"
+            searchPlaceholder="Search category..."
+            options={[
+              "Equipment & Tools",
+              "Payroll & Advances",
+              "Workplace Safety",
+              "Scheduling & Dispatch",
+              "HR Policy & Conduct",
+            ]}
+          />
         </div>
 
         <div>

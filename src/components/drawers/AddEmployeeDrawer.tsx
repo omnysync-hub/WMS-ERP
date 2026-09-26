@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Users, AlertCircle } from "lucide-react";
 
 interface AddEmployeeDrawerProps {
@@ -163,35 +164,39 @@ export default function AddEmployeeDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Role Classification *
             </label>
-            <select
+            <SearchableSelect
               value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="technician">Technician</option>
-              <option value="dispatcher">Dispatcher</option>
-              <option value="accountant">Accountant</option>
-              <option value="storekeeper">Storekeeper</option>
-              <option value="call_center">Call Center / CSR</option>
-              <option value="admin">Administrator / Director</option>
-            </select>
+              onChange={setRole}
+              placeholder="Select Role"
+              searchPlaceholder="Search role..."
+              options={[
+                { value: "technician", label: "Technician" },
+                { value: "dispatcher", label: "Dispatcher" },
+                { value: "accountant", label: "Accountant" },
+                { value: "storekeeper", label: "Storekeeper" },
+                { value: "call_center", label: "Call Center / CSR" },
+                { value: "admin", label: "Administrator / Director" },
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Department *
             </label>
-            <select
+            <SearchableSelect
               value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="Operations">Operations</option>
-              <option value="Accounts">Accounts & Finance</option>
-              <option value="HR">Human Resources</option>
-              <option value="Maintenance">Maintenance</option>
-              <option value="Sales">Sales & Projects</option>
-              <option value="Management">Management</option>
-            </select>
+              onChange={setDepartment}
+              placeholder="Select Department"
+              searchPlaceholder="Search department..."
+              options={[
+                { value: "Operations", label: "Operations" },
+                { value: "Accounts", label: "Accounts & Finance" },
+                { value: "HR", label: "Human Resources" },
+                { value: "Maintenance", label: "Maintenance" },
+                { value: "Sales", label: "Sales & Projects" },
+                { value: "Management", label: "Management" },
+              ]}
+            />
           </div>
         </div>
 
@@ -213,16 +218,18 @@ export default function AddEmployeeDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Employment Type
             </label>
-            <select
+            <SearchableSelect
               value={employmentType}
-              onChange={(e) => setEmploymentType(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="Full-time">Full-time Regular</option>
-              <option value="Contract">Fixed-Term Contract</option>
-              <option value="Probation">Probationary Period</option>
-              <option value="Part-time">Part-time</option>
-            </select>
+              onChange={setEmploymentType}
+              placeholder="Select Employment Type"
+              searchPlaceholder="Search type..."
+              options={[
+                { value: "Full-time", label: "Full-time Regular" },
+                { value: "Contract", label: "Fixed-Term Contract" },
+                { value: "Probation", label: "Probationary Period" },
+                { value: "Part-time", label: "Part-time" },
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
@@ -243,32 +250,36 @@ export default function AddEmployeeDrawer({
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Reporting Manager
             </label>
-            <select
+            <SearchableSelect
               value={reportingManagerId}
-              onChange={(e) => setReportingManagerId(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="">-- No Direct Manager --</option>
-              {managers.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.designation || m.role})
-                </option>
-              ))}
-            </select>
+              onChange={setReportingManagerId}
+              placeholder="-- No Direct Manager --"
+              searchPlaceholder="Search manager..."
+              clearable={true}
+              options={[
+                { value: "", label: "-- No Direct Manager --" },
+                ...managers.map((m) => ({
+                  value: String(m.id),
+                  label: `${m.name} (${m.designation || m.role})`,
+                })),
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
               Probation Term
             </label>
-            <select
+            <SearchableSelect
               value={probationMonths}
-              onChange={(e) => setProbationMonths(e.target.value)}
-              className="w-full h-9 px-2 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-[#18181B] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
-            >
-              <option value="3">3 Months (Standard)</option>
-              <option value="6">6 Months (Executive/Tech)</option>
-              <option value="0">None (Confirmed from Day 1)</option>
-            </select>
+              onChange={setProbationMonths}
+              placeholder="Select Probation"
+              searchPlaceholder="Search term..."
+              options={[
+                { value: "3", label: "3 Months (Standard)" },
+                { value: "6", label: "6 Months (Executive/Tech)" },
+                { value: "0", label: "None (Confirmed from Day 1)" },
+              ]}
+            />
           </div>
         </div>
       </form>

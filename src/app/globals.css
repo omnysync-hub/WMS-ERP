@@ -84,3 +84,9 @@
 .table-row-dense {
   height: 40px;
 }
+
+/* Leaflet Custom DivIcon Clean Reset */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}

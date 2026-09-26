@@ -6,8 +6,8 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Plus,
-  Pencil,
   Settings2,
   List,
   LayoutGrid,
@@ -68,6 +68,7 @@ interface DataTableProps<T> {
   renderExpandedRow?: (row: T) => React.ReactNode;
   moduleName?: string;
   onRefresh?: () => void;
+  pageSize?: number;
 }
 
 export default function DataTable<T extends Record<string, any>>({
@@ -88,6 +89,7 @@ export default function DataTable<T extends Record<string, any>>({
   renderExpandedRow,
   moduleName = "records",
   onRefresh,
+  pageSize: initialPageSize = 20,
 }: DataTableProps<T>) {
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [expandedRowIds, setExpandedRowIds] = useState<string[]>([]);
@@ -98,10 +100,59 @@ export default function DataTable<T extends Record<string, any>>({
   const [currentTableView, setCurrentTableView] = useState("Default Table View");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
+  // Pagination & Sorting State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+
+  // Reset page when tab, search, or data size changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, searchValue, data.length]);
+
+  // Sort most recent records on top
+  const sortedData = React.useMemo(() => {
+    return [...data].sort((a: any, b: any) => {
+      const parseDate = (item: any) => {
+        const val =
+          item?.createdAt ||
+          item?.created_at ||
+          item?.updatedAt ||
+          item?.updated_at ||
+          item?.date ||
+          item?.jobDate ||
+          item?.timestamp;
+        if (!val) return 0;
+        const d = new Date(val).getTime();
+        return isNaN(d) ? 0 : d;
+      };
+      const dateA = parseDate(a);
+      const dateB = parseDate(b);
+      if (dateA && dateB && dateA !== dateB) {
+        return dateB - dateA;
+      }
+      return 0;
+    });
+  }, [data]);
+
+  const totalItems = sortedData.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+  const paginatedRows = sortedData.slice(startIndex, endIndex);
+
   // Selection
-  const allSelected = data.length > 0 && selectedRowIds.length === data.length;
+  const allSelected =
+    paginatedRows.length > 0 &&
+    paginatedRows.every((row) => selectedRowIds.includes(getRowId(row)));
+
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedRowIds(e.target.checked ? data.map((row) => getRowId(row)) : []);
+    const pageIds = paginatedRows.map((row) => getRowId(row));
+    if (e.target.checked) {
+      setSelectedRowIds(Array.from(new Set([...selectedRowIds, ...pageIds])));
+    } else {
+      setSelectedRowIds(selectedRowIds.filter((id) => !pageIds.includes(id)));
+    }
   };
 
   const handleSelectRow = (id: string) => {
@@ -258,40 +309,6 @@ export default function DataTable<T extends Record<string, any>>({
             );
           })}
 
-          {/* Add Filter Chip Button (+) */}
-          <button
-            type="button"
-            title="Add filter chip"
-            aria-label="Add filter chip"
-            onClick={() => alert("Select additional filter chip: Priority, Problem Code, or City Zone")}
-            className="h-7 w-7 rounded-md border border-[#EDEDED] bg-white text-[#71717A] hover:text-[#18181B] hover:bg-[#F7F7F8] flex items-center justify-center transition shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Edit Chip Set Button (Pencil) */}
-          <button
-            type="button"
-            title="Edit filter chips layout"
-            aria-label="Edit filter chips"
-            onClick={() => alert("Customize visible filter chips")}
-            className="h-7 w-7 rounded-md border border-[#EDEDED] bg-white text-[#71717A] hover:text-[#18181B] hover:bg-[#F7F7F8] flex items-center justify-center transition shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-          >
-            <Pencil className="w-3 h-3" />
-          </button>
-
-          {/* Advanced Filters Link with Colored Dot Badge */}
-          <button
-            type="button"
-            onClick={onOpenAdvancedFilters || (() => alert("Advanced Query Builder: Filter by multiple nested criteria"))}
-            aria-label="Advanced filters"
-            className="text-xs font-semibold text-[#71717A] hover:text-[#18181B] inline-flex items-center gap-1.5 ml-1 py-1 px-1.5 rounded focus-visible:outline-none"
-          >
-            <span>Advanced filters</span>
-            {hasAdvancedFiltersActive && (
-              <span className="w-1.5 h-1.5 rounded-full bg-[#0D7A5F]" />
-            )}
-          </button>
         </div>
 
         {/* Right: Table-Level Controls (View Selector, Grid/List Toggles, Column Gear) */}
@@ -497,7 +514,7 @@ export default function DataTable<T extends Record<string, any>>({
             </thead>
 
             <tbody className="divide-y divide-[#EDEDED]">
-              {data.length === 0 ? (
+              {totalItems === 0 ? (
                 <tr>
                   <td
                     colSpan={displayedColumns.length + 2}
@@ -510,7 +527,7 @@ export default function DataTable<T extends Record<string, any>>({
                   </td>
                 </tr>
               ) : (
-                data.map((row) => {
+                paginatedRows.map((row) => {
                   const rowId = getRowId(row);
                   const isSelected = selectedRowIds.includes(rowId);
                   const isExpanded = expandedRowIds.includes(rowId);
@@ -649,14 +666,52 @@ export default function DataTable<T extends Record<string, any>>({
           </table>
         </div>
 
-        {/* Table Footer with Record Counts */}
-        <div className="px-4 py-2.5 bg-[#FAFAFA] border-t border-[#EDEDED] flex items-center justify-between text-xs text-[#71717A]">
-          <span>
-            Showing <strong className="text-[#18181B] font-mono">{data.length}</strong> {moduleName}
-          </span>
-          <span className="text-[11px] font-mono text-[#A1A1AA]">
-            15–20 rows/screen standard density
-          </span>
+        {/* Table Footer with Pagination Controls */}
+        <div className="px-4 py-3 bg-[#FAFAFA] border-t border-[#EDEDED] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#71717A]">
+          <div className="flex items-center gap-3">
+            <span>
+              Showing{" "}
+              <strong className="text-[#18181B] font-mono">
+                {totalItems === 0 ? 0 : startIndex + 1}–{endIndex}
+              </strong>{" "}
+              of <strong className="text-[#18181B] font-mono">{totalItems}</strong> {moduleName}
+            </span>
+            {selectedRowIds.length > 0 && (
+              <span className="text-[11px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-semibold border border-emerald-200">
+                {selectedRowIds.length} selected
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-[#71717A]">
+              Page <strong className="text-[#18181B]">{validCurrentPage}</strong> of{" "}
+              <strong className="text-[#18181B]">{totalPages}</strong>
+            </span>
+
+            <div className="inline-flex items-center rounded-lg border border-[#D4D4D8] bg-white shadow-2xs overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={validCurrentPage <= 1}
+                className="px-3 py-1.5 text-xs font-semibold text-[#18181B] hover:bg-[#F4F4F5] disabled:opacity-40 disabled:cursor-not-allowed transition border-r border-[#E4E4E7] flex items-center gap-1 cursor-pointer disabled:pointer-events-none"
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={validCurrentPage >= totalPages}
+                className="px-3 py-1.5 text-xs font-semibold text-[#18181B] hover:bg-[#F4F4F5] disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer disabled:pointer-events-none"
+                aria-label="Next page"
+              >
+                Next
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1562,15 +1562,17 @@ export default function JobDetailPage() {
             )}
           </div>
 
-          {/* Lifecycle State Machine Vertical Stepper */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
-              <span>Lifecycle State Machine</span>
-              <Clock className="w-3.5 h-3.5 text-[#71717A]" />
-            </h3>
+          {/* Lifecycle State Machine Vertical Stepper (Hidden for Storekeeper) */}
+          {!isStorekeeper && (
+            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
+              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
+                <span>Lifecycle State Machine</span>
+                <Clock className="w-3.5 h-3.5 text-[#71717A]" />
+              </h3>
 
-            <TimelineStepper steps={timelineSteps} />
-          </div>
+              <TimelineStepper steps={timelineSteps} />
+            </div>
+          )}
         </div>
       </div>
 
