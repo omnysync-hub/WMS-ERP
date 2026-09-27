@@ -174,13 +174,9 @@ export default function GoodsReceiptTab({
         .map((it) => ({
           poItemId: it.poItemId,
           quantityReceived: Number(it.quantityReceived),
-          quantityAccepted: it.qualityStatus === "Accepted" ? Number(it.quantityReceived) : 0,
-          quantityRejected: it.qualityStatus === "Rejected" ? Number(it.quantityReceived) : 0,
-          qualityStatus: it.qualityStatus,
-          rejectionReason: it.rejectionReason || undefined,
-          batchNumber: it.batchNumber || undefined,
-          serialNumber: it.serialNumber || undefined,
-          expiryDate: it.expiryDate || undefined,
+          quantityAccepted: Number(it.quantityReceived),
+          quantityRejected: 0,
+          qualityStatus: "Accepted",
         }));
 
       const res = await fetch("/api/procurement", {
@@ -194,11 +190,7 @@ export default function GoodsReceiptTab({
           receivedDate,
           warehouseLocation,
           deliveryChallan,
-          qualityStatus: receiptItems.some((i) => i.qualityStatus === "Rejected")
-            ? "Rejected"
-            : receiptItems.some((i) => i.qualityStatus === "Hold")
-            ? "Hold"
-            : "Accepted",
+          qualityStatus: "Accepted",
           notes,
           items: itemsPayload,
         }),
@@ -561,104 +553,25 @@ export default function GoodsReceiptTab({
                               Ordered: {it.orderedQty} {it.unit} • Already Received: {it.alreadyReceivedQty} {it.unit}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono text-[#71717A]">
-                              QA Status:
-                            </span>
-                            <SearchableSelect
-                              value={it.qualityStatus}
-                              onChange={(val) => handleItemChange(idx, "qualityStatus", val)}
-                              options={[
-                                { value: "Accepted", label: "Accepted" },
-                                { value: "Rejected", label: "Rejected" },
-                                { value: "Hold", label: "Hold / Quarantine" },
-                              ]}
-                              className="w-36 min-h-[30px] text-[11px]"
-                            />
-                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
-                          <div>
-                            <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
-                              Quantity Inward (Receiving) *
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              max={it.orderedQty - it.alreadyReceivedQty}
-                              step="any"
-                              required
-                              value={it.quantityReceived}
-                              onChange={(e) =>
-                                handleItemChange(idx, "quantityReceived", Number(e.target.value))
-                              }
-                              className="w-full bg-white border border-[#D4D4D8] rounded px-2.5 py-1 text-xs text-[#18181B] font-mono font-bold focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
-                              Batch / Lot Number
-                            </label>
-                            <input
-                              type="text"
-                              value={it.batchNumber}
-                              onChange={(e) =>
-                                handleItemChange(idx, "batchNumber", e.target.value)
-                              }
-                              className="w-full bg-white border border-[#D4D4D8] rounded px-2.5 py-1 text-xs text-[#18181B] font-mono"
-                              placeholder="e.g. B-2026-X"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
-                              Serial Number(s)
-                            </label>
-                            <input
-                              type="text"
-                              value={it.serialNumber}
-                              onChange={(e) =>
-                                handleItemChange(idx, "serialNumber", e.target.value)
-                              }
-                              className="w-full bg-white border border-[#D4D4D8] rounded px-2.5 py-1 text-xs text-[#18181B] font-mono"
-                              placeholder="SR-001928"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
-                              Expiry Date (if applicable)
-                            </label>
-                            <input
-                              type="date"
-                              value={it.expiryDate}
-                              onChange={(e) =>
-                                handleItemChange(idx, "expiryDate", e.target.value)
-                              }
-                              className="w-full bg-white border border-[#D4D4D8] rounded px-2.5 py-1 text-xs text-[#18181B] font-mono"
-                            />
-                          </div>
+                        <div className="max-w-xs">
+                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                            Quantity Inward (Receiving) *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max={it.orderedQty - it.alreadyReceivedQty}
+                            step="any"
+                            required
+                            value={it.quantityReceived}
+                            onChange={(e) =>
+                              handleItemChange(idx, "quantityReceived", Number(e.target.value))
+                            }
+                            className="w-full bg-white border border-[#D4D4D8] rounded px-2.5 py-1.5 text-xs text-[#18181B] font-mono font-bold focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                          />
                         </div>
-
-                        {it.qualityStatus === "Rejected" && (
-                          <div className="pt-1">
-                            <label className="block text-[10px] font-mono text-rose-700 mb-0.5">
-                              Rejection Reason / Defect Specification *
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              value={it.rejectionReason}
-                              onChange={(e) =>
-                                handleItemChange(idx, "rejectionReason", e.target.value)
-                              }
-                              className="w-full bg-white border border-rose-300 rounded px-2.5 py-1 text-xs text-rose-800"
-                              placeholder="Physical damage to fins / low pressure seal broken..."
-                            />
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>
