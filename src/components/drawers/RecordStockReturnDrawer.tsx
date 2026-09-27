@@ -114,6 +114,9 @@ export default function RecordStockReturnDrawer({
   onSuccess,
 }: RecordStockReturnDrawerProps) {
   const [lines, setLines] = useState<ReturnLineState[]>([]);
+  const [adHocItem, setAdHocItem] = useState("");
+  const [adHocQty, setAdHocQty] = useState("1");
+  const [showAdHoc, setShowAdHoc] = useState(false);
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -122,6 +125,9 @@ export default function RecordStockReturnDrawer({
   useEffect(() => {
     if (isOpen && job) {
       setLines(buildLines(job));
+      setAdHocItem("");
+      setAdHocQty("1");
+      setShowAdHoc(false);
       setNotes("");
       setErrorMsg("");
       setSuccessMsg("");
@@ -149,8 +155,9 @@ export default function RecordStockReturnDrawer({
   const handleConfirm = async () => {
     if (!job) return;
     const actionable = lines.filter((l) => l.include && (l.returnQty > 0 || l.pendingReturnId));
-    if (actionable.length === 0) {
-      setErrorMsg("Select at least one line with a return quantity.");
+    const hasAdHoc = adHocItem.trim() && Number(adHocQty) > 0;
+    if (actionable.length === 0 && !hasAdHoc) {
+      setErrorMsg("Select at least one line with a return quantity or specify an unlisted item.");
       return;
     }
 
@@ -225,6 +232,26 @@ export default function RecordStockReturnDrawer({
         }
       }
 
+      if (hasAdHoc) {
+        const resAdHoc = await fetch(`/api/jobs/${job.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "record_stock_return",
+            technicianId: job.assignedTechnicianId,
+            item: adHocItem.trim(),
+            quantity: Number(adHocQty),
+            notes: notes || undefined,
+            actor: storekeeperName,
+          }),
+        });
+        if (!resAdHoc.ok) {
+          const err = await resAdHoc.json().catch(() => ({}));
+          throw new Error(err.error || `Failed to record return for ${adHocItem}`);
+        }
+        recorded += 1;
+      }
+
       realtimeSync.publish("STOCK_RETURN_ACKNOWLEDGED", {
         actor: storekeeperName,
         message: `${storekeeperName} recorded unused stock return for Job #${job.jobNumber}`,
@@ -272,7 +299,7 @@ export default function RecordStockReturnDrawer({
           <p className="text-[11px] text-[#71717A]">
             {selectedCount > 0
               ? `${selectedCount} line${selectedCount === 1 ? "" : "s"} selected`
-              : "No lines selected"}
+              : (adHocItem.trim() ? "1 unlisted item entered" : "No lines selected")}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -286,7 +313,7 @@ export default function RecordStockReturnDrawer({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isSubmitting || selectedCount === 0 || lines.length === 0}
+              disabled={isSubmitting || (selectedCount === 0 && (!adHocItem.trim() || !Number(adHocQty)))}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -398,6 +425,60 @@ export default function RecordStockReturnDrawer({
             ))}
           </div>
         )}
+
+        {/* Ad-hoc unlisted item return option */}
+        <div className="pt-2 border-t border-[#E4E4E7]">
+          {!showAdHoc ? (
+            <button
+              type="button"
+              onClick={() => setShowAdHoc(true)}
+              className="text-xs font-semibold text-blue-700 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+            >
+              + Return unlisted / custom item
+            </button>
+          ) : (
+            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-blue-950">Unlisted / Custom Returned Item</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdHoc(false);
+                    setAdHocItem("");
+                    setAdHocQty("1");
+                  }}
+                  className="text-[10px] text-[#71717A] hover:text-[#18181B]"
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="grid grid-cols-[1fr_80px] gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-blue-900 block mb-0.5">Item Name *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Copper Pipe 1/2' Roll"
+                    value={adHocItem}
+                    onChange={(e) => setAdHocItem(e.target.value)}
+                    className="w-full bg-white p-2 rounded-md border border-blue-200 text-xs focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-blue-900 block mb-0.5">Qty *</label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="any"
+                    placeholder="1"
+                    value={adHocQty}
+                    onChange={(e) => setAdHocQty(e.target.value)}
+                    className="w-full bg-white p-2 rounded-md border border-blue-200 font-mono font-bold text-xs text-right focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div>
           <label className="font-semibold text-[#18181B] block mb-1">Condition / verification notes</label>

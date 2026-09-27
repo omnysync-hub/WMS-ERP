@@ -8,6 +8,11 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import TimelineStepper, { TimelineStep } from "@/components/ui/TimelineStepper";
 import DiscountDrawer from "@/components/drawers/DiscountDrawer";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
+import IssueWarehouseStockDrawer from "@/components/drawers/IssueWarehouseStockDrawer";
+import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
+import ReportMisplacedItemDrawer from "@/components/drawers/ReportMisplacedItemDrawer";
+import AddServiceDrawer from "@/components/drawers/AddServiceDrawer";
+import TaxInvoiceDrawer from "@/components/drawers/TaxInvoiceDrawer";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -86,192 +91,15 @@ export default function JobDetailPage() {
   const [partialAmountToPay, setPartialAmountToPay] = useState<string>("");
   const [expensePaymentNotes, setExpensePaymentNotes] = useState<string>("");
 
-  // Storekeeper issuing inventory to job
-  const [issueInventoryModalOpen, setIssueInventoryModalOpen] = useState(false);
-  const [warehouseProducts, setWarehouseProducts] = useState<any[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [issueQuantity, setIssueQuantity] = useState("1");
-  const [issueRequestId, setIssueRequestId] = useState<string | undefined>(undefined);
-  const [issueProductSearch, setIssueProductSearch] = useState("");
-
-  // Accountant adding service / extra item
-  const [addServiceModalOpen, setAddServiceModalOpen] = useState(false);
-  const [serviceDescription, setServiceDescription] = useState("");
-  const [serviceQty, setServiceQty] = useState("1");
-  const [serviceUnitRate, setServiceUnitRate] = useState("");
-  const [catalogServices, setCatalogServices] = useState<any[]>([]);
-  const [selectedCatalogServiceId, setSelectedCatalogServiceId] = useState("");
-
-  useEffect(() => {
-    if (addServiceModalOpen) {
-      fetch("/api/inventory")
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            const services = data.filter(
-              (p: any) =>
-                p.isService ||
-                (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
-                ["service", "visit", "job", "hr", "hour"].includes((p.unit || "").toLowerCase())
-            );
-            setCatalogServices(services);
-          }
-        })
-        .catch(console.error);
-    }
-  }, [addServiceModalOpen]);
-
-  // Storekeeper Stock Return modal
-  const [stockReturnModalOpen, setStockReturnModalOpen] = useState(false);
-  const [returnItemName, setReturnItemName] = useState("");
-  const [returnQuantity, setReturnQuantity] = useState("1");
-  const [returnNotes, setReturnNotes] = useState("");
-
-  // Storekeeper Misplaced Item modal
-  const [misplacedModalOpen, setMisplacedModalOpen] = useState(false);
-  const [misplacedItemName, setMisplacedItemName] = useState("");
-  const [misplacedQuantity, setMisplacedQuantity] = useState("1");
-  const [misplacedReason, setMisplacedReason] = useState("Technician reported item misplaced/lost during site work");
-
-  // Custom Invoice Modal
-  const [customInvoiceModalOpen, setCustomInvoiceModalOpen] = useState(false);
-  const [customInvoiceNumber, setCustomInvoiceNumber] = useState("");
+  // Action Side Drawers
+  const [issueStockDrawerOpen, setIssueStockDrawerOpen] = useState(false);
+  const [selectedReqItem, setSelectedReqItem] = useState<any>(null);
+  const [stockReturnDrawerOpen, setStockReturnDrawerOpen] = useState(false);
+  const [misplacedDrawerOpen, setMisplacedDrawerOpen] = useState(false);
+  const [addServiceDrawerOpen, setAddServiceDrawerOpen] = useState(false);
+  const [taxInvoiceDrawerOpen, setTaxInvoiceDrawerOpen] = useState(false);
 
   const [isProcessing, setIsProcessing] = useState(false);
-
-  // Accountant Add Service / Item Submit Handler
-  const handleAddServiceSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!serviceDescription.trim() || Number(serviceQty) <= 0) return;
-    try {
-      setIsProcessing(true);
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "add_service",
-          description: serviceDescription.trim(),
-          quantity: Number(serviceQty),
-          unitRate: Number(serviceUnitRate || 0),
-          actor: `${currentPersona.name} (${currentPersona.designation})`,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setAddServiceModalOpen(false);
-      setServiceDescription("");
-      setSelectedCatalogServiceId("");
-      setServiceQty("1");
-      setServiceUnitRate("");
-      setSuccessMsg(`Service / item added to Job #${job?.jobNumber || ""} successfully.`);
-      fetchJob();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Storekeeper Stock Return Submit Handler
-  const handleStockReturnSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!returnItemName.trim() || Number(returnQuantity) <= 0) return;
-    try {
-      setIsProcessing(true);
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "record_stock_return",
-          technicianId: job?.assignedTechnicianId,
-          item: returnItemName.trim(),
-          quantity: Number(returnQuantity),
-          notes: returnNotes.trim(),
-          actor: `${currentPersona.name} (${currentPersona.designation})`,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setStockReturnModalOpen(false);
-      setReturnItemName("");
-      setReturnQuantity("1");
-      setReturnNotes("");
-      setSuccessMsg(`Stock return recorded and restocked in warehouse ledger.`);
-      fetchJob();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Storekeeper Misplaced Item Submit Handler
-  const handleMisplacedItemSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!misplacedItemName.trim() || Number(misplacedQuantity) <= 0) return;
-    try {
-      setIsProcessing(true);
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "record_misplaced_item",
-          technicianId: job?.assignedTechnicianId,
-          item: misplacedItemName.trim(),
-          quantity: Number(misplacedQuantity),
-          reason: misplacedReason.trim(),
-          actor: `${currentPersona.name} (${currentPersona.designation})`,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setMisplacedModalOpen(false);
-      setMisplacedItemName("");
-      setMisplacedQuantity("1");
-      setSuccessMsg(`Misplaced item recorded in audit log. Technician accountability flagged.`);
-      fetchJob();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Custom Invoice Submit Handler
-  const handleGenerateCustomInvoice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setIsProcessing(true);
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "generate_custom_invoice",
-          invoiceNumber: customInvoiceNumber.trim(),
-          actor: `${currentPersona.name} (${currentPersona.designation})`,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      const data = await res.json();
-      setCustomInvoiceModalOpen(false);
-      setSuccessMsg(`Tax Invoice ${data.invoiceNumber} created successfully!`);
-      fetchJob();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   // Accountant Expense Clearance Handler (Bulk / All Pending or Specific)
   const handleClearExpense = async (e: React.FormEvent) => {
@@ -345,81 +173,12 @@ export default function JobDetailPage() {
     }
   };
 
-  // Open Issue Inventory modal & prefetch inventory products
-  const openIssueInventoryModal = async (reqItem?: any) => {
-    setIssueInventoryModalOpen(true);
-    if (reqItem) {
-      setIssueRequestId(reqItem.id);
-      setIssueQuantity(String(reqItem.qtyRequested || 1));
-      setIssueProductSearch(reqItem.item || "");
-    } else {
-      setIssueRequestId(undefined);
-      setIssueQuantity("1");
-      setIssueProductSearch("");
-    }
-    try {
-      setLoadingProducts(true);
-      const res = await fetch("/api/inventory");
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setWarehouseProducts(data);
-        if (reqItem) {
-          const match = data.find((p: any) =>
-            p.name.toLowerCase().includes(reqItem.item.toLowerCase()) ||
-            reqItem.item.toLowerCase().includes(p.name.toLowerCase()) ||
-            p.sku?.toLowerCase().includes(reqItem.item.toLowerCase())
-          );
-          if (match) setSelectedProductId(match.id);
-          else if (data.length > 0) setSelectedProductId(data[0].id);
-        } else if (data.length > 0) {
-          setSelectedProductId(data[0].id);
-        }
-      }
-    } catch (e) {
-      console.error("Failed loading inventory products", e);
-    } finally {
-      setLoadingProducts(false);
-    }
+  // Open Issue Inventory drawer
+  const openIssueInventoryModal = (reqItem?: any) => {
+    setSelectedReqItem(reqItem || null);
+    setIssueStockDrawerOpen(true);
   };
 
-  // Submit Inventory Issuance
-  const handleIssueInventorySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedProductId || !issueQuantity || Number(issueQuantity) <= 0) return;
-    try {
-      setIsProcessing(true);
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "issue_inventory",
-          productId: selectedProductId,
-          quantity: Number(issueQuantity),
-          requestId: issueRequestId,
-          actor: `${currentPersona.name} (${currentPersona.designation})`,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setIssueInventoryModalOpen(false);
-      setSuccessMsg(`Successfully issued ${issueQuantity} units from warehouse to Job #${job.jobNumber}.`);
-      fetchJob();
-
-      realtimeSync.publish("INVENTORY_FULFILLED", {
-        jobId: job.id,
-        jobNumber: job.jobNumber,
-        technicianId: job.assignedTechnicianId,
-        actor: currentPersona.name,
-        message: `Storekeeper ${currentPersona.name} issued materials from warehouse for Job #${job.jobNumber}`,
-      });
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
 
   // Handle accountant giving / approving item discount
@@ -748,7 +507,7 @@ export default function JobDetailPage() {
                 {canStockReturn && (
                   <button
                     type="button"
-                    onClick={() => setStockReturnModalOpen(true)}
+                    onClick={() => setStockReturnDrawerOpen(true)}
                     className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
@@ -758,7 +517,7 @@ export default function JobDetailPage() {
                 {canMisplacedItem && (
                   <button
                     type="button"
-                    onClick={() => setMisplacedModalOpen(true)}
+                    onClick={() => setMisplacedDrawerOpen(true)}
                     className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
                   >
                     <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
@@ -769,7 +528,7 @@ export default function JobDetailPage() {
                 {canAddService && (
                   <button
                     type="button"
-                    onClick={() => setAddServiceModalOpen(true)}
+                    onClick={() => setAddServiceDrawerOpen(true)}
                     className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
                   >
                     <Plus className="w-3.5 h-3.5 text-emerald-700" />
@@ -779,10 +538,7 @@ export default function JobDetailPage() {
                 {canGenerateInvoice && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setCustomInvoiceNumber(`INV-${job.jobNumber}`);
-                      setCustomInvoiceModalOpen(true);
-                    }}
+                    onClick={() => setTaxInvoiceDrawerOpen(true)}
                     className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
                   >
                     <Receipt className="w-3.5 h-3.5 text-purple-700" />
@@ -1040,7 +796,7 @@ export default function JobDetailPage() {
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setAddServiceModalOpen(true)}
+                    onClick={() => setAddServiceDrawerOpen(true)}
                     className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -1048,10 +804,7 @@ export default function JobDetailPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setCustomInvoiceNumber(`INV-${job.jobNumber}`);
-                      setCustomInvoiceModalOpen(true);
-                    }}
+                    onClick={() => setTaxInvoiceDrawerOpen(true)}
                     className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
                   >
                     <Receipt className="w-3.5 h-3.5" />
@@ -1115,7 +868,7 @@ export default function JobDetailPage() {
               {canAddService && (
                 <button
                   type="button"
-                  onClick={() => setAddServiceModalOpen(true)}
+                  onClick={() => setAddServiceDrawerOpen(true)}
                   className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
                 >
                   <Plus className="w-3 h-3" />
@@ -1488,16 +1241,6 @@ export default function JobDetailPage() {
                     Warehouse Inventory & Material Issuance
                   </h3>
                 </div>
-                {canIssueStock && (
-                  <button
-                    type="button"
-                    onClick={() => openIssueInventoryModal()}
-                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Issue Stock to Job
-                  </button>
-                )}
               </div>
 
               {/* Material Requests Table / List */}
@@ -1506,9 +1249,21 @@ export default function JobDetailPage() {
                   Technician Material Requests ({job.inventoryRequests?.length || 0})
                 </p>
                 {!job.inventoryRequests || job.inventoryRequests.length === 0 ? (
-                  <p className="text-xs text-[#A1A1AA] py-3 text-center bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]">
-                    No material requests logged for this work order.
-                  </p>
+                  <div className="py-5 text-center bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] space-y-2">
+                    <p className="text-xs text-[#A1A1AA]">
+                      No material requests logged for this work order.
+                    </p>
+                    {canIssueStock && (
+                      <button
+                        type="button"
+                        onClick={() => openIssueInventoryModal()}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Issue Stock Directly
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {job.inventoryRequests.map((req: any) => (
@@ -2139,471 +1894,70 @@ export default function JobDetailPage() {
         );
       })()}
 
-      {/* STOREKEEPER ISSUE WAREHOUSE INVENTORY MODAL */}
-      {issueInventoryModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 space-y-4 shadow-xl border border-amber-200 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <Package className="w-4 h-4 text-amber-700" />
-                Issue Warehouse Inventory to Job #{job.jobNumber}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIssueInventoryModalOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* ISSUE WAREHOUSE STOCK DRAWER */}
+      <IssueWarehouseStockDrawer
+        isOpen={issueStockDrawerOpen}
+        onClose={() => {
+          setIssueStockDrawerOpen(false);
+          setSelectedReqItem(null);
+        }}
+        job={job}
+        reqItem={selectedReqItem}
+        actor={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
+        onSuccess={() => {
+          setSuccessMsg(`Successfully issued warehouse stock to Job #${job?.jobNumber || ""}.`);
+          fetchJob();
+        }}
+      />
 
-            {loadingProducts ? (
-              <div className="py-8 text-center text-xs text-[#71717A]">
-                Loading warehouse inventory catalogue...
-              </div>
-            ) : (
-              <form onSubmit={handleIssueInventorySubmit} className="space-y-4">
-                {issueRequestId && (
-                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
-                    Fulfilling linked material request for: <strong>{issueProductSearch}</strong>
-                  </div>
-                )}
+      {/* RECORD STOCK RETURN DRAWER */}
+      <RecordStockReturnDrawer
+        isOpen={stockReturnDrawerOpen}
+        onClose={() => setStockReturnDrawerOpen(false)}
+        job={job}
+        storekeeperName={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
+        onSuccess={() => {
+          setSuccessMsg("Stock return recorded and restocked in warehouse ledger.");
+          fetchJob();
+        }}
+      />
 
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Select Warehouse Product *
-                  </label>
-                  <select
-                    value={selectedProductId}
-                    onChange={(e) => setSelectedProductId(e.target.value)}
-                    required
-                    className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-amber-600 focus:outline-none"
-                  >
-                    {warehouseProducts.map((p: any) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku}) — Available Stock: {p.stockQuantity} {p.unitOfMeasure || "units"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+      {/* REPORT MISPLACED ITEM DRAWER */}
+      <ReportMisplacedItemDrawer
+        isOpen={misplacedDrawerOpen}
+        onClose={() => setMisplacedDrawerOpen(false)}
+        job={job}
+        actor={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
+        onSuccess={() => {
+          setSuccessMsg("Misplaced item recorded in audit log. Technician accountability flagged.");
+          fetchJob();
+        }}
+      />
 
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Quantity to Issue *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={issueQuantity}
-                    onChange={(e) => setIssueQuantity(e.target.value)}
-                    className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm focus:bg-white focus:ring-2 focus:ring-amber-600 focus:outline-none"
-                  />
-                </div>
+      {/* ADD SERVICE / LINE ITEM DRAWER */}
+      <AddServiceDrawer
+        isOpen={addServiceDrawerOpen}
+        onClose={() => setAddServiceDrawerOpen(false)}
+        job={job}
+        actor={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
+        onSuccess={() => {
+          setSuccessMsg(`Service item added to Job #${job?.jobNumber || ""} successfully.`);
+          fetchJob();
+        }}
+      />
 
-                <div className="p-3 bg-[#F4F4F5] rounded-lg text-[11px] text-[#52525B] space-y-1">
-                  <p>• Deducts stock immediately from central warehouse inventory.</p>
-                  <p>• Automatically records stock ledger entry and COGS double-entry posting.</p>
-                  <p>• Adds material item to this job record and marks material request fulfilled.</p>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                  <button
-                    type="button"
-                    onClick={() => setIssueInventoryModalOpen(false)}
-                    className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isProcessing}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
-                  >
-                    {isProcessing ? "Issuing..." : "Confirm & Issue Material"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ACCOUNTANT / ADMIN ADD SERVICE OR LINE ITEM MODAL */}
-      {addServiceModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-emerald-200 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <Plus className="w-4 h-4 text-emerald-700" />
-                Add Billable Service / Line Item
-              </h3>
-              <button
-                type="button"
-                onClick={() => setAddServiceModalOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddServiceSubmit} className="space-y-3.5">
-              {catalogServices.length > 0 && (
-                <div>
-                  <label className="font-semibold text-purple-900 block mb-1 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 font-bold">
-                      <Wrench className="w-3.5 h-3.5 text-purple-700" />
-                      Select Predefined Service (Catalog)
-                    </span>
-                    <span className="text-[10px] text-purple-700 font-normal">Auto-fills description & rate</span>
-                  </label>
-                  <select
-                    value={selectedCatalogServiceId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setSelectedCatalogServiceId(id);
-                      const srv = catalogServices.find((s) => s.id === id);
-                      if (srv) {
-                        setServiceDescription(srv.name);
-                        setServiceUnitRate(String(srv.unitPrice || 0));
-                      }
-                    }}
-                    className="w-full bg-purple-50/70 p-2.5 rounded-lg border border-purple-200 font-medium text-xs focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none text-[#18181B]"
-                  >
-                    <option value="">-- Choose from Predefined Service Catalog or enter custom below --</option>
-                    {catalogServices.map((srv) => (
-                      <option key={srv.id} value={srv.id}>
-                        {srv.name} ({srv.sku}) — {formatCurrency(srv.unitPrice)} / {srv.unit || "service"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Service / Item Description *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Master Coil Chemical Servicing / Vacuum Testing"
-                  value={serviceDescription}
-                  onChange={(e) => setServiceDescription(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Quantity *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={serviceQty}
-                    onChange={(e) => setServiceQty(e.target.value)}
-                    className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Unit Rate (PKR) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                    placeholder="e.g. 3500"
-                    value={serviceUnitRate}
-                    onChange={(e) => setServiceUnitRate(e.target.value)}
-                    className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="p-3 bg-emerald-50 rounded-lg text-[11px] text-emerald-950 space-y-1 border border-emerald-200">
-                <p>• Added service will be immediately incorporated into actual billing & revenue.</p>
-                <p>• Line item marked as added by {currentPersona.name} in audit log.</p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setAddServiceModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs"
-                >
-                  {isProcessing ? "Adding..." : "Add to Job Order"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* STOREKEEPER RECORD STOCK RETURN MODAL */}
-      {stockReturnModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-blue-200 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <RotateCcw className="w-4 h-4 text-blue-700" />
-                Record Stock Return from Technician
-              </h3>
-              <button
-                type="button"
-                onClick={() => setStockReturnModalOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleStockReturnSubmit} className="space-y-3.5">
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Returned Item / Product *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Copper Pipe 1/2' Roll or R410A Refrigerant"
-                  value={returnItemName}
-                  onChange={(e) => setReturnItemName(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Quantity Returned *
-                </label>
-                <input
-                  type="number"
-                  min="0.1"
-                  step="any"
-                  required
-                  value={returnQuantity}
-                  onChange={(e) => setReturnQuantity(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Condition / Verification Notes
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Unopened box, verified in Central Warehouse"
-                  value={returnNotes}
-                  onChange={(e) => setReturnNotes(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] text-xs focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="p-3 bg-blue-50 rounded-lg text-[11px] text-blue-950 space-y-1 border border-blue-200">
-                <p>• Automatically restocks matching inventory items in warehouse ledger.</p>
-                <p>• Acknowledged by Storekeeper {currentPersona.name} for Job #{job.jobNumber}.</p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setStockReturnModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
-                >
-                  {isProcessing ? "Recording..." : "Acknowledge Stock Return"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* STOREKEEPER REPORT MISPLACED ITEM BY TECHNICIAN MODAL */}
-      {misplacedModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-rose-200 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-600" />
-                Report Misplaced Item by Technician
-              </h3>
-              <button
-                type="button"
-                onClick={() => setMisplacedModalOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleMisplacedItemSubmit} className="space-y-3.5">
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Item Description *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Copper Fitting 3/4' or Gauge Adapter"
-                  value={misplacedItemName}
-                  onChange={(e) => setMisplacedItemName(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Quantity Misplaced *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  value={misplacedQuantity}
-                  onChange={(e) => setMisplacedQuantity(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Circumstances / Reason *
-                </label>
-                <textarea
-                  rows={2}
-                  required
-                  value={misplacedReason}
-                  onChange={(e) => setMisplacedReason(e.target.value)}
-                  placeholder="State reason item was not returned to warehouse..."
-                  className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="p-3 bg-rose-50 rounded-lg text-[11px] text-rose-950 space-y-1 border border-rose-200">
-                <p>• Records item shortage in audit log under technician accountability.</p>
-                <p>• Prevents false inventory restocking for unreturned stock.</p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setMisplacedModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
-                >
-                  {isProcessing ? "Logging..." : "Log Misplaced Item"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CUSTOM TAX INVOICE MODAL */}
-      {customInvoiceModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-purple-200 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-purple-700" />
-                Generate Official Tax Invoice
-              </h3>
-              <button
-                type="button"
-                onClick={() => setCustomInvoiceModalOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleGenerateCustomInvoice} className="space-y-3.5">
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">
-                  Custom Tax Invoice Number *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. INV-JOB-2026-0842"
-                  value={customInvoiceNumber}
-                  onChange={(e) => setCustomInvoiceNumber(e.target.value)}
-                  className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm focus:bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="p-3 bg-purple-50 rounded-lg text-[11px] text-purple-950 space-y-1 border border-purple-200">
-                <p>• Customer: <strong>{job.customer?.name}</strong></p>
-                <p>• Invoiced Total: <strong>{formatCurrency(netPayable)}</strong></p>
-                <p>• Invoice will be registered in Accounts module and customer receivables.</p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setCustomInvoiceModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition shadow-xs"
-                >
-                  {isProcessing ? "Generating..." : "Generate Invoice"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* TAX INVOICE DRAWER */}
+      <TaxInvoiceDrawer
+        isOpen={taxInvoiceDrawerOpen}
+        onClose={() => setTaxInvoiceDrawerOpen(false)}
+        job={job}
+        actor={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
+        netPayable={netPayable}
+        onSuccess={(invNumber) => {
+          setSuccessMsg(`Tax Invoice ${invNumber} generated successfully!`);
+          fetchJob();
+        }}
+      />
     </div>
   );
 }
