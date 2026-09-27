@@ -483,7 +483,6 @@ export default function RfqSourcingTab({
                           <th className="py-2.5 px-3">Quotation Ref</th>
                           <th className="py-2.5 px-3">Quoted Line Items (Unit Price)</th>
                           <th className="py-2.5 px-3 text-right">Total Quoted</th>
-                          <th className="py-2.5 px-3 text-center">Delivery Days</th>
                           <th className="py-2.5 px-3">Payment Terms</th>
                           <th className="py-2.5 px-3.5 text-center">Action / Winner</th>
                         </tr>
@@ -582,29 +581,6 @@ export default function RfqSourcingTab({
                                   </div>
                                 ) : (
                                   <span className="font-mono text-[#A1A1AA]">—</span>
-                                )}
-                              </td>
-
-                              {/* Delivery Days */}
-                              <td className="py-3 px-3 text-center font-mono">
-                                {isQuoted ? (
-                                  <div>
-                                    <span
-                                      className={cn(
-                                        "font-bold",
-                                        isFastest ? "text-blue-700" : "text-[#18181B]"
-                                      )}
-                                    >
-                                      {rv.deliveryDays || "—"} Days
-                                    </span>
-                                    {isFastest && (
-                                      <span className="block text-[9px] font-bold text-blue-700 uppercase tracking-tight">
-                                        Fastest
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-[#A1A1AA]">—</span>
                                 )}
                               </td>
 
