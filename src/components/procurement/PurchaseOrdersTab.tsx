@@ -1117,7 +1117,7 @@ export default function PurchaseOrdersTab({
         }
       >
         {printablePo && (
-          <div className="p-8 space-y-6 max-h-[85vh] overflow-y-auto bg-white font-sans text-xs">
+          <div className="printable-document p-8 space-y-6 max-h-[85vh] overflow-y-auto bg-white font-sans text-xs">
               {/* Header Letterhead */}
               <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
                 <div className="flex items-center gap-3">

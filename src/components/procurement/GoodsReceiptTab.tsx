@@ -15,6 +15,7 @@ import {
   Warehouse,
   Eye,
   Hash,
+  Printer,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/components/procurement/procurementUi";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import GoodsReceiptDocument from "@/components/documents/GoodsReceiptDocument";
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
@@ -75,6 +77,8 @@ export default function GoodsReceiptTab({
 
   // Selected GRN details modal
   const [viewingGrn, setViewingGrn] = useState<any | null>(null);
+  // Selected GRN for Printable Document View
+  const [printableGrn, setPrintableGrn] = useState<any | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -375,15 +379,28 @@ export default function GoodsReceiptTab({
                       </td>
 
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setViewingGrn(grn);
-                          }}
-                          className="p-1 rounded text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5]"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPrintableGrn(grn);
+                            }}
+                            title="Print Formal Goods Receipt Note / PDF Preview"
+                            className="p-1.5 rounded bg-white hover:bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B] border border-[#D4D4D8] transition"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewingGrn(grn);
+                            }}
+                            title="View Details"
+                            className="p-1 rounded text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5]"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -709,13 +726,24 @@ export default function GoodsReceiptTab({
         subtitle={viewingGrn ? `Under PO ${viewingGrn.po?.poNumber || "PO"} (${viewingGrn.po?.supplierName || "Supplier"})` : ""}
         width="max-w-2xl"
         footer={
-          <div className="flex items-center justify-end w-full">
+          <div className="flex items-center justify-between w-full">
             <button
               type="button"
               onClick={() => setViewingGrn(null)}
               className="px-4 py-1.5 bg-white hover:bg-[#F4F4F5] text-[#18181B] border border-[#D4D4D8] rounded-lg text-xs"
             >
               Close
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const g = viewingGrn;
+                setViewingGrn(null);
+                setPrintableGrn(g);
+              }}
+              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-2xs transition"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print / Save PDF
             </button>
           </div>
         }
@@ -798,6 +826,47 @@ export default function GoodsReceiptTab({
               </div>
             </div>
           </div>
+        )}
+      </SideDrawer>
+
+      {/* FORMAL PRINTABLE GOODS RECEIPT NOTE DRAWER */}
+      <SideDrawer
+        isOpen={!!printableGrn}
+        onClose={() => setPrintableGrn(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Printer className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Goods Receipt Note Document • {printableGrn?.grnNumber}
+            </span>
+          </div>
+        }
+        subtitle="Official warehouse delivery challan & QA inspection verification"
+        width="max-w-4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <button
+              type="button"
+              onClick={() => setPrintableGrn(null)}
+              className="px-4 py-2 border border-[#D4D4D8] rounded-lg text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+            </button>
+          </div>
+        }
+      >
+        {printableGrn && (
+          <GoodsReceiptDocument
+            grn={printableGrn}
+            onClose={() => setPrintableGrn(null)}
+          />
         )}
       </SideDrawer>
     </div>

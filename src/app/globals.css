@@ -90,3 +90,83 @@
   background: transparent !important;
   border: none !important;
 }
+
+/* ========================================================================= */
+/* Pixel-Perfect PDF & Physical Print Optimizations                          */
+/* ========================================================================= */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 10mm 12mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+  }
+
+  /* Hide app chrome, sidebars, navigation, modals backdrop, actions */
+  header, nav, aside, footer, .no-print, [role="dialog"] > div:first-child, .drawer-header-actions {
+    display: none !important;
+  }
+
+  /* Isolate printable document: everything hidden except .printable-document and its descendants */
+  body * {
+    visibility: hidden;
+  }
+
+  .printable-document,
+  .printable-document * {
+    visibility: visible;
+  }
+
+  .printable-document {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    display: block !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Force background colors and borders to print accurately */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Table and page-break rules */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  tr, td, th {
+    page-break-inside: avoid !important;
+  }
+
+  .page-break-inside-avoid {
+    page-break-inside: avoid !important;
+  }
+
+  .page-break-before {
+    page-break-before: always !important;
+  }
+
+  .page-break-after {
+    page-break-after: always !important;
+  }
+}

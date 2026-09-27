@@ -22,10 +22,12 @@ import {
   Boxes,
   MapPin,
   Briefcase,
+  Printer,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import PurchaseRequisitionDocument from "@/components/documents/PurchaseRequisitionDocument";
 import {
   ProcurementStatusBadge,
   ProcurementEmptyState,
@@ -138,6 +140,9 @@ export default function RequisitionsTab({
 
   // Selected PR Details Drawer
   const [selectedPr, setSelectedPr] = useState<any | null>(null);
+
+  // Selected PR for Printable Document View
+  const [printablePr, setPrintablePr] = useState<any | null>(null);
 
   // Rejection Reason Modal
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -728,6 +733,14 @@ export default function RequisitionsTab({
                               Create PO
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setPrintablePr(pr)}
+                            className="p-1.5 rounded bg-white hover:bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B] border border-[#D4D4D8] transition"
+                            title="Print Requisition / PDF Preview"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={() => setSelectedPr(pr)}
@@ -1365,6 +1378,13 @@ export default function RequisitionsTab({
               >
                 Close
               </button>
+              <button
+                type="button"
+                onClick={() => setPrintablePr(selectedPr)}
+                className="h-8 px-3 rounded-lg border border-[#EDEDED] text-xs font-semibold text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5" /> Print / PDF
+              </button>
               {selectedPr.status === "draft" && canSubmitPr && (
                 <button
                   type="button"
@@ -1557,6 +1577,48 @@ export default function RequisitionsTab({
             placeholder="Material already available in central stock / Duplicate request..."
           />
         </div>
+      </SideDrawer>
+
+      {/* FORMAL PRINTABLE PURCHASE REQUISITION DRAWER */}
+      <SideDrawer
+        isOpen={!!printablePr}
+        onClose={() => setPrintablePr(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Printer className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Purchase Requisition Document • {printablePr?.prNumber}
+            </span>
+          </div>
+        }
+        subtitle="Official commercial letterhead & requisition verification"
+        width="max-w-4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <button
+              type="button"
+              onClick={() => setPrintablePr(null)}
+              className="px-4 py-2 border border-[#D4D4D8] rounded-lg text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+            </button>
+          </div>
+        }
+      >
+        {printablePr && (
+          <PurchaseRequisitionDocument
+            pr={printablePr}
+            onClose={() => setPrintablePr(null)}
+            hideCosts={!canApprovePr && !canCreatePo && currentRole === "storekeeper"}
+          />
+        )}
       </SideDrawer>
     </div>
   );

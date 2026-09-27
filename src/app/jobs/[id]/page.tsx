@@ -535,14 +535,14 @@ export default function JobDetailPage() {
                     + Add Service / Item
                   </button>
                 )}
-                {canGenerateInvoice && (
+                {(canGenerateInvoice || job.invoice) && (
                   <button
                     type="button"
                     onClick={() => setTaxInvoiceDrawerOpen(true)}
                     className="h-8 px-3 rounded-lg border border-purple-300 bg-purple-50 hover:bg-purple-100 text-xs font-bold text-purple-900 inline-flex items-center gap-1.5 transition shadow-xs"
                   >
                     <Receipt className="w-3.5 h-3.5 text-purple-700" />
-                    Tax Invoice
+                    {job.invoice ? `Tax Invoice (${job.invoice.invoiceNumber})` : "Tax Invoice"}
                   </button>
                 )}
 
@@ -808,7 +808,7 @@ export default function JobDetailPage() {
                     className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
                   >
                     <Receipt className="w-3.5 h-3.5" />
-                    <span>Invoice</span>
+                    <span>{job.invoice ? `Print Invoice (${job.invoice.invoiceNumber})` : "Tax Invoice"}</span>
                   </button>
                 </div>
               </div>

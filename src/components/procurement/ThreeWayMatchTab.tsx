@@ -16,6 +16,7 @@ import {
   Eye,
   ArrowRight,
   Sparkles,
+  Printer,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import {
@@ -24,6 +25,7 @@ import {
 } from "@/components/procurement/procurementUi";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import VendorBillDocument from "@/components/documents/VendorBillDocument";
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
@@ -114,6 +116,8 @@ export default function ThreeWayMatchTab({
 
   // Selected Invoice for Full 3-Way Match Verification Card
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
+  // Selected Invoice for Formal Printable Bill / 3-Way Match Voucher
+  const [printableBill, setPrintableBill] = useState<any | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -436,6 +440,17 @@ export default function ThreeWayMatchTab({
 
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPrintableBill(inv);
+                          }}
+                          className="p-1.5 rounded bg-white hover:bg-zinc-100 text-[#71717A] hover:text-[#18181B] border border-[#D4D4D8] transition"
+                          title="Print Formal Bill / Voucher Preview"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -845,6 +860,17 @@ export default function ThreeWayMatchTab({
                 Close
               </button>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const inv = activeInvoice;
+                    setActiveInvoice(null);
+                    setPrintableBill(inv);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs font-semibold text-[#18181B] hover:bg-zinc-100 transition"
+                >
+                  <Printer className="w-3.5 h-3.5" /> Print / PDF
+                </button>
                 {(activeInvoice.matchStatus === "matched" || activeInvoice.matchStatus === "discrepancy") && (
                   <button
                     type="button"
@@ -941,6 +967,46 @@ export default function ThreeWayMatchTab({
         )}
       </SideDrawer>
 
+      {/* FORMAL PRINTABLE VENDOR BILL & 3-WAY MATCH VOUCHER DRAWER */}
+      <SideDrawer
+        isOpen={!!printableBill}
+        onClose={() => setPrintableBill(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Printer className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Vendor Bill & Disbursement Voucher • {printableBill?.invoiceNumber}
+            </span>
+          </div>
+        }
+        subtitle="Official accounts payable 3-way match & tax audit endorsement"
+        width="max-w-4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <button
+              type="button"
+              onClick={() => setPrintableBill(null)}
+              className="px-4 py-2 border border-[#D4D4D8] rounded-lg text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+            </button>
+          </div>
+        }
+      >
+        {printableBill && (
+          <VendorBillDocument
+            invoice={printableBill}
+            onClose={() => setPrintableBill(null)}
+          />
+        )}
+      </SideDrawer>
     </div>
   );
 }

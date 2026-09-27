@@ -47,7 +47,12 @@ export async function GET(
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    return NextResponse.json(job);
+    const invoice = await prisma.invoice.findFirst({
+      where: { jobId: params.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return NextResponse.json({ ...job, invoice });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
