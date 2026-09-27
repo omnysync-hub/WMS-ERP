@@ -46,6 +46,8 @@ const ACTION_PERMISSION: Record<string, string> = {
   award_rfq: "procurement.rfq.award",
   create_po: "procurement.po.create",
   approve_po: "procurement.po.approve",
+  reject_po: "procurement.po.approve",
+  rejected_po: "procurement.po.approve",
   send_po: "procurement.po.send",
   create_grn: "procurement.grn.create",
   create_supplier_invoice: "procurement.invoice.create",
@@ -342,6 +344,16 @@ export async function POST(req: NextRequest) {
 
       case "approve_po": {
         const po = await ProcurementService.approvePurchaseOrder(payload.id, actorName);
+        return NextResponse.json(po);
+      }
+
+      case "reject_po":
+      case "rejected_po": {
+        const po = await ProcurementService.rejectPurchaseOrder(
+          payload.id,
+          actorName,
+          payload.reason
+        );
         return NextResponse.json(po);
       }
 

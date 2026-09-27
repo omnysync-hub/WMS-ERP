@@ -807,6 +807,25 @@ export class ProcurementService {
     });
   }
 
+  static async rejectPurchaseOrder(id: string, actorName = "Admin", reason?: string) {
+    const po = await prisma.purchaseOrder.findUnique({ where: { id } });
+    if (!po) throw new Error("Purchase order not found");
+
+    const rejectionNote = `[REJECTED by ${actorName} on ${new Date().toLocaleDateString()}: ${reason || "Purchase order rejected"}]`;
+    const updatedTerms = po.termsAndConditions
+      ? `${rejectionNote}\n\n${po.termsAndConditions}`
+      : rejectionNote;
+
+    return await prisma.purchaseOrder.update({
+      where: { id },
+      data: {
+        status: "rejected",
+        termsAndConditions: updatedTerms,
+      },
+      include: { items: true, vendor: true },
+    });
+  }
+
   static async sendPoToVendor(id: string) {
     return await prisma.purchaseOrder.update({
       where: { id },

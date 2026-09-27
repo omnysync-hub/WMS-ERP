@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Flame,
   FileSpreadsheet,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
@@ -126,6 +128,10 @@ export default function PurchaseOrdersTab({
   // Dedicated PO Approval State
   const [poToApprove, setPoToApprove] = useState<any | null>(null);
   const [approvalNotes, setApprovalNotes] = useState("");
+
+  // Dedicated PO Rejection State
+  const [poToReject, setPoToReject] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -363,6 +369,31 @@ export default function PurchaseOrdersTab({
       if (!res.ok) throw new Error("Failed to approve PO");
       setPoToApprove(null);
       setApprovalNotes("");
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRejectPo = async (id: string, reason?: string) => {
+    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/procurement", {
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+        body: JSON.stringify({
+          action: "reject_po",
+          id,
+          actorName: currentRole === "admin" ? "Haris Qureshi (Managing Director)" : "Finance & Operations Manager",
+          reason,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to reject PO");
+      setPoToReject(null);
+      setRejectReason("");
       onRefresh();
     } catch (err: any) {
       alert(err.message);
@@ -615,16 +646,30 @@ export default function PurchaseOrdersTab({
 
                           {/* Approval / Workflow Action */}
                           {po.status === "draft" && (
-                            <button
-                              onClick={() => {
-                                setApprovalNotes("");
-                                setPoToApprove(po);
-                              }}
-                              disabled={isSubmitting}
-                              className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
-                            >
-                              <ShieldCheck className="w-3 h-3" /> Approve PO
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setRejectReason("");
+                                  setPoToReject(po);
+                                }}
+                                disabled={isSubmitting || !canApprovePo}
+                                title={!canApprovePo ? "Missing permission: procurement.po.approve" : undefined}
+                                className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold px-2 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                              >
+                                <XCircle className="w-3 h-3" /> Reject
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setApprovalNotes("");
+                                  setPoToApprove(po);
+                                }}
+                                disabled={isSubmitting || !canApprovePo}
+                                title={!canApprovePo ? "Missing permission: procurement.po.approve" : undefined}
+                                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                              >
+                                <ShieldCheck className="w-3 h-3" /> Approve PO
+                              </button>
+                            </div>
                           )}
 
                           {po.status === "approved" && (
@@ -1342,13 +1387,26 @@ export default function PurchaseOrdersTab({
         subtitle={poToApprove ? `Supplier: ${poToApprove.supplierName} • Order Value: ${formatCurrency(poToApprove.totalAmount)}` : ""}
         width="max-w-xl"
         footer={
-          <div className="flex items-center justify-end gap-2.5 w-full">
+          <div className="flex items-center justify-end gap-2 w-full">
             <button
               type="button"
               onClick={() => setPoToApprove(null)}
               className="px-3.5 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const po = poToApprove;
+                setPoToApprove(null);
+                setPoToReject(po);
+                setRejectReason("");
+              }}
+              disabled={isSubmitting || !canApprovePo}
+              className="px-3.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1"
+            >
+              <XCircle className="w-3.5 h-3.5" /> Reject PO
             </button>
             <button
               type="button"
@@ -1432,6 +1490,56 @@ export default function PurchaseOrdersTab({
               </div>
 
               
+          </div>
+        )}
+      </SideDrawer>
+
+      {/* REJECT PO MODAL */}
+      <SideDrawer
+        isOpen={!!poToReject}
+        onClose={() => setPoToReject(null)}
+        title={
+          <div className="flex items-center gap-2 text-rose-600">
+            <AlertTriangle className="w-4 h-4" />
+            <span className="font-bold text-sm">
+              Reject Purchase Order {poToReject?.poNumber}
+            </span>
+          </div>
+        }
+        subtitle="Provide formal reason for rejecting this purchase order"
+        width="max-w-md"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setPoToReject(null)}
+              className="px-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => poToReject && handleRejectPo(poToReject.id, rejectReason)}
+              disabled={isSubmitting}
+              className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow"
+            >
+              Confirm PO Rejection
+            </button>
+          </div>
+        }
+      >
+        {poToReject && (
+          <div className="space-y-3 pt-1 text-[#18181B]">
+            <p className="text-[11px] text-[#71717A]">
+              State formal reason for rejecting Purchase Order <strong>{poToReject.poNumber}</strong> ({poToReject.supplierName}):
+            </p>
+            <textarea
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] focus:ring-1 focus:ring-rose-500 outline-none"
+              placeholder="State reason (budget limitation, supplier disagreement, spec change, duplicate PO)..."
+            />
           </div>
         )}
       </SideDrawer>

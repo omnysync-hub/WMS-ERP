@@ -162,15 +162,25 @@ export default function ProcurementApprovalsTab({
   };
 
   const handleConfirmRejection = async () => {
-    if (!canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
     if (!rejectItem) return;
+    if (rejectItem.type === "pr" && !canApprovePr) {
+      alert("Missing permission: procurement.pr.approve");
+      return;
+    }
+    if (rejectItem.type === "po" && !canApprovePo) {
+      alert("Missing permission: procurement.po.approve");
+      return;
+    }
     setIsSubmitting(true);
     try {
       if (rejectItem.type === "pr") {
         await fetch("/api/procurement", {
-        method: "POST",
-        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
-
+          method: "POST",
+          headers: procurementActorHeaders(
+            activeRole || currentRole,
+            currentPersona?.name || activeUser?.name,
+            activeUser?.id
+          ),
           body: JSON.stringify({
             action: "reject_pr",
             id: rejectItem.id,
@@ -178,7 +188,25 @@ export default function ProcurementApprovalsTab({
             reason: rejectReason,
           }),
         });
+        setActionSuccess(`PR ${rejectItem.refNumber} rejected and returned to requester.`);
+      } else if (rejectItem.type === "po") {
+        await fetch("/api/procurement", {
+          method: "POST",
+          headers: procurementActorHeaders(
+            activeRole || currentRole,
+            currentPersona?.name || activeUser?.name,
+            activeUser?.id
+          ),
+          body: JSON.stringify({
+            action: "reject_po",
+            id: rejectItem.id,
+            actorName: approverActorName,
+            reason: rejectReason,
+          }),
+        });
+        setActionSuccess(`Purchase Order ${rejectItem.refNumber} rejected.`);
       }
+      setTimeout(() => setActionSuccess(null), 3500);
       setRejectItem(null);
       setInspectItem(null);
       setRejectReason("");
@@ -434,6 +462,21 @@ export default function ProcurementApprovalsTab({
                       </button>
 
                       <button
+                        onClick={() =>
+                          setRejectItem({
+                            type: "po",
+                            id: po.id,
+                            refNumber: po.poNumber,
+                          })
+                        }
+                        disabled={isSubmitting || !canApprovePo}
+                        title={!canApprovePo ? "Missing permission: procurement.po.approve" : undefined}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1"
+                      >
+                        <XCircle className="w-3.5 h-3.5" /> Reject
+                      </button>
+
+                      <button
                         onClick={() => handleApprovePo(po.id)}
                         disabled={isSubmitting || !canApprovePo}
                         title={!canApprovePo ? "Missing permission" : undefined}
@@ -579,27 +622,63 @@ export default function ProcurementApprovalsTab({
               </button>
 
               {inspectItem.type === "pr" && (
-                <button
-                  type="button"
-                  onClick={() => handleApprovePr(inspectItem.data.id)}
-                  disabled={isSubmitting || !canApprovePr}
-                  title={!canApprovePr ? "Missing permission" : undefined}
-                  className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold shadow-2xs"
-                >
-                  Confirm PR Approval
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = inspectItem;
+                      setInspectItem(null);
+                      setRejectItem({
+                        type: "pr",
+                        id: item.data.id,
+                        refNumber: item.data.prNumber,
+                      });
+                    }}
+                    disabled={isSubmitting || !canApprovePr}
+                    className="px-3.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1"
+                  >
+                    <XCircle className="w-3.5 h-3.5" /> Reject PR
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApprovePr(inspectItem.data.id)}
+                    disabled={isSubmitting || !canApprovePr}
+                    title={!canApprovePr ? "Missing permission" : undefined}
+                    className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold shadow-2xs"
+                  >
+                    Confirm PR Approval
+                  </button>
+                </>
               )}
 
               {inspectItem.type === "po" && (
-                <button
-                  type="button"
-                  onClick={() => handleApprovePo(inspectItem.data.id)}
-                  disabled={isSubmitting || !canApprovePo}
-                  title={!canApprovePo ? "Missing permission" : undefined}
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs"
-                >
-                  Confirm PO Approval
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const item = inspectItem;
+                      setInspectItem(null);
+                      setRejectItem({
+                        type: "po",
+                        id: item.data.id,
+                        refNumber: item.data.poNumber,
+                      });
+                    }}
+                    disabled={isSubmitting || !canApprovePo}
+                    className="px-3.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1"
+                  >
+                    <XCircle className="w-3.5 h-3.5" /> Reject PO
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApprovePo(inspectItem.data.id)}
+                    disabled={isSubmitting || !canApprovePo}
+                    title={!canApprovePo ? "Missing permission" : undefined}
+                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs"
+                  >
+                    Confirm PO Approval
+                  </button>
+                </>
               )}
 
               {inspectItem.type === "bill" && (
