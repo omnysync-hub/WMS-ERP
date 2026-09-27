@@ -3,9 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import PageHeader from "@/components/layout/PageHeader";
-import ProcurementProcessPipeline, {
-  ProcurementStage,
-} from "@/components/procurement/ProcurementProcessPipeline";
+import type { ProcurementStage } from "@/components/procurement/ProcurementProcessPipeline";
 import VendorsTab from "@/components/procurement/VendorsTab";
 import RequisitionsTab from "@/components/procurement/RequisitionsTab";
 import RfqSourcingTab from "@/components/procurement/RfqSourcingTab";
@@ -29,7 +27,10 @@ import {
   CreditCard,
   BarChart3,
   RefreshCw,
-  Inbox,
+  Boxes,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 
 /** Tab visibility keyed by any-of permissions */
@@ -41,7 +42,7 @@ const TAB_PERMS: Record<ProcurementStage, string[]> = {
   grns: ["procurement.grn.create", "procurement.grn.quality"],
   invoices: ["procurement.invoice.create", "procurement.invoice.match", "procurement.invoice.approve"],
   payments: ["procurement.payment.record"],
-  vendors: ["procurement.vendor.manage", "procurement.view_pr", "procurement.rfq.manage", "procurement.po.create"],
+  vendors: ["procurement.vendor.manage", "procurement.rfq.manage", "procurement.po.create"],
   reports: ["procurement.reports.view"],
 };
 
@@ -55,6 +56,7 @@ type MetricChip = {
   tab: ProcurementStage;
   filter?: string;
   hint?: string;
+  icon?: any;
 };
 
 function ProcurementPageContent() {
@@ -271,50 +273,52 @@ function ProcurementPageContent() {
   const roleChips = useMemo((): MetricChip[] => {
     if (activeRole === "storekeeper") {
       return [
-        { key: "my-prs", label: "My PRs", value: myPrs.length, tab: "prs", hint: "Draft & open" },
-        { key: "await-grn", label: "Awaiting GRN", value: posAwaitingGrn.length, tone: posAwaitingGrn.length ? "amber" : "slate", tab: "grns", hint: "POs to receive" },
-        { key: "grns", label: "GRNs logged", value: grns.length, tab: "grns" },
+        { key: "my-prs", label: "My Requisitions", value: myPrs.length, tab: "prs", hint: "Draft & open requisitions", icon: FileText },
+        { key: "await-grn", label: "Awaiting Receipt", value: posAwaitingGrn.length, tone: posAwaitingGrn.length ? "amber" : "slate", tab: "grns", hint: "POs awaiting delivery", icon: PackageCheck },
+        { key: "grns", label: "GRNs Logged", value: grns.length, tab: "grns", hint: "Completed goods receipts", icon: Boxes },
       ];
     }
     if (activeRole === "purchasing") {
       return [
-        { key: "apr", label: "Approved PRs", value: approvedPrs.length, tone: approvedPrs.length ? "amber" : "slate", tab: "prs", filter: "approved" },
-        { key: "rfq", label: "Open RFQs", value: openRfqs.length, tab: "rfqs" },
-        { key: "pos", label: "Draft / Sent POs", value: draftSentPos.length, tab: "pos" },
+        { key: "apr", label: "Approved PRs", value: approvedPrs.length, tone: approvedPrs.length ? "amber" : "slate", tab: "prs", filter: "approved", hint: "Ready to source into PO", icon: CheckCircle2 },
+        { key: "rfq", label: "Open RFQs", value: openRfqs.length, tab: "rfqs", hint: "Vendor quotations active", icon: Scale },
+        { key: "pos", label: "Active Orders", value: draftSentPos.length, tab: "pos", hint: "Draft & issued POs", icon: ShoppingCart },
         ...(canViewCosts
-          ? [{ key: "spend", label: "Spend", value: kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "—", tab: "reports" as ProcurementStage, hint: "Issued POs" }]
+          ? [{ key: "spend", label: "Procurement Spend", value: kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "—", tab: "reports" as ProcurementStage, hint: "Issued order commitment", icon: CreditCard }]
           : []),
       ];
     }
     if (activeRole === "accountant") {
       return [
-        { key: "unmatched", label: "Unmatched", value: unmatchedBills.length, tone: unmatchedBills.length ? "amber" : "slate", tab: "invoices", filter: "pending_match" },
-        { key: "ready", label: "Ready to pay", value: approvedForPayment.length, tab: "payments", filter: "approved_for_payment" },
-        { key: "disc", label: "Discrepancies", value: discrepancyBills.length, tone: discrepancyBills.length ? "red" : "slate", tab: "invoices", filter: "discrepancy" },
+        { key: "unmatched", label: "Unmatched Bills", value: unmatchedBills.length, tone: unmatchedBills.length ? "amber" : "slate", tab: "invoices", filter: "pending_match", hint: "Awaiting 3-way match", icon: AlertTriangle },
+        { key: "ready", label: "Ready to Pay", value: approvedForPayment.length, tab: "payments", filter: "approved_for_payment", hint: "Approved vendor settlements", icon: CreditCard },
+        { key: "disc", label: "Discrepancy Invoices", value: discrepancyBills.length, tone: discrepancyBills.length ? "red" : "slate", tab: "invoices", filter: "discrepancy", hint: "Price / qty variance", icon: ShieldAlert },
         ...(canViewCosts
-          ? [{ key: "spend", label: "Spend", value: kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "—", tab: "reports" as ProcurementStage }]
+          ? [{ key: "spend", label: "Total Spend", value: kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "—", tab: "reports" as ProcurementStage, hint: "Procurement expenditure", icon: BarChart3 }]
           : []),
       ];
     }
     if (activeRole === "manager") {
       return [
-        { key: "pr-appr", label: "PR approvals", value: submittedPrs.length, tone: submittedPrs.length ? "amber" : "slate", tab: "approvals" },
-        { key: "po-appr", label: "Draft POs", value: draftPos.length, tone: draftPos.length ? "amber" : "slate", tab: "approvals" },
-        { key: "disc", label: "Discrepancy bills", value: discrepancyBills.length, tone: discrepancyBills.length ? "red" : "slate", tab: "invoices", filter: "discrepancy" },
-        { key: "overdue", label: "Overdue", value: kpi.overdueDeliveriesCount, tone: kpi.overdueDeliveriesCount ? "red" : "slate", tab: "pos" },
+        { key: "pr-appr", label: "PR Approvals", value: submittedPrs.length, tone: submittedPrs.length ? "amber" : "slate", tab: "approvals", hint: "Requisitions needing sign-off", icon: FileText },
+        { key: "po-appr", label: "Draft POs", value: draftPos.length, tone: draftPos.length ? "amber" : "slate", tab: "approvals", hint: "Orders awaiting authorization", icon: ShoppingCart },
+        { key: "disc", label: "Discrepancy Bills", value: discrepancyBills.length, tone: discrepancyBills.length ? "red" : "slate", tab: "invoices", filter: "discrepancy", hint: "Flagged invoices", icon: AlertTriangle },
+        { key: "overdue", label: "Overdue Deliveries", value: kpi.overdueDeliveriesCount, tone: kpi.overdueDeliveriesCount ? "red" : "slate", tab: "pos", hint: "Delayed vendor deliveries", icon: Clock },
       ];
     }
     // admin / auditor / default overview
     return [
-      { key: "pending", label: "Pending PRs", value: kpi.pendingPrsCount, tone: kpi.pendingPrsCount ? "amber" : "slate", tab: "prs", filter: "submitted" },
-      { key: "open-po", label: "Open POs", value: kpi.openPosCount, tab: "pos" },
-      { key: "approvals", label: "Approvals inbox", value: pendingApprovalsCount, tone: pendingApprovalsCount ? "amber" : "slate", tab: "approvals" },
+      { key: "pending", label: "Pending PRs", value: kpi.pendingPrsCount, tone: kpi.pendingPrsCount ? "amber" : "slate", tab: "prs", filter: "submitted", hint: "Requisitions in queue", icon: FileText },
+      { key: "open-po", label: "Open Orders", value: kpi.openPosCount, tab: "pos", hint: "Active purchase orders", icon: ShoppingCart },
+      { key: "approvals", label: "Approvals Inbox", value: pendingApprovalsCount, tone: pendingApprovalsCount ? "amber" : "slate", tab: "approvals", hint: "Items requiring review", icon: ShieldAlert },
       {
         key: "overdue",
-        label: "Overdue",
+        label: "Overdue Deliveries",
         value: kpi.overdueDeliveriesCount,
         tone: kpi.overdueDeliveriesCount ? "red" : "slate",
         tab: "pos",
+        hint: "Supplier delays",
+        icon: Clock,
       },
     ];
   }, [
@@ -337,252 +341,6 @@ function ProcurementPageContent() {
     draftPos.length,
     pendingApprovalsCount,
   ]);
-
-  const RoleHome = () => {
-    const card = (
-      title: string,
-      items: { label: string; onClick?: () => void }[],
-      empty: string,
-      cta?: { label: string; onClick: () => void }
-    ) => (
-      <div className="bg-white border border-[#EDEDED] rounded-xl p-3.5">
-        <div className="flex items-center gap-2 mb-2">
-          <Inbox className="w-3.5 h-3.5 text-slate-400" />
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            {title}
-          </h3>
-          <span className="ml-auto text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
-            {items.length}
-          </span>
-        </div>
-        {items.length === 0 ? (
-          <div className="py-2">
-            <p className="text-xs text-slate-400">{empty}</p>
-            {cta && (
-              <button
-                type="button"
-                onClick={cta.onClick}
-                className="mt-2 text-xs font-semibold text-[#0D7A5F] hover:underline"
-              >
-                {cta.label}
-              </button>
-            )}
-          </div>
-        ) : (
-          <ul className="space-y-0.5 max-h-32 overflow-y-auto">
-            {items.slice(0, 6).map((it, idx) => (
-              <li key={idx}>
-                <button
-                  type="button"
-                  onClick={it.onClick}
-                  className="w-full text-left text-xs px-2 py-1.5 rounded-md hover:bg-slate-50 text-slate-800 font-medium"
-                >
-                  {it.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    );
-
-    if (activeRole === "storekeeper") {
-      return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {card(
-            "My draft / submitted PRs",
-            myPrs.map((p) => ({
-              label: `${p.prNumber || p.id} · ${p.status}`,
-              onClick: () => goQueue("prs", p.status),
-            })),
-            "No open requisitions",
-            canSeeTab("prs")
-              ? { label: "Open requisitions", onClick: () => goQueue("prs") }
-              : undefined
-          )}
-          {card(
-            "POs awaiting GRN",
-            posAwaitingGrn.map((p) => ({
-              label: `${p.poNumber} · ${p.status}`,
-              onClick: () => {
-                setPresetPoForGrn(p);
-                goQueue("grns");
-              },
-            })),
-            "Nothing waiting for receipt",
-            canSeeTab("grns")
-              ? { label: "Go to goods receipt", onClick: () => goQueue("grns") }
-              : undefined
-          )}
-        </div>
-      );
-    }
-
-    if (activeRole === "purchasing") {
-      return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {card(
-            "Approved PRs",
-            approvedPrs.map((p) => ({
-              label: `${p.prNumber || p.id}`,
-              onClick: () => goQueue("prs", "approved"),
-            })),
-            "No approved PRs to source",
-            { label: "View requisitions", onClick: () => goQueue("prs", "approved") }
-          )}
-          {card(
-            "Open RFQs",
-            openRfqs.map((r) => ({
-              label: `${r.rfqNumber || r.id} · ${r.status}`,
-              onClick: () => goQueue("rfqs"),
-            })),
-            "No open RFQs",
-            canSeeTab("rfqs")
-              ? { label: "Open RFQ board", onClick: () => goQueue("rfqs") }
-              : undefined
-          )}
-          {card(
-            "Draft / sent POs",
-            draftSentPos.map((p) => ({
-              label: `${p.poNumber} · ${p.status}`,
-              onClick: () => goQueue("pos", p.status),
-            })),
-            "No draft or sent POs",
-            { label: "View purchase orders", onClick: () => goQueue("pos") }
-          )}
-        </div>
-      );
-    }
-
-    if (activeRole === "accountant") {
-      return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {card(
-            "Unmatched / pending match",
-            unmatchedBills.map((i) => ({
-              label: `${i.invoiceNumber} · ${i.matchStatus}`,
-              onClick: () => goQueue("invoices", i.matchStatus),
-            })),
-            "No unmatched bills",
-            { label: "Open 3-way match", onClick: () => goQueue("invoices") }
-          )}
-          {card(
-            "Ready to pay",
-            approvedForPayment.map((i) => ({
-              label: `${i.invoiceNumber}`,
-              onClick: () => {
-                setPresetInvoiceForPay(i);
-                goQueue("payments", "approved_for_payment");
-              },
-            })),
-            "Nothing queued for payment",
-            canSeeTab("payments")
-              ? { label: "Open payments", onClick: () => goQueue("payments") }
-              : undefined
-          )}
-        </div>
-      );
-    }
-
-    if (activeRole === "manager") {
-      return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {card(
-            "Submitted PRs",
-            submittedPrs.map((p) => ({
-              label: `${p.prNumber || p.id}`,
-              onClick: () => goQueue("approvals"),
-            })),
-            "No PRs awaiting approval",
-            { label: "Approvals inbox", onClick: () => goQueue("approvals") }
-          )}
-          {card(
-            "Draft POs",
-            draftPos.map((p) => ({
-              label: `${p.poNumber}`,
-              onClick: () => goQueue("approvals"),
-            })),
-            "No draft POs",
-            { label: "Approvals inbox", onClick: () => goQueue("approvals") }
-          )}
-          {card(
-            "Discrepancy bills",
-            discrepancyBills.map((i) => ({
-              label: `${i.invoiceNumber}`,
-              onClick: () => goQueue("invoices", "discrepancy"),
-            })),
-            "No discrepancy invoices",
-            { label: "Review invoices", onClick: () => goQueue("invoices", "discrepancy") }
-          )}
-        </div>
-      );
-    }
-
-    // admin / others — overview of all queues
-    if (activeRole === "admin" || activeRole === "auditor") {
-      return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {card(
-            "Approvals inbox",
-            [
-              ...submittedPrs.slice(0, 3).map((p) => ({
-                label: `PR ${p.prNumber || p.id}`,
-                onClick: () => goQueue("approvals"),
-              })),
-              ...draftPos.slice(0, 2).map((p) => ({
-                label: `PO ${p.poNumber}`,
-                onClick: () => goQueue("approvals"),
-              })),
-            ],
-            "Inbox clear",
-            { label: "Open approvals", onClick: () => goQueue("approvals") }
-          )}
-          {card(
-            "Pending PRs",
-            myPrs.slice(0, 5).map((p) => ({
-              label: `${p.prNumber || p.id} · ${p.status}`,
-              onClick: () => goQueue("prs", p.status),
-            })),
-            "No open PRs",
-            { label: "View PRs", onClick: () => goQueue("prs") }
-          )}
-          {card(
-            "Open POs / GRN",
-            posAwaitingGrn.slice(0, 5).map((p) => ({
-              label: `${p.poNumber} · ${p.status}`,
-              onClick: () => goQueue("pos"),
-            })),
-            "No open receipts",
-            { label: "View POs", onClick: () => goQueue("pos") }
-          )}
-          {card(
-            "Match & pay",
-            [
-              ...unmatchedBills.slice(0, 3).map((i) => ({
-                label: `${i.invoiceNumber} · match`,
-                onClick: () => goQueue("invoices", i.matchStatus),
-              })),
-              ...approvedForPayment.slice(0, 2).map((i) => ({
-                label: `${i.invoiceNumber} · pay`,
-                onClick: () => goQueue("payments"),
-              })),
-            ],
-            "No bills in queue",
-            { label: "Open match", onClick: () => goQueue("invoices") }
-          )}
-        </div>
-      );
-    }
-
-    return null;
-  };
-
-  const chipTone = (tone?: MetricChip["tone"], active?: boolean) => {
-    if (active) return "border-[#0D7A5F] bg-primary-light ring-1 ring-[#0D7A5F]/30";
-    if (tone === "red") return "border-red-200 bg-red-50/60 hover:border-red-300";
-    if (tone === "amber") return "border-amber-200 bg-amber-50/50 hover:border-amber-300";
-    return "border-[#EDEDED] bg-white hover:border-slate-300";
-  };
 
   const roleSubtitle = (() => {
     switch (activeRole) {
@@ -624,76 +382,109 @@ function ProcurementPageContent() {
       />
 
       <div className="space-y-4">
-        <RoleHome />
-
-        {/* Role-specific metric chips — click filters the active queue */}
-        <div className="flex flex-wrap gap-2">
+        {/* Role-specific Metric KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
           {roleChips.map((chip) => {
+            const isSelected = activeTab === chip.tab && (!chip.filter || queueFilter === chip.filter);
+            const Icon = chip.icon || FileText;
+            const isAlert = chip.tone === "red" && Number(chip.value) > 0;
+            const isWarning = chip.tone === "amber" && Number(chip.value) > 0;
+
             return (
               <button
                 key={chip.key}
                 type="button"
                 onClick={() => goQueue(chip.tab, chip.filter)}
                 className={cn(
-                  "inline-flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition min-w-[7.5rem]",
-                  chipTone(chip.tone, activeTab === chip.tab && (!chip.filter || queueFilter === chip.filter))
+                  "group relative p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer overflow-hidden",
+                  "bg-white shadow-2xs hover:shadow-md hover:-translate-y-0.5",
+                  isSelected
+                    ? "border-[#0D7A5F] ring-2 ring-[#0D7A5F]/20 bg-gradient-to-br from-emerald-50/40 via-white to-white"
+                    : isAlert
+                    ? "border-rose-200 hover:border-rose-300"
+                    : isWarning
+                    ? "border-amber-200 hover:border-amber-300"
+                    : "border-slate-200/90 hover:border-slate-300"
                 )}
               >
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+                {/* Active Indicator Top Accent Bar */}
+                {isSelected && (
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#0D7A5F] to-[#0A624C]" />
+                )}
+
+                {/* Card Header: Label & Icon */}
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-mono">
                     {chip.label}
-                  </div>
+                  </span>
                   <div
                     className={cn(
-                      "text-base font-bold font-mono leading-tight mt-0.5",
-                      chip.tone === "red"
-                        ? "text-red-700"
-                        : chip.tone === "amber"
-                        ? "text-amber-800"
-                        : "text-slate-800"
+                      "w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0",
+                      isSelected
+                        ? "bg-[#0D7A5F] text-white shadow-xs"
+                        : isAlert
+                        ? "bg-rose-100 text-rose-700 group-hover:bg-rose-600 group-hover:text-white"
+                        : isWarning
+                        ? "bg-amber-100 text-amber-800 group-hover:bg-amber-600 group-hover:text-white"
+                        : "bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-[#0D7A5F]"
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
+                </div>
+
+                {/* Card Body: Metric Value */}
+                <div className="flex items-baseline justify-between gap-2 mt-auto">
+                  <div
+                    className={cn(
+                      "text-3xl font-black font-mono tracking-tight leading-none",
+                      isAlert
+                        ? "text-rose-600"
+                        : isWarning
+                        ? "text-amber-700"
+                        : isSelected
+                        ? "text-[#0D7A5F]"
+                        : "text-slate-900 group-hover:text-[#0D7A5F]"
                     )}
                   >
                     {chip.value}
                   </div>
-                  {chip.hint && (
-                    <div className="text-[10px] text-slate-400 mt-0.5">{chip.hint}</div>
+                  {isSelected && (
+                    <span className="text-[10px] font-bold text-[#0D7A5F] bg-[#0D7A5F]/10 px-2 py-0.5 rounded-full font-mono">
+                      Active
+                    </span>
                   )}
                 </div>
+
+                {/* Card Footer: Hint */}
+                {chip.hint && (
+                  <div className="text-[11px] text-slate-500 font-medium mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <span>{chip.hint}</span>
+                    <span className="text-[10px] text-slate-400 group-hover:text-[#0D7A5F] group-hover:translate-x-0.5 transition-all">
+                      &rarr;
+                    </span>
+                  </div>
+                )}
               </button>
             );
           })}
-          {queueFilter && (
+        </div>
+
+        {queueFilter && (
+          <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 w-fit">
+            <span>Filter active: <strong className="font-mono text-slate-800">{queueFilter}</strong></span>
             <button
               type="button"
               onClick={() => setQueueFilter(null)}
-              className="self-center text-xs text-slate-500 hover:text-slate-800 underline px-2"
+              className="text-[#0D7A5F] hover:underline font-semibold ml-1"
             >
               Clear filter
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
-        <ProcurementProcessPipeline
-          activeTab={activeTab}
-          onSelectTab={(tab) => {
-            if (canSeeTab(tab)) {
-              setQueueFilter(null);
-              setActiveTab(tab);
-            }
-          }}
-          allowedStages={visibleTabs}
-          metrics={{
-            pendingPrsCount: kpi.pendingPrsCount,
-            openPosCount: kpi.openPosCount,
-            overdueDeliveriesCount: kpi.overdueDeliveriesCount,
-            grnPendingInvoiceCount: kpi.grnPendingInvoiceCount,
-            activeVendorsCount: kpi.activeVendorsCount,
-            pendingApprovalsCount,
-          }}
-        />
-
-        {/* Quieter permission-filtered tabs */}
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-[#EDEDED]">
+        {/* Single Navigation Tabs Bar */}
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-[#EDEDED] pt-1">
           {subTabButtons.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
@@ -706,21 +497,21 @@ function ProcurementPageContent() {
                   setActiveTab(tab.id);
                 }}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 text-xs whitespace-nowrap border-b-2 -mb-px transition-colors",
+                  "flex items-center gap-2 px-3.5 py-2.5 text-xs whitespace-nowrap border-b-2 -mb-px transition-all font-medium",
                   isActive
-                    ? "border-[#0D7A5F] text-[#0D7A5F] font-semibold"
-                    : "border-transparent text-slate-500 hover:text-slate-800 font-medium"
+                    ? "border-[#0D7A5F] text-[#0D7A5F] font-bold bg-[#0D7A5F]/5 rounded-t-lg"
+                    : "border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300"
                 )}
               >
-                <Icon className="w-3.5 h-3.5 opacity-70" />
+                <Icon className={cn("w-3.5 h-3.5", isActive ? "text-[#0D7A5F]" : "text-slate-400")} />
                 <span>{tab.label}</span>
                 {tab.count !== undefined && tab.count > 0 && (
                   <span
                     className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded-full font-mono",
+                      "text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ml-0.5",
                       isActive
-                        ? "bg-primary-light text-[#0D7A5F]"
-                        : "bg-slate-100 text-slate-500"
+                        ? "bg-[#0D7A5F] text-white"
+                        : "bg-slate-100 text-slate-600"
                     )}
                   >
                     {tab.count}

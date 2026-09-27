@@ -16,9 +16,6 @@ import {
   Eye,
   Send,
   Sparkles,
-  User,
-  Wrench,
-  UserCheck,
   CheckSquare,
   Square,
   ShoppingCart,
@@ -109,8 +106,6 @@ export default function RequisitionsTab({
   const [selectedSite, setSelectedSite] = useState("");
   const [customSite, setCustomSite] = useState("");
 
-  const [technicianName, setTechnicianName] = useState("");
-  const [supervisorName, setSupervisorName] = useState("");
   const [department, setDepartment] = useState("Central Warehouse");
   const [dateRequired, setDateRequired] = useState(() => {
     const d = new Date();
@@ -121,7 +116,6 @@ export default function RequisitionsTab({
   const [costCenter, setCostCenter] = useState("CC-STORE-01");
   const [budgetCode, setBudgetCode] = useState("OPEX-2026-STORE");
   const [notes, setNotes] = useState("");
-  const [attachments, setAttachments] = useState("");
 
   // Line items without pricing (strictly items, description, quantity, unit)
   const [items, setItems] = useState<
@@ -252,11 +246,9 @@ export default function RequisitionsTab({
         body: JSON.stringify({
           action: "create_pr",
           requestedBy: autoRequisitionerName,
-          technicianName: technicianName || undefined,
-          supervisorName: supervisorName || undefined,
           targetType,
           targetName: resolvedTargetName || undefined,
-          department,
+          department: department || "Central Warehouse",
           site: resolvedTargetName || "General Store",
           dateRequired,
           priority,
@@ -264,7 +256,6 @@ export default function RequisitionsTab({
           projectCode: targetType === "job" ? resolvedTargetName : undefined,
           budgetCode,
           notes,
-          attachments,
           items, // Note: no pricing included
         }),
       });
@@ -278,7 +269,6 @@ export default function RequisitionsTab({
       // Reset form
       setItems([{ productId: "", itemCode: "", description: "", quantity: 10, unit: "pcs" }]);
       setNotes("");
-      setAttachments("");
       onRefresh();
     } catch (err: any) {
       setFormError(err.message || "Failed to submit PR");
@@ -293,19 +283,25 @@ export default function RequisitionsTab({
     prOverride?: any
   ) => {
     if (status === "submitted" && !canSubmitPr) { alert("Missing permission: procurement.pr.submit"); return; }
-    if (status === "submitted" && !canSubmitPr) { alert("Missing permission: procurement.pr.submit"); return; }
     if ((status === "approved" || status === "rejected") && !canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
     const targetPr = prOverride || selectedPr;
     if (!targetPr) return;
     setIsSubmitting(true);
 
     try {
+      const actionMap: Record<string, string> = {
+        submitted: "submit_pr",
+        approved: "approve_pr",
+        rejected: "reject_pr",
+      };
+      const action = actionMap[status] || `${status}_pr`;
+
       const res = await fetch("/api/procurement", {
         method: "POST",
         headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
 
         body: JSON.stringify({
-          action: `${status}_pr`,
+          action,
           id: targetPr.id,
           actorName: autoRequisitionerName,
           reason,
@@ -965,82 +961,8 @@ export default function RequisitionsTab({
             )}
           </div>
 
-          {/* 2. Personnel Details: Auto Requisitioner (User) + Manual Technician & Supervisor */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
-            <div>
-              <label className="block text-[10px] font-mono text-[#71717A] mb-1 flex items-center gap-1">
-                <User className="w-3 h-3 text-[#0D7A5F]" />
-                Requisitioner (Current User)
-              </label>
-              <input
-                type="text"
-                disabled
-                value={autoRequisitionerName}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-2.5 py-1.5 text-xs text-[#18181B] font-semibold cursor-not-allowed opacity-90"
-              />
-              <span className="text-[9px] text-[#0D7A5F] font-mono mt-0.5 block">
-                Auto-recorded from active session
-              </span>
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-mono text-[#71717A] mb-1 flex items-center gap-1">
-                <Wrench className="w-3 h-3 text-[#71717A]" />
-                Technician (Manual Selection)
-              </label>
-              <SearchableSelect
-                value={technicianName}
-                onChange={(val) => setTechnicianName(val)}
-                options={
-                  employees.filter((e) => e.role === "technician" || !e.role).length > 0
-                    ? employees
-                        .filter((e) => e.role === "technician" || !e.role)
-                        .map((emp) => ({
-                          value: emp.name,
-                          label: emp.name,
-                          subLabel: emp.department || "Field Tech",
-                        }))
-                    : [
-                        { value: "Muhammad Asif", label: "Muhammad Asif", subLabel: "Senior Chiller Tech" },
-                        { value: "Rashid Ali", label: "Rashid Ali", subLabel: "VRF Specialist" },
-                        { value: "Tariq Mehmood", label: "Tariq Mehmood", subLabel: "Installation Tech" },
-                      ]
-                }
-                placeholder="-- Choose Technician --"
-                clearable
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-mono text-[#71717A] mb-1 flex items-center gap-1">
-                <UserCheck className="w-3 h-3 text-[#71717A]" />
-                Supervisor (Manual Selection)
-              </label>
-              <SearchableSelect
-                value={supervisorName}
-                onChange={(val) => setSupervisorName(val)}
-                options={
-                  employees.filter((e) => e.role !== "technician").length > 0
-                    ? employees
-                        .filter((e) => e.role !== "technician")
-                        .map((emp) => ({
-                          value: emp.name,
-                          label: emp.name,
-                          subLabel: emp.role || "Supervisor",
-                        }))
-                    : [
-                        { value: "Haris Qureshi", label: "Haris Qureshi", subLabel: "Operations Manager" },
-                        { value: "Khurram Shahzad", label: "Khurram Shahzad", subLabel: "Site Supervisor" },
-                      ]
-                }
-                placeholder="-- Choose Supervisor --"
-                clearable
-              />
-            </div>
-          </div>
-
-          {/* 3. Dates, Priority & Departments */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* 2. Dates & Priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                 Date Required *
@@ -1064,22 +986,6 @@ export default function RequisitionsTab({
                 options={[
                   { value: "Normal", label: "Normal" },
                   { value: "Urgent", label: "🚨 Urgent (Field Blocker)", badge: "High Priority" },
-                ]}
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                Department
-              </label>
-              <SearchableSelect
-                value={department}
-                onChange={(val) => setDepartment(val)}
-                options={[
-                  { value: "HVAC Operations", label: "HVAC Operations" },
-                  { value: "Central Warehouse", label: "Central Warehouse" },
-                  { value: "Project Engineering", label: "Project Engineering" },
-                  { value: "Facilities & Fleet", label: "Facilities & Fleet" },
                 ]}
               />
             </div>
@@ -1202,33 +1108,18 @@ export default function RequisitionsTab({
             </div>
           </div>
 
-          {/* 5. Justifications & Operational Notes */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                Operational Justification / Reason
-              </label>
-              <textarea
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                placeholder="State machine breakdown, replenishment requirement, or urgent ticket context..."
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                Drawing / Specs / Attachment Reference
-              </label>
-              <textarea
-                rows={2}
-                value={attachments}
-                onChange={(e) => setAttachments(e.target.value)}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                placeholder="Reference technical drawings, equipment manual page, or contractor quote ref..."
-              />
-            </div>
+          {/* 4. Notes */}
+          <div className="pt-1">
+            <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+              Notes
+            </label>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              placeholder="Enter notes..."
+            />
           </div>
         </form>
       </SideDrawer>

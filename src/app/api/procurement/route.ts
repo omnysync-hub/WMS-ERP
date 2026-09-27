@@ -19,7 +19,7 @@ import {
 } from "@/lib/auth/erpActor";
 
 const VIEW_PERMISSION: Record<string, string | string[]> = {
-  vendors: ["procurement.vendor.manage", "procurement.view_pr", "procurement.po.create", "procurement.rfq.manage", "procurement.invoice.create", "procurement.reports.view"],
+  vendors: ["procurement.vendor.manage", "procurement.po.create", "procurement.rfq.manage", "procurement.invoice.create", "procurement.reports.view"],
   prs: ["procurement.view_pr", "procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.rfq.manage", "procurement.po.create"],
   rfqs: ["procurement.rfq.manage", "procurement.rfq.award", "procurement.costs.view"],
   pos: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view", "procurement.view_pr"],
@@ -34,8 +34,11 @@ const ACTION_PERMISSION: Record<string, string> = {
   update_vendor: "procurement.vendor.manage",
   create_pr: "procurement.pr.create",
   submit_pr: "procurement.pr.submit",
+  submitted_pr: "procurement.pr.submit",
   approve_pr: "procurement.pr.approve",
+  approved_pr: "procurement.pr.approve",
   reject_pr: "procurement.pr.approve",
+  rejected_pr: "procurement.pr.approve",
   convert_pr_to_po: "procurement.po.create",
   create_rfq: "procurement.rfq.manage",
   submit_vendor_quote: "procurement.rfq.manage",
@@ -257,17 +260,20 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(pr, { status: 201 });
       }
 
-      case "submit_pr": {
+      case "submit_pr":
+      case "submitted_pr": {
         const pr = await ProcurementService.updateRequisitionStatus(payload.id, "submitted", actorName);
         return NextResponse.json(pr);
       }
 
-      case "approve_pr": {
+      case "approve_pr":
+      case "approved_pr": {
         const pr = await ProcurementService.updateRequisitionStatus(payload.id, "approved", actorName);
         return NextResponse.json(pr);
       }
 
-      case "reject_pr": {
+      case "reject_pr":
+      case "rejected_pr": {
         const pr = await ProcurementService.updateRequisitionStatus(
           payload.id,
           "rejected",

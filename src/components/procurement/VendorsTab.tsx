@@ -44,10 +44,10 @@ export default function VendorsTab({
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
-    if (initialAction === "new") {
+    if (initialAction === "new" && canManageVendor) {
       setShowModal(true);
     }
-  }, [initialAction]);
+  }, [initialAction, canManageVendor]);
   const [editingVendor, setEditingVendor] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -72,6 +72,7 @@ export default function VendorsTab({
   const [whtRate, setWhtRate] = useState("4.5");
 
   const openCreateModal = () => {
+    if (!canManageVendor) return;
     setEditingVendor(null);
     setVendorCode(`VND-${String(vendors.length + 1).padStart(4, "0")}`);
     setName("");
@@ -95,6 +96,7 @@ export default function VendorsTab({
   };
 
   const openEditModal = (v: any) => {
+    if (!canManageVendor) return;
     setEditingVendor(v);
     setVendorCode(v.vendorCode || "");
     setName(v.name || "");
@@ -254,13 +256,15 @@ export default function VendorsTab({
           </div>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add Supplier / Vendor
-        </button>
+        {canManageVendor && (
+          <button
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Supplier / Vendor
+          </button>
+        )}
       </div>
 
       {/* Vendors Table */}
@@ -381,13 +385,15 @@ export default function VendorsTab({
 
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => openEditModal(v)}
-                          title="Edit Vendor Master"
-                          className="p-1 rounded text-[#71717A] hover:text-[#18181B] hover:bg-zinc-100 transition"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canManageVendor && (
+                          <button
+                            onClick={() => openEditModal(v)}
+                            title="Edit Vendor Master"
+                            className="p-1 rounded text-[#71717A] hover:text-[#18181B] hover:bg-zinc-100 transition"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {onSelectVendorForPo && v.status === "Active" && (
                           <button
                             onClick={() => onSelectVendorForPo(v)}
