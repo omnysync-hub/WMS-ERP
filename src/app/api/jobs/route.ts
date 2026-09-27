@@ -13,16 +13,35 @@ export async function GET(req: NextRequest) {
 
     const where: any = {};
     if (status && status !== "ALL") where.status = status;
-    if (technicianId) where.assignedTechnicianId = technicianId;
+    if (technicianId) {
+      // Include jobs where tech is primary assignee OR active JobAssignment member
+      where.OR = [
+        { assignedTechnicianId: technicianId },
+        {
+          assignments: {
+            some: {
+              technicianId,
+              status: { not: "Removed" },
+            },
+          },
+        },
+      ];
+    }
     if (hasInventoryRequest) {
       where.inventoryRequests = { some: {} };
     }
     if (search) {
-      where.OR = [
+      const searchClause = [
         { jobNumber: { contains: search } },
         { remarks: { contains: search } },
         { customer: { name: { contains: search } } },
       ];
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchClause }];
+        delete where.OR;
+      } else {
+        where.OR = searchClause;
+      }
     }
 
     const jobs = await prisma.job.findMany({
@@ -31,6 +50,12 @@ export async function GET(req: NextRequest) {
         customer: true,
         careOfParty: true,
         assignedTechnician: true,
+        parentJob: { select: { id: true, jobNumber: true, status: true } },
+        childJobs: { select: { id: true, jobNumber: true, status: true } },
+        assignments: {
+          where: { status: { not: "Removed" } },
+          include: { technician: { select: { id: true, name: true, phone: true } } },
+        },
         items: true,
         expenseClaims: true,
         inventoryRequests: true,
@@ -52,6 +77,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // Batch accept (mobile): { action: "batch_accept", jobIds: [], technicianId }
+    if (body.action === "batch_accept" || body.action === "accept_jobs") {
+      const { jobIds, technicianId } = body;
+      if (!technicianId) {
+        return NextResponse.json({ error: "technicianId required" }, { status: 400 });
+      }
+      const result = await JobsService.acceptJobs(jobIds || [], technicianId);
+      return NextResponse.json(result);
+    }
+
     const {
       customerId,
       careOfPartyId,
@@ -60,6 +96,7 @@ export async function POST(req: NextRequest) {
       remarks,
       items,
       assignedTechnicianId,
+      technicianIds,
     } = body;
 
     if (!customerId || !jobType) {
@@ -129,11 +166,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (assignedTechnicianId) {
-      await JobsService.notifyJobAssignedIfNeeded(job, "Dispatcher");
+    const multiIds: string[] = Array.isArray(technicianIds)
+      ? technicianIds.filter(Boolean)
+      : assignedTechnicianId
+        ? [assignedTechnicianId]
+        : [];
+
+    if (multiIds.length > 0) {
+      try {
+        await JobsService.assignTechnicians(
+          job.id,
+          multiIds,
+          "Dispatcher",
+          assignedTechnicianId || multiIds[0]
+        );
+      } catch (e) {
+        console.error("Failed to sync JobAssignment on create:", e);
+        if (assignedTechnicianId) {
+          await JobsService.notifyJobAssignedIfNeeded(job, "Dispatcher");
+        }
+      }
     }
 
-    return NextResponse.json(job, { status: 201 });
+    const fresh = await prisma.job.findUnique({
+      where: { id: job.id },
+      include: {
+        customer: true,
+        items: true,
+        assignedTechnician: true,
+        assignments: { where: { status: { not: "Removed" } }, include: { technician: true } },
+      },
+    });
+
+    return NextResponse.json(fresh || job, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

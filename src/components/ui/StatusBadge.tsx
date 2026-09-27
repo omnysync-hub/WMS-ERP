@@ -82,6 +82,11 @@ export default function StatusBadge({ status, className }: StatusBadgeProps) {
   } else if (["customer", "careof", "care-of", "subcontract"].includes(normalized)) {
     // Purple / Blue (customer/lifecycle)
     bgClass = "bg-[#FAF5FF] text-[#6B21A8] border-[#E9D5FF]";
+  } else if (["technicianreassigned", "reassigned"].includes(normalized)) {
+    // Slate / violet — mid-job technician reassignment (lineage preserved)
+    bgClass = "bg-[#F5F3FF] text-[#5B21B6] border-[#DDD6FE]";
+    icon = <AlertTriangle className="w-3 h-3 stroke-[2]" />;
+    label = "Reassigned";
   } else if (["draft", "created", "not started", "planning"].includes(normalized)) {
     // Grey (draft/inactive)
     bgClass = "bg-[#F4F4F5] text-[#52525B] border-[#E4E4E7]";

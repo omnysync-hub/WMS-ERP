@@ -951,8 +951,14 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.stock_return": true,
     "jobs.misplaced_item": true,
     "dispatch.view_map": false,
-    "inventory.view_stock": false,
+    "inventory.view_stock": true,
     "inventory.view_costs": false,
+    // Field tech may raise / view own PRs for materials; no RFQ/PO/GRN/pay
+    "procurement.view_pr": true,
+    "procurement.pr.create": true,
+    "procurement.pr.submit": true,
+    "procurement.pr.approve": false,
+    "procurement.create_pr": true,
   },
 };
 

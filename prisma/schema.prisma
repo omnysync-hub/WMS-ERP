@@ -1,4 +1,4 @@
-﻿generator client {
+generator client {
   provider = "prisma-client-js"
 }
 
@@ -165,9 +165,14 @@ model Job {
   remarks              String?
   /// JSON array of completion proof photos (data URLs or https URLs) from field tech
   completionPhotos     String?
-  status               String              @default("Created") // Created, Assigned, Accepted, InProgress, Paused, CompletedPendingVerification, Finalized, Verified
+  status               String              @default("Created") // Created, Assigned, Accepted, InProgress, Paused, CompletedPendingVerification, Finalized, Verified, TechnicianReassigned
   assignedTechnicianId String?
   assignedTechnician   Employee?           @relation(fields: [assignedTechnicianId], references: [id])
+  /// Mid-job reassignment: new job sets parentJobId / reassignedFromJobId; old job status -> TechnicianReassigned
+  parentJobId          String?
+  parentJob            Job?                @relation("JobReassignmentTree", fields: [parentJobId], references: [id])
+  childJobs            Job[]               @relation("JobReassignmentTree")
+  reassignedFromJobId  String?
   discountAmount       Float               @default(0)
   discountReason       String?
   qualityFlag          String?             // clean, disputed
@@ -183,6 +188,7 @@ model Job {
   hisaabSettlements    HisaabSettlement[]
   feedbackCalls        FeedbackCall[]
   locationPings        TechnicianLocationPing[]
+  assignments          JobAssignment[]
 }
 
 model JobItem {
@@ -204,6 +210,25 @@ model JobStatusHistory {
   changedBy  String
   changedAt  DateTime @default(now())
   metaJson   String?  // JSON string
+}
+
+
+model JobAssignment {
+  id           String    @id @default(uuid())
+  jobId        String
+  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId String
+  technician   Employee  @relation(fields: [technicianId], references: [id])
+  role         String    @default("primary") // primary, assistant
+  status       String    @default("Assigned") // Assigned, Accepted, Declined, Removed
+  assignedAt   DateTime  @default(now())
+  assignedBy   String?
+  acceptedAt   DateTime?
+  notes        String?
+
+  @@unique([jobId, technicianId])
+  @@index([technicianId])
+  @@index([jobId])
 }
 
 model InventoryRequest {
@@ -819,6 +844,7 @@ model Employee {
   lng                  Float?
   lastPingAt           DateTime?
   jobs                 Job[]
+  jobAssignments       JobAssignment[]
   attendanceLogs       AttendanceLog[]
   advances             EmployeeAdvance[]
   payslips             Payslip[]

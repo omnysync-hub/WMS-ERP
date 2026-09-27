@@ -3,7 +3,9 @@
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import {
   Search,
   Plus,
@@ -25,12 +27,14 @@ interface VendorsTabProps {
   vendors: any[];
   onRefresh: () => void;
   onSelectVendorForPo?: (vendor: any) => void;
+  initialAction?: string | null;
 }
 
 export default function VendorsTab({
   vendors,
   onRefresh,
   onSelectVendorForPo,
+  initialAction = null,
 }: VendorsTabProps) {
   const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
   const canManageVendor = hasPermission("procurement.vendor.manage");
@@ -38,6 +42,12 @@ export default function VendorsTab({
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    if (initialAction === "new") {
+      setShowModal(true);
+    }
+  }, [initialAction]);
   const [editingVendor, setEditingVendor] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -217,29 +227,31 @@ export default function VendorsTab({
             />
           </div>
 
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="bg-white border border-[#D4D4D8] text-xs text-[#18181B] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-          >
-            <option value="all">All Categories</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <div className="w-48">
+            <SearchableSelect
+              value={selectedCategory}
+              onChange={(val) => setSelectedCategory(val)}
+              options={[
+                { value: "all", label: "All Categories" },
+                ...categories.map((c) => ({ value: c, label: c })),
+              ]}
+              placeholder="Category..."
+            />
+          </div>
 
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="bg-white border border-[#D4D4D8] text-xs text-[#18181B] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-          >
-            <option value="all">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Blocked">Blocked</option>
-            <option value="Blacklisted">Blacklisted</option>
-          </select>
+          <div className="w-40">
+            <SearchableSelect
+              value={selectedStatus}
+              onChange={(val) => setSelectedStatus(val)}
+              options={[
+                { value: "all", label: "All Statuses" },
+                { value: "Active", label: "Active" },
+                { value: "Blocked", label: "Blocked" },
+                { value: "Blacklisted", label: "Blacklisted" },
+              ]}
+              placeholder="Status..."
+            />
+          </div>
         </div>
 
         <button
@@ -254,8 +266,8 @@ export default function VendorsTab({
       {/* Vendors Table */}
       <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
+          <table className="w-full text-left border-collapse text-sm">
+            <thead className="sticky top-0 z-10">
               <tr className="border-b border-[#EDEDED] bg-[#F8FAFC] text-[#71717A] font-mono text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4">Vendor Code & Name</th>
                 <th className="py-3 px-3">Category</th>
@@ -395,29 +407,46 @@ export default function VendorsTab({
         </div>
       </div>
 
-      {/* Add / Edit Vendor Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-[#0D7A5F]" />
-                  {editingVendor ? "Edit Vendor Master" : "Register New Vendor Master"}
-                </h3>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  FBR Tax Credentials, Bank Accounts & Commercial Credit Terms
-                </p>
-              </div>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+      {/* Add / Edit Vendor SideDrawer */}
+      <SideDrawer
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              {editingVendor ? "Edit Vendor Master" : "Register New Vendor Master"}
+            </span>
+          </div>
+        }
+        subtitle="FBR Tax Credentials, Bank Accounts & Commercial Credit Terms"
+        width="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2.5 w-full">
+            <button
+              type="button"
+              onClick={() => setShowModal(false)}
+              className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-zinc-100 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="vendor-form"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
+            >
+              {isSubmitting
+                ? "Saving..."
+                : editingVendor
+                ? "Update Vendor"
+                : "Save Vendor Master"}
+            </button>
+          </div>
+        }
+      >
+        <form id="vendor-form" onSubmit={handleSubmit} className="space-y-4 pb-8 text-[#18181B]">
+          
               {formError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                   {formError}
@@ -460,50 +489,44 @@ export default function VendorsTab({
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Category / Type
                   </label>
-                  <select
+                  <SearchableSelect
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    {categories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setCategory(val)}
+                    options={categories.map((c) => ({ value: c, label: c }))}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Vendor Status
                   </label>
-                  <select
+                  <SearchableSelect
                     value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Blocked">Blocked</option>
-                    <option value="Blacklisted">Blacklisted</option>
-                  </select>
+                    onChange={(val) => setStatus(val)}
+                    options={[
+                      { value: "Active", label: "Active" },
+                      { value: "Blocked", label: "Blocked" },
+                      { value: "Blacklisted", label: "Blacklisted" },
+                    ]}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Payment Terms
                   </label>
-                  <select
+                  <SearchableSelect
                     value={paymentTerms}
-                    onChange={(e) => setPaymentTerms(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    <option value="Immediate">Immediate / Cash</option>
-                    <option value="Advance">100% Advance</option>
-                    <option value="Net 15">Net 15 Days</option>
-                    <option value="Net 30">Net 30 Days</option>
-                    <option value="Net 45">Net 45 Days</option>
-                    <option value="Net 60">Net 60 Days</option>
-                  </select>
+                    onChange={(val) => setPaymentTerms(val)}
+                    options={[
+                      { value: "Immediate", label: "Immediate / Cash" },
+                      { value: "Advance", label: "100% Advance" },
+                      { value: "Net 15", label: "Net 15 Days" },
+                      { value: "Net 30", label: "Net 30 Days" },
+                      { value: "Net 45", label: "Net 45 Days" },
+                      { value: "Net 60", label: "Net 60 Days" },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -652,31 +675,9 @@ export default function VendorsTab({
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-zinc-100 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
-                >
-                  {isSubmitting
-                    ? "Saving..."
-                    : editingVendor
-                    ? "Update Vendor"
-                    : "Save Vendor Master"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              
+        </form>
+      </SideDrawer>
     </div>
   );
 }

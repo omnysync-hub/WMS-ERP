@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   PackageCheck,
   Plus,
@@ -17,6 +17,13 @@ import {
   Hash,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import {
+  ProcurementEmptyState,
+  ProcurementStatusBadge,
+} from "@/components/procurement/procurementUi";
+import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 
@@ -72,34 +79,60 @@ export default function GoodsReceiptTab({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
+  const [viewingPoDrawer, setViewingPoDrawer] = useState<any | null>(null);
+
+  /** Open POs with remaining qty — GRN is always against a PO */
+  const openPosForReceipt = pos.filter((p) => {
+    const st = (p.status || "").toLowerCase();
+    if (["cancelled", "canceled", "closed", "draft"].includes(st)) return false;
+    if (!["approved", "sent_to_vendor", "partially_received", "sent"].includes(st) && st !== "approved") {
+      // still allow if any line has remaining
+    }
+    const items = p.items || [];
+    const hasRemaining = items.some(
+      (it: any) => Math.max(0, (it.quantity || 0) - (it.quantityReceived || 0)) > 0
+    );
+    return hasRemaining && !["cancelled", "canceled", "closed", "draft"].includes(st);
+  });
+
   const handlePoSelect = (poId: string) => {
     setSelectedPoId(poId);
     const po = pos.find((p) => p.id === poId);
     if (po && po.items) {
       setDeliveryChallan(`DC-${po.supplierName?.slice(0, 3)?.toUpperCase()}-${Date.now().toString().slice(-4)}`);
       setReceiptItems(
-        po.items.map((it: any) => {
-          const remaining = Math.max(0, it.quantity - (it.quantityReceived || 0));
-          return {
-            poItemId: it.id,
-            description: it.description,
-            unit: it.unit || "unit",
-            orderedQty: it.quantity,
-            alreadyReceivedQty: it.quantityReceived || 0,
-            quantityReceived: remaining, // default to remaining
-            qualityStatus: "Accepted",
-            rejectionReason: "",
-            batchNumber: "",
-            serialNumber: "",
-            expiryDate: "",
-            unitCost: it.unitCost || 0,
-          };
-        })
+        po.items
+          .map((it: any) => {
+            const remaining = Math.max(0, it.quantity - (it.quantityReceived || 0));
+            return {
+              poItemId: it.id,
+              description: it.description,
+              unit: it.unit || "unit",
+              orderedQty: it.quantity,
+              alreadyReceivedQty: it.quantityReceived || 0,
+              quantityReceived: remaining,
+              qualityStatus: "Accepted" as const,
+              rejectionReason: "",
+              batchNumber: "",
+              serialNumber: "",
+              expiryDate: "",
+              unitCost: it.unitCost || 0,
+            };
+          })
+          .filter((it: any) => it.quantityReceived > 0 || it.orderedQty > it.alreadyReceivedQty)
       );
     } else {
       setReceiptItems([]);
     }
   };
+
+  useEffect(() => {
+    if (presetPoForGrn?.id) {
+      setShowCreateModal(true);
+      handlePoSelect(presetPoForGrn.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetPoForGrn?.id]);
 
   const handleItemChange = (index: number, field: string, value: any) => {
     const updated = [...receiptItems];
@@ -195,7 +228,7 @@ export default function GoodsReceiptTab({
   return (
     <div className="space-y-4">
       {/* Controls Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
+      <div className="sticky top-0 z-20 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2.5 flex-1">
           <div className="relative min-w-[280px] max-w-md">
             <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-2.5" />
@@ -208,16 +241,19 @@ export default function GoodsReceiptTab({
             />
           </div>
 
-          <select
-            value={qualityFilter}
-            onChange={(e) => setQualityFilter(e.target.value)}
-            className="bg-white border border-[#D4D4D8] text-xs text-[#18181B] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-          >
-            <option value="all">All Quality Statuses</option>
-            <option value="Accepted">Accepted (QA Passed)</option>
-            <option value="Rejected">Rejected</option>
-            <option value="Hold">Hold / Quarantine</option>
-          </select>
+          <div className="w-48">
+            <SearchableSelect
+              value={qualityFilter}
+              onChange={(val) => setQualityFilter(val)}
+              options={[
+                { value: "all", label: "All Quality Statuses" },
+                { value: "Accepted", label: "Accepted (QA Passed)" },
+                { value: "Rejected", label: "Rejected" },
+                { value: "Hold", label: "Hold / Quarantine" },
+              ]}
+              placeholder="Quality..."
+            />
+          </div>
         </div>
 
         <button
@@ -239,8 +275,8 @@ export default function GoodsReceiptTab({
       {/* GRN Table */}
       <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
+          <table className="w-full text-left border-collapse text-sm">
+            <thead className="sticky top-0 z-10">
               <tr className="border-b border-[#EDEDED] bg-[#F8FAFC] text-[#71717A] font-mono text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4">GRN Number & Date</th>
                 <th className="py-3 px-3">Purchase Order Ref</th>
@@ -256,8 +292,11 @@ export default function GoodsReceiptTab({
             <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
               {filteredGrns.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-[#A1A1AA]">
-                    No Goods Receipt Notes found. Receive physical materials from an issued Purchase Order.
+                  <td colSpan={7} className="p-0">
+                    <ProcurementEmptyState
+                      title="No goods receipts yet"
+                      description="Receive materials against an issued purchase order."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -356,28 +395,46 @@ export default function GoodsReceiptTab({
       </div>
 
       {/* Receive Goods Note (GRN) Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <PackageCheck className="w-4 h-4 text-[#0D7A5F]" />
-                  Inward Goods Receipt Note (GRN)
-                </h3>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Physical Count, Quality Inspection & Automated GR/IR Clearing Posting
-                </p>
-              </div>
+      <SideDrawer
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <PackageCheck className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Inward Goods Receipt Note (GRN)
+            </span>
+          </div>
+        }
+        subtitle="Physical Count, Quality Inspection & Automated GR/IR Clearing Posting"
+        width="max-w-3xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <span className="text-[11px] text-[#71717A]">
+              Items receiving: <strong className="text-[#18181B]">{receiptItems.filter((i) => (Number(i.quantityReceived) || 0) > 0).length}</strong>
+            </span>
+            <div className="flex items-center gap-2.5">
               <button
+                type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
+                className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5] transition"
               >
-                ✕
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="create-grn-form"
+                disabled={isSubmitting || !selectedPoId}
+                className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
+              >
+                {isSubmitting ? "Receiving & Posting..." : "Post Inward Goods Receipt (GRN)"}
               </button>
             </div>
-
-            <form onSubmit={handleCreateGrn} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+          </div>
+        }
+      >
+        <form id="create-grn-form" onSubmit={handleCreateGrn} className="space-y-4 pb-8 text-[#18181B]">
+          
               {formError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                   {formError}
@@ -388,45 +445,35 @@ export default function GoodsReceiptTab({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Select Purchase Order *
+                    Receive against open Purchase Order — only open POs with remaining quantity *
                   </label>
-                  <select
+                  <SearchableSelect
                     required
                     value={selectedPoId}
-                    onChange={(e) => handlePoSelect(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    <option value="">-- Choose Purchase Order --</option>
-                    {pos
-                      .filter(
-                        (p) =>
-                          p.status === "sent_to_vendor" ||
-                          p.status === "partially_received" ||
-                          p.status === "approved"
-                      )
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.poNumber} — {p.supplierName} ({p.items?.length} items)
-                          {!isStorekeeper ? ` - Value: ${formatCurrency(p.totalAmount)}` : ""}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={(val) => handlePoSelect(val)}
+                    options={openPosForReceipt.map((p) => ({
+                      value: p.id,
+                      label: `${p.poNumber} — ${p.supplierName}`,
+                      subLabel: `${(p.items || []).filter((it: any) => (it.quantity - (it.quantityReceived || 0)) > 0).length} lines remaining${!isStorekeeper ? ` · Val: ${formatCurrency(p.totalAmount)}` : ""}`,
+                    }))}
+                    placeholder="-- Pick open PO (remaining qty) --"
+                  />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Warehouse / Storage Location *
                   </label>
-                  <select
+                  <SearchableSelect
                     value={warehouseLocation}
-                    onChange={(e) => setWarehouseLocation(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    <option value="Central Warehouse - Lahore">Central Warehouse - Lahore</option>
-                    <option value="Karachi Distribution Depot">Karachi Distribution Depot</option>
-                    <option value="Islamabad Regional Store">Islamabad Regional Store</option>
-                    <option value="Field Tech Holding Bin">Field Tech Holding Bin</option>
-                  </select>
+                    onChange={(val) => setWarehouseLocation(val)}
+                    options={[
+                      { value: "Central Warehouse - Lahore", label: "Central Warehouse - Lahore" },
+                      { value: "Karachi Distribution Depot", label: "Karachi Distribution Depot" },
+                      { value: "Islamabad Regional Store", label: "Islamabad Regional Store" },
+                      { value: "Field Tech Holding Bin", label: "Field Tech Holding Bin" },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -500,24 +547,16 @@ export default function GoodsReceiptTab({
                             <span className="text-[10px] font-mono text-[#71717A]">
                               QA Status:
                             </span>
-                            <select
+                            <SearchableSelect
                               value={it.qualityStatus}
-                              onChange={(e) =>
-                                handleItemChange(idx, "qualityStatus", e.target.value)
-                              }
-                              className={cn(
-                                "border text-xs rounded px-2 py-0.5 font-bold outline-none",
-                                it.qualityStatus === "Accepted"
-                                  ? "bg-emerald-50 border-emerald-300 text-emerald-700"
-                                  : it.qualityStatus === "Hold"
-                                  ? "bg-amber-50 border-amber-300 text-amber-700"
-                                  : "bg-rose-50 border-rose-300 text-rose-700"
-                              )}
-                            >
-                              <option value="Accepted">Accepted</option>
-                              <option value="Rejected">Rejected</option>
-                              <option value="Hold">Hold / Quarantine</option>
-                            </select>
+                              onChange={(val) => handleItemChange(idx, "qualityStatus", val)}
+                              options={[
+                                { value: "Accepted", label: "Accepted" },
+                                { value: "Rejected", label: "Rejected" },
+                                { value: "Hold", label: "Hold / Quarantine" },
+                              ]}
+                              className="w-36 min-h-[30px] text-[11px]"
+                            />
                           </div>
                         </div>
 
@@ -651,122 +690,116 @@ export default function GoodsReceiptTab({
                   {isSubmitting ? "Receiving..." : "Post Goods Receipt & Update Stock"}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            
+        </form>
+      </SideDrawer>
 
-      {/* Viewing GRN Details Modal */}
-      {viewingGrn && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
+      {/* Viewing GRN Details SideDrawer */}
+      <SideDrawer
+        isOpen={!!viewingGrn}
+        onClose={() => setViewingGrn(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <PackageCheck className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              {viewingGrn?.grnNumber} • Goods Receipt Note
+            </span>
+          </div>
+        }
+        subtitle={viewingGrn ? `Under PO ${viewingGrn.po?.poNumber || "PO"} (${viewingGrn.po?.supplierName || "Supplier"})` : ""}
+        width="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end w-full">
+            <button
+              type="button"
+              onClick={() => setViewingGrn(null)}
+              className="px-4 py-1.5 bg-white hover:bg-[#F4F4F5] text-[#18181B] border border-[#D4D4D8] rounded-lg text-xs"
+            >
+              Close
+            </button>
+          </div>
+        }
+      >
+        {viewingGrn && (
+          <div className="space-y-4 text-xs pt-1 text-[#18181B]">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-[#EDEDED]">
               <div>
-                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <PackageCheck className="w-4 h-4 text-[#0D7A5F]" />
-                  {viewingGrn.grnNumber} • Goods Receipt Note
-                </h3>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Under PO {viewingGrn.po?.poNumber} ({viewingGrn.po?.supplierName})
-                </p>
+                <span className="block text-[10px] font-mono text-[#71717A]">Received Date</span>
+                <span className="font-semibold text-[#18181B]">
+                  {new Date(viewingGrn.receivedDate || viewingGrn.createdAt).toLocaleDateString()}
+                </span>
               </div>
-              <button
-                onClick={() => setViewingGrn(null)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-              >
-                ✕
-              </button>
+              <div>
+                <span className="block text-[10px] font-mono text-[#71717A]">Received By</span>
+                <span className="font-semibold text-[#18181B]">{viewingGrn.receivedBy}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] font-mono text-[#71717A]">Warehouse Location</span>
+                <span className="font-semibold text-[#18181B]">{viewingGrn.warehouseLocation}</span>
+              </div>
+              <div>
+                <span className="block text-[10px] font-mono text-[#71717A]">Delivery Challan</span>
+                <span className="font-semibold text-[#18181B] font-mono">{viewingGrn.deliveryChallan || "—"}</span>
+              </div>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-[#EDEDED]">
-                <div>
-                  <span className="block text-[10px] font-mono text-[#71717A]">Received Date</span>
-                  <span className="font-semibold text-[#18181B]">
-                    {new Date(viewingGrn.receivedDate || viewingGrn.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-mono text-[#71717A]">Received By</span>
-                  <span className="font-semibold text-[#18181B]">{viewingGrn.receivedBy}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-mono text-[#71717A]">Warehouse Location</span>
-                  <span className="font-semibold text-[#18181B]">{viewingGrn.warehouseLocation}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-mono text-[#71717A]">Delivery Challan</span>
-                  <span className="font-semibold text-[#18181B] font-mono">{viewingGrn.deliveryChallan || "—"}</span>
-                </div>
-              </div>
-
-              {/* Items */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-[#18181B] block">
-                  Received Line Items ({viewingGrn.items?.length || 0})
-                </span>
-                <div className="border border-[#EDEDED] rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
-                      <tr>
-                        <th className="py-2 px-3">Description</th>
-                        <th className="py-2 px-3 text-right">Received</th>
-                        <th className="py-2 px-3 text-right">Accepted</th>
-                        <th className="py-2 px-3 text-right">Rejected</th>
-                        <th className="py-2 px-3 text-center">QA Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
-                      {viewingGrn.items?.map((it: any) => (
-                        <tr key={it.id}>
-                          <td className="py-2.5 px-3">
-                            <div className="font-semibold text-[#18181B]">{it.description}</div>
-                            {it.batchNumber && (
-                              <span className="text-[10px] font-mono text-[#71717A]">
-                                Batch: {it.batchNumber} {it.serialNumber ? `• SN: ${it.serialNumber}` : ""}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold">
-                            {it.quantityReceived} {it.unit}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">
-                            {it.quantityAccepted}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-rose-600">
-                            {it.quantityRejected}
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span
-                              className={cn(
-                                "text-[10px] px-2 py-0.5 rounded-full font-bold border font-mono",
-                                it.qualityStatus === "Accepted"
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                  : "bg-rose-50 text-rose-700 border-rose-200"
-                              )}
-                            >
-                              {it.qualityStatus}
+            {/* Items */}
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-[#18181B] block">
+                Received Line Items ({viewingGrn.items?.length || 0})
+              </span>
+              <div className="border border-[#EDEDED] rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
+                    <tr>
+                      <th className="py-2 px-3">Description</th>
+                      <th className="py-2 px-3 text-right">Received</th>
+                      <th className="py-2 px-3 text-right">Accepted</th>
+                      <th className="py-2 px-3 text-right">Rejected</th>
+                      <th className="py-2 px-3 text-center">QA Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
+                    {viewingGrn.items?.map((it: any) => (
+                      <tr key={it.id}>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-[#18181B]">{it.description}</div>
+                          {it.batchNumber && (
+                            <span className="text-[10px] font-mono text-[#71717A]">
+                              Batch: {it.batchNumber} {it.serialNumber ? `• SN: ${it.serialNumber}` : ""}
                             </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2 border-t border-[#EDEDED]">
-                <button
-                  onClick={() => setViewingGrn(null)}
-                  className="px-4 py-1.5 bg-white hover:bg-[#F4F4F5] text-[#18181B] border border-[#D4D4D8] rounded-lg text-xs"
-                >
-                  Close
-                </button>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold">
+                          {it.quantityReceived} {it.unit}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">
+                          {it.quantityAccepted}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono text-rose-600">
+                          {it.quantityRejected}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span
+                            className={cn(
+                              "text-[10px] px-2 py-0.5 rounded-full font-bold border font-mono",
+                              it.qualityStatus === "Accepted"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-rose-50 text-rose-700 border-rose-200"
+                            )}
+                          >
+                            {it.qualityStatus}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </SideDrawer>
     </div>
   );
 }

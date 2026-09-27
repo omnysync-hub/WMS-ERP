@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ProgressRing from "@/components/ui/ProgressRing";
+import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import {
   FolderKanban,
@@ -301,85 +303,74 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* NEW TASK MODAL */}
-      {showNewTaskModal && selectedProject && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="task-dialog-title"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setShowNewTaskModal(false);
-          }}
-        >
-          <div className="bg-white rounded-xl max-w-sm w-full p-6 space-y-4 shadow-xl border border-[#E4E4E7]">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 id="task-dialog-title" className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <ListTodo className="w-4 h-4 text-[#0D7A5F]" />
-                Add BOQ Milestone Task
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowNewTaskModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded hover:bg-[#F4F4F5] transition"
-                aria-label="Close dialog"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateTask} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">
-                  Task Title *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Coil flush on AHU #3"
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">
-                  Link to BOQ Item (Optional)
-                </label>
-                <select
-                  value={taskBoqItemId}
-                  onChange={(e) => setTaskBoqItemId(e.target.value)}
-                  className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
-                >
-                  <option value="">None (Independent Task)</option>
-                  {selectedProject.boqItems?.map((it: any) => (
-                    <option key={it.id} value={it.id}>
-                      {it.itemCode} — {it.description}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setShowNewTaskModal(false)}
-                  className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                >
-                  Create Task
-                </button>
-              </div>
-            </form>
+      {/* NEW TASK DRAWER */}
+      <SideDrawer
+        isOpen={Boolean(showNewTaskModal && selectedProject)}
+        onClose={() => setShowNewTaskModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <ListTodo className="w-4 h-4 text-[#0D7A5F]" />
+            <span>Add BOQ Milestone Task</span>
           </div>
-        </div>
-      )}
+        }
+        subtitle={selectedProject ? `Project: ${selectedProject.name}` : undefined}
+        width="max-w-md"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setShowNewTaskModal(false)}
+              className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="create-task-form"
+              className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+            >
+              Create Task
+            </button>
+          </div>
+        }
+      >
+        <form id="create-task-form" onSubmit={handleCreateTask} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-[#71717A] block mb-1">
+              Task Title *
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Coil flush on AHU #3"
+              value={taskTitle}
+              onChange={(e) => setTaskTitle(e.target.value)}
+              className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#71717A] block mb-1">
+              Link to BOQ Item (Optional)
+            </label>
+            <SearchableSelect
+              value={taskBoqItemId}
+              onChange={(val) => setTaskBoqItemId(val)}
+              placeholder="None (Independent Task)"
+              searchPlaceholder="Search BOQ item..."
+              clearable
+              options={[
+                { value: "", label: "None (Independent Task)" },
+                ...(selectedProject?.boqItems || []).map((it: any) => ({
+                  value: it.id,
+                  label: `${it.itemCode} — ${it.description}`,
+                  subLabel: `Qty: ${it.quantity} ${it.unit || ""}`,
+                })),
+              ]}
+            />
+          </div>
+        </form>
+      </SideDrawer>
     </div>
   );
 }

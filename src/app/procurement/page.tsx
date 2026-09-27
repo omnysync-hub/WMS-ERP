@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import PageHeader from "@/components/layout/PageHeader";
 import ProcurementProcessPipeline, {
   ProcurementStage,
@@ -28,7 +29,6 @@ import {
   CreditCard,
   BarChart3,
   RefreshCw,
-  AlertTriangle,
   Inbox,
 } from "lucide-react";
 
@@ -45,9 +45,31 @@ const TAB_PERMS: Record<ProcurementStage, string[]> = {
   reports: ["procurement.reports.view"],
 };
 
-export default function ProcurementPage() {
+type QueueFilter = string | null;
+
+type MetricChip = {
+  key: string;
+  label: string;
+  value: number | string;
+  tone?: "slate" | "amber" | "red"; // secondary tabs use slate — keep quiet
+  tab: ProcurementStage;
+  filter?: string;
+  hint?: string;
+};
+
+function ProcurementPageContent() {
   const { activeRole, currentPersona, hasPermission, activeUser } = useRole();
-  const [activeTab, setActiveTab] = useState<ProcurementStage>("prs");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab") as ProcurementStage | null;
+  const actionParam = searchParams.get("action");
+
+  const [activeTab, setActiveTab] = useState<ProcurementStage>(() => {
+    if (tabParam && (Object.keys(TAB_PERMS) as ProcurementStage[]).includes(tabParam)) {
+      return tabParam;
+    }
+    return "prs";
+  });
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>(null);
   const [loading, setLoading] = useState(true);
 
   const [vendors, setVendors] = useState<any[]>([]);
@@ -153,16 +175,16 @@ export default function ProcurementPage() {
     return () => unsubscribe();
   }, [loadAllData]);
 
-  // Keep active tab within visible set
+  // Keep active tab within visible set; prefer role home default
   useEffect(() => {
     if (visibleTabs.length > 0 && !visibleTabs.includes(activeTab)) {
-      // Prefer role home default tabs
       const roleDefault: Record<string, ProcurementStage> = {
         storekeeper: "prs",
         purchasing: "prs",
         accountant: "invoices",
         manager: "approvals",
         auditor: "reports",
+        admin: "approvals",
       };
       const prefer = roleDefault[activeRole];
       setActiveTab(
@@ -170,6 +192,18 @@ export default function ProcurementPage() {
       );
     }
   }, [visibleTabs, activeTab, activeRole]);
+
+  useEffect(() => {
+    if (tabParam && (Object.keys(TAB_PERMS) as ProcurementStage[]).includes(tabParam) && canSeeTab(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam, canSeeTab]);
+
+  const goQueue = (tab: ProcurementStage, filter?: string) => {
+    if (!canSeeTab(tab)) return;
+    setQueueFilter(filter || null);
+    setActiveTab(tab);
+  };
 
   const handleNavigateToRfq = (pr: any) => {
     setInitialPrForRfq(pr);
@@ -197,16 +231,21 @@ export default function ProcurementPage() {
       ["matched", "discrepancy", "pending_match"].includes(i.matchStatus)
     ).length;
 
-  const allSubTabButtons: { id: ProcurementStage; label: string; icon: any; count?: number }[] = [
-    { id: "approvals", label: "Approvals Hub", icon: ShieldAlert, count: pendingApprovalsCount },
-    { id: "prs", label: "Requisitions (PR)", icon: FileText, count: kpi.pendingPrsCount },
-    { id: "rfqs", label: "RFQ & Sourcing Matrix", icon: Scale, count: rfqs.length },
-    { id: "pos", label: "Purchase Orders (PO)", icon: ShoppingCart, count: kpi.openPosCount },
-    { id: "grns", label: "Goods Receipt (GRN)", icon: PackageCheck, count: grns.length },
-    { id: "invoices", label: "Invoice 3-Way Match", icon: ShieldAlert, count: invoices.length },
-    { id: "payments", label: "Settlements & Payments", icon: CreditCard },
-    { id: "vendors", label: "Vendor Master", icon: Building2, count: kpi.activeVendorsCount },
-    { id: "reports", label: "Procurement Reports (7)", icon: BarChart3 },
+  const allSubTabButtons: {
+    id: ProcurementStage;
+    label: string;
+    icon: any;
+    count?: number;
+  }[] = [
+    { id: "approvals", label: "Approvals", icon: ShieldAlert, count: pendingApprovalsCount },
+    { id: "prs", label: "Requisitions", icon: FileText, count: kpi.pendingPrsCount },
+    { id: "rfqs", label: "RFQ", icon: Scale, count: rfqs.filter((r) => !["awarded", "cancelled", "closed"].includes(r.status)).length },
+    { id: "pos", label: "Purchase Orders", icon: ShoppingCart, count: kpi.openPosCount },
+    { id: "grns", label: "Goods Receipt", icon: PackageCheck, count: kpi.grnPendingInvoiceCount },
+    { id: "invoices", label: "3-Way Match", icon: ShieldAlert, count: invoices.filter((i) => ["pending_match", "matched", "discrepancy"].includes(i.matchStatus)).length },
+    { id: "payments", label: "Payments", icon: CreditCard },
+    { id: "vendors", label: "Vendors", icon: Building2, count: kpi.activeVendorsCount },
+    { id: "reports", label: "Reports", icon: BarChart3 },
   ];
 
   const subTabButtons = allSubTabButtons.filter((t) => canSeeTab(t.id));
@@ -216,11 +255,11 @@ export default function ProcurementPage() {
     ["draft", "submitted", "approved", "partially_converted"].includes(p.status)
   );
   const posAwaitingGrn = pos.filter((p) =>
-    ["approved", "sent", "partially_received"].includes(p.status)
+    ["approved", "sent", "partially_received", "sent_to_vendor"].includes(p.status)
   );
   const approvedPrs = prs.filter((p) => p.status === "approved");
   const openRfqs = rfqs.filter((r) => !["awarded", "cancelled", "closed"].includes(r.status));
-  const draftSentPos = pos.filter((p) => ["draft", "sent", "approved"].includes(p.status));
+  const draftSentPos = pos.filter((p) => ["draft", "sent", "approved", "sent_to_vendor"].includes(p.status));
   const unmatchedBills = invoices.filter((i) =>
     ["pending_match", "matched", "discrepancy"].includes(i.matchStatus)
   );
@@ -229,26 +268,114 @@ export default function ProcurementPage() {
   const draftPos = pos.filter((p) => p.status === "draft");
   const discrepancyBills = invoices.filter((i) => i.matchStatus === "discrepancy");
 
+  const roleChips = useMemo((): MetricChip[] => {
+    if (activeRole === "storekeeper") {
+      return [
+        { key: "my-prs", label: "My PRs", value: myPrs.length, tab: "prs", hint: "Draft & open" },
+        { key: "await-grn", label: "Awaiting GRN", value: posAwaitingGrn.length, tone: posAwaitingGrn.length ? "amber" : "slate", tab: "grns", hint: "POs to receive" },
+        { key: "grns", label: "GRNs logged", value: grns.length, tab: "grns" },
+      ];
+    }
+    if (activeRole === "purchasing") {
+      return [
+        { key: "apr", label: "Approved PRs", value: approvedPrs.length, tone: approvedPrs.length ? "amber" : "slate", tab: "prs", filter: "approved" },
+        { key: "rfq", label: "Open RFQs", value: openRfqs.length, tab: "rfqs" },
+        { key: "pos", label: "Draft / Sent POs", value: draftSentPos.length, tab: "pos" },
+        ...(canViewCosts
+          ? [{ key: "spend", label: "Spend", value: kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "—", tab: "reports" as ProcurementStage, hint: "Issued POs" }]
+          : []),
+      ];
+    }
+    if (activeRole === "accountant") {
+      return [
+        { key: "unmatched", label: "Unmatched", value: unmatchedBills.length, tone: unmatchedBills.length ? "amber" : "slate", tab: "invoices", filter: "pending_match" },
+        { key: "ready", label: "Ready to pay", value: approvedForPayment.length, tab: "payments", filter: "approved_for_payment" },
+        { key: "disc", label: "Discrepancies", value: discrepancyBills.length, tone: discrepancyBills.length ? "red" : "slate", tab: "invoices", filter: "discrepancy" },
+        ...(canViewCosts
+          ? [{ key: "spend", label: "Spend", value: kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "—", tab: "reports" as ProcurementStage }]
+          : []),
+      ];
+    }
+    if (activeRole === "manager") {
+      return [
+        { key: "pr-appr", label: "PR approvals", value: submittedPrs.length, tone: submittedPrs.length ? "amber" : "slate", tab: "approvals" },
+        { key: "po-appr", label: "Draft POs", value: draftPos.length, tone: draftPos.length ? "amber" : "slate", tab: "approvals" },
+        { key: "disc", label: "Discrepancy bills", value: discrepancyBills.length, tone: discrepancyBills.length ? "red" : "slate", tab: "invoices", filter: "discrepancy" },
+        { key: "overdue", label: "Overdue", value: kpi.overdueDeliveriesCount, tone: kpi.overdueDeliveriesCount ? "red" : "slate", tab: "pos" },
+      ];
+    }
+    // admin / auditor / default overview
+    return [
+      { key: "pending", label: "Pending PRs", value: kpi.pendingPrsCount, tone: kpi.pendingPrsCount ? "amber" : "slate", tab: "prs", filter: "submitted" },
+      { key: "open-po", label: "Open POs", value: kpi.openPosCount, tab: "pos" },
+      { key: "approvals", label: "Approvals inbox", value: pendingApprovalsCount, tone: pendingApprovalsCount ? "amber" : "slate", tab: "approvals" },
+      {
+        key: "overdue",
+        label: "Overdue",
+        value: kpi.overdueDeliveriesCount,
+        tone: kpi.overdueDeliveriesCount ? "red" : "slate",
+        tab: "pos",
+      },
+    ];
+  }, [
+    activeRole,
+    myPrs.length,
+    posAwaitingGrn.length,
+    grns.length,
+    approvedPrs.length,
+    openRfqs.length,
+    draftSentPos.length,
+    canViewCosts,
+    kpi.totalSpend,
+    kpi.pendingPrsCount,
+    kpi.openPosCount,
+    kpi.overdueDeliveriesCount,
+    unmatchedBills.length,
+    approvedForPayment.length,
+    discrepancyBills.length,
+    submittedPrs.length,
+    draftPos.length,
+    pendingApprovalsCount,
+  ]);
+
   const RoleHome = () => {
-    const card = (title: string, items: { label: string; onClick?: () => void }[], empty: string) => (
-      <div className="bg-white border border-[#EDEDED] rounded-xl p-4 shadow-2xs">
+    const card = (
+      title: string,
+      items: { label: string; onClick?: () => void }[],
+      empty: string,
+      cta?: { label: string; onClick: () => void }
+    ) => (
+      <div className="bg-white border border-[#EDEDED] rounded-xl p-3.5">
         <div className="flex items-center gap-2 mb-2">
-          <Inbox className="w-4 h-4 text-[#0D7A5F]" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-[#71717A]">{title}</h3>
-          <span className="ml-auto text-[10px] font-mono bg-[#F4F4F5] px-1.5 py-0.5 rounded-full">
+          <Inbox className="w-3.5 h-3.5 text-slate-400" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            {title}
+          </h3>
+          <span className="ml-auto text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
             {items.length}
           </span>
         </div>
         {items.length === 0 ? (
-          <p className="text-[11px] text-[#A1A1AA]">{empty}</p>
+          <div className="py-2">
+            <p className="text-xs text-slate-400">{empty}</p>
+            {cta && (
+              <button
+                type="button"
+                onClick={cta.onClick}
+                className="mt-2 text-xs font-semibold text-[#0D7A5F] hover:underline"
+              >
+                {cta.label}
+              </button>
+            )}
+          </div>
         ) : (
-          <ul className="space-y-1 max-h-36 overflow-y-auto">
-            {items.slice(0, 8).map((it, idx) => (
+          <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+            {items.slice(0, 6).map((it, idx) => (
               <li key={idx}>
                 <button
                   type="button"
                   onClick={it.onClick}
-                  className="w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-[#F4F4F5] text-[#18181B] font-medium"
+                  className="w-full text-left text-xs px-2 py-1.5 rounded-md hover:bg-slate-50 text-slate-800 font-medium"
                 >
                   {it.label}
                 </button>
@@ -263,12 +390,15 @@ export default function ProcurementPage() {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {card(
-            "My PRs",
+            "My draft / submitted PRs",
             myPrs.map((p) => ({
               label: `${p.prNumber || p.id} · ${p.status}`,
-              onClick: () => canSeeTab("prs") && setActiveTab("prs"),
+              onClick: () => goQueue("prs", p.status),
             })),
-            "No open requisitions"
+            "No open requisitions",
+            canSeeTab("prs")
+              ? { label: "Open requisitions", onClick: () => goQueue("prs") }
+              : undefined
           )}
           {card(
             "POs awaiting GRN",
@@ -276,10 +406,13 @@ export default function ProcurementPage() {
               label: `${p.poNumber} · ${p.status}`,
               onClick: () => {
                 setPresetPoForGrn(p);
-                if (canSeeTab("grns")) setActiveTab("grns");
+                goQueue("grns");
               },
             })),
-            "No POs waiting for receipt"
+            "Nothing waiting for receipt",
+            canSeeTab("grns")
+              ? { label: "Go to goods receipt", onClick: () => goQueue("grns") }
+              : undefined
           )}
         </div>
       );
@@ -292,25 +425,30 @@ export default function ProcurementPage() {
             "Approved PRs",
             approvedPrs.map((p) => ({
               label: `${p.prNumber || p.id}`,
-              onClick: () => setActiveTab("prs"),
+              onClick: () => goQueue("prs", "approved"),
             })),
-            "No approved PRs"
+            "No approved PRs to source",
+            { label: "View requisitions", onClick: () => goQueue("prs", "approved") }
           )}
           {card(
             "Open RFQs",
             openRfqs.map((r) => ({
               label: `${r.rfqNumber || r.id} · ${r.status}`,
-              onClick: () => canSeeTab("rfqs") && setActiveTab("rfqs"),
+              onClick: () => goQueue("rfqs"),
             })),
-            "No open RFQs"
+            "No open RFQs",
+            canSeeTab("rfqs")
+              ? { label: "Open RFQ board", onClick: () => goQueue("rfqs") }
+              : undefined
           )}
           {card(
-            "Draft / Sent POs",
+            "Draft / sent POs",
             draftSentPos.map((p) => ({
               label: `${p.poNumber} · ${p.status}`,
-              onClick: () => canSeeTab("pos") && setActiveTab("pos"),
+              onClick: () => goQueue("pos", p.status),
             })),
-            "No draft/sent POs"
+            "No draft or sent POs",
+            { label: "View purchase orders", onClick: () => goQueue("pos") }
           )}
         </div>
       );
@@ -320,23 +458,27 @@ export default function ProcurementPage() {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {card(
-            "Unmatched GRNs / Bills",
+            "Unmatched / pending match",
             unmatchedBills.map((i) => ({
               label: `${i.invoiceNumber} · ${i.matchStatus}`,
-              onClick: () => canSeeTab("invoices") && setActiveTab("invoices"),
+              onClick: () => goQueue("invoices", i.matchStatus),
             })),
-            "No unmatched bills"
+            "No unmatched bills",
+            { label: "Open 3-way match", onClick: () => goQueue("invoices") }
           )}
           {card(
-            "Approved for payment",
+            "Ready to pay",
             approvedForPayment.map((i) => ({
               label: `${i.invoiceNumber}`,
               onClick: () => {
                 setPresetInvoiceForPay(i);
-                if (canSeeTab("payments")) setActiveTab("payments");
+                goQueue("payments", "approved_for_payment");
               },
             })),
-            "Nothing queued for payment"
+            "Nothing queued for payment",
+            canSeeTab("payments")
+              ? { label: "Open payments", onClick: () => goQueue("payments") }
+              : undefined
           )}
         </div>
       );
@@ -349,25 +491,84 @@ export default function ProcurementPage() {
             "Submitted PRs",
             submittedPrs.map((p) => ({
               label: `${p.prNumber || p.id}`,
-              onClick: () => canSeeTab("approvals") && setActiveTab("approvals"),
+              onClick: () => goQueue("approvals"),
             })),
-            "No PRs awaiting approval"
+            "No PRs awaiting approval",
+            { label: "Approvals inbox", onClick: () => goQueue("approvals") }
           )}
           {card(
             "Draft POs",
             draftPos.map((p) => ({
               label: `${p.poNumber}`,
-              onClick: () => canSeeTab("approvals") && setActiveTab("approvals"),
+              onClick: () => goQueue("approvals"),
             })),
-            "No draft POs"
+            "No draft POs",
+            { label: "Approvals inbox", onClick: () => goQueue("approvals") }
           )}
           {card(
             "Discrepancy bills",
             discrepancyBills.map((i) => ({
               label: `${i.invoiceNumber}`,
-              onClick: () => canSeeTab("invoices") && setActiveTab("invoices"),
+              onClick: () => goQueue("invoices", "discrepancy"),
             })),
-            "No discrepancy invoices"
+            "No discrepancy invoices",
+            { label: "Review invoices", onClick: () => goQueue("invoices", "discrepancy") }
+          )}
+        </div>
+      );
+    }
+
+    // admin / others — overview of all queues
+    if (activeRole === "admin" || activeRole === "auditor") {
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {card(
+            "Approvals inbox",
+            [
+              ...submittedPrs.slice(0, 3).map((p) => ({
+                label: `PR ${p.prNumber || p.id}`,
+                onClick: () => goQueue("approvals"),
+              })),
+              ...draftPos.slice(0, 2).map((p) => ({
+                label: `PO ${p.poNumber}`,
+                onClick: () => goQueue("approvals"),
+              })),
+            ],
+            "Inbox clear",
+            { label: "Open approvals", onClick: () => goQueue("approvals") }
+          )}
+          {card(
+            "Pending PRs",
+            myPrs.slice(0, 5).map((p) => ({
+              label: `${p.prNumber || p.id} · ${p.status}`,
+              onClick: () => goQueue("prs", p.status),
+            })),
+            "No open PRs",
+            { label: "View PRs", onClick: () => goQueue("prs") }
+          )}
+          {card(
+            "Open POs / GRN",
+            posAwaitingGrn.slice(0, 5).map((p) => ({
+              label: `${p.poNumber} · ${p.status}`,
+              onClick: () => goQueue("pos"),
+            })),
+            "No open receipts",
+            { label: "View POs", onClick: () => goQueue("pos") }
+          )}
+          {card(
+            "Match & pay",
+            [
+              ...unmatchedBills.slice(0, 3).map((i) => ({
+                label: `${i.invoiceNumber} · match`,
+                onClick: () => goQueue("invoices", i.matchStatus),
+              })),
+              ...approvedForPayment.slice(0, 2).map((i) => ({
+                label: `${i.invoiceNumber} · pay`,
+                onClick: () => goQueue("payments"),
+              })),
+            ],
+            "No bills in queue",
+            { label: "Open match", onClick: () => goQueue("invoices") }
           )}
         </div>
       );
@@ -376,138 +577,109 @@ export default function ProcurementPage() {
     return null;
   };
 
+  const chipTone = (tone?: MetricChip["tone"], active?: boolean) => {
+    if (active) return "border-[#0D7A5F] bg-primary-light ring-1 ring-[#0D7A5F]/30";
+    if (tone === "red") return "border-red-200 bg-red-50/60 hover:border-red-300";
+    if (tone === "amber") return "border-amber-200 bg-amber-50/50 hover:border-amber-300";
+    return "border-[#EDEDED] bg-white hover:border-slate-300";
+  };
+
+  const roleSubtitle = (() => {
+    switch (activeRole) {
+      case "storekeeper":
+        return "Your requisitions and goods receipts.";
+      case "purchasing":
+        return "Source approved needs into POs and RFQs.";
+      case "accountant":
+        return "Match vendor bills and settle payables.";
+      case "manager":
+        return "Approve PRs, POs, and discrepancy bills.";
+      case "admin":
+        return "Full procurement overview across all queues.";
+      default:
+        return "Requisitions through payment — role-filtered.";
+    }
+  })();
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="space-y-4 max-w-7xl mx-auto pb-16">
       <PageHeader
-        moduleName="Procurement & Sourcing"
-        breadcrumbs={[{ label: "Operations", href: "/dashboards" }, { label: "Procurement" }]}
-        title="Enterprise Sourcing & Procurement Console"
-        subtitle={`Role: ${currentPersona?.designation || activeRole} — multi-party PR → RFQ → PO → GRN → Match → Pay with server RBAC.`}
-        badge={
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            RBAC gated · Double-Entry GL
-          </span>
-        }
+        moduleName="Procurement"
+        breadcrumbs={[
+          { label: "Operations", href: "/dashboards" },
+          { label: "Procurement" },
+        ]}
+        title="Procurement"
+        subtitle={roleSubtitle}
         actions={
           <button
+            type="button"
             onClick={() => loadAllData()}
-            className="inline-flex items-center gap-1.5 bg-white hover:bg-[#F4F4F5] text-[#18181B] px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#D4D4D8] shadow-2xs transition"
+            className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#EDEDED] transition"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-[#71717A]" />
+            <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
             Refresh
           </button>
         }
       />
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         <RoleHome />
 
-        {/* KPI cards — hidden for storekeeper view, and spend masked when no costs.view */}
-        {activeRole !== "storekeeper" && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-            <div className="bg-white border border-[#EDEDED] rounded-2xl p-4 flex flex-col justify-between shadow-2xs">
-              <span className="text-[11px] font-mono text-[#71717A] uppercase tracking-wider">
-                Total Spend (PKR)
-              </span>
-              <div className="my-2">
-                <span className="text-xl sm:text-2xl font-black font-mono text-[#18181B]">
-                  {canViewCosts && kpi.totalSpend != null ? formatCurrency(kpi.totalSpend) : "••••"}
-                </span>
-              </div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono">
-                {canViewCosts ? `Across ${kpi.totalPos} Issued POs` : "Costs masked for role"}
-              </span>
-            </div>
-
-            <div className="bg-white border border-[#EDEDED] rounded-2xl p-4 flex flex-col justify-between shadow-2xs">
-              <span className="text-[11px] font-mono text-[#71717A] uppercase tracking-wider">
-                Active Vendors
-              </span>
-              <div className="my-2 flex items-center justify-between">
-                <span className="text-xl sm:text-2xl font-black font-mono text-emerald-600">
-                  {kpi.activeVendorsCount}
-                </span>
-                <Building2 className="w-5 h-5 text-emerald-500/70" />
-              </div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono">Registered Master</span>
-            </div>
-
-            <div className="bg-white border border-[#EDEDED] rounded-2xl p-4 flex flex-col justify-between shadow-2xs">
-              <span className="text-[11px] font-mono text-[#71717A] uppercase tracking-wider">
-                Open POs
-              </span>
-              <div className="my-2 flex items-center justify-between">
-                <span className="text-xl sm:text-2xl font-black font-mono text-blue-600">
-                  {kpi.openPosCount}
-                </span>
-                <ShoppingCart className="w-5 h-5 text-blue-500/70" />
-              </div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono">Pending Receipt</span>
-            </div>
-
-            <div className="bg-white border border-[#EDEDED] rounded-2xl p-4 flex flex-col justify-between shadow-2xs">
-              <span className="text-[11px] font-mono text-[#71717A] uppercase tracking-wider">
-                Pending PRs
-              </span>
-              <div className="my-2 flex items-center justify-between">
-                <span className="text-xl sm:text-2xl font-black font-mono text-amber-600">
-                  {kpi.pendingPrsCount}
-                </span>
-                <FileText className="w-5 h-5 text-amber-500/70" />
-              </div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono">Awaiting Approval / PO</span>
-            </div>
-
-            <div
-              className={cn(
-                "rounded-2xl p-4 flex flex-col justify-between border shadow-2xs transition-all",
-                kpi.overdueDeliveriesCount > 0
-                  ? "bg-rose-50/70 border-rose-200"
-                  : "bg-white border-[#EDEDED]"
-              )}
+        {/* Role-specific metric chips — click filters the active queue */}
+        <div className="flex flex-wrap gap-2">
+          {roleChips.map((chip) => {
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => goQueue(chip.tab, chip.filter)}
+                className={cn(
+                  "inline-flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition min-w-[7.5rem]",
+                  chipTone(chip.tone, activeTab === chip.tab && (!chip.filter || queueFilter === chip.filter))
+                )}
+              >
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+                    {chip.label}
+                  </div>
+                  <div
+                    className={cn(
+                      "text-base font-bold font-mono leading-tight mt-0.5",
+                      chip.tone === "red"
+                        ? "text-red-700"
+                        : chip.tone === "amber"
+                        ? "text-amber-800"
+                        : "text-slate-800"
+                    )}
+                  >
+                    {chip.value}
+                  </div>
+                  {chip.hint && (
+                    <div className="text-[10px] text-slate-400 mt-0.5">{chip.hint}</div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+          {queueFilter && (
+            <button
+              type="button"
+              onClick={() => setQueueFilter(null)}
+              className="self-center text-xs text-slate-500 hover:text-slate-800 underline px-2"
             >
-              <span className="text-[11px] font-mono text-[#71717A] uppercase tracking-wider">
-                Overdue Deliveries
-              </span>
-              <div className="my-2 flex items-center justify-between">
-                <span
-                  className={cn(
-                    "text-xl sm:text-2xl font-black font-mono",
-                    kpi.overdueDeliveriesCount > 0 ? "text-rose-600" : "text-[#18181B]"
-                  )}
-                >
-                  {kpi.overdueDeliveriesCount}
-                </span>
-                <AlertTriangle
-                  className={cn(
-                    "w-5 h-5",
-                    kpi.overdueDeliveriesCount > 0 ? "text-rose-500" : "text-[#A1A1AA]"
-                  )}
-                />
-              </div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono">Past Delivery Date</span>
-            </div>
-
-            <div className="bg-white border border-[#EDEDED] rounded-2xl p-4 flex flex-col justify-between shadow-2xs">
-              <span className="text-[11px] font-mono text-[#71717A] uppercase tracking-wider">
-                3-Way Match Rate
-              </span>
-              <div className="my-2 flex items-center justify-between">
-                <span className="text-xl sm:text-2xl font-black font-mono text-teal-600">
-                  {kpi.matchAccuracyRate}%
-                </span>
-                <ShieldAlert className="w-5 h-5 text-teal-500/70" />
-              </div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono">Audit Pass Rate</span>
-            </div>
-          </div>
-        )}
+              Clear filter
+            </button>
+          )}
+        </div>
 
         <ProcurementProcessPipeline
           activeTab={activeTab}
           onSelectTab={(tab) => {
-            if (canSeeTab(tab)) setActiveTab(tab);
+            if (canSeeTab(tab)) {
+              setQueueFilter(null);
+              setActiveTab(tab);
+            }
           }}
           allowedStages={visibleTabs}
           metrics={{
@@ -520,29 +692,35 @@ export default function ProcurementPage() {
           }}
         />
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 bg-white border border-[#EDEDED] rounded-xl p-1.5 shadow-2xs">
+        {/* Quieter permission-filtered tabs */}
+        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-[#EDEDED]">
           {subTabButtons.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
-
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                type="button"
+                onClick={() => {
+                  setQueueFilter(null);
+                  setActiveTab(tab.id);
+                }}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all",
+                  "flex items-center gap-1.5 px-3 py-2 text-xs whitespace-nowrap border-b-2 -mb-px transition-colors",
                   isActive
-                    ? "bg-[#0D7A5F] text-white shadow-xs"
-                    : "text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5]"
+                    ? "border-[#0D7A5F] text-[#0D7A5F] font-semibold"
+                    : "border-transparent text-slate-500 hover:text-slate-800 font-medium"
                 )}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-3.5 h-3.5 opacity-70" />
                 <span>{tab.label}</span>
                 {tab.count !== undefined && tab.count > 0 && (
                   <span
                     className={cn(
-                      "text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold",
-                      isActive ? "bg-white/20 text-white" : "bg-[#F4F4F5] text-[#71717A]"
+                      "text-[10px] px-1.5 py-0.5 rounded-full font-mono",
+                      isActive
+                        ? "bg-primary-light text-[#0D7A5F]"
+                        : "bg-slate-100 text-slate-500"
                     )}
                   >
                     {tab.count}
@@ -554,9 +732,9 @@ export default function ProcurementPage() {
         </div>
 
         {loading ? (
-          <div className="bg-white border border-[#EDEDED] rounded-2xl p-12 text-center text-[#71717A] shadow-2xs">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#0D7A5F] mb-3" />
-            <span className="text-xs font-mono">Loading procurement datasets & ledgers...</span>
+          <div className="bg-white border border-[#EDEDED] rounded-xl p-12 text-center text-slate-500">
+            <RefreshCw className="w-5 h-5 animate-spin mx-auto text-[#0D7A5F] mb-3" />
+            <span className="text-xs">Loading procurement…</span>
           </div>
         ) : (
           <div>
@@ -582,6 +760,8 @@ export default function ProcurementPage() {
                 onRefresh={loadAllData}
                 onNavigateToRfq={handleNavigateToRfq}
                 onNavigateToPo={() => setActiveTab("pos")}
+                queueFilter={queueFilter}
+                initialAction={actionParam}
               />
             )}
 
@@ -603,6 +783,8 @@ export default function ProcurementPage() {
                 products={products}
                 onRefresh={loadAllData}
                 onOpenGrnModal={handleOpenGrnModal}
+                queueFilter={queueFilter}
+                initialAction={actionParam}
               />
             )}
 
@@ -623,6 +805,7 @@ export default function ProcurementPage() {
                 vendors={vendors}
                 onRefresh={loadAllData}
                 onNavigateToPayment={handleNavigateToPayment}
+                queueFilter={queueFilter}
               />
             )}
 
@@ -631,6 +814,7 @@ export default function ProcurementPage() {
                 invoices={invoices}
                 onRefresh={loadAllData}
                 presetInvoiceForPay={presetInvoiceForPay}
+                queueFilter={queueFilter}
               />
             )}
 
@@ -639,6 +823,7 @@ export default function ProcurementPage() {
                 vendors={vendors}
                 onRefresh={loadAllData}
                 onSelectVendorForPo={handleSelectVendorForPo}
+                initialAction={actionParam}
               />
             )}
 
@@ -650,7 +835,28 @@ export default function ProcurementPage() {
             )}
           </div>
         )}
+
+        <p className="text-[10px] text-slate-400 text-center pt-2" title="Double-entry GL postings apply on GRN, match, and payment">
+          GL postings apply on GRN · match · payment
+        </p>
       </div>
     </div>
+  );
+}
+
+export default function ProcurementPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 animate-spin text-[#0D7A5F]" />
+            <span>Loading Procurement Workspace…</span>
+          </div>
+        </div>
+      }
+    >
+      <ProcurementPageContent />
+    </Suspense>
   );
 }

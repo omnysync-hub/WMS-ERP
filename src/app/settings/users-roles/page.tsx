@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import SideDrawer from "@/components/ui/SideDrawer";
 import { useRole, SystemUser, RoleType } from "@/contexts/RoleContext";
 import { PERMISSION_GROUPS, ALL_PERMISSION_KEYS } from "@/lib/permissions";
 import {
@@ -705,291 +706,273 @@ export default function UsersAndRolesSettingsPage() {
         </div>
       )}
 
-      {/* CREATE / EDIT USER MODAL */}
-      {showAddUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h4 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <User className="w-4 h-4 text-[#0D7A5F]" />
-                  {editingUser ? `Edit User: ${editingUser.name}` : "Create New ERP User Account"}
-                </h4>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Configure login username, assigned role, and initial account status
-                </p>
-              </div>
-              <button
-                onClick={() => setShowAddUserModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-              >
-                ✕
-              </button>
+      {/* CREATE / EDIT USER DRAWER */}
+      <SideDrawer
+        isOpen={showAddUserModal}
+        onClose={() => setShowAddUserModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-[#0D7A5F]" />
+            <span>{editingUser ? `Edit User: ${editingUser.name}` : "Create New ERP User Account"}</span>
+          </div>
+        }
+        subtitle="Configure login username, assigned role, and initial account status"
+        width="max-w-lg"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setShowAddUserModal(false)}
+              className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="user-form"
+              className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition"
+            >
+              {editingUser ? "Save Changes" : "Create User Account"}
+            </button>
+          </div>
+        }
+      >
+        <form id="user-form" onSubmit={handleSaveUser} className="space-y-4 text-xs">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Full Name *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Asad Mehmood"
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              />
             </div>
 
-            <form onSubmit={handleSaveUser} className="p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Asad Mehmood"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Username (Login) *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. asad.ops"
-                    value={formUsername}
-                    onChange={(e) => setFormUsername(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Official Email</label>
-                  <input
-                    type="email"
-                    placeholder="asad@company.com"
-                    value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Assigned Role *</label>
-                  <SearchableSelect
-                    value={formRole}
-                    onChange={(val) => setFormRole(val as any)}
-                    placeholder="Select Role"
-                    searchPlaceholder="Search role..."
-                    options={availablePersonas.map((p) => ({
-                      value: p.role,
-                      label: p.name,
-                      subLabel: p.role,
-                    }))}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Job Designation</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Operations Coordinator"
-                    value={formDesignation}
-                    onChange={(e) => setFormDesignation(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Department</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Customer Care & Dispatch"
-                    value={formDepartment}
-                    onChange={(e) => setFormDepartment(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-mono text-[#71717A] mb-1">Account Access Status *</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormStatus("active")}
-                    className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition ${
-                      formStatus === "active"
-                        ? "bg-emerald-50 border-emerald-500 text-emerald-800"
-                        : "bg-white border-[#D4D4D8] text-[#71717A]"
-                    }`}
-                  >
-                    <Unlock className="w-4 h-4 text-emerald-600" />
-                    <div>
-                      <div className="font-bold text-xs">Active</div>
-                      <div className="text-[10px]">Normal system login</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFormStatus("suspended")}
-                    className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition ${
-                      formStatus === "suspended"
-                        ? "bg-rose-50 border-rose-500 text-rose-800"
-                        : "bg-white border-[#D4D4D8] text-[#71717A]"
-                    }`}
-                  >
-                    <Lock className="w-4 h-4 text-rose-600" />
-                    <div>
-                      <div className="font-bold text-xs">Suspended</div>
-                      <div className="text-[10px]">All access revoked</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddUserModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition"
-                >
-                  {editingUser ? "Save Changes" : "Create User Account"}
-                </button>
-              </div>
-            </form>
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Username (Login) *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. asad.ops"
+                value={formUsername}
+                onChange={(e) => setFormUsername(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              />
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* CREATE NEW ROLE MODAL */}
-      {showCreateRoleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h4 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-[#0D7A5F]" />
-                  Create New User Role
-                </h4>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Define custom role identifier, title, department, and clone initial permissions
-                </p>
-              </div>
-              <button
-                onClick={() => setShowCreateRoleModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-              >
-                ✕
-              </button>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Official Email</label>
+              <input
+                type="email"
+                placeholder="asad@company.com"
+                value={formEmail}
+                onChange={(e) => setFormEmail(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              />
             </div>
 
-            <form onSubmit={handleCreateRoleSubmit} className="p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Role Key (Identifier) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. workshop_lead, field_supervisor"
-                    value={newRoleKey}
-                    onChange={(e) => setNewRoleKey(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Role Display Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Workshop Lead Supervisor"
-                    value={newRoleName}
-                    onChange={(e) => setNewRoleName(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Default Designation</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Lead Technical Supervisor"
-                    value={newRoleDesignation}
-                    onChange={(e) => setNewRoleDesignation(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">Department</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Technical Services"
-                    value={newRoleDepartment}
-                    onChange={(e) => setNewRoleDepartment(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                  Clone Initial Permissions From Template *
-                </label>
-                <SearchableSelect
-                  value={cloneFromRole}
-                  onChange={setCloneFromRole}
-                  placeholder="Select template role..."
-                  searchPlaceholder="Search role template..."
-                  options={availablePersonas.map((p) => ({
-                    value: p.role,
-                    label: `Clone from: ${p.name} (${p.role})`,
-                    subLabel: p.role,
-                  }))}
-                />
-                <p className="text-[10px] text-[#71717A] mt-1">
-                  You can fine-tune every individual sub-part toggle immediately after creation.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-mono text-[#71717A] mb-1">Description</label>
-                <textarea
-                  rows={2}
-                  placeholder="e.g. Manages physical appliance repairs and workshop stock consumption"
-                  value={newRoleDesc}
-                  onChange={(e) => setNewRoleDesc(e.target.value)}
-                  className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateRoleModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition"
-                >
-                  Create & Configure Role
-                </button>
-              </div>
-            </form>
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Assigned Role *</label>
+              <SearchableSelect
+                value={formRole}
+                onChange={(val) => setFormRole(val as any)}
+                placeholder="Select Role"
+                searchPlaceholder="Search role..."
+                options={availablePersonas.map((p) => ({
+                  value: p.role,
+                  label: p.name,
+                  subLabel: p.role,
+                }))}
+              />
+            </div>
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Job Designation</label>
+              <input
+                type="text"
+                placeholder="e.g. Operations Coordinator"
+                value={formDesignation}
+                onChange={(e) => setFormDesignation(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Department</label>
+              <input
+                type="text"
+                placeholder="e.g. Customer Care & Dispatch"
+                value={formDepartment}
+                onChange={(e) => setFormDepartment(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-mono text-[#71717A] mb-1">Account Access Status *</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setFormStatus("active")}
+                className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition ${
+                  formStatus === "active"
+                    ? "bg-emerald-50 border-emerald-500 text-emerald-800"
+                    : "bg-white border-[#D4D4D8] text-[#71717A]"
+                }`}
+              >
+                <Unlock className="w-4 h-4 text-emerald-600" />
+                <div>
+                  <div className="font-bold text-xs">Active</div>
+                  <div className="text-[10px]">Normal system login</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFormStatus("suspended")}
+                className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition ${
+                  formStatus === "suspended"
+                    ? "bg-rose-50 border-rose-500 text-rose-800"
+                    : "bg-white border-[#D4D4D8] text-[#71717A]"
+                }`}
+              >
+                <Lock className="w-4 h-4 text-rose-600" />
+                <div>
+                  <div className="font-bold text-xs">Suspended</div>
+                  <div className="text-[10px]">All access revoked</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </form>
+      </SideDrawer>
+
+      {/* CREATE NEW ROLE DRAWER */}
+      <SideDrawer
+        isOpen={showCreateRoleModal}
+        onClose={() => setShowCreateRoleModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#0D7A5F]" />
+            <span>Create New User Role</span>
+          </div>
+        }
+        subtitle="Define custom role identifier, title, department, and clone initial permissions"
+        width="max-w-lg"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setShowCreateRoleModal(false)}
+              className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="create-role-form"
+              className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition"
+            >
+              Create & Configure Role
+            </button>
+          </div>
+        }
+      >
+        <form id="create-role-form" onSubmit={handleCreateRoleSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                Role Key (Identifier) *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. workshop_lead, field_supervisor"
+                value={newRoleKey}
+                onChange={(e) => setNewRoleKey(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                Role Display Name *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Workshop Lead Supervisor"
+                value={newRoleName}
+                onChange={(e) => setNewRoleName(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Default Designation</label>
+              <input
+                type="text"
+                placeholder="e.g. Lead Technical Supervisor"
+                value={newRoleDesignation}
+                onChange={(e) => setNewRoleDesignation(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Department</label>
+              <input
+                type="text"
+                placeholder="e.g. Technical Services"
+                value={newRoleDepartment}
+                onChange={(e) => setNewRoleDepartment(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+              Clone Initial Permissions From Template *
+            </label>
+            <SearchableSelect
+              value={cloneFromRole}
+              onChange={setCloneFromRole}
+              placeholder="Select template role..."
+              searchPlaceholder="Search role template..."
+              options={availablePersonas.map((p) => ({
+                value: p.role,
+                label: `Clone from: ${p.name} (${p.role})`,
+                subLabel: p.role,
+              }))}
+            />
+            <p className="text-[10px] text-[#71717A] mt-1">
+              You can fine-tune every individual sub-part toggle immediately after creation.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-mono text-[#71717A] mb-1">Description</label>
+            <textarea
+              rows={2}
+              placeholder="e.g. Manages physical appliance repairs and workshop stock consumption"
+              value={newRoleDesc}
+              onChange={(e) => setNewRoleDesc(e.target.value)}
+              className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] outline-none"
+            />
+          </div>
+        </form>
+      </SideDrawer>
     </div>
   );
 }

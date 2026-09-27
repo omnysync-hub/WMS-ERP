@@ -201,26 +201,62 @@ export default function JobsListPage() {
       accessorKey: "jobNumber",
       isPrimaryLink: true,
       getHref: (row) => `/jobs/${row.id}`,
-      cell: (row) => (
-        <div className="space-y-0.5">
-          <span className="font-mono font-bold text-xs text-[#0D7A5F] hover:underline block whitespace-nowrap">
-            {row.jobNumber}
-          </span>
-          <div className="flex items-center gap-1 flex-wrap">
-            {row.manualJobNumber && (
-              <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded font-mono inline-block">
-                Ext: #{row.manualJobNumber}
-              </span>
-            )}
-            {row.careOfParty && (
-              <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-medium inline-flex items-center gap-0.5">
-                <Building className="w-2.5 h-2.5 text-purple-500" />
-                c/o {row.careOfParty.companyName}
-              </span>
-            )}
+      cell: (row) => {
+        const successors = (row.childJobs || []).filter(
+          (c: any) => c && c.id
+        ) as { id: string; jobNumber: string; status?: string }[];
+        const openSuccessor =
+          successors.find((c) => c.status !== "TechnicianReassigned") || successors[0];
+        const parent = row.parentJob as
+          | { id: string; jobNumber: string; status?: string }
+          | null
+          | undefined;
+        const showParent =
+          parent?.id &&
+          (row.parentJobId || row.reassignedFromJobId || row.status !== "TechnicianReassigned");
+
+        return (
+          <div className="space-y-0.5">
+            <span className="font-mono font-bold text-xs text-[#0D7A5F] hover:underline block whitespace-nowrap">
+              {row.jobNumber}
+            </span>
+            <div className="flex items-center gap-1 flex-wrap">
+              {row.manualJobNumber && (
+                <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded font-mono inline-block">
+                  Ext: #{row.manualJobNumber}
+                </span>
+              )}
+              {row.careOfParty && (
+                <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-medium inline-flex items-center gap-0.5">
+                  <Building className="w-2.5 h-2.5 text-purple-500" />
+                  c/o {row.careOfParty.companyName}
+                </span>
+              )}
+              {row.status === "TechnicianReassigned" && openSuccessor && (
+                <Link
+                  href={`/jobs/${openSuccessor.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[10px] text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5 hover:bg-violet-100"
+                  title="Open successor work order"
+                >
+                  <ArrowUpRight className="w-2.5 h-2.5" />
+                  Successor {openSuccessor.jobNumber}
+                </Link>
+              )}
+              {showParent && parent && (
+                <Link
+                  href={`/jobs/${parent.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[10px] text-slate-700 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5 hover:bg-slate-100"
+                  title="Open parent / reassigned-from work order"
+                >
+                  From {parent.jobNumber}
+                </Link>
+              )}
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       id: "customer",
@@ -331,13 +367,33 @@ export default function JobsListPage() {
 
         return (
           <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <StatusBadge status={row.status} />
               {row.qualityFlag === "disputed" && (
                 <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full flex items-center gap-1">
                   <AlertTriangle className="w-2.5 h-2.5 text-rose-600" />
                   Disputed
                 </span>
+              )}
+              {row.status === "TechnicianReassigned" &&
+                (row.childJobs || []).some((c: any) => c?.id) && (
+                  <Link
+                    href={`/jobs/${(row.childJobs.find((c: any) => c.status !== "TechnicianReassigned") || row.childJobs[0]).id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[10px] font-bold text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-violet-100"
+                  >
+                    <ArrowUpRight className="w-2.5 h-2.5" />
+                    Open successor
+                  </Link>
+                )}
+              {(row.parentJob?.id || row.reassignedFromJobId) && row.parentJob?.jobNumber && (
+                <Link
+                  href={`/jobs/${row.parentJob.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[10px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-slate-100"
+                >
+                  Parent {row.parentJob.jobNumber}
+                </Link>
               )}
             </div>
             {isStorekeeper && hasPendingReq && (

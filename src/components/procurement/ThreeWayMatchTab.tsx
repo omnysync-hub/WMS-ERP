@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ShieldAlert,
   Plus,
@@ -18,6 +18,13 @@ import {
   Sparkles,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import {
+  ProcurementStatusBadge,
+  ProcurementEmptyState,
+} from "@/components/procurement/procurementUi";
+import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 
@@ -28,6 +35,16 @@ interface ThreeWayMatchTabProps {
   vendors: any[];
   onRefresh: () => void;
   onNavigateToPayment?: (invoice: any) => void;
+  queueFilter?: string | null;
+}
+
+function matchStatusLabel(status: string) {
+  const s = (status || "").toLowerCase();
+  if (s === "matched") return { label: "Matched ✓", hint: "PO · GRN · Invoice quantities & prices align" };
+  if (s === "discrepancy") return { label: "Discrepancy", hint: "Variance detected — review before approval" };
+  if (s === "approved_for_payment") return { label: "Approved for payment", hint: "Cleared 3-way match" };
+  if (s === "paid") return { label: "Paid", hint: "Settled" };
+  return { label: "Pending match", hint: "Awaiting PO/GRN reconciliation" };
 }
 
 export default function ThreeWayMatchTab({
@@ -37,6 +54,7 @@ export default function ThreeWayMatchTab({
   vendors,
   onRefresh,
   onNavigateToPayment,
+  queueFilter = null,
 }: ThreeWayMatchTabProps) {
   const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
   const canCreateInvoice = hasPermission("procurement.invoice.create");
@@ -44,7 +62,12 @@ export default function ThreeWayMatchTab({
   const isStorekeeper = currentRole === "storekeeper";
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(queueFilter || "all");
+
+  // queueFilter sync
+  useEffect(() => {
+    if (queueFilter) setStatusFilter(queueFilter);
+  }, [queueFilter]);
 
   if (isStorekeeper) {
     return (
@@ -281,18 +304,21 @@ export default function ThreeWayMatchTab({
             />
           </div>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-white border border-[#D4D4D8] text-xs text-[#18181B] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-          >
-            <option value="all">All Match Statuses</option>
-            <option value="matched">Matched (100% Validated)</option>
-            <option value="discrepancy">Discrepancy (Variance Alert)</option>
-            <option value="pending_match">Pending Match</option>
-            <option value="approved_for_payment">Approved for Payment</option>
-            <option value="paid">Settled / Paid</option>
-          </select>
+          <div className="w-56">
+            <SearchableSelect
+              value={statusFilter}
+              onChange={(val) => setStatusFilter(val)}
+              options={[
+                { value: "all", label: "All Match Statuses" },
+                { value: "matched", label: "Matched (100% Validated)" },
+                { value: "discrepancy", label: "Discrepancy (Variance Alert)" },
+                { value: "pending_match", label: "Pending Match" },
+                { value: "approved_for_payment", label: "Approved for Payment" },
+                { value: "paid", label: "Settled / Paid" },
+              ]}
+              placeholder="Status..."
+            />
+          </div>
         </div>
 
         <button
@@ -312,8 +338,8 @@ export default function ThreeWayMatchTab({
       {/* Invoices Table */}
       <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
+          <table className="w-full text-left border-collapse text-sm">
+            <thead className="sticky top-0 z-10">
               <tr className="border-b border-[#EDEDED] bg-[#F8FAFC] text-[#71717A] font-mono text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4">Invoice # & Ref</th>
                 <th className="py-3 px-3">Vendor / Supplier</th>
@@ -328,8 +354,11 @@ export default function ThreeWayMatchTab({
             <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
               {filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-[#71717A]">
-                    No supplier invoices found. Record a vendor invoice against a completed Goods Receipt to initiate the 3-Way Match audit.
+                  <td colSpan={7} className="p-0">
+                    <ProcurementEmptyState
+                      title="No invoices to match"
+                      description="Record a supplier invoice against a GRN to start 3-way match."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -401,26 +430,9 @@ export default function ThreeWayMatchTab({
                       )}
                     </td>
 
-                    <td className="py-3 px-3 text-center">
-                      <span
-                        className={cn(
-                          "inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
-                          inv.matchStatus === "matched"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : inv.matchStatus === "approved_for_payment"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : inv.matchStatus === "paid"
-                            ? "bg-teal-50 text-teal-700 border-teal-200"
-                            : inv.matchStatus === "discrepancy"
-                            ? "bg-rose-50 text-rose-700 border-rose-200 animate-pulse"
-                            : "bg-zinc-100 text-zinc-600 border-zinc-200"
-                        )}
-                      >
-                        {inv.matchStatus === "approved_for_payment"
-                          ? "Approved AP"
-                          : inv.matchStatus.replace(/_/g, " ").toUpperCase()}
-                      </span>
-                    </td>
+                    <td className="py-2 px-3 text-center">
+                        <ProcurementStatusBadge status={inv.matchStatus} />
+                      </td>
 
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -472,28 +484,49 @@ export default function ThreeWayMatchTab({
       </div>
 
       {/* Enter Supplier Invoice Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-[#0D7A5F]" />
-                  Enter Supplier Invoice & Run 3-Way Match
-                </h3>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Critical Financial Control: Compares PO Rate vs GRN Physical Count vs Billed Amount
-                </p>
-              </div>
+      <SideDrawer
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Enter Supplier Invoice & Run 3-Way Match
+            </span>
+          </div>
+        }
+        subtitle="Critical Financial Control: Compares PO Rate vs GRN Physical Count vs Billed Amount"
+        width="max-w-3xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <div className="text-xs">
+              <span className="text-[#71717A]">Gross Payable: </span>
+              <span className="font-bold font-mono text-emerald-700 text-sm">
+                {formatCurrency(calculatedSubtotal + (Number(taxAmount) || 0))}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
+                className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-zinc-100 transition"
               >
-                ✕
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="create-invoice-form"
+                disabled={isSubmitting || billedItems.length === 0}
+                className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
+              >
+                {isSubmitting ? "Running 3-Way Match..." : "Verify & Save Invoice"}
               </button>
             </div>
-
-            <form onSubmit={handleCreateInvoice} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+          </div>
+        }
+      >
+        <form id="create-invoice-form" onSubmit={handleCreateInvoice} className="space-y-4 pb-8 text-[#18181B]">
+          
               {formError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                   {formError}
@@ -506,21 +539,19 @@ export default function ThreeWayMatchTab({
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Select Originating Purchase Order *
                   </label>
-                  <select
+                  <SearchableSelect
                     required
                     value={selectedPoId}
-                    onChange={(e) => handlePoSelect(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    <option value="">-- Choose PO --</option>
-                    {pos
+                    onChange={(val) => handlePoSelect(val)}
+                    options={pos
                       .filter((p) => p.status !== "draft")
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.poNumber} — {p.supplierName} ({p.items?.length} items) - Val: {formatCurrency(p.totalAmount)}
-                        </option>
-                      ))}
-                  </select>
+                      .map((p) => ({
+                        value: p.id,
+                        label: `${p.poNumber} — ${p.supplierName}`,
+                        subLabel: `${p.items?.length || 0} items · Val: ${formatCurrency(p.totalAmount)}`,
+                      }))}
+                    placeholder="-- Choose PO --"
+                  />
                 </div>
 
                 <div>
@@ -777,180 +808,139 @@ export default function ThreeWayMatchTab({
                 </span>
               </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-zinc-100 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || billedItems.length === 0}
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
-                >
-                  {isSubmitting ? "Running 3-Way Match..." : "Verify & Save Invoice"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              
+        </form>
+      </SideDrawer>
 
-      {/* INSPECT 3-WAY MATCH MODAL */}
-      {activeInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4 text-[#0D7A5F]" />
-                  3-Way Match Audit Console • {activeInvoice.invoiceNumber}
-                </h3>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Vendor: {activeInvoice.vendor?.name} • PO: {activeInvoice.po?.poNumber || "Direct"}
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveInvoice(null)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-              >
-                ✕
-              </button>
+      {/* Invoice detail SideDrawer */}
+      <SideDrawer
+        isOpen={Boolean(activeInvoice)}
+        onClose={() => setActiveInvoice(null)}
+        title={
+          activeInvoice ? (
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-[#0D7A5F]" />
+              <span className="font-bold text-sm text-[#18181B]">
+                3-Way Match Audit • {activeInvoice.invoiceNumber}
+              </span>
             </div>
-
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
-              {/* 3-Pillar Visual Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
-                <div className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono text-[#71717A] uppercase block">
-                    [1] Purchase Order
-                  </span>
-                  <ShoppingCart className="w-4 h-4 text-blue-600 mx-auto" />
-                  <span className="font-bold text-[#18181B] block">
-                    {activeInvoice.po?.poNumber || "PO-REF"}
-                  </span>
-                  <span className="text-[10px] text-[#71717A] font-mono block">
-                    Rate: Agreed Standard
-                  </span>
-                </div>
-
-                <div className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono text-[#71717A] uppercase block">
-                    [2] Goods Receipt (GRN)
-                  </span>
-                  <PackageCheck className="w-4 h-4 text-[#0D7A5F] mx-auto" />
-                  <span className="font-bold text-[#18181B] block">
-                    {activeInvoice.grn?.grnNumber || "GRN-REF"}
-                  </span>
-                  <span className="text-[10px] text-[#71717A] font-mono block">
-                    Physical Count: Verified
-                  </span>
-                </div>
-
-                <div className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono text-[#71717A] uppercase block">
-                    [3] Supplier Invoice
-                  </span>
-                  <Receipt className="w-4 h-4 text-purple-600 mx-auto" />
-                  <span className="font-bold text-[#18181B] block">
-                    {activeInvoice.invoiceNumber}
-                  </span>
-                  <span className="text-[10px] text-emerald-700 font-mono font-bold block">
-                    {formatCurrency(activeInvoice.totalAmount)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Items Detail */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-[#18181B] block">
-                  Audited Line Items ({activeInvoice.items?.length || 0})
-                </span>
-                <div className="border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
-                      <tr>
-                        <th className="py-2 px-3">Item</th>
-                        <th className="py-2 px-3 text-right">PO Rate</th>
-                        <th className="py-2 px-3 text-right">GRN Qty</th>
-                        <th className="py-2 px-3 text-right">Billed Qty</th>
-                        <th className="py-2 px-3 text-right">Billed Rate</th>
-                        <th className="py-2 px-3 text-right">Variance</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
-                      {activeInvoice.items?.map((it: any) => (
-                        <tr key={it.id} className="hover:bg-[#F8FAFC]">
-                          <td className="py-2.5 px-3 font-semibold text-[#18181B]">
-                            {it.description}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-[#71717A]">
-                            {formatCurrency(it.poUnitPrice || 0)}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-[#71717A]">
-                            {it.grnQuantity || it.billedQuantity}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-[#18181B]">
-                            {it.billedQuantity}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-[#18181B]">
-                            {formatCurrency(it.billedUnitPrice)}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold">
-                            {it.variance === 0 ? (
-                              <span className="text-emerald-700">0</span>
-                            ) : (
-                              <span className="text-rose-600">
-                                {formatCurrency(it.variance)}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Accounting Effect on Approval */}
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1">
-                <span className="font-bold text-emerald-800 block">
-                  Accounting Impact upon Approval:
-                </span>
-                <p className="text-[#18181B] font-mono text-[11px]">
-                  Debit 2050 GR/IR Clearing Account (-Liability) • Credit 2000 Accounts Payable (+Vendor AP)
-                </p>
-                <p className="text-[10px] text-[#71717A]">
-                  Will officially create a bill voucher in Vendor Sub-Ledger for payment disbursement.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-[#EDEDED]">
-                <button
-                  onClick={() => setActiveInvoice(null)}
-                  className="px-4 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-zinc-100 transition"
-                >
-                  Close
-                </button>
-
-                {(activeInvoice.matchStatus === "matched" ||
-                  activeInvoice.matchStatus === "discrepancy") && (
+          ) : (
+            "Invoice Audit"
+          )
+        }
+        subtitle={
+          activeInvoice
+            ? `Vendor: ${activeInvoice.vendor?.name || "Vendor"} • PO: ${activeInvoice.po?.poNumber || "Direct"}`
+            : undefined
+        }
+        width="max-w-2xl"
+        footer={
+          activeInvoice ? (
+            <div className="flex items-center justify-between w-full">
+              <button
+                type="button"
+                onClick={() => setActiveInvoice(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-zinc-100"
+              >
+                Close
+              </button>
+              <div className="flex items-center gap-2">
+                {(activeInvoice.matchStatus === "matched" || activeInvoice.matchStatus === "discrepancy") && (
                   <button
+                    type="button"
                     onClick={() => handleApproveInvoice(activeInvoice.id)}
                     disabled={isSubmitting || !canApproveInvoice}
                     title={!canApproveInvoice ? "Missing permission" : undefined}
-                    className="inline-flex items-center gap-1.5 px-5 py-2 bg-[#0D7A5F] hover:bg-[#0B6851] text-white font-bold text-xs rounded-lg shadow-2xs transition"
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white font-bold text-xs rounded-lg shadow-2xs transition"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" /> Approve for Payment
                   </button>
                 )}
+                {activeInvoice.matchStatus === "approved_for_payment" && onNavigateToPayment && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigateToPayment(activeInvoice);
+                      setActiveInvoice(null);
+                    }}
+                    className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] text-white text-xs font-bold"
+                  >
+                    Record payment
+                  </button>
+                )}
               </div>
             </div>
+          ) : null
+        }
+      >
+        {activeInvoice && (
+          <div className="space-y-4 text-xs">
+            <div className="p-3 rounded-xl border border-[#EDEDED] bg-[#F8FAFC] space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-[#18181B]">3-way match status</span>
+                <ProcurementStatusBadge status={activeInvoice.matchStatus || "pending_match"} />
+              </div>
+              <p className="text-[11px] text-[#71717A]">
+                {matchStatusLabel(activeInvoice.matchStatus).hint}
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="p-2 rounded-lg bg-white border border-[#EDEDED]">
+                  <div className="text-[10px] text-[#71717A] uppercase font-mono">Price variance</div>
+                  <div className="font-mono font-bold text-[#18181B]">
+                    {formatCurrency(activeInvoice.priceVariance || 0)}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-white border border-[#EDEDED]">
+                  <div className="text-[10px] text-[#71717A] uppercase font-mono">Qty variance</div>
+                  <div className="font-mono font-bold text-[#18181B]">
+                    {activeInvoice.quantityVariance || 0}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[11px] font-mono text-[#71717A]">Links</div>
+              <div className="text-[#18181B]">
+                PO: <span className="font-mono font-semibold">{activeInvoice.po?.poNumber || activeInvoice.poId || "—"}</span>
+              </div>
+              <div className="text-[#18181B]">
+                GRN: <span className="font-mono font-semibold">{activeInvoice.grn?.grnNumber || "—"}</span>
+              </div>
+              <div className="text-[#18181B]">
+                Total: <span className="font-mono font-bold text-emerald-700">{formatCurrency(activeInvoice.totalAmount || 0)}</span>
+              </div>
+            </div>
+            {(activeInvoice.items || []).length > 0 && (
+              <div className="border border-[#EDEDED] rounded-xl overflow-hidden">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase">
+                    <tr>
+                      <th className="py-2 px-2">Description</th>
+                      <th className="py-2 px-2 text-right">Billed qty</th>
+                      <th className="py-2 px-2 text-right">Price</th>
+                      <th className="py-2 px-2 text-right">Var</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EDEDED]">
+                    {activeInvoice.items.map((it: any) => (
+                      <tr key={it.id}>
+                        <td className="py-1.5 px-2">{it.description}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{it.billedQuantity}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(it.billedUnitPrice)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(it.variance || 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {activeInvoice.matchNotes && (
+              <p className="text-[11px] text-[#71717A] italic">Notes: {activeInvoice.matchNotes}</p>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </SideDrawer>
+
     </div>
   );
 }

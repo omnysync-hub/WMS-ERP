@@ -22,6 +22,8 @@ import {
   Layers,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 
 interface RfqSourcingTabProps {
   rfqs: any[];
@@ -59,7 +61,14 @@ export default function RfqSourcingTab({
     return d.toISOString().split("T")[0];
   });
   const [notes, setNotes] = useState("Competitive bidding required. Delivery timeline strictly evaluated.");
-  const [selectedPrId, setSelectedPrId] = useState<string>(initialPrForRfq?.id || "");
+  const [selectedPrIds, setSelectedPrIds] = useState<string[]>(
+    initialPrForRfq?.id ? [initialPrForRfq.id] : []
+  );
+  /** Keys: `${prId}::${itemId}` for line-level selection across PRs */
+  const [selectedPrItemKeys, setSelectedPrItemKeys] = useState<string[]>(() => {
+    if (!initialPrForRfq?.items?.length) return [];
+    return initialPrForRfq.items.map((it: any) => `${initialPrForRfq.id}::${it.id}`);
+  });
   const [invitedVendorIds, setInvitedVendorIds] = useState<string[]>([]);
   const [rfqItems, setRfqItems] = useState<
     {
@@ -69,6 +78,9 @@ export default function RfqSourcingTab({
       quantity: number;
       unit: string;
       targetPrice?: number;
+      prItemId?: string;
+      prId?: string;
+      prNumber?: string;
     }[]
   >(
     initialPrForRfq?.items
@@ -79,6 +91,9 @@ export default function RfqSourcingTab({
           quantity: it.quantity,
           unit: it.unit,
           targetPrice: it.estimatedPrice,
+          prItemId: it.id,
+          prId: initialPrForRfq.id,
+          prNumber: initialPrForRfq.prNumber,
         }))
       : [
           {
@@ -103,23 +118,85 @@ export default function RfqSourcingTab({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
-  // When a PR is selected in Create RFQ
-  const handlePrSelect = (prId: string) => {
-    setSelectedPrId(prId);
-    const pr = prs.find((p) => p.id === prId);
-    if (pr && pr.items?.length > 0) {
-      setTitle(`Competitive Sourcing for ${pr.prNumber} (${pr.department})`);
-      setRfqItems(
-        pr.items.map((it: any) => ({
+  const eligiblePrs = prs.filter(
+    (p) => p.status === "approved" || p.status === "submitted" || p.status === "partially_converted"
+  );
+
+  const rebuildRfqItemsFromSelection = (prIds: string[], itemKeys: string[]) => {
+    const items: typeof rfqItems = [];
+    for (const prId of prIds) {
+      const pr = prs.find((p) => p.id === prId);
+      if (!pr) continue;
+      for (const it of pr.items || []) {
+        const key = `${prId}::${it.id}`;
+        if (itemKeys.length > 0 && !itemKeys.includes(key)) continue;
+        items.push({
           productId: it.productId || undefined,
           itemCode: it.itemCode || it.product?.sku,
           description: it.description || it.product?.name,
           quantity: it.quantity,
           unit: it.unit,
           targetPrice: it.estimatedPrice,
-        }))
-      );
+          prItemId: it.id,
+          prId: pr.id,
+          prNumber: pr.prNumber,
+        });
+      }
     }
+    setRfqItems(
+      items.length > 0
+        ? items
+        : [
+            {
+              description: "1.5 Ton Inverter Rotary Compressors",
+              quantity: 10,
+              unit: "pcs",
+              targetPrice: 32000,
+            },
+          ]
+    );
+    if (prIds.length === 1) {
+      const pr = prs.find((p) => p.id === prIds[0]);
+      if (pr) setTitle(`Competitive Sourcing for ${pr.prNumber} (${pr.department || "Ops"})`);
+    } else if (prIds.length > 1) {
+      setTitle(`Competitive Sourcing for ${prIds.length} Purchase Requisitions`);
+    }
+  };
+
+  const togglePrForRfq = (prId: string) => {
+    const pr = prs.find((p) => p.id === prId);
+    setSelectedPrIds((prev) => {
+      const next = prev.includes(prId) ? prev.filter((id) => id !== prId) : [...prev, prId];
+      setSelectedPrItemKeys((keys) => {
+        let nextKeys = keys.filter((k) => !k.startsWith(prId + "::"));
+        if (!prev.includes(prId) && pr?.items?.length) {
+          nextKeys = [...nextKeys, ...pr.items.map((it: any) => `${prId}::${it.id}`)];
+        }
+        rebuildRfqItemsFromSelection(next, nextKeys);
+        return nextKeys;
+      });
+      return next;
+    });
+  };
+
+  const togglePrItemForRfq = (prId: string, itemId: string) => {
+    const key = `${prId}::${itemId}`;
+    setSelectedPrItemKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      // Ensure parent PR is selected when any item is checked
+      setSelectedPrIds((prIds) => {
+        let nextPrIds = prIds;
+        if (next.some((k) => k.startsWith(prId + "::")) && !prIds.includes(prId)) {
+          nextPrIds = [...prIds, prId];
+        }
+        if (!next.some((k) => k.startsWith(prId + "::")) && prIds.includes(prId)) {
+          nextPrIds = prIds.filter((id) => id !== prId);
+        }
+        rebuildRfqItemsFromSelection(nextPrIds, next);
+        return nextPrIds;
+      });
+      return next;
+    });
   };
 
   const toggleVendorInvite = (vendorId: string) => {
@@ -151,7 +228,7 @@ export default function RfqSourcingTab({
           title,
           dueDate,
           notes,
-          prIds: selectedPrId ? [selectedPrId] : [],
+          prIds: selectedPrIds,
           invitedVendorIds,
           items: rfqItems,
         }),
@@ -283,7 +360,7 @@ export default function RfqSourcingTab({
   return (
     <div className="space-y-4">
       {/* Controls Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
+      <div className="sticky top-0 z-20 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2.5 flex-1">
           <div className="relative min-w-[280px] max-w-md">
             <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-2.5" />
@@ -587,56 +664,117 @@ export default function RfqSourcingTab({
         </div>
       )}
 
-      {/* Create RFQ Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-[#18181B]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EDEDED] bg-[#F8FAFC]">
-              <div>
-                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                  <Scale className="w-4 h-4 text-[#0D7A5F]" />
-                  Create Request for Quotation (RFQ)
-                </h3>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Competitive Sourcing from Approved PR & Vendor Comparison
-                </p>
-              </div>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-[#71717A] hover:text-[#18181B] text-lg font-bold px-2 py-1"
-              >
-                ✕
-              </button>
-            </div>
+      {/* Create RFQ Drawer (SideDrawer — same pattern as PR drawer) */}
+      <SideDrawer
+        isOpen={showCreateModal}
+        onClose={() => {
+          if (!isSubmitting) setShowCreateModal(false);
+        }}
+        title={
+          <div className="flex items-center gap-2">
+            <Scale className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="text-sm font-bold text-[#18181B]">
+              Create Request for Quotation (RFQ)
+            </span>
+          </div>
+        }
+        subtitle="Competitive Sourcing from Approved PR & Vendor Comparison"
+        width="max-w-2xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(false)}
+              disabled={isSubmitting}
+              className="h-8 px-3 rounded-lg border border-[#EDEDED] text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="create-rfq-form"
+              disabled={isSubmitting}
+              className="h-8 px-4 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {isSubmitting ? "Issuing RFQ..." : "Send RFQ & Launch Bidding"}
+            </button>
+          </>
+        }
+      >
+        <form id="create-rfq-form" onSubmit={handleCreateRfq} className="space-y-4">
 
-            <form onSubmit={handleCreateRfq} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
               {formError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                   {formError}
                 </div>
               )}
 
-              {/* Source PR Selection */}
-              <div>
-                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                  Pull Items from Approved Purchase Requisition (Optional)
+              {/* Source PR Selection — multi PR + line items */}
+              <div className="space-y-2">
+                <label className="block text-[11px] font-mono text-[#71717A]">
+                  Pull from Purchase Requisitions (select multiple PRs or individual line items)
                 </label>
-                <select
-                  value={selectedPrId}
-                  onChange={(e) => handlePrSelect(e.target.value)}
-                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                >
-                  <option value="">-- Standalone Bidding Package --</option>
-                  {prs
-                    .filter((p) => p.status === "approved" || p.status === "submitted")
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.prNumber} — {p.department} ({p.items?.length} items) - Est: {formatCurrency(
-                          p.items.reduce((s: number, i: any) => s + i.quantity * i.estimatedPrice, 0)
-                        )}
-                      </option>
-                    ))}
-                </select>
+                <div className="border border-[#EDEDED] rounded-xl max-h-56 overflow-y-auto divide-y divide-[#EDEDED] bg-[#F8FAFC]">
+                  {eligiblePrs.length === 0 ? (
+                    <p className="text-[11px] text-[#A1A1AA] p-3 text-center">No approved/submitted PRs available.</p>
+                  ) : (
+                    eligiblePrs.map((p) => {
+                      const prChecked = selectedPrIds.includes(p.id);
+                      return (
+                        <div key={p.id} className="p-2.5 bg-white">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={prChecked}
+                              onChange={() => togglePrForRfq(p.id)}
+                              className="accent-[#0D7A5F]"
+                            />
+                            <span className="font-semibold text-[#18181B] text-xs">{p.prNumber}</span>
+                            <span className="text-[10px] text-[#71717A]">
+                              {p.department} · {p.items?.length || 0} items · Est{" "}
+                              {formatCurrency(
+                                (p.items || []).reduce(
+                                  (sum: number, i: any) => sum + i.quantity * (i.estimatedPrice || 0),
+                                  0
+                                )
+                              )}
+                            </span>
+                          </label>
+                          {prChecked && (
+                            <div className="mt-2 ml-6 space-y-1">
+                              {(p.items || []).map((it: any) => {
+                                const key = `${p.id}::${it.id}`;
+                                const checked = selectedPrItemKeys.includes(key);
+                                return (
+                                  <label
+                                    key={it.id}
+                                    className="flex items-center gap-2 text-[11px] cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => togglePrItemForRfq(p.id, it.id)}
+                                      className="accent-[#0D7A5F]"
+                                    />
+                                    <span className="text-[#18181B] flex-1">
+                                      {it.description || it.product?.name || "Item"}
+                                    </span>
+                                    <span className="font-mono text-[#71717A]">
+                                      {it.quantity} {it.unit}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <p className="text-[10px] text-[#A1A1AA]">
+                  Leave unchecked for a standalone bidding package, or mix lines across PRs.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -687,6 +825,11 @@ export default function RfqSourcingTab({
                         <tr key={idx}>
                           <td className="py-2 px-3 font-medium text-[#18181B]">
                             {it.description}
+                            {it.prNumber && (
+                              <span className="block text-[10px] font-mono text-[#A1A1AA] mt-0.5">
+                                from {it.prNumber}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-right font-mono">
                             {it.quantity} {it.unit}
@@ -744,41 +887,46 @@ export default function RfqSourcingTab({
                     })}
                 </div>
               </div>
+        </form>
+      </SideDrawer>
 
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
-                >
-                  {isSubmitting ? "Issuing RFQ..." : "Send RFQ & Launch Bidding"}
-                </button>
-              </div>
-            </form>
+      {/* Enter / Submit Vendor Quotation SideDrawer */}
+      <SideDrawer
+        isOpen={Boolean(showQuoteModal && quotingVendor && selectedRfq)}
+        onClose={() => setShowQuoteModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Enter Quotation for {quotingVendor?.vendor?.name}
+            </span>
           </div>
-        </div>
-      )}
-
-      {/* Enter / Submit Vendor Quotation Modal */}
-      {showQuoteModal && quotingVendor && selectedRfq && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-[#EDEDED] rounded-2xl w-full max-w-xl p-6 shadow-2xl text-[#18181B]">
-            <h4 className="text-sm font-bold text-[#18181B] mb-1 flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-[#0D7A5F]" />
-              Enter Quotation for {quotingVendor.vendor?.name}
-            </h4>
-            <p className="text-[11px] text-[#71717A] mb-4">
-              RFQ: {selectedRfq.rfqNumber} • {selectedRfq.title}
-            </p>
-
-            <form onSubmit={handleSubmitQuote} className="space-y-3.5">
+        }
+        subtitle={selectedRfq ? `RFQ: ${selectedRfq.rfqNumber} • ${selectedRfq.title}` : ""}
+        width="max-w-xl"
+        footer={
+          <div className="flex items-center justify-end gap-2.5 w-full">
+            <button
+              type="button"
+              onClick={() => setShowQuoteModal(false)}
+              className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="submit-quote-form"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
+            >
+              {isSubmitting ? "Saving Quote..." : "Record Quotation"}
+            </button>
+          </div>
+        }
+      >
+        {quotingVendor && selectedRfq && (
+          <form id="submit-quote-form" onSubmit={handleSubmitQuote} className="space-y-3.5 pb-8 text-[#18181B]">
+            
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
@@ -813,17 +961,17 @@ export default function RfqSourcingTab({
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Payment Terms Offered
                   </label>
-                  <select
+                  <SearchableSelect
                     value={quotePaymentTerms}
-                    onChange={(e) => setQuotePaymentTerms(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  >
-                    <option value="Net 30">Net 30 Days</option>
-                    <option value="Net 45">Net 45 Days</option>
-                    <option value="Net 15">Net 15 Days</option>
-                    <option value="Advance">100% Advance</option>
-                    <option value="Immediate">Immediate Cash</option>
-                  </select>
+                    onChange={(val) => setQuotePaymentTerms(val)}
+                    options={[
+                      { value: "Net 30", label: "Net 30 Days" },
+                      { value: "Net 45", label: "Net 45 Days" },
+                      { value: "Net 15", label: "Net 15 Days" },
+                      { value: "Advance", label: "100% Advance" },
+                      { value: "Immediate", label: "Immediate Cash" },
+                    ]}
+                  />
                 </div>
 
                 <div>
@@ -896,26 +1044,10 @@ export default function RfqSourcingTab({
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowQuoteModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
-                >
-                  {isSubmitting ? "Saving Quote..." : "Record Quotation"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              
+          </form>
+        )}
+      </SideDrawer>
     </div>
   );
 }

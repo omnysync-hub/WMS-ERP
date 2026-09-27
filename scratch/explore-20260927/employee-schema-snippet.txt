@@ -1,0 +1,57 @@
+model Employee {
+  id                   String                @id @default(uuid())
+  name                 String
+  phone                String
+  email                String?
+  role                 String                // technician, dispatcher, accountant, admin, storekeeper, call_center, hr
+  department           String                // Operations, Accounts, HR, Maintenance, Sales, Management
+  designation          String?               // Senior HVAC Technician, Lead Dispatcher, Operations Manager
+  employmentType       String                @default("Full-time") // Full-time, Contract, Probation, Part-time
+  joinDate             DateTime              @default(now())
+  salary               Float                 @default(0)
+  status               String                @default("Active") // Active, On Leave, Resigning, Terminated, Inactive
+  probationEndDate     DateTime?
+  probationStatus      String?               @default("Confirmed") // On Probation, Confirmed
+  reportingManagerId   String?
+  reportingManager     Employee?             @relation("ReportingChain", fields: [reportingManagerId], references: [id])
+  directReports        Employee[]            @relation("ReportingChain")
+  faceEnrolled         Boolean               @default(false)
+  faceTemplateUrl      String?
+  faceEmbedding        Float[]               @default([])
+  faceEnrolledAt       DateTime?
+  faceEnrollmentCount  Int                   @default(0)
+  active               Boolean               @default(true)
+  mobileLoginActive    Boolean               @default(false)
+  mobileUsername       String?               @unique
+  mobilePasswordHash   String?
+  mobilePasswordSetAt  DateTime?
+  failedLoginAttempts  Int                   @default(0)
+  lockedUntil          DateTime?
+  lat                  Float?
+  lng                  Float?
+  lastPingAt           DateTime?
+  jobs                 Job[]
+  attendanceLogs       AttendanceLog[]
+  advances             EmployeeAdvance[]
+  payslips             Payslip[]
+  projectTasks         ProjectTask[]
+  leaveBalances        LeaveBalance[]
+  leaveRequests        LeaveRequest[]
+  assetAssignments     AssetAssignment[]
+  onboardingChecklists OnboardingChecklist[]
+  offboardingChecklists OffboardingChecklist[]
+  exitInterview        ExitInterview?
+  finalSettlements     FinalSettlement[]
+  grievanceTickets     GrievanceTicket[]
+  pushTokens           DevicePushToken[]
+  receivedAppRequests  MobileAppRequest[]
+  locationPings        TechnicianLocationPing[]
+  consentRecords       TechnicianConsentRecord[]
+  offlineGaps          OfflineGapLog[]
+  geofenceAssignments  EmployeeGeofenceAssignment[]
+  createdAt            DateTime              @default(now())
+}
+
+model GeofenceZone {
+  id           String                       @id @default(uuid())
+  name         String
