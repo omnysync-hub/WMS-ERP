@@ -228,13 +228,31 @@ export async function PATCH(
         break;
 
       case "add_service":
-        result = await JobsService.addJobServiceOrItem(
-          params.id,
-          payload.description,
-          Number(payload.quantity || 1),
-          Number(payload.unitRate || 0),
-          actor
-        );
+        if (Array.isArray(payload.services) && payload.services.length > 0) {
+          const addedItems = [];
+          for (const s of payload.services) {
+            if (s.description && Number(s.quantity) > 0) {
+              addedItems.push(
+                await JobsService.addJobServiceOrItem(
+                  params.id,
+                  s.description,
+                  Number(s.quantity || 1),
+                  Number(s.unitRate || 0),
+                  actor
+                )
+              );
+            }
+          }
+          result = addedItems;
+        } else {
+          result = await JobsService.addJobServiceOrItem(
+            params.id,
+            payload.description,
+            Number(payload.quantity || 1),
+            Number(payload.unitRate || 0),
+            actor
+          );
+        }
         break;
 
       case "record_stock_return":
@@ -249,14 +267,33 @@ export async function PATCH(
         break;
 
       case "record_misplaced_item":
-        result = await JobsService.recordMisplacedItem(
-          params.id,
-          payload.technicianId,
-          payload.item,
-          Number(payload.quantity || 1),
-          actor,
-          payload.reason
-        );
+        if (Array.isArray(payload.items) && payload.items.length > 0) {
+          const results = [];
+          for (const itm of payload.items) {
+            if (itm.item && Number(itm.quantity) > 0) {
+              results.push(
+                await JobsService.recordMisplacedItem(
+                  params.id,
+                  payload.technicianId,
+                  itm.item,
+                  Number(itm.quantity || 1),
+                  actor,
+                  itm.reason || payload.reason
+                )
+              );
+            }
+          }
+          result = { success: true, count: results.length, items: results };
+        } else {
+          result = await JobsService.recordMisplacedItem(
+            params.id,
+            payload.technicianId,
+            payload.item,
+            Number(payload.quantity || 1),
+            actor,
+            payload.reason
+          );
+        }
         break;
 
       case "generate_custom_invoice":
