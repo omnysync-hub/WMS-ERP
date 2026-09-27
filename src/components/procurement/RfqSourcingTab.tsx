@@ -10,7 +10,6 @@ import {
   Search,
   CheckCircle2,
   Trophy,
-  Star,
   Clock,
   ExternalLink,
   DollarSign,
@@ -486,7 +485,6 @@ export default function RfqSourcingTab({
                           <th className="py-2.5 px-3 text-right">Total Quoted</th>
                           <th className="py-2.5 px-3 text-center">Delivery Days</th>
                           <th className="py-2.5 px-3">Payment Terms</th>
-                          <th className="py-2.5 px-3 text-center">QA Score</th>
                           <th className="py-2.5 px-3.5 text-center">Action / Winner</th>
                         </tr>
                       </thead>
@@ -613,14 +611,6 @@ export default function RfqSourcingTab({
                               {/* Payment Terms */}
                               <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
                                 {rv.paymentTerms || rv.vendor?.paymentTerms || "Net 30"}
-                              </td>
-
-                              {/* Quality Score */}
-                              <td className="py-3 px-3 text-center">
-                                <div className="inline-flex items-center gap-1 font-mono font-bold text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                  <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
-                                  {rv.qualityScore || 85}/100
-                                </div>
                               </td>
 
                               {/* Award Action */}
