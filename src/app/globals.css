@@ -102,44 +102,84 @@
 
   html, body {
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #18181B !important;
     font-size: 11pt !important;
     line-height: 1.4 !important;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
+    height: auto !important;
     min-height: 100% !important;
+    overflow: visible !important;
   }
 
-  /* Hide app chrome, sidebars, navigation, modals backdrop, actions */
-  header, nav, aside, footer, .no-print, [role="dialog"] > div:first-child, .drawer-header-actions {
+  /* Hide app chrome, sidebars, navigation, action buttons */
+  header, nav, aside, footer, button, .no-print, .drawer-header-actions {
     display: none !important;
   }
 
-  /* Isolate printable document: everything hidden except .printable-document and its descendants */
-  body * {
-    visibility: hidden;
+  /* Neutralize drawer backdrop when printing */
+  .drawer-backdrop {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    width: 100% !important;
+    height: auto !important;
+    inset: auto !important;
+    z-index: auto !important;
   }
 
-  .printable-document,
-  .printable-document * {
-    visibility: visible;
+  /* Neutralize drawer container */
+  [role="dialog"] {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
+  [role="dialog"] > div {
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Hide drawer header and drawer footer during print */
+  [role="dialog"] > div > div:first-child,
+  [role="dialog"] > div > div:last-child {
+    display: none !important;
+  }
+
+  /* Allow the scrollable body to expand fully for multi-page print */
+  [role="dialog"] > div > div.overflow-y-auto {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+  }
+
+  /* Force printable document to display */
   .printable-document {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+    display: block !important;
+    position: static !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
-    color: #000000 !important;
-    overflow: visible !important;
-    display: block !important;
+    color: #18181B !important;
     border: none !important;
     box-shadow: none !important;
+    overflow: visible !important;
   }
 
   /* Force background colors and borders to print accurately */

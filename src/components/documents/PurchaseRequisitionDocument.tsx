@@ -1,8 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useRef } from "react";
 import { Flame, Printer } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { printDocument } from "@/lib/printUtils";
 
 interface PurchaseRequisitionDocumentProps {
   pr: any;
@@ -15,12 +16,21 @@ export default function PurchaseRequisitionDocument({
   onClose,
   hideCosts = false,
 }: PurchaseRequisitionDocumentProps) {
+  const docRef = useRef<HTMLDivElement>(null);
   if (!pr) return null;
 
   const totalEstimatedCost = (pr.items || []).reduce(
     (sum: number, it: any) => sum + (it.quantity || 0) * (it.estimatedPrice || it.unitPrice || 0),
     0
   );
+
+  const handlePrint = () => {
+    if (docRef.current) {
+      printDocument(docRef.current, `Purchase_Requisition_${pr.prNumber}`);
+    } else {
+      window.print();
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -44,7 +54,7 @@ export default function PurchaseRequisitionDocument({
           )}
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold rounded-lg shadow-sm transition"
           >
             <Printer className="w-3.5 h-3.5" />
@@ -54,7 +64,11 @@ export default function PurchaseRequisitionDocument({
       </div>
 
       {/* Printable Document Container */}
-      <div className="printable-document p-8 bg-white border border-zinc-300 rounded-2xl shadow-sm text-xs text-zinc-800 font-sans space-y-6">
+      <div
+        ref={docRef}
+        id="printable-purchase-requisition"
+        className="printable-document p-8 bg-white border border-zinc-300 rounded-2xl shadow-sm text-xs text-zinc-800 font-sans space-y-6"
+      >
         {/* Letterhead Header */}
         <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
           <div className="flex items-center gap-3">

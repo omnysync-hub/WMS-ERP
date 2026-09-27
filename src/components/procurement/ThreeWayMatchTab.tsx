@@ -26,6 +26,7 @@ import {
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import VendorBillDocument from "@/components/documents/VendorBillDocument";
+import { printDocument } from "@/lib/printUtils";
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
@@ -992,7 +993,7 @@ export default function ThreeWayMatchTab({
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => printDocument("#printable-vendor-bill", `Vendor_Bill_${printableBill?.invoiceNumber}`)}
               className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" /> Print / Save PDF

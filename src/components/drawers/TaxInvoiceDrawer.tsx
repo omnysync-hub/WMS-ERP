@@ -5,6 +5,7 @@ import SideDrawer from "@/components/ui/SideDrawer";
 import { Receipt, Check, AlertCircle, Printer, Eye } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import TaxInvoiceDocument from "@/components/documents/TaxInvoiceDocument";
+import { printDocument } from "@/lib/printUtils";
 
 interface TaxInvoiceDrawerProps {
   isOpen: boolean;
@@ -68,10 +69,9 @@ export default function TaxInvoiceDrawer({
 
       if (autoPrint) {
         setShowPrintView(true);
-        // Small delay to allow print layout to mount before invoking print dialog
         setTimeout(() => {
-          window.print();
-        }, 200);
+          printDocument("#printable-tax-invoice", generatedNum);
+        }, 300);
       } else {
         setShowPrintView(true);
       }
@@ -119,7 +119,7 @@ export default function TaxInvoiceDrawer({
                 </button>
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => printDocument("#printable-tax-invoice", customInvoiceNumber || "Tax_Invoice")}
                   className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0B6851] text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
                 >
                   <Printer className="w-3.5 h-3.5" />

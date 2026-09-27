@@ -28,6 +28,7 @@ import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import PurchaseRequisitionDocument from "@/components/documents/PurchaseRequisitionDocument";
+import { printDocument } from "@/lib/printUtils";
 import {
   ProcurementStatusBadge,
   ProcurementEmptyState,
@@ -1604,7 +1605,7 @@ export default function RequisitionsTab({
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => printDocument("#printable-purchase-requisition", `Purchase_Requisition_${printablePr?.prNumber}`)}
               className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" /> Print / Save PDF

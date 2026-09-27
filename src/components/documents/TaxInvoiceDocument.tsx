@@ -1,8 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useRef } from "react";
 import { Flame, Printer, X, CheckCircle2 } from "lucide-react";
 import { formatCurrency, formatDate, numberToWords } from "@/lib/utils";
+import { printDocument } from "@/lib/printUtils";
 
 interface TaxInvoiceDocumentProps {
   job: any;
@@ -15,6 +16,7 @@ export default function TaxInvoiceDocument({
   invoiceNumber,
   onClose,
 }: TaxInvoiceDocumentProps) {
+  const docRef = useRef<HTMLDivElement>(null);
   if (!job) return null;
 
   const invNum =
@@ -48,6 +50,14 @@ export default function TaxInvoiceDocument({
     ? new Date(job.finalizedAt)
     : new Date();
 
+  const handlePrint = () => {
+    if (docRef.current) {
+      printDocument(docRef.current, `Tax_Invoice_${invNum}`);
+    } else {
+      window.print();
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Action Bar (Hidden during print) */}
@@ -70,7 +80,7 @@ export default function TaxInvoiceDocument({
           )}
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold rounded-lg shadow-sm transition"
           >
             <Printer className="w-3.5 h-3.5" />
@@ -80,7 +90,11 @@ export default function TaxInvoiceDocument({
       </div>
 
       {/* Printable Invoice Container */}
-      <div className="printable-document p-8 bg-white border border-zinc-300 rounded-2xl shadow-sm text-xs text-zinc-800 font-sans space-y-6">
+      <div
+        ref={docRef}
+        id="printable-tax-invoice"
+        className="printable-document p-8 bg-white border border-zinc-300 rounded-2xl shadow-sm text-xs text-zinc-800 font-sans space-y-6"
+      >
         {/* Letterhead Header */}
         <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
           <div className="flex items-center gap-3">

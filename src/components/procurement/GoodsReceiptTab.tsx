@@ -25,6 +25,7 @@ import {
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import GoodsReceiptDocument from "@/components/documents/GoodsReceiptDocument";
+import { printDocument } from "@/lib/printUtils";
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
@@ -854,7 +855,7 @@ export default function GoodsReceiptTab({
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => printDocument("#printable-goods-receipt-note", `Goods_Receipt_Note_${printableGrn?.grnNumber}`)}
               className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" /> Print / Save PDF

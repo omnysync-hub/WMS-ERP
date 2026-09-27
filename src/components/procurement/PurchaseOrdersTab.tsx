@@ -20,6 +20,7 @@ import {
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import { printDocument } from "@/lib/printUtils";
 import {
   ProcurementStatusBadge,
   ProcurementEmptyState,
@@ -1108,7 +1109,7 @@ export default function PurchaseOrdersTab({
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => printDocument("#printable-purchase-order", `Purchase_Order_${printablePo?.poNumber}`)}
               className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" /> Print / Save PDF
@@ -1117,7 +1118,10 @@ export default function PurchaseOrdersTab({
         }
       >
         {printablePo && (
-          <div className="printable-document p-8 space-y-6 max-h-[85vh] overflow-y-auto bg-white font-sans text-xs">
+          <div
+            id="printable-purchase-order"
+            className="printable-document p-8 space-y-6 max-h-[85vh] overflow-y-auto bg-white font-sans text-xs"
+          >
               {/* Header Letterhead */}
               <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
                 <div className="flex items-center gap-3">
