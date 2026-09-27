@@ -40,6 +40,8 @@ import {
   Sliders,
   Scale,
   Building,
+  Building2,
+  PackageCheck,
   ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,6 +66,7 @@ export default function Sidebar({
   const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
   const isJobsActive = pathname.startsWith("/jobs") || pathname.startsWith("/dispatch");
   const isAccountsActive = pathname.startsWith("/accounts");
+  const isProcurementActive = pathname.startsWith("/procurement");
   const isHrmActive = pathname.startsWith("/hrm");
   const isSettingsActive = pathname.startsWith("/settings");
 
@@ -71,6 +74,7 @@ export default function Sidebar({
   const [openMenu, setOpenMenu] = useState<string | null>(() => {
     if (isSettingsActive) return "settings";
     if (isAccountsActive) return "accounts";
+    if (isProcurementActive) return "procurement";
     if (isHrmActive) return "hrm";
     if (isJobsActive) return "jobs";
     if (isDashboardsActive) return "dashboards";
@@ -79,6 +83,7 @@ export default function Sidebar({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [verificationPendingCount, setVerificationPendingCount] = useState(0);
+  const [procurementCounts, setProcurementCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +114,38 @@ export default function Sidebar({
   }, [activeRole, hasPermission, pathname]);
 
   useEffect(() => {
+    let cancelled = false;
+    const canSeeProcurement =
+      ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"].includes(activeRole) ||
+      hasPermission("procurement.view_pr") ||
+      hasPermission("procurement.pr.create");
+    if (!canSeeProcurement) {
+      setProcurementCounts({});
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch("/api/procurement?view=counts", {
+          headers: {
+            "x-actor-role": activeRole || "anonymous",
+            "x-actor-name": "Sidebar",
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data && typeof data === "object") {
+          setProcurementCounts(data);
+        }
+      } catch {
+        /* ignore badge errors */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRole, hasPermission, pathname]);
+
+  useEffect(() => {
     const updateSearch = () => {
       if (typeof window !== "undefined") {
         setSearchQuery(window.location.search);
@@ -125,6 +162,8 @@ export default function Sidebar({
       setOpenMenu("settings");
     } else if (isAccountsActive) {
       setOpenMenu("accounts");
+    } else if (isProcurementActive) {
+      setOpenMenu("procurement");
     } else if (isHrmActive) {
       setOpenMenu("hrm");
     } else if (isJobsActive) {
@@ -132,7 +171,7 @@ export default function Sidebar({
     } else if (isDashboardsActive) {
       setOpenMenu("dashboards");
     }
-  }, [pathname, isJobsActive, isDashboardsActive, isHrmActive, isAccountsActive, isSettingsActive]);
+  }, [pathname, isJobsActive, isDashboardsActive, isProcurementActive, isHrmActive, isAccountsActive, isSettingsActive]);
 
   const toggleMenu = (menuId: string) => {
     setOpenMenu((prev) => (prev === menuId ? null : menuId));
@@ -141,6 +180,7 @@ export default function Sidebar({
   const isDashboardsOpen = openMenu === "dashboards";
   const isJobsOpen = openMenu === "jobs";
   const isAccountsOpen = openMenu === "accounts";
+  const isProcurementOpen = openMenu === "procurement";
   const isHrmOpen = openMenu === "hrm";
   const isSettingsOpen = openMenu === "settings";
 
@@ -239,9 +279,81 @@ export default function Sidebar({
 
   const hasHrmAccess = ["admin", "hr", "auditor"].includes(activeRole) || hasPermission("hrm.view_employees");
 
+  // Dedicated Procurement Accordion Sub-Items
+  const allProcurementSubItems = [
+    {
+      label: "Approvals",
+      tab: "approvals",
+      icon: ShieldAlert,
+      perms: ["procurement.pr.approve", "procurement.po.approve", "procurement.invoice.approve"],
+      badgeKey: "approvals",
+    },
+    {
+      label: "Requisitions",
+      tab: "prs",
+      icon: FileText,
+      perms: ["procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.view_pr", "procurement.po.create", "procurement.rfq.manage"],
+      badgeKey: "prs",
+    },
+    {
+      label: "RFQ",
+      tab: "rfqs",
+      icon: Scale,
+      perms: ["procurement.rfq.manage", "procurement.rfq.award"],
+      badgeKey: "rfqs",
+    },
+    {
+      label: "Purchase Orders",
+      tab: "pos",
+      icon: ShoppingCart,
+      perms: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view"],
+      badgeKey: "pos",
+    },
+    {
+      label: "Goods Receipt",
+      tab: "grns",
+      icon: PackageCheck,
+      perms: ["procurement.grn.create", "procurement.grn.quality"],
+      badgeKey: "grns",
+    },
+    {
+      label: "3-Way Match",
+      tab: "invoices",
+      icon: ShieldAlert,
+      perms: ["procurement.invoice.create", "procurement.invoice.match", "procurement.invoice.approve"],
+    },
+    {
+      label: "Payments",
+      tab: "payments",
+      icon: CreditCard,
+      perms: ["procurement.payment.record"],
+    },
+    {
+      label: "Vendors",
+      tab: "vendors",
+      icon: Building2,
+      perms: ["procurement.vendor.manage", "procurement.rfq.manage", "procurement.po.create"],
+      badgeKey: "vendors",
+    },
+    {
+      label: "Reports",
+      tab: "reports",
+      icon: BarChart3,
+      perms: ["procurement.reports.view"],
+    },
+  ];
+
+  const procurementSubItems = allProcurementSubItems.filter((sub) => {
+    if (activeRole === "admin") return true;
+    return sub.perms.some((p) => hasPermission(p));
+  });
+
+  const hasProcurementAccess =
+    procurementSubItems.length > 0 ||
+    ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"].includes(activeRole);
+
   const allOperationsItems = [
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
-    { label: "Procurement & Sourcing", href: "/procurement", icon: ShoppingCart, roles: ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"], perm: "procurement.view_pr" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
     { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "hr", "auditor"] },
     { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"], perm: "audit.view_logs" },
@@ -262,7 +374,7 @@ export default function Sidebar({
   );
 
   const inventoryOperations = operationsItems.filter((item) =>
-    ["/procurement", "/inventory"].includes(item.href)
+    ["/inventory"].includes(item.href)
   );
 
   // Dedicated Accounts & Ledgers Accordion Sub-Items
@@ -649,6 +761,122 @@ export default function Sidebar({
                           )}
                         />
                         <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dedicated Expandable Procurement & Sourcing Accordion */}
+          {hasProcurementAccess && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/procurement";
+                  } else {
+                    toggleMenu("procurement");
+                  }
+                }}
+                title={isCollapsed ? "Procurement & Sourcing" : undefined}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isProcurementActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <ShoppingCart
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isProcurementActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && (
+                    <div className="flex items-center gap-2">
+                      <span>Procurement & Sourcing</span>
+                      {isModulePrimary("Procurement & Sourcing") && activeRole !== "admin" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Primary Module for Active Role" />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isProcurementOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Procurement Sub-Items List */}
+              {isProcurementOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {procurementSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const roleDefaultTab: Record<string, string> = {
+                      storekeeper: "prs",
+                      purchasing: "prs",
+                      accountant: "invoices",
+                      manager: "approvals",
+                      auditor: "reports",
+                      admin: "approvals",
+                    };
+                    const defaultTab = roleDefaultTab[activeRole] || procurementSubItems[0]?.tab || "prs";
+                    const activeParam =
+                      new URLSearchParams(searchQuery).get("tab") || defaultTab;
+                    const isSubActive =
+                      pathname === "/procurement" && activeParam === sub.tab;
+                    const badge = sub.badgeKey ? procurementCounts[sub.badgeKey] : undefined;
+
+                    return (
+                      <Link
+                        key={sub.tab}
+                        href={`/procurement?tab=${sub.tab}`}
+                        onClick={() => {
+                          setSearchQuery(`?tab=${sub.tab}`);
+                          if (typeof window !== "undefined") {
+                            if (pathname === "/procurement") {
+                              const url = new URL(window.location.href);
+                              url.searchParams.set("tab", sub.tab);
+                              window.history.pushState(null, "", url.toString());
+                              window.dispatchEvent(new Event("popstate"));
+                            }
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <SubIcon
+                            className={cn(
+                              "w-3.5 h-3.5 shrink-0 transition",
+                              isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                            )}
+                          />
+                          <span className="truncate">{sub.label}</span>
+                        </div>
+                        {badge !== undefined && badge > 0 && (
+                          <span
+                            className={cn(
+                              "text-[10px] px-1.5 py-0.2 font-mono font-bold rounded-full ml-1 shrink-0",
+                              isSubActive
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : "bg-zinc-800 text-zinc-400 group-hover:text-zinc-200"
+                            )}
+                          >
+                            {badge}
+                          </span>
+                        )}
                       </Link>
                     );
                   })}

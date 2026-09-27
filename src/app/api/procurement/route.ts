@@ -26,6 +26,7 @@ const VIEW_PERMISSION: Record<string, string | string[]> = {
   grns: ["procurement.grn.create", "procurement.grn.quality", "procurement.invoice.create", "procurement.invoice.match"],
   invoices: ["procurement.invoice.create", "procurement.invoice.match", "procurement.invoice.approve", "procurement.payment.record"],
   reports: ["procurement.reports.view", "procurement.costs.view"],
+  counts: ["procurement.view_pr", "procurement.pr.create", "procurement.rfq.manage", "procurement.po.create", "procurement.grn.create", "procurement.invoice.create", "procurement.payment.record", "procurement.reports.view", "procurement.costs.view", "procurement.vendor.manage", "procurement.pr.approve"],
   all: ["procurement.view_pr", "procurement.pr.create", "procurement.rfq.manage", "procurement.po.create", "procurement.grn.create", "procurement.invoice.create", "procurement.payment.record", "procurement.reports.view", "procurement.costs.view", "procurement.vendor.manage"],
 };
 
@@ -68,6 +69,27 @@ export async function GET(req: NextRequest) {
 
     const actor = gated.actor;
     const canViewCosts = roleHasPermission(actor.role, "procurement.costs.view");
+
+    if (view === "counts") {
+      const [pendingPrs, activeVendors, openPos, openRfqs, pendingGrns, submittedPrs, draftPos, pendingInvoices] = await Promise.all([
+        prisma.purchaseRequisition.count({ where: { status: "submitted" } }),
+        prisma.vendor.count({ where: { status: "Active" } }),
+        prisma.purchaseOrder.count({ where: { status: { in: ["approved", "sent_to_vendor", "partially_received", "sent"] } } }),
+        prisma.requestForQuotation.count({ where: { status: { notIn: ["awarded", "cancelled", "closed"] } } }),
+        prisma.goodsReceipt.count(),
+        prisma.purchaseRequisition.count({ where: { status: "submitted" } }),
+        prisma.purchaseOrder.count({ where: { status: "draft" } }),
+        prisma.supplierInvoice.count({ where: { matchStatus: { in: ["pending_match", "matched", "discrepancy"] } } }),
+      ]);
+      return NextResponse.json({
+        approvals: submittedPrs + draftPos + pendingInvoices,
+        prs: pendingPrs,
+        rfqs: openRfqs,
+        pos: openPos,
+        grns: pendingGrns,
+        vendors: activeVendors,
+      });
+    }
 
     if (view === "vendors") {
       const vendors = await ProcurementService.getVendors({

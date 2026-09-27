@@ -201,10 +201,31 @@ function ProcurementPageContent() {
     }
   }, [tabParam, canSeeTab]);
 
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get("tab") as ProcurementStage | null;
+        if (t && (Object.keys(TAB_PERMS) as ProcurementStage[]).includes(t) && canSeeTab(t)) {
+          setActiveTab(t);
+        }
+      }
+    };
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => window.removeEventListener("popstate", syncTabFromUrl);
+  }, [canSeeTab]);
+
   const goQueue = (tab: ProcurementStage, filter?: string) => {
     if (!canSeeTab(tab)) return;
     setQueueFilter(filter || null);
     setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", tab);
+      window.history.pushState(null, "", url.toString());
+      window.dispatchEvent(new Event("popstate"));
+    }
   };
 
   const handleNavigateToRfq = (pr: any) => {
@@ -495,6 +516,12 @@ function ProcurementPageContent() {
                 onClick={() => {
                   setQueueFilter(null);
                   setActiveTab(tab.id);
+                  if (typeof window !== "undefined") {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("tab", tab.id);
+                    window.history.pushState(null, "", url.toString());
+                    window.dispatchEvent(new Event("popstate"));
+                  }
                 }}
                 className={cn(
                   "flex items-center gap-2 px-3.5 py-2.5 text-xs whitespace-nowrap border-b-2 -mb-px transition-all font-medium",

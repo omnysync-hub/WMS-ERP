@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
-import { Check, Users } from "lucide-react";
+import { Check, Users, Search } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 
 interface ReassignTechDrawerProps {
@@ -23,6 +23,7 @@ export default function ReassignTechDrawer({
   const [selectedTechId, setSelectedTechId] = useState(job?.assignedTechnicianId || "");
   const [assistantIds, setAssistantIds] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
+  const [techSearch, setTechSearch] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isAlreadyAssigned = Boolean(job?.assignedTechnicianId || job?.assignedTechnician);
@@ -188,11 +189,42 @@ export default function ReassignTechDrawer({
               : "Choose the technician who will take over this work order."}
           </p>
 
-          <div className="space-y-2">
-            {technicians.length === 0 ? (
-              <p className="text-xs text-[#A1A1AA] py-4 text-center">No technicians found.</p>
+          <div className="relative mb-2.5">
+            <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search technicians by name, phone, or status..."
+              value={techSearch}
+              onChange={(e) => setTechSearch(e.target.value)}
+              className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 rounded-lg text-xs border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
+            />
+          </div>
+
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {technicians
+              .filter((tech) => {
+                if (!techSearch.trim()) return true;
+                const q = techSearch.toLowerCase().trim();
+                return (
+                  tech.name?.toLowerCase().includes(q) ||
+                  tech.phone?.toLowerCase().includes(q) ||
+                  tech.currentStatus?.toLowerCase().includes(q)
+                );
+              })
+              .length === 0 ? (
+              <p className="text-xs text-[#A1A1AA] py-4 text-center">No technicians matching "{techSearch}".</p>
             ) : (
-              technicians.map((tech) => {
+              technicians
+                .filter((tech) => {
+                  if (!techSearch.trim()) return true;
+                  const q = techSearch.toLowerCase().trim();
+                  return (
+                    tech.name?.toLowerCase().includes(q) ||
+                    tech.phone?.toLowerCase().includes(q) ||
+                    tech.currentStatus?.toLowerCase().includes(q)
+                  );
+                })
+                .map((tech) => {
                 const isSelected = selectedTechId === tech.id;
                 const isCurrent = job.assignedTechnicianId === tech.id;
 

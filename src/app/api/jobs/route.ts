@@ -109,6 +109,10 @@ export async function POST(req: NextRequest) {
     const count = await prisma.job.count();
     const jobNumber = `JOB-2026-${String(count + 1).padStart(4, "0")}`;
 
+    const effectivePrimaryId =
+      assignedTechnicianId ||
+      (Array.isArray(technicianIds) && technicianIds.length > 0 ? technicianIds[0] : null);
+
     const job = await prisma.job.create({
       data: {
         jobNumber,
@@ -117,8 +121,8 @@ export async function POST(req: NextRequest) {
         manualJobNumber: manualJobNumber || null,
         jobType,
         remarks: remarks || "",
-        status: assignedTechnicianId ? "Assigned" : "Created",
-        assignedTechnicianId: assignedTechnicianId || null,
+        status: effectivePrimaryId ? "Assigned" : "Created",
+        assignedTechnicianId: effectivePrimaryId || null,
         ...(items && items.length > 0
           ? {
               items: {

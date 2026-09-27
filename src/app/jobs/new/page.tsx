@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
@@ -27,7 +27,10 @@ import {
   Layers,
   Sparkles,
   Info,
+  Users,
+  Star,
 } from "lucide-react";
+import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -155,8 +158,9 @@ export default function NewJobIntakePage() {
   // Remarks
   const [remarks, setRemarks] = useState("");
 
-  // Technician Assignment (Optional - can assign later)
-  const [assignedTechnicianId, setAssignedTechnicianId] = useState("");
+  // Technician Assignment (Optional - single or multiple)
+  const [assignedTechnicianIds, setAssignedTechnicianIds] = useState<string[]>([]);
+  const [primaryTechnicianId, setPrimaryTechnicianId] = useState<string>("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -226,6 +230,49 @@ export default function NewJobIntakePage() {
   const effectiveJobType = isCustomJobType
     ? customJobType.trim() || "General Service"
     : selectedJobTypePreset;
+
+  const jobTypeOptions: SelectOption[] = useMemo(() => {
+    return [
+      ...COMMON_JOB_TYPES.map((t) => ({ value: t, label: t })),
+      { value: "CUSTOM", label: "+ Type Custom Job Type...", badge: "Custom", badgeTone: "blue" as const },
+    ];
+  }, []);
+
+  const technicianOptions: SelectOption[] = useMemo(() => {
+    return technicians.map((t) => {
+      const isAvail = (t.currentStatus || "").toLowerCase() === "available";
+      const isOnJob = (t.currentStatus || "").toLowerCase() === "on job";
+      const isAssigned = (t.currentStatus || "").toLowerCase() === "assigned";
+      const tone = isAvail ? ("green" as const) : isOnJob ? ("blue" as const) : isAssigned ? ("amber" as const) : ("zinc" as const);
+
+      return {
+        value: t.id,
+        label: t.name,
+        subLabel: t.phone || t.department || undefined,
+        badge: t.currentStatus || "Available",
+        badgeTone: tone,
+        icon: <Wrench className="w-3.5 h-3.5 text-zinc-400" />,
+      };
+    });
+  }, [technicians]);
+
+  const inventoryProductOptions: SelectOption[] = useMemo(() => {
+    return [
+      ...inventoryProducts.map((inv) => ({
+        value: inv.id,
+        label: `${inv.name} (${inv.sku})`,
+        subLabel: `Stock: ${inv.stockQuantity} ${inv.unit} @ ${formatCurrency(inv.unitPrice)}`,
+        badge: inv.stockQuantity > 0 ? `${inv.stockQuantity} ${inv.unit}` : "Out of stock",
+        badgeTone: inv.stockQuantity > 5 ? ("green" as const) : inv.stockQuantity > 0 ? ("amber" as const) : ("red" as const),
+      })),
+      {
+        value: "CUSTOM",
+        label: "+ Custom / Non-Catalog Product...",
+        badge: "Manual",
+        badgeTone: "zinc" as const,
+      },
+    ];
+  }, [inventoryProducts]);
 
   // PRODUCT LINES MANAGEMENT (Linked with Inventory)
   const handleAddProductLine = () => {
@@ -397,13 +444,19 @@ export default function NewJobIntakePage() {
           })),
       ];
 
+      const effectivePrimaryId =
+        primaryTechnicianId && assignedTechnicianIds.includes(primaryTechnicianId)
+          ? primaryTechnicianId
+          : assignedTechnicianIds[0] || null;
+
       const payload = {
         customerId: selectedCustomerId,
         careOfPartyId: null,
         manualJobNumber: isCareOf ? manualJobNumber : null,
         jobType: effectiveJobType.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 30),
         remarks: fullRemarks,
-        assignedTechnicianId: assignedTechnicianId || null,
+        assignedTechnicianId: effectivePrimaryId,
+        technicianIds: assignedTechnicianIds,
         items: combinedItems,
       };
 
@@ -424,7 +477,9 @@ export default function NewJobIntakePage() {
           technicianId: payload.assignedTechnicianId,
           technicianName: assignedTech?.name,
           actor: "Operations Intake",
-          message: `New Job #${data.jobNumber} assigned to ${assignedTech?.name || "Technician"}`,
+          message: assignedTechnicianIds.length > 1
+            ? `New Job #${data.jobNumber} assigned to crew of ${assignedTechnicianIds.length} (Lead: ${assignedTech?.name || "Technician"})`
+            : `New Job #${data.jobNumber} assigned to ${assignedTech?.name || "Technician"}`,
           payload: { job: data },
         });
       }
@@ -665,25 +720,21 @@ export default function NewJobIntakePage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <select
+                  <SearchableSelect
+                    options={jobTypeOptions}
                     value={isCustomJobType ? "CUSTOM" : selectedJobTypePreset}
-                    onChange={(e) => {
-                      if (e.target.value === "CUSTOM") {
+                    onChange={(val: string) => {
+                      if (val === "CUSTOM") {
                         setIsCustomJobType(true);
                       } else {
                         setIsCustomJobType(false);
-                        setSelectedJobTypePreset(e.target.value);
+                        setSelectedJobTypePreset(val);
                       }
                     }}
-                    className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
-                  >
-                    {COMMON_JOB_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                    <option value="CUSTOM">+ Type Custom Job Type...</option>
-                  </select>
+                    placeholder="Search or pick job type..."
+                    searchPlaceholder="Type to search standard HVAC job types..."
+                    className="w-full"
+                  />
                 </div>
 
                 {isCustomJobType && (
@@ -945,20 +996,14 @@ export default function NewJobIntakePage() {
                         <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
                           Product / Part #{idx + 1}
                         </label>
-                        <select
+                        <SearchableSelect
+                          options={inventoryProductOptions}
                           value={line.productId || "CUSTOM"}
-                          onChange={(e) => handleSelectInventoryProduct(line.id, e.target.value)}
-                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
-                        >
-                          <optgroup label="Warehouse Inventory Products">
-                            {inventoryProducts.map((inv) => (
-                              <option key={inv.id} value={inv.id}>
-                                {inv.name} ({inv.sku}) — Stock: {inv.stockQuantity} {inv.unit} @ {formatCurrency(inv.unitPrice)}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <option value="CUSTOM">+ Custom / Non-Catalog Product...</option>
-                        </select>
+                          onChange={(val: string) => handleSelectInventoryProduct(line.id, val)}
+                          placeholder="Search products by name or SKU..."
+                          searchPlaceholder="Search warehouse inventory by name or SKU..."
+                          className="w-full bg-white"
+                        />
 
                         {/* Custom product name input if CUSTOM */}
                         {!line.productId && (
@@ -1303,34 +1348,130 @@ export default function NewJobIntakePage() {
               />
             </div>
 
-            {/* Assign Technician */}
-            <div className="pt-2 border-t border-[#EDEDED]">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="font-semibold text-[#18181B] block">
-                  Assign Technician (Optional — Dispatcher can assign later)
-                </label>
-                <span className="text-[11px] text-[#71717A]">
-                  {assignedTechnicianId ? "Directly Assigned" : "Queued for Later Dispatch"}
+            {/* Assign Technician(s) - Single or Multiple with Searchable Dropdown */}
+            <div className="pt-2 border-t border-[#EDEDED] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#0D7A5F]" />
+                  <label className="font-semibold text-[#18181B] text-xs">
+                    Assign Technicians (Single or Multi-Crew — Optional)
+                  </label>
+                </div>
+                <span className="text-[11px] font-semibold text-[#71717A]">
+                  {assignedTechnicianIds.length === 0
+                    ? "Queued for Later Dispatch"
+                    : assignedTechnicianIds.length === 1
+                    ? "1 Technician Assigned (Lead)"
+                    : `${assignedTechnicianIds.length} Technicians Assigned (Crew)`}
                 </span>
               </div>
 
-              <select
-                value={assignedTechnicianId}
-                onChange={(e) => setAssignedTechnicianId(e.target.value)}
-                className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
-              >
-                <option value="">
-                  ⏳ Assign Later (Leave Unassigned for Dispatcher)
-                </option>
-                {technicians.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    🔧 {t.name} — Status: {t.currentStatus}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                multiple={true}
+                options={technicianOptions}
+                value={assignedTechnicianIds}
+                onChange={(selected: string[]) => {
+                  setAssignedTechnicianIds(selected);
+                  if (!selected.includes(primaryTechnicianId)) {
+                    setPrimaryTechnicianId(selected[0] || "");
+                  }
+                }}
+                placeholder="Search & select single or multiple technicians (or leave unassigned for dispatcher)..."
+                searchPlaceholder="Search technician by name, phone, or status (e.g. Available, On Job)..."
+                clearable={true}
+                className="w-full"
+              />
 
-              {!assignedTechnicianId && (
-                <p className="text-[11px] text-[#71717A] mt-1.5 flex items-center gap-1.5">
+              {assignedTechnicianIds.length > 0 ? (
+                <div className="bg-[#F9FAFB] border border-[#EDEDED] rounded-xl p-3 space-y-2 animate-in fade-in">
+                  <div className="flex items-center justify-between text-[11px] text-[#71717A] pb-1.5 border-b border-[#EDEDED]">
+                    <span>
+                      Selected Crew ({assignedTechnicianIds.length}): Click <strong className="text-[#0D7A5F]">★ Lead</strong> to designate primary technician
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignedTechnicianIds([]);
+                        setPrimaryTechnicianId("");
+                      }}
+                      className="text-xs text-rose-600 hover:underline font-semibold"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {assignedTechnicianIds.map((techId) => {
+                      const tech = technicians.find((t) => t.id === techId);
+                      if (!tech) return null;
+                      const isPrimary = techId === (primaryTechnicianId || assignedTechnicianIds[0]);
+
+                      return (
+                        <div
+                          key={techId}
+                          className={cn(
+                            "flex items-center justify-between p-2.5 rounded-lg border text-xs transition",
+                            isPrimary
+                              ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-300/40"
+                              : "bg-white border-[#EDEDED] hover:border-slate-300"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+                            <div
+                              className={cn(
+                                "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold",
+                                isPrimary
+                                  ? "bg-[#0D7A5F] text-white"
+                                  : "bg-slate-100 text-slate-600"
+                              )}
+                            >
+                              {tech.name.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div className="truncate">
+                              <p className="font-bold text-[#18181B] truncate">{tech.name}</p>
+                              <p className="text-[10px] text-[#71717A] truncate font-mono">
+                                {tech.currentStatus || "Available"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setPrimaryTechnicianId(techId)}
+                              title={isPrimary ? "Current Primary Lead" : "Click to set as Primary Lead"}
+                              className={cn(
+                                "px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5 transition",
+                                isPrimary
+                                  ? "bg-[#0D7A5F] text-white shadow-2xs"
+                                  : "bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-[#0D7A5F]"
+                              )}
+                            >
+                              <Star className={cn("w-3 h-3", isPrimary ? "fill-white" : "")} />
+                              {isPrimary ? "Lead" : "Set Lead"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = assignedTechnicianIds.filter((id) => id !== techId);
+                                setAssignedTechnicianIds(next);
+                                if (primaryTechnicianId === techId) {
+                                  setPrimaryTechnicianId(next[0] || "");
+                                }
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                              title="Remove technician"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-[#71717A] flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>
                     Job will be created in <strong>"Created" (Unassigned)</strong> status, appearing in the Dispatch Map & Dispatcher Queue for proximity-based dispatch.
