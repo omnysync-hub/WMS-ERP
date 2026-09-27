@@ -47,7 +47,6 @@ export default function GoodsReceiptTab({
   const canCreateGrn = hasPermission("procurement.grn.create");
   const isStorekeeper = currentRole === "storekeeper";
   const [search, setSearch] = useState("");
-  const [qualityFilter, setQualityFilter] = useState("all");
 
   // Create GRN Modal State
   const [showCreateModal, setShowCreateModal] = useState(Boolean(presetPoForGrn));
@@ -211,15 +210,14 @@ export default function GoodsReceiptTab({
   };
 
   const filteredGrns = grns.filter((g) => {
-    const matchQuality = qualityFilter === "all" || g.qualityStatus === qualityFilter;
     const q = search.toLowerCase();
-    const matchSearch =
+    return (
       !q ||
       g.grnNumber?.toLowerCase().includes(q) ||
       g.po?.poNumber?.toLowerCase().includes(q) ||
       g.po?.supplierName?.toLowerCase().includes(q) ||
-      g.warehouseLocation?.toLowerCase().includes(q);
-    return matchQuality && matchSearch;
+      g.warehouseLocation?.toLowerCase().includes(q)
+    );
   });
 
   return (
@@ -235,20 +233,6 @@ export default function GoodsReceiptTab({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#D4D4D8] rounded-lg text-xs text-[#18181B] placeholder-[#A1A1AA] focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-            />
-          </div>
-
-          <div className="w-48">
-            <SearchableSelect
-              value={qualityFilter}
-              onChange={(val) => setQualityFilter(val)}
-              options={[
-                { value: "all", label: "All Quality Statuses" },
-                { value: "Accepted", label: "Accepted (QA Passed)" },
-                { value: "Rejected", label: "Rejected" },
-                { value: "Hold", label: "Hold / Quarantine" },
-              ]}
-              placeholder="Quality..."
             />
           </div>
         </div>
@@ -281,7 +265,6 @@ export default function GoodsReceiptTab({
                 <th className="py-3 px-3">Warehouse Location</th>
                 <th className="py-3 px-3">Delivery Challan</th>
                 <th className="py-3 px-3">Received Items</th>
-                <th className="py-3 px-3 text-center">Quality Status</th>
                 <th className="py-3 px-3">Accounting GL Status</th>
                 <th className="py-3 px-4 text-right">Action</th>
               </tr>
@@ -289,7 +272,7 @@ export default function GoodsReceiptTab({
             <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
               {filteredGrns.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-0">
+                  <td colSpan={8} className="p-0">
                     <ProcurementEmptyState
                       title="No goods receipts yet"
                       description="Receive materials against an issued purchase order."
@@ -342,21 +325,6 @@ export default function GoodsReceiptTab({
 
                       <td className="py-3 px-3 font-mono text-[#18181B]">
                         {itemsCount} item(s) • <strong className="text-[#18181B]">{totalQty} units</strong>
-                      </td>
-
-                      <td className="py-3 px-3 text-center">
-                        <span
-                          className={cn(
-                            "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono",
-                            grn.qualityStatus === "Accepted"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : grn.qualityStatus === "Hold"
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : "bg-rose-50 text-rose-700 border-rose-200"
-                          )}
-                        >
-                          {grn.qualityStatus || "Accepted"}
-                        </span>
                       </td>
 
                       <td className="py-3 px-3 text-[11px]">
@@ -695,10 +663,7 @@ export default function GoodsReceiptTab({
                   <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
                     <tr>
                       <th className="py-2 px-3">Description</th>
-                      <th className="py-2 px-3 text-right">Received</th>
-                      <th className="py-2 px-3 text-right">Accepted</th>
-                      <th className="py-2 px-3 text-right">Rejected</th>
-                      <th className="py-2 px-3 text-center">QA Status</th>
+                      <th className="py-2 px-3 text-right">Received Quantity</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
@@ -706,32 +671,9 @@ export default function GoodsReceiptTab({
                       <tr key={it.id}>
                         <td className="py-2.5 px-3">
                           <div className="font-semibold text-[#18181B]">{it.description}</div>
-                          {it.batchNumber && (
-                            <span className="text-[10px] font-mono text-[#71717A]">
-                              Batch: {it.batchNumber} {it.serialNumber ? `• SN: ${it.serialNumber}` : ""}
-                            </span>
-                          )}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-bold">
                           {it.quantityReceived} {it.unit}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">
-                          {it.quantityAccepted}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-rose-600">
-                          {it.quantityRejected}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span
-                            className={cn(
-                              "text-[10px] px-2 py-0.5 rounded-full font-bold border font-mono",
-                              it.qualityStatus === "Accepted"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                : "bg-rose-50 text-rose-700 border-rose-200"
-                            )}
-                          >
-                            {it.qualityStatus}
-                          </span>
                         </td>
                       </tr>
                     ))}
