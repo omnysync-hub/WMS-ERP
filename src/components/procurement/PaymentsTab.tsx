@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 interface PaymentsTabProps {
   invoices: any[];
@@ -28,7 +29,8 @@ export default function PaymentsTab({
   onRefresh,
   presetInvoiceForPay,
 }: PaymentsTabProps) {
-  const { currentRole } = useRole();
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canRecordPayment = hasPermission("procurement.payment.record");
   const isStorekeeper = currentRole === "storekeeper";
 
   const [search, setSearch] = useState("");
@@ -87,6 +89,7 @@ export default function PaymentsTab({
   };
 
   const handleRecordPayment = async (e: React.FormEvent) => {
+    if (!canRecordPayment) { alert("Missing permission: procurement.payment.record"); return; }
     e.preventDefault();
     if (!selectedInvoice) return;
 
@@ -102,7 +105,8 @@ export default function PaymentsTab({
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "record_payment",
           supplierInvoiceId: selectedInvoice.id,

@@ -145,7 +145,7 @@ export async function PATCH(
             params.id,
             payload.claimId,
             actor,
-            payload.disbursingAccountCode || "1000",
+            payload.disbursingAccountCode,
             payload.amountToPay !== undefined && payload.amountToPay !== null && payload.amountToPay !== ""
               ? Number(payload.amountToPay)
               : undefined,
@@ -155,7 +155,7 @@ export async function PATCH(
           result = await JobsService.clearJobExpenses(
             params.id,
             actor,
-            payload.disbursingAccountCode || "1000",
+            payload.disbursingAccountCode,
             payload.amountToPay !== undefined && payload.amountToPay !== null && payload.amountToPay !== ""
               ? Number(payload.amountToPay)
               : undefined,

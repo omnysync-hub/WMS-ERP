@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 interface GoodsReceiptTabProps {
   grns: any[];
@@ -32,7 +33,8 @@ export default function GoodsReceiptTab({
   onRefresh,
   presetPoForGrn,
 }: GoodsReceiptTabProps) {
-  const { currentRole } = useRole();
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canCreateGrn = hasPermission("procurement.grn.create");
   const isStorekeeper = currentRole === "storekeeper";
   const [search, setSearch] = useState("");
   const [qualityFilter, setQualityFilter] = useState("all");
@@ -113,6 +115,7 @@ export default function GoodsReceiptTab({
   }, 0);
 
   const handleCreateGrn = async (e: React.FormEvent) => {
+    if (!canCreateGrn) { alert("Missing permission: procurement.grn.create"); return; }
     e.preventDefault();
     if (!selectedPoId) {
       setFormError("Please select a Purchase Order.");
@@ -144,7 +147,8 @@ export default function GoodsReceiptTab({
 
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "create_grn",
           poId: selectedPoId,

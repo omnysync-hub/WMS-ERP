@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 interface ProcurementApprovalsTabProps {
   prs: any[];
@@ -41,7 +42,10 @@ export default function ProcurementApprovalsTab({
   onNavigateToPr,
   onNavigateToInvoice,
 }: ProcurementApprovalsTabProps) {
-  const { currentRole } = useRole();
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canApprovePr = hasPermission("procurement.pr.approve");
+  const canApprovePo = hasPermission("procurement.po.approve");
+  const canApproveInvoice = hasPermission("procurement.invoice.approve");
   const [activeCategory, setActiveCategory] = useState<"all" | "prs" | "pos" | "bills">("all");
   const [search, setSearch] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,11 +82,13 @@ export default function ProcurementApprovalsTab({
   const totalPendingCount = pendingPrs.length + pendingPos.length + pendingBills.length;
 
   const handleApprovePr = async (id: string) => {
+    if (!canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "approve_pr",
           id,
@@ -102,11 +108,13 @@ export default function ProcurementApprovalsTab({
   };
 
   const handleApprovePo = async (id: string) => {
+    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "approve_po",
           id,
@@ -126,11 +134,13 @@ export default function ProcurementApprovalsTab({
   };
 
   const handleApproveBill = async (invoiceId: string) => {
+    if (!canApproveInvoice) { alert("Missing permission: procurement.invoice.approve"); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "approve_supplier_invoice",
           invoiceId,
@@ -150,13 +160,15 @@ export default function ProcurementApprovalsTab({
   };
 
   const handleConfirmRejection = async () => {
+    if (!canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
     if (!rejectItem) return;
     setIsSubmitting(true);
     try {
       if (rejectItem.type === "pr") {
         await fetch("/api/procurement", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
           body: JSON.stringify({
             action: "reject_pr",
             id: rejectItem.id,
@@ -423,7 +435,8 @@ export default function ProcurementApprovalsTab({
 
                       <button
                         onClick={() => handleApprovePr(pr.id)}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canApprovePr}
+                        title={!canApprovePr ? "Missing permission" : undefined}
                         className="px-3.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold shadow-2xs transition flex items-center gap-1.5"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" /> Approve PR
@@ -507,7 +520,8 @@ export default function ProcurementApprovalsTab({
 
                       <button
                         onClick={() => handleApprovePo(po.id)}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canApprovePo}
+                        title={!canApprovePo ? "Missing permission" : undefined}
                         className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition flex items-center gap-1.5"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" /> Approve Purchase Order
@@ -600,7 +614,8 @@ export default function ProcurementApprovalsTab({
 
                       <button
                         onClick={() => handleApproveBill(inv.id)}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canApproveInvoice}
+                        title={!canApproveInvoice ? "Missing permission" : undefined}
                         className="px-3.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold shadow-2xs transition flex items-center gap-1.5"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" /> Approve Bill for AP
@@ -702,7 +717,8 @@ export default function ProcurementApprovalsTab({
                 {inspectItem.type === "pr" && (
                   <button
                     onClick={() => handleApprovePr(inspectItem.data.id)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !canApprovePr}
+                    title={!canApprovePr ? "Missing permission" : undefined}
                     className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold shadow-2xs"
                   >
                     Confirm PR Approval
@@ -712,7 +728,8 @@ export default function ProcurementApprovalsTab({
                 {inspectItem.type === "po" && (
                   <button
                     onClick={() => handleApprovePo(inspectItem.data.id)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !canApprovePo}
+                    title={!canApprovePo ? "Missing permission" : undefined}
                     className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs"
                   >
                     Confirm PO Approval
@@ -722,7 +739,8 @@ export default function ProcurementApprovalsTab({
                 {inspectItem.type === "bill" && (
                   <button
                     onClick={() => handleApproveBill(inspectItem.data.id)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !canApproveInvoice}
+                    title={!canApproveInvoice ? "Missing permission" : undefined}
                     className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold shadow-2xs"
                   >
                     Confirm Bill Approval

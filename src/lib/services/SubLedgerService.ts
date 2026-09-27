@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export interface RecordCustomerEntryParams {
   customerId: string;
@@ -119,8 +120,8 @@ export class SubLedgerService {
   static async checkReconciliationDrift() {
     // 1. Get GL Control Account Balances from JournalLines
     const [arAccount, apAccount] = await Promise.all([
-      AccountsPostingService.getAccountByCode("1100"),
-      AccountsPostingService.getAccountByCode("2000"),
+      AccountMappingService.resolveAccount({ transactionType: "ar_control" }),
+      AccountMappingService.resolveAccount({ transactionType: "ap_control" }),
     ]);
 
     const [arJournalLines, apJournalLines] = await Promise.all([

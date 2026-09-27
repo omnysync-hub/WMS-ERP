@@ -27,20 +27,26 @@ export class PayrollService {
 
     for (const emp of employees) {
       const gross = emp.salary;
-      // Calculate pending advance deduction (up to 50% of salary or full advance)
+      // Calculate pending advance deduction (up to 40% of salary or full advance)
       const pendingAdvanceTotal = emp.advances.reduce((acc, curr) => acc + curr.amount, 0);
       const advanceDeduction = Math.min(pendingAdvanceTotal, gross * 0.4);
 
-      // Check technician expense owed (if technician)
+      // Net outstanding expense_owed after expense_paid clearances (LOGICS sections 4/6)
       let expenseAdj = 0;
       if (emp.role === "technician") {
         const expenseEntries = await prisma.technicianLedgerEntry.findMany({
           where: {
             technicianId: emp.id,
-            type: "expense_owed",
+            type: { in: ["expense_owed", "expense_paid"] },
           },
         });
-        expenseAdj = expenseEntries.reduce((acc, curr) => acc + curr.amount, 0);
+        let owed = 0;
+        let paid = 0;
+        for (const entry of expenseEntries) {
+          if (entry.type === "expense_owed") owed += entry.amount;
+          else paid += entry.amount;
+        }
+        expenseAdj = Math.max(0, Math.round((owed - paid) * 100) / 100);
       }
 
       const net = Math.round((gross - advanceDeduction + expenseAdj) * 100) / 100;
@@ -101,7 +107,8 @@ export class PayrollService {
   /**
    * Disburse & Pay payroll run:
    * Posts to Accounts Posting Engine:
-   * Debit Salary Expense, Credit Cash/Bank, Credit Advance Recovery
+   * Debit Salary Expense, Debit Tech Payable (expenseAdj), Credit Cash/Bank, Credit Advance Recovery
+   * Journal lines are balanced explicitly: debits == credits.
    */
   static async disburseRun(payrollRunId: string) {
     const run = await prisma.payrollRun.findUnique({
@@ -112,6 +119,10 @@ export class PayrollService {
     if (run.status !== "Approved") {
       throw new Error(`Payroll must be 'Approved' before disbursement. Current status: ${run.status}`);
     }
+
+    const totalExpenseAdj = Math.round(
+      run.payslips.reduce((sum, s) => sum + (s.expenseAdjustment || 0), 0) * 100
+    ) / 100;
 
     // Accounts via AccountMappingService:
     const salaryExpenseAccount = await AccountMappingService.resolveAccount({
@@ -124,10 +135,25 @@ export class PayrollService {
       transactionType: "payroll_advance_deduction",
     });
 
-    const lines = [
+    // Balanced journal:
+    //   Dr Salary Expense     totalGross
+    //   Dr Tech Payable       totalExpenseAdj   (settle expense_owed liability into net pay)
+    //   Cr Bank / Cash        totalNet
+    //   Cr Advance Recovery   totalDeductions
+    // Debits = totalGross + totalExpenseAdj
+    // Credits = totalNet + totalDeductions = (totalGross - totalDeductions + totalExpenseAdj) + totalDeductions
+    const lines: { accountId: string; debit: number; credit: number }[] = [
       { accountId: salaryExpenseAccount.id, debit: run.totalGross, credit: 0 },
-      { accountId: bankAccount.id, debit: 0, credit: run.totalNet },
     ];
+
+    if (totalExpenseAdj > 0) {
+      const techPayableAccount = await AccountMappingService.resolveAccount({
+        transactionType: "tech_expense_settlement_payable",
+      });
+      lines.push({ accountId: techPayableAccount.id, debit: totalExpenseAdj, credit: 0 });
+    }
+
+    lines.push({ accountId: bankAccount.id, debit: 0, credit: run.totalNet });
 
     if (run.totalDeductions > 0) {
       lines.push({ accountId: advanceAccount.id, debit: 0, credit: run.totalDeductions });
@@ -146,13 +172,63 @@ export class PayrollService {
       data: { status: "paid" },
     });
 
-    // Mark advances as recovered
+    // Settle expense_owed included in this run (expense_paid clears them per LOGICS section 4)
+    // and recover advances only for the amount actually deducted this run (partial-safe).
     for (const slip of run.payslips) {
-      if (slip.advanceDeduction > 0) {
-        await prisma.employeeAdvance.updateMany({
-          where: { employeeId: slip.employeeId, status: "approved" },
-          data: { status: "recovered" },
+      if (slip.expenseAdjustment > 0) {
+        await prisma.technicianLedgerEntry.create({
+          data: {
+            technicianId: slip.employeeId,
+            type: "expense_paid",
+            amount: slip.expenseAdjustment,
+            notes: `Settled via payroll run ${run.period} (${run.id})`,
+          },
         });
+      }
+
+      if (slip.advanceDeduction > 0) {
+        let remainingToRecover = slip.advanceDeduction;
+        const advances = await prisma.employeeAdvance.findMany({
+          where: { employeeId: slip.employeeId, status: "approved" },
+          orderBy: { createdAt: "asc" },
+        });
+
+        for (const adv of advances) {
+          if (remainingToRecover <= 0) break;
+
+          if (remainingToRecover >= adv.amount) {
+            // Full recovery of this advance row
+            await prisma.employeeAdvance.update({
+              where: { id: adv.id },
+              data: { status: "recovered" },
+            });
+            remainingToRecover = Math.round((remainingToRecover - adv.amount) * 100) / 100;
+          } else {
+            // Partial recovery: mark deducted portion recovered, leave remainder approved
+            // (same split pattern as JobsService.clearExpense)
+            const recoveredAmount = remainingToRecover;
+            const remainderAmount = Math.round((adv.amount - recoveredAmount) * 100) / 100;
+
+            await prisma.employeeAdvance.update({
+              where: { id: adv.id },
+              data: {
+                amount: recoveredAmount,
+                status: "recovered",
+              },
+            });
+
+            await prisma.employeeAdvance.create({
+              data: {
+                employeeId: adv.employeeId,
+                amount: remainderAmount,
+                status: "approved",
+                approvedBy: adv.approvedBy,
+              },
+            });
+
+            remainingToRecover = 0;
+          }
+        }
       }
     }
 

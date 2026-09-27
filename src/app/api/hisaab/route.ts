@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       nextVisitDate,
       paidExpenseClaimIds = [],
       pendingExpenseClaimIds = [],
-      disbursingAccountCode = "1000",
+      disbursingAccountCode,
       partialPayoutAmount,
       adhocExpenses = [], // Verbal expenses written down by accountant [{ amount, note }]
       paymentMeans = "cash",
@@ -112,50 +112,89 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Handle Expense Reimbursements & Partial Payouts
+    // Allocate funds across selected claims (clearExpense / clearJobExpenses split pattern):
+    // fully covered -> paid; partially covered -> split paid portion vs remaining pending claim;
+    // uncovered -> stay pending. Never mark all claims paid on a partial payout.
     if (allClaimsToPay.length > 0) {
       const claimsToPay = await prisma.jobExpenseClaim.findMany({
         where: { id: { in: allClaimsToPay } },
+        orderBy: { createdAt: "asc" },
       });
 
       const totalApprovedExpenses = claimsToPay.reduce((sum, c) => sum + c.amount, 0);
 
       if (totalApprovedExpenses > 0) {
-        // Determine partial or full payout
-        // If partialPayoutAmount is provided, accountant disburses whatever cash is available now
         const amountDisbursed =
           partialPayoutAmount !== undefined && partialPayoutAmount !== null && partialPayoutAmount !== ""
             ? Math.min(Number(partialPayoutAmount), totalApprovedExpenses)
             : totalApprovedExpenses;
 
-        const remainingUnpaid = Math.max(0, totalApprovedExpenses - amountDisbursed);
-
-        // Mark claims as paid/processed
-        await prisma.jobExpenseClaim.updateMany({
-          where: { id: { in: allClaimsToPay } },
-          data: { status: "paid", paidAt: new Date() },
-        });
+        const remainingUnpaid = Math.max(0, Math.round((totalApprovedExpenses - amountDisbursed) * 100) / 100);
+        const isPartial = amountDisbursed < totalApprovedExpenses;
 
         // Accounts lookup via AccountMappingService
         const expenseCostingAccount = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_expense" });
-        const disbursingAccount = disbursingAccountCode && disbursingAccountCode !== "1000"
+        const disbursingAccount = disbursingAccountCode
           ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_vault" });
-        const techPayableAccount = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_payable" });
 
-        // Journal Lines
-        const postingLines = [
-          { accountId: expenseCostingAccount.id, debit: totalApprovedExpenses, credit: 0 },
-        ];
+        // Allocate disbursement across claims in creation order (same as clearJobExpenses)
+        let remainingToAllocate = amountDisbursed;
+        for (const claim of claimsToPay) {
+          if (remainingToAllocate <= 0) {
+            // No more funds - claim stays pending for a later clearance
+            break;
+          }
 
-        // If some cash was paid out now:
+          if (remainingToAllocate >= claim.amount) {
+            await prisma.jobExpenseClaim.update({
+              where: { id: claim.id },
+              data: { status: "paid", paidAt: new Date() },
+            });
+            remainingToAllocate = Math.round((remainingToAllocate - claim.amount) * 100) / 100;
+          } else {
+            // Partial cover: paid portion vs remaining unpaid claim
+            const partialPaid = remainingToAllocate;
+            const claimRemainder = Math.round((claim.amount - partialPaid) * 100) / 100;
+            const originalNote = claim.note;
+
+            await prisma.jobExpenseClaim.update({
+              where: { id: claim.id },
+              data: {
+                amount: partialPaid,
+                status: "paid",
+                paidAt: new Date(),
+                note: `${originalNote} [Partially Cleared: PKR ${partialPaid.toLocaleString()} via ${disbursingAccount.name} (${disbursingAccount.code}) at hisaab]`,
+              },
+            });
+
+            await prisma.jobExpenseClaim.create({
+              data: {
+                jobId: claim.jobId,
+                technicianId: claim.technicianId,
+                amount: claimRemainder,
+                note: `${originalNote} [Remaining Balance after PKR ${partialPaid.toLocaleString()} partial payout at hisaab]`,
+                receiptUrl: claim.receiptUrl,
+                status: "pending",
+              },
+            });
+
+            remainingToAllocate = 0;
+          }
+        }
+
+        // GL + ledger only for the amount actually disbursed now (remainder stays as pending claims)
         if (amountDisbursed > 0) {
-          postingLines.push({
-            accountId: disbursingAccount.id,
-            debit: 0,
-            credit: amountDisbursed,
+          await AccountsPostingService.post({
+            memo: `Technician expense settlement: $${amountDisbursed} disbursed via ${disbursingAccount.name}${isPartial ? ` ($${remainingUnpaid} remains as pending claims)` : ""}`,
+            refType: "tech_expense_settlement",
+            refId: settlement.id,
+            lines: [
+              { accountId: expenseCostingAccount.id, debit: amountDisbursed, credit: 0 },
+              { accountId: disbursingAccount.id, debit: 0, credit: amountDisbursed },
+            ],
           });
 
-          // Record paid amount on technician ledger
           await prisma.technicianLedgerEntry.create({
             data: {
               technicianId,
@@ -166,34 +205,6 @@ export async function POST(req: NextRequest) {
             },
           });
         }
-
-        // If accountant didn't have enough resources and remainder is unpaid:
-        if (remainingUnpaid > 0) {
-          postingLines.push({
-            accountId: techPayableAccount.id,
-            debit: 0,
-            credit: remainingUnpaid,
-          });
-
-          // Record unpaid balance on technician running ledger (company owes technician)
-          await prisma.technicianLedgerEntry.create({
-            data: {
-              technicianId,
-              type: "expense_owed",
-              amount: remainingUnpaid,
-              refJobId: jobId,
-              notes: `Unpaid expense balance carried forward (insufficient cash on hand; to be settled later). Disbursed: $${amountDisbursed}, Pending: $${remainingUnpaid}`,
-            },
-          });
-        }
-
-        // Post balanced journal entry to general ledger
-        await AccountsPostingService.post({
-          memo: `Technician expense settlement: $${amountDisbursed} disbursed via ${disbursingAccount.name}, $${remainingUnpaid} carried to Tech Payable`,
-          refType: "tech_expense_settlement",
-          refId: settlement.id,
-          lines: postingLines,
-        });
       }
     }
 

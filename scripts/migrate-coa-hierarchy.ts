@@ -231,6 +231,10 @@ async function migrateCoaHierarchy() {
     { transactionType: "tech_expense_settlement_vault", accountCode: "1000" },
     { transactionType: "tech_expense_settlement_payable", accountCode: "2100" },
     // Fixed Assets & Period Close
+    { transactionType: "fixed_asset_cost", accountCode: "1500" },
+    { transactionType: "bank_operating", accountCode: "1010" },
+    { transactionType: "ar_control", accountCode: "1100" },
+    { transactionType: "ap_control", accountCode: "2000" },
     { transactionType: "depreciation_expense", accountCode: "6350" },
     { transactionType: "accumulated_depreciation", accountCode: "1590" },
     { transactionType: "retained_earnings_equity", accountCode: "3200" },

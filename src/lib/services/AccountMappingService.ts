@@ -357,6 +357,38 @@ export const TRANSACTION_TYPE_DEFINITIONS: TransactionTypeDefinition[] = [
 
   // Fixed Assets & Period Close
   {
+    transactionType: "fixed_asset_cost",
+    name: "Fixed Asset Register — Asset Cost Basis",
+    domain: "Fixed Assets & Close",
+    description: "Debited (capitalized) when a fixed asset is acquired; default cost ledger for new assets",
+    defaultDebitOrCredit: "debit",
+    allowedAccountTypes: ["asset"],
+  },
+  {
+    transactionType: "bank_operating",
+    name: "Bank Operations — Default Operating Bank",
+    domain: "Fixed Assets & Close",
+    description: "Default operating bank account used for reconciliation fallbacks and bank-side cash reporting",
+    defaultDebitOrCredit: "debit",
+    allowedAccountTypes: ["asset"],
+  },
+  {
+    transactionType: "ar_control",
+    name: "Sub-Ledger — Accounts Receivable Control",
+    domain: "Sales & Invoicing",
+    description: "GL control account reconciled against customer AR sub-ledger balances",
+    defaultDebitOrCredit: "debit",
+    allowedAccountTypes: ["asset"],
+  },
+  {
+    transactionType: "ap_control",
+    name: "Sub-Ledger — Accounts Payable Control",
+    domain: "Procurement & AP",
+    description: "GL control account reconciled against vendor AP sub-ledger balances",
+    defaultDebitOrCredit: "credit",
+    allowedAccountTypes: ["liability"],
+  },
+  {
     transactionType: "depreciation_expense",
     name: "Asset Depreciation — Monthly Depreciation Expense",
     domain: "Fixed Assets & Close",
@@ -558,14 +590,40 @@ export class AccountMappingService {
   }
 
   /**
-   * Returns mapping completeness summary (e.g. 24/24 configured, 100%).
+   * Returns mapping completeness summary (mapped to active leaf accounts).
    */
   static async getCompleteness(companyId: string = "DEFAULT") {
     const mappings = await this.getAllMappings(companyId);
     const total = mappings.length;
-    const configured = mappings.filter((m) => m.isConfigured).length;
+
+    const accountIds = mappings.map((m) => m.accountId).filter((id): id is string => !!id);
+    const accounts = accountIds.length
+      ? await prisma.account.findMany({ where: { id: { in: accountIds } } })
+      : [];
+    const accountMap = new Map(accounts.map((a) => [a.id, a]));
+
+    const fullyValid = mappings.filter((m) => {
+      if (!m.accountId) return false;
+      const acc = accountMap.get(m.accountId);
+      if (!acc) return false;
+      if (!acc.isActive) return false;
+      if (acc.level < 4) return false;
+      return true;
+    });
+
+    const configured = fullyValid.length;
     const percentage = total > 0 ? Math.round((configured / total) * 100) : 0;
-    const missing = mappings.filter((m) => !m.isConfigured).map((m) => m.transactionType);
+    const missing = mappings
+      .filter((m) => !fullyValid.some((v) => v.transactionType === m.transactionType))
+      .map((m) => m.transactionType);
+
+    const inactiveOrNonLeaf = mappings
+      .filter((m) => {
+        if (!m.accountId) return false;
+        const acc = accountMap.get(m.accountId);
+        return !!acc && (!acc.isActive || acc.level < 4);
+      })
+      .map((m) => m.transactionType);
 
     return {
       total,
@@ -573,6 +631,25 @@ export class AccountMappingService {
       percentage,
       isComplete: configured === total,
       missing,
+      inactiveOrNonLeaf,
     };
+  }
+
+  /**
+   * Apply one mapped account to many transaction types ("same as" quick-fill).
+   */
+  static async applySameAs(
+    companyId: string = "DEFAULT",
+    sourceTransactionType: string,
+    targetTransactionTypes: string[],
+    updatedBy: string = "Admin"
+  ) {
+    const source = await this.resolveAccount({ transactionType: sourceTransactionType, companyId });
+    const results = [];
+    for (const tt of targetTransactionTypes) {
+      if (tt === sourceTransactionType) continue;
+      results.push(await this.setMapping(companyId, tt, source.id, null, updatedBy));
+    }
+    return { accountId: source.id, accountCode: source.code, updated: results.length, results };
   }
 }

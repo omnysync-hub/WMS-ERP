@@ -6,7 +6,7 @@ import { SubLedgerService } from "./SubLedgerService";
 export interface PostVendorPaymentParams {
   vendorId: string;
   grossAmount: number;
-  disbursingAccountCode?: string; // e.g. "1000" Cash or "1010" Meezan Bank
+  disbursingAccountCode?: string; // optional override; defaults via vendor_payment_disbursing mapping
   paymentDate?: Date;
   cprNumber?: string; // FBR CPR (Computerized Payment Receipt)
   memo?: string;
@@ -51,7 +51,7 @@ export class TaxService {
     const {
       vendorId,
       grossAmount,
-      disbursingAccountCode = "1000",
+      disbursingAccountCode,
       paymentDate = new Date(),
       cprNumber,
       memo,

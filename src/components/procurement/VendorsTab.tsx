@@ -1,5 +1,8 @@
 "use client";
 
+import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
+
 import React, { useState } from "react";
 import {
   Search,
@@ -29,6 +32,8 @@ export default function VendorsTab({
   onRefresh,
   onSelectVendorForPo,
 }: VendorsTabProps) {
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canManageVendor = hasPermission("procurement.vendor.manage");
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
@@ -103,6 +108,7 @@ export default function VendorsTab({
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
+    if (!canManageVendor) { alert("Missing permission: procurement.vendor.manage"); return; }
     e.preventDefault();
     if (!name.trim()) {
       setFormError("Vendor Name is required.");
@@ -135,8 +141,9 @@ export default function VendorsTab({
 
       if (editingVendor) {
         const res = await fetch("/api/procurement", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
           body: JSON.stringify({
             action: "update_vendor",
             id: editingVendor.id,
@@ -149,8 +156,9 @@ export default function VendorsTab({
         }
       } else {
         const res = await fetch("/api/procurement", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
           body: JSON.stringify({
             action: "create_vendor",
             ...payload,

@@ -1,5 +1,8 @@
 "use client";
 
+import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
+
 import React, { useState } from "react";
 import {
   Scale,
@@ -37,6 +40,9 @@ export default function RfqSourcingTab({
   onNavigateToPo,
   initialPrForRfq,
 }: RfqSourcingTabProps) {
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canManageRfq = hasPermission("procurement.rfq.manage");
+  const canAwardRfq = hasPermission("procurement.rfq.award");
   const [search, setSearch] = useState("");
   const [selectedRfq, setSelectedRfq] = useState<any | null>(null);
 
@@ -125,6 +131,7 @@ export default function RfqSourcingTab({
   };
 
   const handleCreateRfq = async (e: React.FormEvent) => {
+    if (!canManageRfq) { alert("Missing permission: procurement.rfq.manage"); return; }
     e.preventDefault();
     if (invitedVendorIds.length === 0) {
       setFormError("Please invite at least one vendor for competitive bidding.");
@@ -137,7 +144,8 @@ export default function RfqSourcingTab({
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "create_rfq",
           title,
@@ -182,6 +190,7 @@ export default function RfqSourcingTab({
   };
 
   const handleSubmitQuote = async (e: React.FormEvent) => {
+    if (!canManageRfq) { alert("Missing permission: procurement.rfq.manage"); return; }
     e.preventDefault();
     if (!quotingVendor || !selectedRfq) return;
 
@@ -195,7 +204,8 @@ export default function RfqSourcingTab({
 
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "submit_vendor_quote",
           rfqVendorId: quotingVendor.id,
@@ -223,6 +233,7 @@ export default function RfqSourcingTab({
   };
 
   const handleAwardWinner = async (rfqId: string, vendorId: string) => {
+    if (!canAwardRfq) { alert("Missing permission: procurement.rfq.award"); return; }
     if (!confirm("Are you sure you want to award this contract to the selected vendor? A Purchase Order will be automatically created.")) {
       return;
     }
@@ -231,7 +242,8 @@ export default function RfqSourcingTab({
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "award_rfq",
           rfqId,
@@ -551,10 +563,9 @@ export default function RfqSourcingTab({
 
                                     {isQuoted && !hasWinner && (
                                       <button
-                                        onClick={() =>
-                                          handleAwardWinner(rfq.id, rv.vendorId)
-                                        }
-                                        disabled={isSubmitting}
+                                        onClick={() => handleAwardWinner(rfq.id, rv.vendorId)}
+                                        disabled={isSubmitting || !canAwardRfq}
+                                        title={!canAwardRfq ? "Missing permission" : undefined}
                                         className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0B6851] text-white rounded text-[10px] font-bold shadow-2xs transition"
                                       >
                                         Select Winner

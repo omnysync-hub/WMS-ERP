@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 interface ThreeWayMatchTabProps {
   invoices: any[];
@@ -37,7 +38,9 @@ export default function ThreeWayMatchTab({
   onRefresh,
   onNavigateToPayment,
 }: ThreeWayMatchTabProps) {
-  const { currentRole } = useRole();
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canCreateInvoice = hasPermission("procurement.invoice.create");
+  const canApproveInvoice = hasPermission("procurement.invoice.approve");
   const isStorekeeper = currentRole === "storekeeper";
 
   const [search, setSearch] = useState("");
@@ -176,6 +179,7 @@ export default function ThreeWayMatchTab({
   );
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
+    if (!canCreateInvoice) { alert("Missing permission: procurement.invoice.create"); return; }
     e.preventDefault();
     if (!vendorId || !invoiceNumber.trim()) {
       setFormError("Please enter invoice number and select a vendor.");
@@ -188,7 +192,8 @@ export default function ThreeWayMatchTab({
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "create_supplier_invoice",
           invoiceNumber,
@@ -219,11 +224,13 @@ export default function ThreeWayMatchTab({
   };
 
   const handleApproveInvoice = async (invoiceId: string) => {
+    if (!canApproveInvoice) { alert("Missing permission: procurement.invoice.approve"); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "approve_supplier_invoice",
           invoiceId,
@@ -932,7 +939,8 @@ export default function ThreeWayMatchTab({
                   activeInvoice.matchStatus === "discrepancy") && (
                   <button
                     onClick={() => handleApproveInvoice(activeInvoice.id)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !canApproveInvoice}
+                    title={!canApproveInvoice ? "Missing permission" : undefined}
                     className="inline-flex items-center gap-1.5 px-5 py-2 bg-[#0D7A5F] hover:bg-[#0B6851] text-white font-bold text-xs rounded-lg shadow-2xs transition"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" /> Approve for Payment

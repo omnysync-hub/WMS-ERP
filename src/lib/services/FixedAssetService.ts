@@ -27,6 +27,13 @@ export class FixedAssetService {
     const salvage = params.salvageValue || 0;
     const cost = params.acquisitionCost;
 
+    const defaultAssetCode = params.assetAccountCode
+      || (await AccountMappingService.resolveAccountCode({ transactionType: "fixed_asset_cost" }));
+    const defaultAccumCode = params.accumDeprAccountCode
+      || (await AccountMappingService.resolveAccountCode({ transactionType: "accumulated_depreciation" }));
+    const defaultDeprExpCode = params.deprExpenseAccountCode
+      || (await AccountMappingService.resolveAccountCode({ transactionType: "depreciation_expense" }));
+
     return await prisma.fixedAsset.create({
       data: {
         assetNumber,
@@ -38,9 +45,9 @@ export class FixedAssetService {
         salvageValue: salvage,
         usefulLifeMonths: params.usefulLifeMonths || 60,
         depreciationMethod: params.depreciationMethod || "straight_line",
-        assetAccountCode: params.assetAccountCode || "1500",
-        accumDeprAccountCode: params.accumDeprAccountCode || "1590",
-        deprExpenseAccountCode: params.deprExpenseAccountCode || "6350",
+        assetAccountCode: defaultAssetCode,
+        accumDeprAccountCode: defaultAccumCode,
+        deprExpenseAccountCode: defaultDeprExpCode,
         accumulatedDepreciation: 0,
         bookValue: cost,
         status: "active",
@@ -194,9 +201,9 @@ export class FixedAssetService {
       acquisitionCost: Number(params.cost) || Number(params.acquisitionCost) || 0,
       salvageValue: Number(params.salvageValue) || 0,
       usefulLifeMonths: Number(params.usefulLifeMonths) || 60,
-      assetAccountCode: params.assetAccountCode || "1500",
-      accumDeprAccountCode: params.accumDepAccountCode || params.accumDeprAccountCode || "1590",
-      deprExpenseAccountCode: params.depExpenseAccountCode || params.deprExpenseAccountCode || "6350",
+      assetAccountCode: params.assetAccountCode,
+      accumDeprAccountCode: params.accumDepAccountCode || params.accumDeprAccountCode,
+      deprExpenseAccountCode: params.depExpenseAccountCode || params.deprExpenseAccountCode,
     });
   }
 

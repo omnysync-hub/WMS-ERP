@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
         dailyRate: Number(body.dailyRate) || 0,
         advanceDeduction: Number(body.advanceDeduction) || 0,
         expenseAdjustment: Number(body.expenseAdjustment) || 0,
-        disbursingAccountCode: body.disbursingAccountCode || "1010",
+        disbursingAccountCode: body.disbursingAccountCode,
         settledBy: body.settledBy || "Fatima Noor (Accountant)",
       });
       return NextResponse.json({ settlement });

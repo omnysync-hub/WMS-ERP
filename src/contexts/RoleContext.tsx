@@ -11,7 +11,9 @@ export type BuiltInRoleType =
   | "cashier"
   | "auditor"
   | "hr"
-  | "technician";
+  | "technician"
+  | "purchasing"
+  | "manager";
 
 export type RoleType = BuiltInRoleType | (string & {});
 
@@ -40,6 +42,30 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
     badgeColor: "bg-purple-600 text-white",
     description: "Full administrative authority across all operational, financial, and personnel systems.",
     primaryModules: ["Dashboard", "Jobs", "Dispatch Map", "Technicians", "Accounts", "HRM", "Inventory", "Projects", "Feedback", "Reports", "Audit"],
+  },
+  purchasing: {
+    id: "a1b2c3d4-purch-0001-aaaa-bbbbccccdddd",
+    name: "Nadia Hussain",
+    role: "purchasing",
+    designation: "Procurement & Sourcing Lead",
+    department: "Purchasing",
+    email: "nadia@company.com",
+    avatar: "NH",
+    badgeColor: "bg-orange-600 text-white",
+    description: "RFQ management, vendor master, PO drafting and send. No PR/PO/invoice approvals or payments.",
+    primaryModules: ["Procurement & Sourcing", "Warehouse & Stock"],
+  },
+  manager: {
+    id: "b2c3d4e5-mgr-0002-bbbb-ccccddddeeee",
+    name: "Imran Siddiqui",
+    role: "manager",
+    designation: "Operations Manager",
+    department: "Operations",
+    email: "imran@company.com",
+    avatar: "IS",
+    badgeColor: "bg-violet-600 text-white",
+    description: "Approves PRs, POs, and discrepancy invoices. Reports and cost visibility; limited create rights.",
+    primaryModules: ["Procurement & Sourcing", "Jobs", "Accounts", "Dashboard"],
   },
   call_center: {
     id: "d41893c1-7443-41bb-92e6-c16e13f412ab",
@@ -139,7 +165,7 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
   },
 };
 
-import { DEFAULT_ROLE_PERMISSIONS } from "@/lib/permissions";
+import { DEFAULT_ROLE_PERMISSIONS, roleMapHasPermission } from "@/lib/permissions";
 
 export interface SystemUser {
   id: string;
@@ -274,6 +300,32 @@ export const DEFAULT_USERS: SystemUser[] = [
     badgeColor: "bg-indigo-600 text-white",
     createdAt: "2026-01-08T00:00:00.000Z",
   },
+  {
+    id: "usr-purch-10",
+    name: "Nadia Hussain",
+    email: "nadia@company.com",
+    username: "nadia.purch",
+    role: "purchasing",
+    designation: "Procurement & Sourcing Lead",
+    department: "Purchasing",
+    status: "active",
+    avatar: "NH",
+    badgeColor: "bg-orange-600 text-white",
+    createdAt: "2026-03-01T00:00:00.000Z",
+  },
+  {
+    id: "usr-mgr-11",
+    name: "Imran Siddiqui",
+    email: "imran@company.com",
+    username: "imran.mgr",
+    role: "manager",
+    designation: "Operations Manager",
+    department: "Operations",
+    status: "active",
+    avatar: "IS",
+    badgeColor: "bg-violet-600 text-white",
+    createdAt: "2026-03-01T00:00:00.000Z",
+  },
 ];
 
 interface RoleContextType {
@@ -327,7 +379,24 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
 
       const savedPermissions = localStorage.getItem("workman_role_permissions");
       if (savedPermissions) {
-        setRolePermissions(JSON.parse(savedPermissions));
+        // Merge with defaults so newly added procurement.* keys are not stuck false/undefined
+        const parsed = JSON.parse(savedPermissions) as Record<string, Record<string, boolean>>;
+        const merged: Record<string, Record<string, boolean>> = { ...DEFAULT_ROLE_PERMISSIONS };
+        for (const [roleKey, perms] of Object.entries(parsed)) {
+          merged[roleKey] = { ...(DEFAULT_ROLE_PERMISSIONS[roleKey] || {}), ...perms };
+          // Prefer default for brand-new keys that were absent in the saved blob
+          const defaults = DEFAULT_ROLE_PERMISSIONS[roleKey] || {};
+          for (const [pk, pv] of Object.entries(defaults)) {
+            if (perms[pk] === undefined) {
+              merged[roleKey][pk] = pv;
+            }
+          }
+        }
+        // Ensure new roles (purchasing/manager) exist even if absent from saved blob
+        for (const roleKey of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
+          if (!merged[roleKey]) merged[roleKey] = DEFAULT_ROLE_PERMISSIONS[roleKey];
+        }
+        setRolePermissions(merged);
       }
 
       const savedUsers = localStorage.getItem("workman_system_users");
@@ -394,15 +463,18 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // 2. Check user-specific override if defined
-    if (activeUser?.permissionOverrides && activeUser.permissionOverrides[permissionKey] !== undefined) {
-      return activeUser.permissionOverrides[permissionKey];
+    // 2. Check user-specific override if defined (exact key or aliases)
+    if (activeUser?.permissionOverrides) {
+      const overrides = activeUser.permissionOverrides;
+      if (overrides[permissionKey] !== undefined) {
+        return overrides[permissionKey];
+      }
     }
 
-    // 3. Check role-level permission map
+    // 3. Role-level map with legacy <-> fine-grained procurement aliases
     const roleMap = rolePermissions[activeRole];
-    if (roleMap && roleMap[permissionKey] !== undefined) {
-      return roleMap[permissionKey];
+    if (roleMapHasPermission(roleMap, permissionKey, activeRole === "admin")) {
+      return true;
     }
 
     // 4. Default for admin is true; others default to false

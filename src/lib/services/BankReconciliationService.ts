@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
+import { AccountMappingService } from "./AccountMappingService";
 
 export interface ParsedStatementRow {
   statementDate: Date;
@@ -118,7 +119,7 @@ export class BankReconciliationService {
       });
     }
     if (!account) {
-      account = await AccountsPostingService.getAccountByCode("1010");
+      account = await AccountMappingService.resolveAccount({ transactionType: "bank_operating" });
     }
 
     // 3. Fetch all JournalLines for this account that are not yet matched
@@ -283,7 +284,7 @@ export class BankReconciliationService {
       });
     }
     if (!account) {
-      account = await AccountsPostingService.getAccountByCode("1010");
+      account = await AccountMappingService.resolveAccount({ transactionType: "bank_operating" });
     }
 
     // 2. Latest Bank Statement Running Balance

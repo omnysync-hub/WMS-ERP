@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 interface RequisitionsTabProps {
   prs: any[];
@@ -50,7 +51,12 @@ export default function RequisitionsTab({
   onNavigateToRfq,
   onNavigateToPo,
 }: RequisitionsTabProps) {
-  const { currentRole } = useRole();
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canCreatePr = hasPermission("procurement.pr.create");
+  const canSubmitPr = hasPermission("procurement.pr.submit");
+  const canApprovePr = hasPermission("procurement.pr.approve");
+  const canCreatePo = hasPermission("procurement.po.create");
+  const canManageRfq = hasPermission("procurement.rfq.manage");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -192,6 +198,7 @@ export default function RequisitionsTab({
   };
 
   const handleCreatePr = async (e: React.FormEvent) => {
+    if (!canCreatePr) { alert("Missing permission: procurement.pr.create"); return; }
     e.preventDefault();
     if (items.some((i) => !i.description.trim() && !i.productId)) {
       setFormError("Please provide description or select product for all items.");
@@ -214,7 +221,8 @@ export default function RequisitionsTab({
 
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "create_pr",
           requestedBy: autoRequisitionerName,
@@ -254,16 +262,20 @@ export default function RequisitionsTab({
   };
 
   const handleUpdateStatus = async (
-    status: "submitted" | "approved" | "rejected",
+    status: "submitted" | "approved" | "rejected", // P0-BTN-CREATE-PR
     reason?: string
   ) => {
+    if (status === "submitted" && !canSubmitPr) { alert("Missing permission: procurement.pr.submit"); return; }
+    if (status === "submitted" && !canSubmitPr) { alert("Missing permission: procurement.pr.submit"); return; }
+    if ((status === "approved" || status === "rejected") && !canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
     if (!selectedPr) return;
     setIsSubmitting(true);
 
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: `${status}_pr`,
           id: selectedPr.id,
@@ -324,6 +336,7 @@ export default function RequisitionsTab({
   };
 
   const handleGeneratePoSubmit = async (e: React.FormEvent) => {
+    if (!canCreatePo) { alert("Missing permission: procurement.po.create"); return; }
     e.preventDefault();
     if (prsToConvert.length === 0 || !convertVendorId) return;
 
@@ -331,7 +344,8 @@ export default function RequisitionsTab({
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "convert_pr_to_po",
           prIds: prsToConvert.map((p) => p.id),
@@ -441,7 +455,7 @@ export default function RequisitionsTab({
 
         <div className="flex items-center gap-2">
           {/* Multiple PR Selection to PO Action */}
-          {selectedApprovedPrs.length > 0 && (
+          {selectedApprovedPrs.length > 0 && canCreatePo && (
             <button
               onClick={() => openPoGenerationModal(selectedApprovedPrs)}
               className="inline-flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-2xs transition animate-pulse"

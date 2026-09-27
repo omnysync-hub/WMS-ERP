@@ -604,7 +604,7 @@ export class HrmService {
     const salaryExpenseAcc = await AccountMappingService.resolveAccount({
       transactionType: "payroll_salaries_expense",
     });
-    const disbursingAcc = data.disbursingAccountCode && data.disbursingAccountCode !== "1000"
+    const disbursingAcc = data.disbursingAccountCode
       ? await AccountsPostingService.getAccountByCode(data.disbursingAccountCode)
       : await AccountMappingService.resolveAccount({
           transactionType: "payroll_net_disbursing",

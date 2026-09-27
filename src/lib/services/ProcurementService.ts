@@ -643,9 +643,9 @@ export class ProcurementService {
         currency: winnerRfqVendor.vendor.currency || "PKR",
         shippingAddress: "Central Warehouse, Workshop St, Gulberg III, Lahore, Pakistan",
         termsAndConditions: "Standard Commercial Terms: Goods subject to Quality Inspection upon receipt. 3-Way Invoice Matching strictly enforced before disbursement.",
-        status: "approved",
-        approvedBy: actorName,
-        approvedAt: now,
+        status: "draft",
+        approvedBy: null,
+        approvedAt: null,
         totalAmount,
         whtAmount: Math.round((totalAmount * (winnerRfqVendor.vendor.whtRate || 0)) / 100),
         netPayable: Math.round(totalAmount - (totalAmount * (winnerRfqVendor.vendor.whtRate || 0)) / 100),
@@ -873,11 +873,35 @@ export class ProcurementService {
       items: poItems,
     });
 
-    // Mark ALL source PRs as converted_to_po
-    await prisma.purchaseRequisition.updateMany({
-      where: { id: { in: params.prIds } },
-      data: { status: "converted_to_po" },
-    });
+    // Update convertedQuantity per PR line, then set partially_converted vs converted_to_po
+    for (const poItem of poItems) {
+      if (!poItem.prItemId) continue;
+      const qty = Number(poItem.quantity) || 0;
+      if (qty <= 0) continue;
+      await prisma.purchaseRequisitionItem.update({
+        where: { id: poItem.prItemId },
+        data: { convertedQuantity: { increment: qty } },
+      });
+    }
+
+    for (const pr of prs) {
+      const freshItems = await prisma.purchaseRequisitionItem.findMany({
+        where: { prId: pr.id },
+      });
+      const allConverted = freshItems.every(
+        (it) => (it.convertedQuantity || 0) >= it.quantity - 1e-9
+      );
+      const anyConverted = freshItems.some((it) => (it.convertedQuantity || 0) > 0);
+      const nextStatus = allConverted
+        ? "converted_to_po"
+        : anyConverted
+          ? "partially_converted"
+          : pr.status;
+      await prisma.purchaseRequisition.update({
+        where: { id: pr.id },
+        data: { status: nextStatus },
+      });
+    }
 
     return createdPo;
   }
@@ -907,6 +931,21 @@ export class ProcurementService {
     const count = await prisma.goodsReceipt.count();
     const grnNumber = `GRN-2026-${String(count + 1).padStart(4, "0")}`;
 
+    // Pre-validate all lines for over-receive before any mutations
+    for (const item of data.items) {
+      const poItem = po.items.find((pi) => pi.id === item.poItemId);
+      if (!poItem) continue;
+      const qtyRec = Number(item.quantityReceived) || 0;
+      const alreadyReceived = Number(poItem.quantityReceived) || 0;
+      const ordered = Number(poItem.quantity) || 0;
+      const remaining = Math.max(0, ordered - alreadyReceived);
+      if (qtyRec > remaining + 1e-9) {
+        throw new Error(
+          `Cannot over-receive for PO line "${poItem.description || poItem.itemCode || poItem.id}": received ${qtyRec} but only ${remaining} remaining of ${ordered} ordered`
+        );
+      }
+    }
+
     const grnItemsData = [];
     let totalAcceptedValue = 0;
 
@@ -919,6 +958,18 @@ export class ProcurementService {
       const quality = item.qualityStatus || "Accepted";
       const qtyAcc = quality === "Accepted" ? (item.quantityAccepted ?? qtyRec) : 0;
       const qtyRej = qtyRec - qtyAcc;
+
+      // Hard gate: block over-receive vs remaining PO qty
+      if (poItem) {
+        const alreadyReceived = Number(poItem.quantityReceived) || 0;
+        const ordered = Number(poItem.quantity) || 0;
+        const remaining = Math.max(0, ordered - alreadyReceived);
+        if (qtyRec > remaining + 1e-9) {
+          throw new Error(
+            `Cannot over-receive for PO line "${poItem.description || poItem.itemCode || poItem.id}": received ${qtyRec} but only ${remaining} remaining of ${ordered} ordered`
+          );
+        }
+      }
 
       totalAcceptedValue += qtyAcc * unitCost;
 
@@ -1017,7 +1068,35 @@ export class ProcurementService {
           data: { accountingJournalId: journal.id },
         });
       } catch (err: any) {
-        console.error("Failed to post GRN accounting voucher:", err.message);
+        // Rollback GRN + stock increments so we never report success without GL
+        try {
+          for (const gi of grnItemsData) {
+            if (gi.poItemId && gi.quantityAccepted > 0) {
+              await prisma.purchaseOrderItem.update({
+                where: { id: gi.poItemId },
+                data: { quantityReceived: { decrement: gi.quantityAccepted } },
+              });
+            }
+            if (gi.productId && gi.quantityAccepted > 0) {
+              await prisma.product.update({
+                where: { id: gi.productId },
+                data: { stockQuantity: { decrement: gi.quantityAccepted } },
+              });
+              await prisma.stockLedger.deleteMany({
+                where: { refType: "grn", refId: grnNumber },
+              });
+            }
+          }
+          await prisma.goodsReceiptItem.deleteMany({ where: { grnId: grn.id } });
+          await prisma.goodsReceipt.delete({ where: { id: grn.id } });
+        } catch (rollbackErr: any) {
+          throw new Error(
+            `GRN GL posting failed (${err.message || err}) and rollback also failed (${rollbackErr.message || rollbackErr})`
+          );
+        }
+        throw new Error(
+          `GRN GL posting failed - operation rolled back: ${err.message || err}`
+        );
       }
     }
 
@@ -1240,7 +1319,9 @@ export class ProcurementService {
 
       journalEntryId = journal.id;
     } catch (err: any) {
-      console.error("Failed to post 3-Way Match accounting entry:", err.message);
+      throw new Error(
+        `Invoice approval aborted: GL posting failed (${err.message || err}). No AP/status update applied.`
+      );
     }
 
     // 2. Post to Vendor Sub-Ledger (Accounts Payable Credit)
@@ -1297,6 +1378,13 @@ export class ProcurementService {
     });
     if (!invoice) throw new Error("Supplier invoice not found");
 
+    // Hard gate: payment only when invoice is approved_for_payment
+    if (invoice.matchStatus !== "approved_for_payment") {
+      throw new Error(
+        `Payment rejected: invoice matchStatus must be 'approved_for_payment' (current: '${invoice.matchStatus}')`
+      );
+    }
+
     const count = await prisma.supplierPayment.count();
     const paymentNumber = `SPAY-2026-${String(count + 1).padStart(4, "0")}`;
 
@@ -1308,7 +1396,7 @@ export class ProcurementService {
 
     // 1. Post to General Ledger
     // Debit: 2000 Accounts Payable (amountPaid)
-    // Credit: 1010 Operating Bank Account (netDisbursed)
+    // Credit: Operating Bank / Cash (via vendor_payment_disbursing mapping)
     // Credit: 2200 WHT Payable (whtAmount)
     let journalEntryId: string | null = null;
     try {
@@ -1355,7 +1443,9 @@ export class ProcurementService {
 
       journalEntryId = journal.id;
     } catch (err: any) {
-      console.error("Failed to post vendor payment accounting voucher:", err.message);
+      throw new Error(
+        `Payment aborted: GL posting failed (${err.message || err}). No payment record created.`
+      );
     }
 
     // 2. Post to Vendor Sub-Ledger (Debit entry)
@@ -1391,7 +1481,7 @@ export class ProcurementService {
         amount: amountPaid,
         paymentMethod: data.paymentMethod || "bank_transfer",
         reference: data.reference || null,
-        bankAccountId: data.bankAccountId || "1010",
+        bankAccountId: data.bankAccountId || (await AccountMappingService.resolveAccountCode({ transactionType: "vendor_payment_disbursing" })),
         whtAmount,
         journalEntryId,
         notes: data.notes || null,

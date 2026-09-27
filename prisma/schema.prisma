@@ -1,4 +1,4 @@
-generator client {
+﻿generator client {
   provider = "prisma-client-js"
 }
 
@@ -13,7 +13,7 @@ datasource db {
 
 model Account {
   id               String                @id @default(uuid())
-  code             String                @unique
+  code             String                @unique // NOTE: per-company @@unique([companyId, code]) deferred — single-company DEFAULT polish; changing would need careful data migration
   name             String
   type             String                // asset, liability, equity, revenue, expense, contra_revenue
   description      String?
@@ -740,9 +740,9 @@ model FixedAsset {
   salvageValue            Float     @default(0)
   usefulLifeMonths        Int       @default(60)
   depreciationMethod      String    @default("straight_line") // straight_line
-  assetAccountCode        String    @default("1500") // Level 4 Asset Account
-  accumDeprAccountCode    String    @default("1590") // Level 4 Accum Depr Account
-  deprExpenseAccountCode  String    @default("6350") // Level 4 Depr Expense Account
+  assetAccountCode        String    @default("1500") // schema default only; create path resolves via fixed_asset_cost mapping
+  accumDeprAccountCode    String    @default("1590") // resolved via accumulated_depreciation mapping at create time
+  deprExpenseAccountCode  String    @default("6350") // resolved via depreciation_expense mapping at create time
   accumulatedDepreciation Float     @default(0)
   bookValue               Float
   lastDepreciationPeriod  String?   // e.g. "2026-09"

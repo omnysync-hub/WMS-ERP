@@ -28,6 +28,7 @@ export type ProcurementStage =
 interface ProcessPipelineProps {
   activeTab: ProcurementStage;
   onSelectTab: (tab: ProcurementStage) => void;
+  allowedStages?: ProcurementStage[];
   metrics: {
     pendingPrsCount: number;
     openPosCount: number;
@@ -41,9 +42,10 @@ interface ProcessPipelineProps {
 export default function ProcurementProcessPipeline({
   activeTab,
   onSelectTab,
+  allowedStages,
   metrics,
 }: ProcessPipelineProps) {
-  const stages = [
+  const stagesAll = [
     {
       id: "approvals" as ProcurementStage,
       step: "★",
@@ -120,6 +122,10 @@ export default function ProcurementProcessPipeline({
       badgeColor: "bg-teal-50 text-teal-700 border-teal-200",
     },
   ];
+
+  const stages = allowedStages && allowedStages.length > 0
+    ? stagesAll.filter((st) => allowedStages.includes(st.id))
+    : stagesAll;
 
   return (
     <div className="bg-white border border-[#EDEDED] rounded-2xl p-4 shadow-2xs overflow-x-auto">

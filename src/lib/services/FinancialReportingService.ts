@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { AccountMappingService } from "./AccountMappingService";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { buildChartOfAccountsTree } from "@/lib/constants/chartOfAccountsHierarchy";
 
@@ -237,10 +238,21 @@ export class FinancialReportingService {
     const incomeStmt = await this.getIncomeStatement(fromDate, toDate);
     const netIncome = incomeStmt.netOperatingProfit;
 
+    // Resolve GL proxies via AccountMapping (no hardcoded codes)
+    const [deprAcc, arAcc, invAcc, apAcc, cashAcc, bankAcc] = await Promise.all([
+      AccountMappingService.resolveAccount({ transactionType: "depreciation_expense" }),
+      AccountMappingService.resolveAccount({ transactionType: "ar_control" }),
+      AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_asset" }),
+      AccountMappingService.resolveAccount({ transactionType: "ap_control" }),
+      AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving" }),
+      AccountMappingService.resolveAccount({ transactionType: "bank_operating" }),
+    ]);
+    const cashAccountIds = Array.from(new Set([cashAcc.id, bankAcc.id]));
+
     // 1. Depreciation (Non-Cash Expense)
     const deprLines = await prisma.journalLine.findMany({
       where: {
-        account: { code: "6350" },
+        accountId: deprAcc.id,
         journalEntry: {
           date: { gte: fromDate, lte: toDate },
           status: { in: ["posted", "reversal"] },
@@ -253,7 +265,7 @@ export class FinancialReportingService {
     // Change in AR (1100): Increase in AR reduces cash, decrease in AR increases cash
     const arLines = await prisma.journalLine.findMany({
       where: {
-        account: { code: "1100" },
+        accountId: arAcc.id,
         journalEntry: {
           date: { gte: fromDate, lte: toDate },
           status: { in: ["posted", "reversal"] },
@@ -265,7 +277,7 @@ export class FinancialReportingService {
     // Change in Inventory (1200): Increase in Inventory reduces cash
     const invLines = await prisma.journalLine.findMany({
       where: {
-        account: { code: "1200" },
+        accountId: invAcc.id,
         journalEntry: {
           date: { gte: fromDate, lte: toDate },
           status: { in: ["posted", "reversal"] },
@@ -277,7 +289,7 @@ export class FinancialReportingService {
     // Change in AP (2000): Increase in AP increases cash (delayed payment)
     const apLines = await prisma.journalLine.findMany({
       where: {
-        account: { code: "2000" },
+        accountId: apAcc.id,
         journalEntry: {
           date: { gte: fromDate, lte: toDate },
           status: { in: ["posted", "reversal"] },
@@ -295,11 +307,7 @@ export class FinancialReportingService {
     // Cash balances
     const cashAccounts = await prisma.account.findMany({
       where: {
-        OR: [
-          { code: "1000" },
-          { code: { startsWith: "101" } },
-          { code: "1020" },
-        ],
+        id: { in: cashAccountIds },
       },
       include: {
         journalLines: {

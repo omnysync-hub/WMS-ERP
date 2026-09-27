@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 interface PurchaseOrdersTabProps {
   pos: any[];
@@ -35,7 +36,12 @@ export default function PurchaseOrdersTab({
   onRefresh,
   onOpenGrnModal,
 }: PurchaseOrdersTabProps) {
-  const { currentRole } = useRole();
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canCreatePo = hasPermission("procurement.po.create");
+  const canApprovePo = hasPermission("procurement.po.approve");
+  const canSendPo = hasPermission("procurement.po.send");
+  const canCreateGrn = hasPermission("procurement.grn.create");
+  const canViewCosts = hasPermission("procurement.costs.view");
   const isStorekeeper = currentRole === "storekeeper";
 
   const [search, setSearch] = useState("");
@@ -155,6 +161,7 @@ export default function PurchaseOrdersTab({
   );
 
   const handleCreatePo = async (e: React.FormEvent) => {
+    if (!canCreatePo) { alert("Missing permission: procurement.po.create"); return; }
     e.preventDefault();
     if (!vendorId) {
       setFormError("Please select a vendor.");
@@ -169,7 +176,8 @@ export default function PurchaseOrdersTab({
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "create_po",
           poType,
@@ -199,11 +207,13 @@ export default function PurchaseOrdersTab({
   };
 
   const handleApprovePo = async (id: string, notes?: string) => {
+    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "approve_po",
           id,
@@ -223,11 +233,13 @@ export default function PurchaseOrdersTab({
   };
 
   const handleSendPo = async (id: string) => {
+    if (!canSendPo) { alert("Missing permission: procurement.po.send"); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
         body: JSON.stringify({
           action: "send_po",
           id,
@@ -487,7 +499,8 @@ export default function PurchaseOrdersTab({
                           {po.status === "approved" && (
                             <button
                               onClick={() => handleSendPo(po.id)}
-                              disabled={isSubmitting}
+                              disabled={isSubmitting || !canSendPo}
+                              title={!canSendPo ? "Missing permission" : undefined}
                               className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg transition flex items-center gap-1"
                             >
                               <Send className="w-3 h-3" /> Send to Vendor
@@ -1192,7 +1205,8 @@ export default function PurchaseOrdersTab({
                 <button
                   type="button"
                   onClick={() => handleApprovePo(poToApprove.id, approvalNotes)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !canApprovePo}
+                  title={!canApprovePo ? "Missing permission" : undefined}
                   className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" /> Authorize & Sign PO

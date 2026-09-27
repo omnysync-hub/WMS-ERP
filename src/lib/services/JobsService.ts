@@ -100,7 +100,7 @@ export class JobsService {
         senderRole: "dispatcher",
         type: "JOB_DISPATCH",
         title: `New Job: ${job.jobNumber}`,
-        body: `Assigned to ${job.customer?.name || "customer"} — ${job.jobType}. Open the app to accept.`,
+        body: `Assigned to ${job.customer?.name || "customer"} - ${job.jobType}. Open the app to accept.`,
         priority: "high",
         actionRequired: true,
         payload: {
@@ -285,7 +285,7 @@ export class JobsService {
       }
     }
 
-    // Cap + keep only image-ish strings (data: or http) — avoid blowing the row with junk
+    // Cap + keep only image-ish strings (data: or http) - avoid blowing the row with junk
     const photos = (completionDetails?.photos ?? [])
       .filter((p) => typeof p === "string" && /^(data:image\/|https?:\/\/)/i.test(p))
       .slice(0, 12);
@@ -302,7 +302,7 @@ export class JobsService {
       include: { items: true },
     });
 
-    // Don't re-store full base64 blobs in history meta — count only
+    // Don't re-store full base64 blobs in history meta - count only
     const { photos: _photos, ...detailsSansPhotos } = completionDetails ?? {};
     await this.logStatusChange(
       jobId,
@@ -511,7 +511,7 @@ export class JobsService {
         senderName: accountantName,
         senderRole: "accountant",
         type: "DISCOUNT_DECISION",
-        title: `Discount approved — ${job.jobNumber}`,
+        title: `Discount approved - ${job.jobNumber}`,
         body: `PKR ${discountAmount} discount applied. Reason: ${reason}`,
         priority: "high",
         payload: { jobId, discountAmount, reason },
@@ -620,6 +620,13 @@ export class JobsService {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
 
+    // LOGICS section 1: Verified only follows Finalized (accountant lock). Require both status and finalizedAt.
+    if (job.status !== "Finalized" || !job.finalizedAt) {
+      throw new Error(
+        `Job must be Finalized before it can be verified. Current status: ${job.status}.`
+      );
+    }
+
     if (!checklist.workConfirmed || !checklist.paymentReconciled || !checklist.inventoryReturned) {
       throw new Error(
         "All verification checklist items (Work Confirmed, Payment Reconciled, Inventory Returned) must be confirmed to verify the job."
@@ -653,7 +660,7 @@ export class JobsService {
     jobId: string,
     claimId: string,
     accountantName: string,
-    disbursingAccountCode: string = "1000",
+    disbursingAccountCode?: string,
     amountToPay?: number,
     paymentNotes?: string
   ) {
@@ -686,7 +693,7 @@ export class JobsService {
     // 1. Resolve Disbursing Account (Cash / Bank / Float)
     let disbursingAccount;
     try {
-      if (disbursingAccountCode && disbursingAccountCode !== "1000") {
+      if (disbursingAccountCode) {
         disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
       } else {
         disbursingAccount = await AccountMappingService.resolveAccount({
@@ -803,7 +810,7 @@ export class JobsService {
   static async clearJobExpenses(
     jobId: string,
     accountantName: string,
-    disbursingAccountCode: string = "1000",
+    disbursingAccountCode?: string,
     amountToPay?: number,
     paymentNotes?: string
   ) {
@@ -839,7 +846,7 @@ export class JobsService {
     // 1. Resolve Disbursing Account (Cash / Bank / Float)
     let disbursingAccount;
     try {
-      if (disbursingAccountCode && disbursingAccountCode !== "1000") {
+      if (disbursingAccountCode) {
         disbursingAccount = await AccountsPostingService.getAccountByCode(disbursingAccountCode);
       } else {
         disbursingAccount = await AccountMappingService.resolveAccount({
@@ -1036,7 +1043,7 @@ export class JobsService {
         senderName: storekeeperName,
         senderRole: "storekeeper",
         type: "INVENTORY_ISSUED",
-        title: `Parts issued — ${job.jobNumber}`,
+        title: `Parts issued - ${job.jobNumber}`,
         body: `${qty}× ${product.name} ready for your job. Check stock on the job screen.`,
         priority: "high",
         payload: {
