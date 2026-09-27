@@ -135,3 +135,45 @@ export function requireAnyProcurementPermission(
 
   return { actor };
 }
+
+/**
+ * Generic ERP permission gate (jobs, audit, etc.). Same actor headers as procurement.
+ */
+export function requirePermission(
+  req: NextRequest,
+  permissionKey: string
+): { actor: ErpActor; error?: undefined } | { actor: ErpActor; error: NextResponse } {
+  const actor = resolveErpActorFromRequest(req);
+
+  if (!actor.role || actor.role === "anonymous") {
+    return {
+      actor,
+      error: NextResponse.json(
+        {
+          error:
+            "Forbidden: missing actor role. Send x-actor-role (and optionally x-actor-name / x-user-id) on API calls.",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  if (!roleHasPermission(actor.role, permissionKey)) {
+    return {
+      actor,
+      error: NextResponse.json(
+        {
+          error: `Forbidden: role '${actor.role}' lacks permission '${permissionKey}'`,
+          permission: permissionKey,
+          role: actor.role,
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { actor };
+}
+
+/** Alias used by jobs verification APIs. */
+export const requireJobsPermission = requirePermission;

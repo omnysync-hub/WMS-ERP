@@ -93,6 +93,12 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
         module: "jobs",
       },
       {
+        key: "jobs.verify",
+        label: "Auditor Job Verification",
+        description: "Allow verifying finalized jobs (checklist approval) and sending them back with a note from the Auditor queue",
+        module: "jobs",
+      },
+      {
         key: "jobs.reports",
         label: "Access Job & Care-Of Reports",
         description: "Allow viewing detailed analytics, completion metrics, and Care-Of party aggregations",
@@ -197,7 +203,7 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
       {
         key: "procurement.view_pr",
         label: "View Purchase Requisitions (legacy)",
-        description: "Legacy view key — prefer fine-grained procurement.* keys",
+        description: "Legacy view key â€” prefer fine-grained procurement.* keys",
         module: "procurement",
       },
       {
@@ -537,7 +543,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.reassign_tech": false,
     "jobs.add_service": false,
     "jobs.issue_stock": true,
-    "jobs.stock_return": false, // Storekeeper on jobs can ONLY issue stock, no other option
+    "jobs.stock_return": true, // Storekeeper records unused/returnable stock check-in from technicians
     "jobs.misplaced_item": false,
     "jobs.generate_invoice": false,
     "jobs.collect_payment": false,
@@ -834,7 +840,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.view_financials": false,
     "inventory.view_stock": true,
     "inventory.view_costs": true,
-    // Procurement — RFQ/PO/vendor; no PR approve, payment, or GRN mutate
+    // Procurement â€” RFQ/PO/vendor; no PR approve, payment, or GRN mutate
     "procurement.view_pr": true,
     "procurement.create_pr": false,
     "procurement.approve_po": false,
@@ -868,7 +874,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.reports": true,
     "inventory.view_stock": true,
     "inventory.view_costs": true,
-    // Procurement — approvals + reports; limited create
+    // Procurement â€” approvals + reports; limited create
     "procurement.view_pr": true,
     "procurement.create_pr": false,
     "procurement.approve_po": true,
@@ -903,6 +909,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     // Can view all, but cannot create financial changes / procurement mutates
     "jobs.create_job": false,
     "jobs.cancel_job": false,
+    "jobs.verify": true,
     "procurement.create_pr": false,
     "procurement.approve_po": false,
     "procurement.grn": false,

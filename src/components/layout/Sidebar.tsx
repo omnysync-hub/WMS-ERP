@@ -78,6 +78,36 @@ export default function Sidebar({
   });
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [verificationPendingCount, setVerificationPendingCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const canSeeVerify =
+      ["admin", "auditor"].includes(activeRole) || hasPermission("jobs.verify");
+    if (!canSeeVerify) {
+      setVerificationPendingCount(0);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch("/api/jobs/verification?countOnly=true", {
+          headers: {
+            "x-actor-role": activeRole || "anonymous",
+            "x-actor-name": "Sidebar",
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setVerificationPendingCount(Number(data.pendingCount) || 0);
+      } catch {
+        /* ignore badge errors */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRole, hasPermission, pathname]);
+
   useEffect(() => {
     const updateSearch = () => {
       if (typeof window !== "undefined") {
@@ -158,6 +188,14 @@ export default function Sidebar({
       icon: Briefcase,
       roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"],
       perm: "jobs.view_directory",
+    },
+    {
+      label: "Auditor Verification",
+      href: "/jobs/verification",
+      icon: ShieldCheck,
+      roles: ["admin", "auditor"],
+      perm: "jobs.verify",
+      badgeCountKey: "verification",
     },
     {
       label: "Job Reports & Audit",
@@ -426,7 +464,17 @@ export default function Sidebar({
                       isJobsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
                     )}
                   />
-                  {!isCollapsed && <span>Jobs</span>}
+                  {!isCollapsed && (
+                    <span className="flex items-center gap-2">
+                      Jobs
+                      {verificationPendingCount > 0 &&
+                        (["admin", "auditor"].includes(activeRole) || hasPermission("jobs.verify")) && (
+                        <span className="text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full">
+                          {verificationPendingCount}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
                 {!isCollapsed && (
                   <ChevronDown
@@ -446,6 +494,8 @@ export default function Sidebar({
                     const isSubActive =
                       sub.href === "/jobs/reports"
                         ? (pathname === "/jobs/reports" || (pathname === "/jobs" && searchQuery.includes("view=reports")))
+                        : sub.href === "/jobs/verification"
+                        ? pathname === "/jobs/verification" || pathname.startsWith("/jobs/verification/")
                         : sub.href === "/jobs"
                         ? (pathname === "/jobs" && !searchQuery.includes("view=reports"))
                         : (pathname === sub.href || pathname.startsWith(`${sub.href}/`));
@@ -455,7 +505,7 @@ export default function Sidebar({
                         key={sub.href}
                         href={sub.href}
                         className={cn(
-                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group w-full",
                           isSubActive
                             ? "bg-[#27272A] text-emerald-400 font-bold"
                             : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
@@ -467,7 +517,12 @@ export default function Sidebar({
                             isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
                           )}
                         />
-                        <span className="truncate">{sub.label}</span>
+                        <span className="truncate flex-1">{sub.label}</span>
+                        {sub.href === "/jobs/verification" && verificationPendingCount > 0 && (
+                          <span className="ml-auto text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-500/30">
+                            {verificationPendingCount}
+                          </span>
+                        )}
                       </Link>
                     );
                   })}

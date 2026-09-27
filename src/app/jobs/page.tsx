@@ -7,6 +7,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import DataTable, { ColumnDef } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
+import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
 import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn } from "@/lib/utils";
 import {
   Plus,
@@ -24,6 +25,7 @@ import {
   MapPin,
   ChevronRight,
   ArrowUpRight,
+  RotateCcw,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
@@ -36,6 +38,7 @@ export default function JobsListPage() {
   const canReassignTech = hasPermission("jobs.reassign_tech");
   const canCreateJob = hasPermission("jobs.create_job");
   const canViewDirectory = hasPermission("jobs.view_directory");
+  const canStockReturn = hasPermission("jobs.stock_return");
   const canViewReports = hasPermission("jobs.reports") && !isStorekeeper;
   const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
@@ -56,6 +59,7 @@ export default function JobsListPage() {
 
   // Reassign Drawer state
   const [reassignJob, setReassignJob] = useState<any>(null);
+  const [returnJob, setReturnJob] = useState<any>(null);
 
   async function fetchJobs() {
     try {
@@ -426,7 +430,11 @@ export default function JobsListPage() {
             cell: (row: any) => {
               const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
               const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued").length || 0;
-              const returnedCount = row.stockReturns?.length || 0;
+              const returns = row.stockReturns || [];
+              const returnedCount = returns.length;
+              const pendingAckCount = returns.filter((r: any) => !r.acknowledgedAt).length;
+              const ackedCount = returns.filter((r: any) => r.acknowledgedAt).length;
+              const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
               const isDone = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
               const returnableQty = row.items?.reduce((sum: number, it: any) => {
                 if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
@@ -434,6 +442,7 @@ export default function JobsListPage() {
                 }
                 return sum;
               }, 0) || 0;
+              const remainingReturnable = Math.max(0, returnableQty - ackedQty);
 
               return (
                 <div className="space-y-1 text-[11px]">
@@ -448,12 +457,22 @@ export default function JobsListPage() {
                         {pendingCount} Pending Req
                       </span>
                     )}
-                    {isDone && returnableQty > 0 && (
-                      <span className="bg-purple-50 text-purple-800 border border-purple-200 font-bold px-1.5 py-0.5 rounded">
-                        {returnableQty} Returnable
+                    {pendingAckCount > 0 && (
+                      <span className="bg-amber-50 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.5 rounded animate-pulse">
+                        {pendingAckCount} Awaiting Ack
                       </span>
                     )}
-                    {returnedCount > 0 && (
+                    {isDone && remainingReturnable > 0 && (
+                      <span className="bg-purple-50 text-purple-800 border border-purple-200 font-bold px-1.5 py-0.5 rounded">
+                        {remainingReturnable} Returnable
+                      </span>
+                    )}
+                    {ackedCount > 0 && (
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200 font-semibold px-1.5 py-0.5 rounded">
+                        {ackedCount} Return Recorded
+                      </span>
+                    )}
+                    {returnedCount > 0 && ackedCount === 0 && pendingAckCount === 0 && (
                       <span className="bg-blue-50 text-blue-800 border border-blue-200 font-semibold px-1.5 py-0.5 rounded">
                         {returnedCount} Return Recorded
                       </span>
@@ -495,7 +514,7 @@ export default function JobsListPage() {
       header: "Created",
       align: "right",
       cell: (row) => {
-        if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">—</span>;
+        if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">Ã¢â‚¬â€</span>;
         const d = new Date(row.createdAt);
         const dateStr = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);
         const timeStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).format(d);
@@ -511,37 +530,68 @@ export default function JobsListPage() {
       id: "actions",
       header: "Quick Action",
       align: "right",
-      cell: (row) => (
-        <div className="flex items-center justify-end">
-          <Link
-            href={`/jobs/${row.id}`}
-            className={
-              isStorekeeper
-                ? "text-[11px] font-bold px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
-                : isAccountant
-                ? "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition inline-flex items-center gap-1"
-                : "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-[#0D7A5F] bg-emerald-50/70 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200/90 transition inline-flex items-center gap-1 shadow-2xs group"
-            }
-          >
-            {isStorekeeper ? (
-              <>
-                <Package className="w-3.5 h-3.5" />
-                <span>Details & Issue Stock →</span>
-              </>
-            ) : isAccountant ? (
-              <>
-                <Receipt className="w-3 h-3" />
-                <span>Financials →</span>
-              </>
-            ) : (
-              <>
-                <span>Details</span>
-                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform text-[#0D7A5F]" />
-              </>
-            )}
-          </Link>
-        </div>
-      ),
+      cell: (row) => {
+        const onReturnableTab = isStorekeeper && activeTab === "returnable";
+        const showRecordReturn = onReturnableTab && canStockReturn;
+
+        if (showRecordReturn) {
+          return (
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReturnJob(row);
+                }}
+                className="text-[11px] font-bold px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Record return</span>
+              </button>
+              <Link
+                href={`/jobs/${row.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="text-[11px] font-semibold px-2 py-1 rounded-lg text-[#52525B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#E4E4E7] transition"
+                title="Open job details / issue stock"
+              >
+                Details
+              </Link>
+            </div>
+          );
+        }
+
+        return (
+          <div className="flex items-center justify-end">
+            <Link
+              href={`/jobs/${row.id}`}
+              className={
+                isStorekeeper
+                  ? "text-[11px] font-bold px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+                  : isAccountant
+                  ? "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition inline-flex items-center gap-1"
+                  : "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-[#0D7A5F] bg-emerald-50/70 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200/90 transition inline-flex items-center gap-1 shadow-2xs group"
+              }
+            >
+              {isStorekeeper ? (
+                <>
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Details & Issue Stock</span>
+                </>
+              ) : isAccountant ? (
+                <>
+                  <Receipt className="w-3 h-3" />
+                  <span>Financials</span>
+                </>
+              ) : (
+                <>
+                  <span>Details</span>
+                  <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform text-[#0D7A5F]" />
+                </>
+              )}
+            </Link>
+          </div>
+        );
+      },
     },
   ];
 
@@ -616,15 +666,29 @@ export default function JobsListPage() {
         <>
           {/* Role Banner / Context */}
           {isStorekeeper && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-950">
+            <div className={`p-3 border rounded-lg flex items-center justify-between text-xs ${activeTab === "returnable" ? "bg-blue-50 border-blue-200 text-blue-950" : "bg-amber-50 border-amber-200 text-amber-950"}`}>
               <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-amber-700 shrink-0" />
+                {activeTab === "returnable" ? (
+                  <RotateCcw className="w-4 h-4 text-blue-700 shrink-0" />
+                ) : (
+                  <Package className="w-4 h-4 text-amber-700 shrink-0" />
+                )}
                 <span>
-                  <strong>Storekeeper Material Fulfillment Queue:</strong> You are strictly restricted to jobs with material requests. You have sole authorization to issue physical stock from warehouse inventory.
+                  {activeTab === "returnable" ? (
+                    <>
+                      <strong>Unused / Returnable Stock Queue:</strong> Record physical returns of unused materials from technicians. Confirming restocks warehouse inventory and reverses COGS.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Storekeeper Material Fulfillment Queue:</strong> You are strictly restricted to jobs with material requests. You have sole authorization to issue physical stock from warehouse inventory.
+                    </>
+                  )}
                 </span>
               </div>
-              <span className="font-mono font-bold bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded text-[11px] shrink-0 ml-2">
-                {storekeeperJobs.length} Requested {storekeeperJobs.length === 1 ? "Job" : "Jobs"}
+              <span className={`font-mono font-bold px-2.5 py-0.5 rounded text-[11px] shrink-0 ml-2 ${activeTab === "returnable" ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900"}`}>
+                {activeTab === "returnable"
+                  ? `${storekeeperReturnableJobs.length} Returnable ${storekeeperReturnableJobs.length === 1 ? "Job" : "Jobs"}`
+                  : `${storekeeperJobs.length} Requested ${storekeeperJobs.length === 1 ? "Job" : "Jobs"}`}
               </span>
             </div>
           )}
@@ -641,7 +705,7 @@ export default function JobsListPage() {
                 href="/accounts"
                 className="font-bold text-emerald-800 hover:text-emerald-950 underline shrink-0 ml-2"
               >
-                General Ledger →
+                General Ledger Ã¢â€ â€™
               </Link>
             </div>
           )}
@@ -758,14 +822,22 @@ export default function JobsListPage() {
                         onClick={() => setReassignJob(row)}
                         className="text-[11px] font-bold text-[#0D7A5F] hover:underline"
                       >
-                        {row.assignedTechnician ? "Change Tech →" : "+ Assign Tech →"}
+                        {row.assignedTechnician ? "Change Tech Ã¢â€ â€™" : "+ Assign Tech Ã¢â€ â€™"}
+                      </button>
+                    ) : activeTab === "returnable" && canStockReturn ? (
+                      <button
+                        type="button"
+                        onClick={() => setReturnJob(row)}
+                        className="text-[11px] font-bold text-blue-700 hover:underline"
+                      >
+                        Record unused return
                       </button>
                     ) : (
                       <Link
                         href={`/jobs/${row.id}`}
                         className="text-[11px] font-bold text-[#0D7A5F] hover:underline"
                       >
-                        Open Details & Issue Materials →
+                        Open Details & Issue Materials
                       </Link>
                     )}
                   </div>
@@ -778,6 +850,13 @@ export default function JobsListPage() {
                 onClick: (ids) => alert(`Exporting ${ids.length} jobs`),
               },
             ]}
+            emptyMessage={
+              isStorekeeper && activeTab === "returnable"
+                ? "No unused or returnable stock in the queue. Completed/paused jobs with leftover materials or pending tech returns will appear here."
+                : isStorekeeper && activeTab === "pending_materials"
+                ? "No pending material requests. New technician inventory requests will show up here for fulfillment."
+                : "There is no data to show in this view. Try adjusting filters."
+            }
             onRefresh={fetchJobs}
           />
 
@@ -788,6 +867,14 @@ export default function JobsListPage() {
             job={reassignJob}
             technicians={technicians}
             onAssigned={fetchJobs}
+          />
+
+          <RecordStockReturnDrawer
+            isOpen={Boolean(returnJob)}
+            onClose={() => setReturnJob(null)}
+            job={returnJob}
+            storekeeperName={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
+            onSuccess={fetchJobs}
           />
         </>
       )}

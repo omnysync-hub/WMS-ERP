@@ -113,7 +113,7 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
     avatar: "TM",
     badgeColor: "bg-slate-700 text-white",
     description: "Omni-module supervisory audit: all jobs, financial entries, warehouse movements, feedback audits, and system rollback logs.",
-    primaryModules: ["Audit & Rollbacks", "Jobs", "Job Reports & Audit", "Accounts & Ledgers", "Feedback Queue", "Warehouse & Stock"],
+    primaryModules: ["Auditor Verification", "Audit & Rollbacks", "Jobs", "Job Reports & Audit", "Accounts & Ledgers", "Feedback Queue", "Warehouse & Stock"],
   },
   dispatcher: {
     id: "13f6666d-952d-421c-8f2a-e7f204c32d17",

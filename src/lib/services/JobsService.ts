@@ -317,7 +317,7 @@ export class JobsService {
           senderRole: "dispatcher",
           type: "JOB_DISPATCH",
           title: `Job Assigned: ${updated.jobNumber}`,
-          body: `You have been assigned (${techId === primaryId ? "lead" : "assistant"}) to ${updated.customer?.name || "Customer"} — ${updated.jobType}.`,
+          body: `You have been assigned (${techId === primaryId ? "lead" : "assistant"}) to ${updated.customer?.name || "Customer"} â€” ${updated.jobType}.`,
           priority: "high",
           actionRequired: true,
           payload: {
@@ -661,7 +661,7 @@ export class JobsService {
         parts.push(`Proof photos: ${completionDetails.photos.length}`);
       }
       if (parts.length > 0) {
-        newRemarks = newRemarks ? `${newRemarks} | ${parts.join(" • ")}` : parts.join(" • ");
+        newRemarks = newRemarks ? `${newRemarks} | ${parts.join(" â€¢ ")}` : parts.join(" â€¢ ");
       }
     }
 
@@ -949,26 +949,30 @@ export class JobsService {
       postingLines.push({ accountId: revAccount.id, debit: 0, credit: finalAmount });
     }
 
-    await AccountsPostingService.post({
-      memo: `Revenue recognition for Job ${job.jobNumber} (${job.customer.name})`,
-      refType: "job_revenue",
-      refId: job.id,
-      lines: postingLines,
-    });
+    // Idempotent on re-finalize after auditor send-back (supervisor override unlock)
+    const existingInvoice = await prisma.invoice.findFirst({ where: { jobId: job.id } });
+    let invoiceNumber = existingInvoice?.invoiceNumber;
+    if (!existingInvoice) {
+      await AccountsPostingService.post({
+        memo: `Revenue recognition for Job ${job.jobNumber} (${job.customer.name})`,
+        refType: "job_revenue",
+        refId: job.id,
+        lines: postingLines,
+      });
 
-    // Create Invoice
-    const invoiceCount = await prisma.invoice.count();
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
-    await prisma.invoice.create({
-      data: {
-        invoiceNumber,
-        jobId: job.id,
-        customerId: job.customerId,
-        customerName: job.customer.name,
-        amount: finalAmount,
-        status: "unpaid",
-      },
-    });
+      const invoiceCount = await prisma.invoice.count();
+      invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
+      await prisma.invoice.create({
+        data: {
+          invoiceNumber,
+          jobId: job.id,
+          customerId: job.customerId,
+          customerName: job.customer.name,
+          amount: finalAmount,
+          status: "unpaid",
+        },
+      });
+    }
 
     // Lock job to read-only
     const updated = await prisma.job.update({
@@ -976,12 +980,14 @@ export class JobsService {
       data: {
         status: "Finalized",
         finalizedAt: new Date(),
+        qualityFlag: job.qualityFlag === "sent_back" ? null : job.qualityFlag,
       },
     });
 
     await this.logStatusChange(jobId, "CompletedPendingVerification", "Finalized", accountantName, {
       invoiceNumber,
       finalAmount,
+      reFinalize: Boolean(existingInvoice),
     });
 
     return updated;
@@ -1026,6 +1032,98 @@ export class JobsService {
     await this.logStatusChange(jobId, job.status, "Verified", adminName, { checklist });
 
     return updated;
+  }
+
+  /**
+   * Auditor / supervisor send-back (LOGICS supervisor-override):
+   * Unlocks a Finalized job back to CompletedPendingVerification with a required note.
+   * Does not reverse ledger postings; re-finalize is idempotent for invoice/revenue.
+   */
+  static async sendBackFromVerification(jobId: string, actorName: string, note: string) {
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) throw new Error("Job not found");
+    if (job.status !== "Finalized" || !job.finalizedAt) {
+      throw new Error(
+        `Only Finalized jobs can be sent back from verification. Current status: ${job.status}.`
+      );
+    }
+    const reason = (note || "").trim();
+    if (!reason) {
+      throw new Error("A send-back note is required (supervisor override reason).");
+    }
+
+    const updated = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: "CompletedPendingVerification",
+        finalizedAt: null,
+        qualityFlag: "sent_back",
+        verifiedAt: null,
+        verifiedChecklist: null,
+      },
+    });
+
+    await this.logStatusChange(jobId, "Finalized", "CompletedPendingVerification", actorName, {
+      action: "verification_send_back",
+      note: reason,
+      supervisorOverride: true,
+    });
+
+    return updated;
+  }
+
+  /**
+   * Jobs awaiting auditor action: Finalized (post-accountant lock), not yet Verified.
+   * CompletedPendingVerification waits on accountant finalize â€” not in this queue.
+   */
+  static async getVerificationQueue(opts?: { search?: string; includeSentBack?: boolean }) {
+    const where: any = {
+      status: "Finalized",
+      finalizedAt: { not: null },
+    };
+    if (!opts?.includeSentBack) {
+      where.OR = [{ qualityFlag: null }, { qualityFlag: { not: "sent_back" } }];
+    }
+    if (opts?.search) {
+      const q = opts.search;
+      const searchClause = [
+        { jobNumber: { contains: q } },
+        { remarks: { contains: q } },
+        { customer: { name: { contains: q } } },
+      ];
+      const baseOr = where.OR;
+      delete where.OR;
+      const andParts: any[] = [];
+      if (baseOr) andParts.push({ OR: baseOr });
+      andParts.push({ OR: searchClause });
+      where.AND = andParts;
+    }
+
+    return prisma.job.findMany({
+      where,
+      include: {
+        customer: true,
+        careOfParty: true,
+        assignedTechnician: true,
+        items: true,
+        expenseClaims: true,
+        inventoryRequests: true,
+        stockReturns: true,
+        hisaabSettlements: true,
+        statusHistory: { orderBy: { changedAt: "desc" }, take: 5 },
+      },
+      orderBy: { finalizedAt: "asc" },
+    });
+  }
+
+  static async countPendingVerifications() {
+    return prisma.job.count({
+      where: {
+        status: "Finalized",
+        finalizedAt: { not: null },
+        OR: [{ qualityFlag: null }, { qualityFlag: { not: "sent_back" } }],
+      },
+    });
   }
 
   /**
@@ -1424,7 +1522,7 @@ export class JobsService {
         senderRole: "storekeeper",
         type: "INVENTORY_ISSUED",
         title: `Parts issued - ${job.jobNumber}`,
-        body: `${qty}× ${product.name} ready for your job. Check stock on the job screen.`,
+        body: `${qty}Ã— ${product.name} ready for your job. Check stock on the job screen.`,
         priority: "high",
         payload: {
           jobId,
@@ -1486,6 +1584,8 @@ export class JobsService {
 
   /**
    * Storekeeper records stock returned by technician upon job completion or pause.
+   * Creates an unacknowledged StockReturn then routes through InventoryService.acknowledgeStockReturn
+   * so warehouse is restocked and COGS is reversed correctly (same path as tech-filed returns).
    */
   static async recordStockReturn(
     jobId: string,
@@ -1507,38 +1607,14 @@ export class JobsService {
         technicianId: technicianId || job.assignedTechnicianId || "unknown",
         item,
         qtyReturned: qty,
-        acknowledgedBy: storekeeperName,
-        acknowledgedAt: new Date(),
       },
     });
 
-    // Try to find matching Product in warehouse to restock
-    const product = await prisma.product.findFirst({
-      where: {
-        OR: [
-          { name: { contains: item } },
-          { sku: { equals: item } },
-        ],
-      },
-    });
-
-    if (product) {
-      await prisma.product.update({
-        where: { id: product.id },
-        data: { stockQuantity: { increment: qty } },
-      });
-
-      await prisma.stockLedger.create({
-        data: {
-          productId: product.id,
-          qty,
-          direction: "in",
-          refType: "stock_return",
-          refId: record.id,
-          notes: `Returned from Job ${job.jobNumber} by Tech via Storekeeper ${storekeeperName}${notes ? `: ${notes}` : ""}`,
-        },
-      });
-    }
+    // Prefer acknowledge path: restock warehouse + reverse COGS via AccountMappingService
+    const acknowledged = await InventoryService.acknowledgeStockReturn(
+      record.id,
+      storekeeperName
+    );
 
     await this.logStatusChange(jobId, job.status, job.status, storekeeperName, {
       action: "stock_return_recorded",
@@ -1546,9 +1622,10 @@ export class JobsService {
       item,
       qtyReturned: qty,
       notes,
+      acknowledgedAt: acknowledged.acknowledgedAt,
     });
 
-    return record;
+    return acknowledged;
   }
 
   /**

@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
 
 export default function JobDetailPage() {
   const params = useParams();
@@ -54,6 +55,7 @@ export default function JobDetailPage() {
   const canCollectPayment = hasPermission("jobs.collect_payment");
   const canReassignTech = hasPermission("jobs.reassign_tech");
   const canEditJob = hasPermission("jobs.edit_job");
+  const canVerify = hasPermission("jobs.verify");
 
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +67,8 @@ export default function JobDetailPage() {
   const [showReassignDrawer, setShowReassignDrawer] = useState(false);
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showSendBackModal, setShowSendBackModal] = useState(false);
+  const [sendBackNote, setSendBackNote] = useState("");
   const [itemDiscountModalOpen, setItemDiscountModalOpen] = useState(false);
   const [selectedItemToDiscount, setSelectedItemToDiscount] = useState<any>(null);
   const [approvedDiscountAmount, setApprovedDiscountAmount] = useState("");
@@ -606,7 +610,7 @@ export default function JobDetailPage() {
     }
   };
 
-  // Handle admin checklist verification
+  // Handle auditor / admin checklist verification
   const handleVerifyJob = async () => {
     if (
       !verifyChecklist.workConfirmed ||
@@ -621,11 +625,15 @@ export default function JobDetailPage() {
       setIsProcessing(true);
       const res = await fetch(`/api/jobs/${jobId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: procurementActorHeaders(
+          activeRole || "anonymous",
+          currentPersona?.name,
+          currentPersona?.id
+        ),
         body: JSON.stringify({
           action: "verify",
           checklist: verifyChecklist,
-          actor: "Haris Qureshi (Admin)",
+          actor: currentPersona?.name || "Auditor",
         }),
       });
       if (!res.ok) {
@@ -643,9 +651,46 @@ export default function JobDetailPage() {
         jobId: job?.id || jobId,
         jobNumber: job?.jobNumber,
         technicianId: job?.assignedTechnicianId,
-        actor: "Admin Haris Qureshi",
+        actor: currentPersona?.name || "Auditor",
         message: `Job #${job?.jobNumber || ""} verified and settled in accounting ledger.`,
       });
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSendBackFromVerification = async () => {
+    if (!sendBackNote.trim()) {
+      alert("A send-back note is required.");
+      return;
+    }
+    try {
+      setIsProcessing(true);
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: procurementActorHeaders(
+          activeRole || "anonymous",
+          currentPersona?.name,
+          currentPersona?.id
+        ),
+        body: JSON.stringify({
+          action: "send_back",
+          note: sendBackNote.trim(),
+          actor: currentPersona?.name || "Auditor",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setShowSendBackModal(false);
+      setSendBackNote("");
+      setSuccessMsg(
+        "Job sent back to accountant (CompletedPendingVerification). Re-finalize after corrections."
+      );
+      fetchJob();
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -768,15 +813,27 @@ export default function JobDetailPage() {
                   </button>
                 )}
 
-                {isAdmin && job.status === "Finalized" && (
-                  <button
-                    type="button"
-                    onClick={() => setShowVerifyModal(true)}
-                    className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Admin Verify
-                  </button>
+                {canVerify && job.status === "Finalized" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowVerifyModal(true)}
+                      className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Auditor Verify
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSendBackNote("");
+                        setShowSendBackModal(true);
+                      }}
+                      className="h-8 px-3.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-semibold text-amber-950 inline-flex items-center gap-1.5 transition shadow-xs"
+                    >
+                      Send Back
+                    </button>
+                  </>
                 )}
 
                 {job.status === "Verified" && (
@@ -1615,7 +1672,7 @@ export default function JobDetailPage() {
             <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
               <h3 id="verify-modal-title" className="text-sm font-bold text-[#18181B] flex items-center gap-2">
                 <FileCheck className="w-4 h-4 text-[#0D7A5F]" />
-                Admin Verification Checklist
+                Auditor Verification Checklist
               </h3>
               <button
                 type="button"
@@ -1693,6 +1750,56 @@ export default function JobDetailPage() {
                 className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
               >
                 Approve & Mark Verified
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AUDITOR SEND-BACK MODAL */}
+      {showSendBackModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-[#E4E4E7]">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+              <h3 className="text-sm font-bold text-[#18181B]">Send Back Job</h3>
+              <button
+                type="button"
+                onClick={() => setShowSendBackModal(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-[#52525B]">
+              Supervisor override unlocks this Finalized job back to CompletedPendingVerification.
+              Provide a clear note for the accountant. Ledger postings are not reversed.
+            </p>
+            <textarea
+              value={sendBackNote}
+              onChange={(e) => setSendBackNote(e.target.value)}
+              rows={4}
+              placeholder="Reason for send-back…"
+              className="w-full p-2.5 rounded-lg border border-[#D4D4D8] bg-[#F4F4F5] text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+            />
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+              <button
+                type="button"
+                onClick={() => setShowSendBackModal(false)}
+                className="px-3 py-1.5 text-xs text-[#71717A] rounded-lg hover:bg-[#F4F4F5]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isProcessing}
+                onClick={handleSendBackFromVerification}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold"
+              >
+                Confirm Send Back
               </button>
             </div>
           </div>

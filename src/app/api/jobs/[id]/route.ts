@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(
   req: NextRequest,
@@ -168,9 +169,27 @@ export async function PATCH(
         result = await JobsService.finalizeJob(params.id, actor);
         break;
 
-      case "verify":
-        result = await JobsService.verifyJob(params.id, actor, payload.checklist);
+      case "verify": {
+        const gate = requireJobsPermission(req, "jobs.verify");
+        if (gate.error) return gate.error;
+        const actorName = gate.actor.name || actor;
+        result = await JobsService.verifyJob(params.id, actorName, payload.checklist);
         break;
+      }
+
+      case "send_back":
+      case "send_back_verification":
+      case "reject_verification": {
+        const gate = requireJobsPermission(req, "jobs.verify");
+        if (gate.error) return gate.error;
+        const actorName = gate.actor.name || actor;
+        result = await JobsService.sendBackFromVerification(
+          params.id,
+          actorName,
+          payload.note || payload.reason || ""
+        );
+        break;
+      }
 
       case "clear_expense":
       case "clear_job_expenses":
