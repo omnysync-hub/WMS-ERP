@@ -33,6 +33,7 @@ import {
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { cn, formatCurrency } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 
 // Standard HVAC Job Types
 const COMMON_JOB_TYPES = [
@@ -113,6 +114,22 @@ interface ServiceLineItem {
 
 export default function NewJobIntakePage() {
   const router = useRouter();
+  const { activeRole, currentRole, hasPermission } = useRole();
+  const effectiveRole = (activeRole || currentRole || "").toLowerCase();
+
+  // Roles responsible for job intake/creation (call center, dispatcher, intake lead)
+  // should strictly see ONLY: 1. Customer & Location, 2. Job Classification & Equipment Details, and 3. Operational Notes & Tech Assignment.
+  const isJobCreatorRole =
+    ["call_center", "dispatcher"].includes(effectiveRole) ||
+    effectiveRole.includes("creator") ||
+    effectiveRole.includes("intake") ||
+    effectiveRole.includes("dispatch") ||
+    effectiveRole.includes("call");
+
+  const canManageLineItems =
+    !isJobCreatorRole &&
+    (["admin", "accountant", "manager"].includes(effectiveRole) ||
+      hasPermission("jobs.view_financials"));
 
   // Master Data
   const [customers, setCustomers] = useState<any[]>([]);
@@ -422,27 +439,29 @@ export default function NewJobIntakePage() {
       } | Model: ${productModel || "Standard"}] `;
       const fullRemarks = `${equipPrefix}${remarks.trim()}`;
 
-      // Build consolidated items array for backend JobItem records
-      const combinedItems = [
-        ...productLines
-          .filter((l) => l.name.trim())
-          .map((l) => ({
-            description: `[Product] ${l.name}${l.sku ? ` (${l.sku})` : ""}`,
-            quantityPlanned: l.quantity,
-            unitRate: l.unitRate,
-            productId: l.productId || null,
-            isProduct: true,
-          })),
-        ...serviceLines
-          .filter((s) => s.name.trim())
-          .map((s) => ({
-            description: `[Service] ${s.name}`,
-            quantityPlanned: s.quantity,
-            unitRate: s.unitRate,
-            productId: null,
-            isProduct: false,
-          })),
-      ];
+      // Build consolidated items array for backend JobItem records (only if line items management is active)
+      const combinedItems = canManageLineItems
+        ? [
+            ...productLines
+              .filter((l) => l.name.trim())
+              .map((l) => ({
+                description: `[Product] ${l.name}${l.sku ? ` (${l.sku})` : ""}`,
+                quantityPlanned: l.quantity,
+                unitRate: l.unitRate,
+                productId: l.productId || null,
+                isProduct: true,
+              })),
+            ...serviceLines
+              .filter((s) => s.name.trim())
+              .map((s) => ({
+                description: `[Service] ${s.name}`,
+                quantityPlanned: s.quantity,
+                unitRate: s.unitRate,
+                productId: null,
+                isProduct: false,
+              })),
+          ]
+        : [];
 
       const effectivePrimaryId =
         primaryTechnicianId && assignedTechnicianIds.includes(primaryTechnicianId)
@@ -501,7 +520,11 @@ export default function NewJobIntakePage() {
           { label: "Intake Work Order" },
         ]}
         title="New HVAC Job Intake"
-        subtitle="Book a service order, define equipment specs, link inventory parts, and set service charges."
+        subtitle={
+          canManageLineItems
+            ? "Book a service order, define equipment specs, link inventory parts, and set service charges."
+            : "Book a service order, define equipment specifications, log operational notes, and assign a technician."
+        }
       />
 
       <div className="flex items-center justify-between">
@@ -916,7 +939,8 @@ export default function NewJobIntakePage() {
         {/* ========================================================================= */}
         {/* SECTION 3: SCOPE OF WORK, PRODUCTS (INVENTORY) & SERVICE CHARGES           */}
         {/* ========================================================================= */}
-        <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
+        {canManageLineItems && (
+          <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
           <div className="flex items-center justify-between pb-3 border-b border-[#EDEDED]">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
@@ -1314,9 +1338,10 @@ export default function NewJobIntakePage() {
             </div>
           </div>
         </div>
+      )}
 
         {/* ========================================================================= */}
-        {/* SECTION 4: REMARKS & TECHNICIAN DISPATCH ASSIGNMENT                       */}
+        {/* SECTION 4 / 3: REMARKS & TECHNICIAN DISPATCH ASSIGNMENT                   */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
           <div className="flex items-center gap-2 pb-3 border-b border-[#EDEDED]">
@@ -1325,7 +1350,9 @@ export default function NewJobIntakePage() {
             </div>
             <div>
               <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                4. Operational Notes & Technician Assignment
+                {canManageLineItems
+                  ? "4. Operational Notes & Technician Assignment"
+                  : "3. Operational Notes & Technician Assignment"}
               </h2>
               <p className="text-[11px] text-[#71717A]">
                 Add customer problem description and assign a field technician or defer to dispatcher.

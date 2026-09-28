@@ -589,6 +589,8 @@ export class JobsService {
       unusedReason?: string;
       /** Proof-of-work photos as data URLs or remote URLs */
       photos?: string[];
+      /** Prefer employee UUID when available (mobile app). */
+      technicianEmployeeId?: string;
     }
   ) {
     const job = await prisma.job.findUnique({
@@ -610,11 +612,15 @@ export class JobsService {
       }
     }
 
-    // Save actual quantities
+    // Save actual quantities — services stay qty 1
     for (const item of actualItems) {
+      const row = job.items.find((i) => i.id === item.id);
+      const isService =
+        !!row &&
+        (/\[Service/i.test(row.description) || /\[Service Added by/i.test(row.description));
       await prisma.jobItem.update({
         where: { id: item.id },
-        data: { quantityActual: item.quantityActual },
+        data: { quantityActual: isService ? 1 : item.quantityActual },
       });
     }
 
@@ -657,8 +663,41 @@ export class JobsService {
           ? { completionPhotos: JSON.stringify(photos) }
           : {}),
       },
-      include: { items: true },
+      include: { items: true, hisaabSettlements: true },
     });
+
+    // Field collection → HisaabSettlement so ERP "Field Settlement & Customer Collections" shows it
+    const means = completionDetails?.paymentMeans;
+    const collected =
+      means && means !== "unmarked" ? Number(completionDetails?.paymentAmount) || 0 : 0;
+    if (means && means !== "unmarked" && collected > 0) {
+      const techId =
+        completionDetails?.technicianEmployeeId ||
+        job.assignedTechnicianId ||
+        "";
+      if (techId) {
+        let expected = 0;
+        for (const it of updated.items) {
+          const qty = it.quantityActual ?? it.quantityPlanned;
+          expected += qty * it.unitRate;
+        }
+        expected = Math.max(0, expected - (job.discountAmount || 0));
+        const isFull = collected >= expected;
+        const balanceDue = Math.max(0, expected - collected);
+
+        await prisma.hisaabSettlement.create({
+          data: {
+            jobId,
+            technicianId: techId,
+            amountExpected: expected,
+            amountCollected: collected,
+            isFull,
+            balanceDue,
+            settledBy: `${technicianId} (field app · ${means})`,
+          },
+        });
+      }
+    }
 
     // Don't re-store full base64 blobs in history meta - count only
     const { photos: _photos, ...detailsSansPhotos } = completionDetails ?? {};
@@ -672,11 +711,15 @@ export class JobsService {
         completionDetails: {
           ...detailsSansPhotos,
           photoCount: photos.length,
+          fieldCollectionLogged: collected > 0,
         },
       }
     );
 
-    return updated;
+    return prisma.job.findUnique({
+      where: { id: jobId },
+      include: { items: true, hisaabSettlements: true },
+    });
   }
 
   /**
@@ -1524,6 +1567,7 @@ export class JobsService {
 
   /**
    * Accountant or Admin adds services / items to the job even after creation.
+   * Services are always quantity 1 (billable line, not stock units).
    */
   static async addJobServiceOrItem(
     jobId: string,
@@ -1535,9 +1579,9 @@ export class JobsService {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
 
-    const qty = Number(quantity);
     const rate = Number(unitRate);
-    if (!qty || qty <= 0) throw new Error("Quantity must be greater than zero");
+    // Services are always 1 — ignore caller qty for billable service lines
+    const qty = 1;
 
     const newItem = await prisma.jobItem.create({
       data: {
