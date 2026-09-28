@@ -9,6 +9,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
 import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
 import JobsKpiDashboard from "@/components/jobs/JobsKpiDashboard";
+import StorekeeperKpiDashboard from "@/components/jobs/StorekeeperKpiDashboard";
 import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn } from "@/lib/utils";
 import {
   Plus,
@@ -109,6 +110,26 @@ export default function JobsListPage() {
 
       // Strictly isolate: hide jobs that have no inventory activity or returnable materials
       if (!hasInventoryReq && !isReturnable) return false;
+
+      if (kpiFilter) {
+        if (kpiFilter === "pending_requests" || kpiFilter === "pending_stock") {
+          return j.inventoryRequests?.some((r: any) => r.status === "pending");
+        }
+        if (kpiFilter === "done_requests" || kpiFilter === "approved_stock") {
+          return j.inventoryRequests?.some(
+            (r: any) => r.status === "issued" || r.status === "fulfilled"
+          );
+        }
+        if (kpiFilter === "returnable_stock" || kpiFilter === "returnable") {
+          return isReturnable;
+        }
+        if (kpiFilter === "recorded_returns") {
+          return hasReturns;
+        }
+        if (kpiFilter === "all_requisitions") {
+          return true;
+        }
+      }
 
       if (activeTab === "pending_materials") {
         return j.inventoryRequests?.some((r: any) => r.status === "pending");
@@ -601,7 +622,11 @@ export default function JobsListPage() {
       header: "Quick Action",
       align: "right",
       cell: (row) => {
-        const onReturnableTab = isStorekeeper && activeTab === "returnable";
+        const onReturnableTab =
+          isStorekeeper &&
+          (activeTab === "returnable" ||
+            kpiFilter === "returnable_stock" ||
+            kpiFilter === "returnable");
         const showRecordReturn = onReturnableTab && canStockReturn;
 
         if (showRecordReturn) {
@@ -855,8 +880,14 @@ export default function JobsListPage() {
             onExport={() => alert("Exporting jobs list...")}
           />
 
-          {/* Dispatcher & Operations KPI Dashboard Cards */}
-          {!isStorekeeper && (
+          {/* Warehouse Storekeeper vs General / Dispatcher KPI Dashboard Cards */}
+          {isStorekeeper ? (
+            <StorekeeperKpiDashboard
+              jobs={jobs}
+              activeFilter={kpiFilter}
+              onFilterSelect={setKpiFilter}
+            />
+          ) : (
             <JobsKpiDashboard
               jobs={jobs}
               activeFilter={kpiFilter}
