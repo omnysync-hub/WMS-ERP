@@ -19,14 +19,19 @@ export default function FeedbackCallDrawer({
 }: FeedbackCallDrawerProps) {
   const [outcome, setOutcome] = useState<"approved" | "disapproved" | "no_answer" | "rescheduled">("approved");
   const [remarks, setRemarks] = useState("");
+  const [technicianRemarks, setTechnicianRemarks] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (outcome === "disapproved" && !remarks.trim()) {
-      setErrorMsg("Remarks are strictly required when customer feedback is 'disapproved'.");
+    if (!remarks.trim()) {
+      setErrorMsg("Customer call remarks are required.");
+      return;
+    }
+    if (!technicianRemarks.trim()) {
+      setErrorMsg("Technician call remarks are required (call the assigned tech, then note the outcome).");
       return;
     }
     if ((outcome === "no_answer" || outcome === "rescheduled") && !followUpDate) {
@@ -46,6 +51,7 @@ export default function FeedbackCallDrawer({
           calledBy: "Sara Bilal (Call Center Agent)",
           outcome,
           remarks,
+          technicianRemarks,
           followUpDate: followUpDate || null,
         }),
       });
@@ -57,6 +63,7 @@ export default function FeedbackCallDrawer({
 
       onFeedbackSaved?.();
       setRemarks("");
+      setTechnicianRemarks("");
       setFollowUpDate("");
       onClose();
     } catch (err: any) {
@@ -96,14 +103,23 @@ export default function FeedbackCallDrawer({
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {/* Customer Call Context Box */}
+        {/* Call context: customer + technician */}
         <div className="p-3 bg-[#F4F4F5] rounded-xl border border-[#E4E4E7] space-y-1">
           <p className="font-bold text-[#1A1D1F] text-xs">{job.customer?.name}</p>
           <p className="text-[11px] text-[#71717A]">
-            Phone: <a href={`tel:${job.customer?.phone}`} className="font-semibold text-[#0D7A5F] underline">{job.customer?.phone}</a>
+            Customer phone: <a href={`tel:${job.customer?.phone}`} className="font-semibold text-[#0D7A5F] underline">{job.customer?.phone}</a>
           </p>
           <p className="text-[11px] text-[#71717A]">
             Service: {job.jobType} • Tech: {job.assignedTechnician?.name || "Unassigned"}
+            {job.assignedTechnician?.phone ? (
+              <>
+                {" "}
+                (<a href={`tel:${job.assignedTechnician.phone}`} className="font-semibold text-[#0D7A5F] underline">{job.assignedTechnician.phone}</a>)
+              </>
+            ) : null}
+          </p>
+          <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-1">
+            Call the customer and the technician, then write remarks for both before logging the outcome.
           </p>
         </div>
 
@@ -151,17 +167,29 @@ export default function FeedbackCallDrawer({
           </div>
         </div>
 
-        {/* Remarks (Mandatory on Disapproved) */}
         <div>
           <label className="font-semibold text-[#1A1D1F] block mb-1">
-            Customer Remarks {outcome === "disapproved" && <span className="text-[#991B1B] font-bold">* (Required)</span>}
+            Customer call remarks <span className="text-[#991B1B] font-bold">*</span>
           </label>
           <textarea
             rows={3}
-            placeholder="Record verbatim customer remarks, concerns, or satisfaction..."
+            placeholder="What the customer said about the work..."
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             aria-describedby={errorMsg ? "call-error" : undefined}
+            className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none resize-none"
+          />
+        </div>
+
+        <div>
+          <label className="font-semibold text-[#1A1D1F] block mb-1">
+            Technician call remarks <span className="text-[#991B1B] font-bold">*</span>
+          </label>
+          <textarea
+            rows={2}
+            placeholder="What the technician confirmed on the call..."
+            value={technicianRemarks}
+            onChange={(e) => setTechnicianRemarks(e.target.value)}
             className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none resize-none"
           />
         </div>

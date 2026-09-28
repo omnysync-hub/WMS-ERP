@@ -13,6 +13,7 @@ import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawe
 import ReportMisplacedItemDrawer from "@/components/drawers/ReportMisplacedItemDrawer";
 import AddServiceDrawer from "@/components/drawers/AddServiceDrawer";
 import TaxInvoiceDrawer from "@/components/drawers/TaxInvoiceDrawer";
+import JobRemarksCard from "@/components/jobs/JobRemarksCard";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -303,6 +304,7 @@ export default function JobDetailPage() {
     "Accepted",
     "InProgress",
     "Paused",
+    "AwaitingFeedback",
     "CompletedPendingVerification",
     "Finalized",
     "Verified",
@@ -325,6 +327,7 @@ export default function JobDetailPage() {
     }
 
     let label = st;
+    if (st === "AwaitingFeedback") label = "Awaiting Feedback (call center)";
     if (st === "CompletedPendingVerification") label = "Completed (Pending Verification)";
 
     return {
@@ -401,7 +404,7 @@ export default function JobDetailPage() {
       }
       setShowVerifyModal(false);
       setSuccessMsg(
-        "Job verified! It has now been automatically queued into Call Center for quality feedback."
+        "Job verified by auditor. Feedback was completed earlier in the call-center step."
       );
       fetchJob();
 
@@ -732,9 +735,8 @@ export default function JobDetailPage() {
               )}
 
               {job.remarks && (
-                <div className="sm:col-span-2 pt-3 border-t border-[#E4E4E7]">
-                  <p className="text-[11px] font-semibold text-[#71717A] uppercase">Problem Diagnosis & Work Notes</p>
-                  <p className="text-xs text-[#27272A] mt-0.5 leading-relaxed">{job.remarks}</p>
+                <div className="sm:col-span-2 pt-2">
+                  <JobRemarksCard remarks={job.remarks} />
                 </div>
               )}
 
@@ -1440,7 +1442,7 @@ export default function JobDetailPage() {
             </div>
 
             <p className="text-xs text-[#52525B]">
-              All 3 conditions must be physically verified before final audit sign-off. Once verified, this job will automatically enter the Call Center feedback queue.
+              All 3 conditions must be physically verified before final audit sign-off. Feedback (customer + technician calls) already happened after complete. Call-center feedback (customer + technician) already ran after complete; this step is auditor sign-off.
             </p>
 
             <div className="space-y-3 bg-[#FAFAFA] p-4 rounded-lg border border-[#E4E4E7]">
@@ -1904,6 +1906,7 @@ export default function JobDetailPage() {
         job={job}
         reqItem={selectedReqItem}
         actor={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
+        isStorekeeper={isStorekeeper}
         onSuccess={() => {
           setSuccessMsg(`Successfully issued warehouse stock to Job #${job?.jobNumber || ""}.`);
           fetchJob();

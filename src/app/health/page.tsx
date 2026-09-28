@@ -155,8 +155,8 @@ export default function HealthCheckPage() {
               status: "Enforced",
             },
             {
-              title: "Admin Checklist & Call Center Feedback Dual Gates",
-              desc: "Verification requires admin physical sign-off. Verified jobs automatically route to call center feedback queue where customer disapproval flags quality without disturbing books.",
+              title: "Feedback then Admin Verification Gates",
+              desc: "Verification requires admin physical sign-off. Feedback runs right after complete; verification is the auditor step after finalize.",
               status: "Enforced",
             },
           ].map((rule, idx) => (

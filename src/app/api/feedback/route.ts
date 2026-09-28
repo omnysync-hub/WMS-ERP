@@ -25,13 +25,14 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { jobId, calledBy = "Call Center Agent", outcome, remarks, followUpDate } = body;
+    const { jobId, calledBy = "Call Center Agent", outcome, remarks, technicianRemarks, followUpDate } = body;
 
     const call = await FeedbackService.recordFeedback({
       jobId,
       calledBy,
       outcome,
       remarks,
+      technicianRemarks,
       followUpDate,
     });
 

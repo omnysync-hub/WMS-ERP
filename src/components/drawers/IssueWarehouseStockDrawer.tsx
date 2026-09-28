@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Package, AlertTriangle, Check, AlertCircle } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { useRole } from "@/contexts/RoleContext";
 
 interface IssueWarehouseStockDrawerProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface IssueWarehouseStockDrawerProps {
   reqItem?: { id?: string; item?: string; qtyRequested?: number } | null;
   actor: string;
   onSuccess?: () => void;
+  isStorekeeper?: boolean;
 }
 
 export default function IssueWarehouseStockDrawer({
@@ -21,7 +23,15 @@ export default function IssueWarehouseStockDrawer({
   reqItem,
   actor,
   onSuccess,
+  isStorekeeper: propIsStorekeeper,
 }: IssueWarehouseStockDrawerProps) {
+  const { activeRole, currentRole, hasPermission } = useRole();
+  const isStorekeeper =
+    propIsStorekeeper !== undefined
+      ? propIsStorekeeper
+      : activeRole === "storekeeper" ||
+        currentRole === "storekeeper" ||
+        !hasPermission("inventory.view_costs");
   const [warehouseProducts, setWarehouseProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -219,9 +229,15 @@ export default function IssueWarehouseStockDrawer({
                 </div>
                 <div className="text-right">
                   <span className="text-[#71717A] block">Unit Cost:</span>
-                  <span className="font-mono font-semibold text-[#18181B]">
-                    PKR {selectedProduct.costPrice || selectedProduct.unitPrice || 0}
-                  </span>
+                  {isStorekeeper ? (
+                    <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-mono inline-block mt-0.5">
+                      Cost Masked
+                    </span>
+                  ) : (
+                    <span className="font-mono font-semibold text-[#18181B]">
+                      PKR {selectedProduct.costPrice || selectedProduct.unitPrice || 0}
+                    </span>
+                  )}
                 </div>
               </div>
             )}

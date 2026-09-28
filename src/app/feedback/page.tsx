@@ -57,7 +57,7 @@ export default function FeedbackCallCenterPage() {
       <PageHeader
         breadcrumbs={[{ label: "Call Center Feedback" }]}
         title="Call Center & Quality Feedback"
-        subtitle="Outbound customer satisfaction verification on audited jobs and dispute governance"
+        subtitle="After job complete: call customer and technician, write remarks — then the job moves to accountant finalize and auditor verification"
         badge={
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
             <Headphones className="w-3.5 h-3.5 text-[#0D7A5F]" />
@@ -93,7 +93,7 @@ export default function FeedbackCallCenterPage() {
                   Outbound Quality Check Queue
                 </h3>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Verified jobs automatically populate here. Customer disapproval flags the job for supervisor audit.
+                  Completed jobs awaiting feedback populate here. After you log the calls, the job advances to accountant clearance, then auditor verification.
                 </p>
               </div>
               <span className="text-xs font-bold text-[#0D7A5F] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-mono">
@@ -104,7 +104,7 @@ export default function FeedbackCallCenterPage() {
             {queue.length === 0 ? (
               <div className="p-12 text-center text-xs text-[#71717A]">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                All verified jobs have completed customer feedback checks.
+                No jobs waiting for feedback right now.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -205,7 +205,7 @@ export default function FeedbackCallCenterPage() {
         onClose={() => setIsDrawerOpen(false)}
         job={selectedJob}
         onFeedbackSaved={() => {
-          setNotification("Customer feedback recorded successfully!");
+          setNotification("Feedback saved. Job moved to accountant queue (Pending Verification / finalize).");
           loadFeedback();
         }}
       />

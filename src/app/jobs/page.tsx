@@ -95,7 +95,7 @@ export default function JobsListPage() {
       // The storekeeper should see ONLY jobs with requests for inventory or returns, NEVER unrelated jobs
       const hasInventoryReq = Boolean(j.inventoryRequests && j.inventoryRequests.length > 0);
       const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
-      const isDoneOrPaused = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+      const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
       const returnableQty = j.items?.reduce((sum: number, it: any) => {
         if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
           return sum + (it.quantityPlanned - it.quantityActual);
@@ -119,7 +119,8 @@ export default function JobsListPage() {
     if (activeTab === "all") return true;
 
     if (isAccountant) {
-      if (activeTab === "pending_clearance") return j.status === "CompletedPendingVerification";
+      if (activeTab === "awaiting_feedback") return j.status === "AwaitingFeedback";
+    if (activeTab === "pending_clearance") return j.status === "CompletedPendingVerification";
       if (activeTab === "discount_requests") return j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
       if (activeTab === "pending_expenses") return j.expenseClaims?.some((c: any) => c.status === "pending");
       if (activeTab === "completed") return ["Finalized", "Verified"].includes(j.status);
@@ -127,7 +128,7 @@ export default function JobsListPage() {
       // Admin / Manager / Ops / Call Center / Cashier / Auditor
       if (activeTab === "assigned_today") return j.status === "Assigned" || j.status === "InProgress";
       if (activeTab === "needs_review") return j.qualityFlag === "disputed";
-      if (activeTab === "completed") return ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
+      if (activeTab === "completed") return ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
     }
 
     return true;
@@ -435,7 +436,7 @@ export default function JobsListPage() {
               const pendingAckCount = returns.filter((r: any) => !r.acknowledgedAt).length;
               const ackedCount = returns.filter((r: any) => r.acknowledgedAt).length;
               const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
-              const isDone = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
+              const isDone = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
               const returnableQty = row.items?.reduce((sum: number, it: any) => {
                 if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
                   return sum + (it.quantityPlanned - it.quantityActual);
@@ -598,6 +599,7 @@ export default function JobsListPage() {
   // Role-specific tab presets
   const accountantTabs = [
     { id: "all", label: "All Jobs Ledger", count: jobs.length },
+    { id: "awaiting_feedback", label: "Awaiting Feedback", count: jobs.filter((j) => j.status === "AwaitingFeedback").length },
     { id: "pending_clearance", label: "Needs Finalization", count: jobs.filter((j) => j.status === "CompletedPendingVerification").length },
     { id: "discount_requests", label: "Discount Requested", count: jobs.filter((j) => j.items?.some((it: any) => it.description?.includes("[Discount Requested:"))).length },
     { id: "pending_expenses", label: "Pending Expenses", count: jobs.filter((j) => j.expenseClaims?.some((c: any) => c.status === "pending")).length },
@@ -607,7 +609,7 @@ export default function JobsListPage() {
   const storekeeperJobs = jobs.filter((j) => {
     const hasInventoryReq = Boolean(j.inventoryRequests && j.inventoryRequests.length > 0);
     const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
-    const isDoneOrPaused = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+    const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
     const returnableQty = j.items?.reduce((sum: number, it: any) => {
       if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
         return sum + (it.quantityPlanned - it.quantityActual);
@@ -623,7 +625,7 @@ export default function JobsListPage() {
 
   const storekeeperReturnableJobs = storekeeperJobs.filter((j) => {
     const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
-    const isDoneOrPaused = ["CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+    const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
     const returnableQty = j.items?.reduce((sum: number, it: any) => {
       if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
         return sum + (it.quantityPlanned - it.quantityActual);
@@ -643,7 +645,7 @@ export default function JobsListPage() {
     { id: "all", label: "All Jobs", count: jobs.length },
     { id: "assigned_today", label: "Assigned Today", count: jobs.filter((j) => j.status === "Assigned" || j.status === "InProgress").length },
     { id: "needs_review", label: "Needs Review", count: jobs.filter((j) => j.qualityFlag === "disputed").length },
-    { id: "completed", label: "Completed", count: jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)).length },
+    { id: "completed", label: "Completed", count: jobs.filter((j) => ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)).length },
   ];
 
   const activeTabsList = isAccountant ? accountantTabs : isStorekeeper ? storekeeperTabs : adminTabs;

@@ -562,35 +562,13 @@ export class JobsService {
     return updated;
   }
 
-  /**
-   * Check whether resume is permitted from Paused state:
-   * Mandatory rule: Both StockReturn acknowledged by store keeper AND HisaabSettlement recorded by accountant.
+    /**
+   * Resume gate from Paused state (soft / advisory only).
+   * Business rule (confirmed): stock normally stays on site with the technician on pause
+   * (return is rare/optional). Partial hisaab with accountant is optional — not a hard gate.
+   * Resume must NOT require stock-return acknowledgment or hisaab.
    */
-  static async verifyResumeAllowed(jobId: string) {
-    // 1. Check stock returns acknowledged
-    const unacknowledgedReturns = await prisma.stockReturn.findFirst({
-      where: {
-        jobId,
-        acknowledgedAt: null,
-      },
-    });
-    if (unacknowledgedReturns) {
-      throw new Error(
-        "Cannot resume: There is an unacknowledged stock return pending storekeeper sign-off."
-      );
-    }
-
-    // 2. Check hisaab settlement exists
-    const settlement = await prisma.hisaabSettlement.findFirst({
-      where: { jobId },
-      orderBy: { settledAt: "desc" },
-    });
-    if (!settlement) {
-      throw new Error(
-        "Cannot resume: Mandatory hisaab settlement has not been recorded by the accountant."
-      );
-    }
-
+  static async verifyResumeAllowed(_jobId: string) {
     return true;
   }
 
@@ -661,7 +639,7 @@ export class JobsService {
         parts.push(`Proof photos: ${completionDetails.photos.length}`);
       }
       if (parts.length > 0) {
-        newRemarks = newRemarks ? `${newRemarks} | ${parts.join(" â€¢ ")}` : parts.join(" â€¢ ");
+        newRemarks = newRemarks ? `${newRemarks} | ${parts.join(" • ")}` : parts.join(" • ");
       }
     }
 
@@ -673,7 +651,7 @@ export class JobsService {
     const updated = await prisma.job.update({
       where: { id: jobId },
       data: {
-        status: "CompletedPendingVerification",
+        status: "AwaitingFeedback",
         remarks: newRemarks,
         ...(photos.length > 0
           ? { completionPhotos: JSON.stringify(photos) }
@@ -687,7 +665,7 @@ export class JobsService {
     await this.logStatusChange(
       jobId,
       "InProgress",
-      "CompletedPendingVerification",
+      "AwaitingFeedback",
       technicianId,
       {
         actualItems,
@@ -996,7 +974,7 @@ export class JobsService {
   /**
    * Admin verification:
    * Checklist-gated approval (work confirmed / payment reconciled / inventory returned).
-   * Once verified, automatically routes into Call Center Feedback queue!
+   * Feedback (call center) already ran after complete; this is the auditor/admin checklist gate.
    */
   static async verifyJob(
     jobId: string,

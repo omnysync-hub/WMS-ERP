@@ -5,18 +5,28 @@ export interface FeedbackCallParams {
   calledBy: string;
   outcome: "approved" | "disapproved" | "no_answer" | "rescheduled";
   remarks: string;
+  /** Notes from calling the assigned technician (optional but encouraged). */
+  technicianRemarks?: string;
   followUpDate?: Date | null;
 }
 
 export class FeedbackService {
   /**
-   * Get queue of jobs needing call center feedback:
-   * Verified jobs with either no feedback calls or where the latest call was 'no_answer' / 'rescheduled'
+   * Queue of jobs needing call-center feedback AFTER technician complete,
+   * BEFORE accountant finalize / auditor verification.
+   * Includes AwaitingFeedback plus legacy CompletedPendingVerification with no call yet.
    */
   static async getFeedbackQueue() {
-    const verifiedJobs = await prisma.job.findMany({
+    const jobs = await prisma.job.findMany({
       where: {
-        status: "Verified",
+        OR: [
+          { status: "AwaitingFeedback" },
+          {
+            status: "CompletedPendingVerification",
+            feedbackCalls: { none: {} },
+            finalizedAt: null,
+          },
+        ],
       },
       include: {
         customer: true,
@@ -25,11 +35,10 @@ export class FeedbackService {
           orderBy: { calledAt: "desc" },
         },
       },
-      orderBy: { verifiedAt: "desc" },
+      orderBy: { createdAt: "desc" },
     });
 
-    // Filter for jobs that still need attention
-    return verifiedJobs.filter((job) => {
+    return jobs.filter((job) => {
       if (job.feedbackCalls.length === 0) return true;
       const latest = job.feedbackCalls[0];
       return latest.outcome === "no_answer" || latest.outcome === "rescheduled";
@@ -37,45 +46,71 @@ export class FeedbackService {
   }
 
   /**
-   * Record customer feedback call
+   * Record quality feedback: staff calls customer and technician, writes remarks.
+   * On approved/disapproved, advances job to CompletedPendingVerification (accountant queue).
    */
   static async recordFeedback(params: FeedbackCallParams) {
-    const { jobId, calledBy, outcome, remarks, followUpDate } = params;
+    const { jobId, calledBy, outcome, remarks, technicianRemarks, followUpDate } = params;
 
-    const job = await prisma.job.findUnique({
-      where: { id: jobId },
-    });
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
 
-    if (outcome === "disapproved" && (!remarks || remarks.trim().length === 0)) {
-      throw new Error("Remarks are strictly required when customer feedback is 'disapproved'.");
+    if (
+      job.status !== "AwaitingFeedback" &&
+      job.status !== "CompletedPendingVerification"
+    ) {
+      throw new Error(
+        `Feedback is recorded after job complete (AwaitingFeedback). Current status: ${job.status}.`
+      );
+    }
+
+    if (!remarks || remarks.trim().length === 0) {
+      throw new Error("Customer call remarks are required.");
     }
 
     if ((outcome === "no_answer" || outcome === "rescheduled") && !followUpDate) {
       throw new Error("A follow-up date is required when call outcome is 'no_answer' or 'rescheduled'.");
     }
 
+    const combinedRemarks = [
+      remarks.trim(),
+      technicianRemarks?.trim()
+        ? `[Technician call] ${technicianRemarks.trim()}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
     const call = await prisma.feedbackCall.create({
       data: {
         jobId,
         calledBy,
         outcome,
-        remarks,
+        remarks: combinedRemarks,
         followUpDate: followUpDate ? new Date(followUpDate) : null,
       },
     });
 
-    // Update job quality flag based on outcome
-    if (outcome === "approved") {
+    if (outcome === "approved" || outcome === "disapproved") {
       await prisma.job.update({
         where: { id: jobId },
-        data: { qualityFlag: "clean" },
+        data: {
+          status: "CompletedPendingVerification",
+          qualityFlag: outcome === "approved" ? "clean" : "disputed",
+        },
       });
-    } else if (outcome === "disapproved") {
-      // Flag for admin review without disturbing financial postings
-      await prisma.job.update({
-        where: { id: jobId },
-        data: { qualityFlag: "disputed" },
+      await prisma.jobStatusHistory.create({
+        data: {
+          jobId,
+          fromStatus: job.status,
+          toStatus: "CompletedPendingVerification",
+          changedBy: calledBy,
+          metaJson: JSON.stringify({
+            action: "feedback_recorded",
+            outcome,
+            callId: call.id,
+          }),
+        },
       });
     }
 

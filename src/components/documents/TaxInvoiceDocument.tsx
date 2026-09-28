@@ -4,6 +4,7 @@ import React, { useRef } from "react";
 import { Flame, Printer, X, CheckCircle2 } from "lucide-react";
 import { formatCurrency, formatDate, numberToWords } from "@/lib/utils";
 import { printDocument } from "@/lib/printUtils";
+import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
 
 interface TaxInvoiceDocumentProps {
   job: any;
@@ -169,9 +170,37 @@ export default function TaxInvoiceDocument({
               <span className="font-semibold text-zinc-800">Job Scope:</span>{" "}
               <span className="capitalize">{job.jobType || "HVAC Maintenance & Technical Service"}</span>
             </div>
-            <div className="text-zinc-600 mt-0.5">
-              Remarks: {job.remarks || "Work performed according to standard corporate engineering specifications."}
-            </div>
+            {(() => {
+              const parsed = parseJobRemarks(job.remarks);
+              return (
+                <div className="text-zinc-600 mt-1 space-y-0.5 text-[11px]">
+                  {parsed.equipment && (
+                    <div>
+                      <span className="font-semibold text-zinc-700">Equipment:</span> {parsed.equipment.type}
+                      {parsed.equipment.brand && ` (${parsed.equipment.brand}`}
+                      {parsed.equipment.model && ` - ${parsed.equipment.model}`}
+                      {parsed.equipment.brand && `)`}
+                    </div>
+                  )}
+                  {parsed.primaryDiagnosis && (
+                    <div>
+                      <span className="font-semibold text-zinc-700">Problem Diagnosis:</span> {parsed.primaryDiagnosis}
+                    </div>
+                  )}
+                  {parsed.fieldExecution && (
+                    <div>
+                      <span className="font-semibold text-zinc-700">Work Execution:</span> {parsed.fieldExecution}
+                    </div>
+                  )}
+                  {!parsed.equipment && !parsed.primaryDiagnosis && !parsed.fieldExecution && (
+                    <div>
+                      <span className="font-semibold text-zinc-700">Remarks:</span>{" "}
+                      {job.remarks || "Work performed according to standard corporate engineering specifications."}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="mt-1">
               <span className="font-semibold text-zinc-800">Assigned Tech:</span>{" "}
               <span>{job.assignedTechnician?.name || "Engineering Field Team"}</span>

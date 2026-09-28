@@ -2433,7 +2433,13 @@ export default function InventoryPurchasingPage() {
                       </div>
                       <div className="flex justify-between font-medium text-[#71717A] pt-1 border-t border-[#E4E4E7]">
                         <span>Total Inventory Asset Value Added:</span>
-                        <span className="font-mono font-bold text-[#18181B]">{formatCurrency(totalCost)}</span>
+                        {isStorekeeper ? (
+                          <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-mono">
+                            Cost Masked
+                          </span>
+                        ) : (
+                          <span className="font-mono font-bold text-[#18181B]">{formatCurrency(totalCost)}</span>
+                        )}
                       </div>
                     </div>
                   );

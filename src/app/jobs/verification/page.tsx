@@ -139,7 +139,7 @@ export default function AuditorVerificationPage() {
       if (!res.ok) throw new Error(data.error || "Verify failed");
       setShowVerifyModal(false);
       setNotification(
-        `Job ${selectedJob.jobNumber} verified â€” routed to Call Center feedback queue.`
+        `Job ${selectedJob.jobNumber} verified â€” verified by auditor (feedback already completed earlier).`
       );
       await loadQueue();
     } catch (e: any) {
@@ -255,7 +255,7 @@ export default function AuditorVerificationPage() {
             </h3>
             <p className="text-[11px] text-[#71717A] mt-0.5">
               Status gate: <span className="font-mono font-semibold">Finalized</span> only.
-              Jobs still in CompletedPendingVerification wait for accountant finalize first.
+              Flow: Complete → Feedback (call customer + tech) → accountant finalize → this verification queue.
             </p>
           </div>
           <div className="relative w-full sm:w-64">
@@ -384,7 +384,7 @@ export default function AuditorVerificationPage() {
             </div>
             <p className="text-xs text-[#52525B]">
               All three checklist items are required. On approve, status becomes Verified and the job
-              enters the Call Center feedback queue.
+              is fully closed after auditor sign-off (feedback already ran after complete).
             </p>
             <div className="space-y-3 bg-[#FAFAFA] p-4 rounded-lg border border-[#E4E4E7]">
               {(
