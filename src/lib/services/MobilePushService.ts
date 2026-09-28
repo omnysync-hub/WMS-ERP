@@ -137,6 +137,12 @@ export class MobilePushService {
       },
     });
 
+    if (activeTokens.length === 0) {
+      console.warn(
+        `[MobilePushService] No push token for employee ${recipientId} — request saved; phone must poll/SSE.`
+      );
+    }
+
     // 3. Dispatch native push notifications via Expo Push API (works for iOS and Android)
     if (activeTokens.length > 0) {
       const isJobRing = type === "JOB_DISPATCH" || type === "EMERGENCY_ALERT";

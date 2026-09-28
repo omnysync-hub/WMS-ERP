@@ -62,12 +62,6 @@ export default function TimelineStepper({ steps }: TimelineStepperProps) {
                   </span>
                 )}
               </div>
-
-              {step.changedBy && (
-                <p className="text-[11px] text-charcoal-secondary mt-0.5">
-                  by <span className="font-medium text-charcoal">{step.changedBy}</span>
-                </p>
-              )}
             </div>
           </div>
         );

@@ -396,6 +396,17 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         for (const roleKey of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
           if (!merged[roleKey]) merged[roleKey] = DEFAULT_ROLE_PERMISSIONS[roleKey];
         }
+        // Strictly ensure financial & invoice permissions remain false for operational dispatcher & CSR roles
+        if (merged.dispatcher) {
+          merged.dispatcher["jobs.view_financials"] = false;
+          merged.dispatcher["jobs.add_service"] = false;
+          merged.dispatcher["jobs.generate_invoice"] = false;
+        }
+        if (merged.call_center) {
+          merged.call_center["jobs.view_financials"] = false;
+          merged.call_center["jobs.add_service"] = false;
+          merged.call_center["jobs.generate_invoice"] = false;
+        }
         setRolePermissions(merged);
       }
 

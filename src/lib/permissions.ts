@@ -53,7 +53,7 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
       {
         key: "jobs.add_service",
         label: "Add Billable Services Post-Creation",
-        description: "Allow accountants and dispatchers to add billable services or items with custom rates",
+        description: "Allow accountants to add billable services or items with custom rates",
         module: "jobs",
       },
       {
@@ -612,15 +612,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   call_center: {
     // Jobs
     "jobs.view_directory": true,
-    "jobs.view_financials": true,
+    "jobs.view_financials": false,
     "jobs.create_job": true,
     "jobs.edit_job": true,
     "jobs.reassign_tech": true,
-    "jobs.add_service": true,
+    "jobs.add_service": false,
     "jobs.issue_stock": false,
     "jobs.stock_return": false,
     "jobs.misplaced_item": false,
-    "jobs.generate_invoice": true,
+    "jobs.generate_invoice": false,
     "jobs.collect_payment": false,
     "jobs.cancel_job": false,
     "jobs.reports": true,
@@ -762,15 +762,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   dispatcher: {
     // Jobs
     "jobs.view_directory": true,
-    "jobs.view_financials": true,
+    "jobs.view_financials": false,
     "jobs.create_job": true,
     "jobs.edit_job": true,
     "jobs.reassign_tech": true,
-    "jobs.add_service": true,
+    "jobs.add_service": false,
     "jobs.issue_stock": false,
     "jobs.stock_return": false,
     "jobs.misplaced_item": false,
-    "jobs.generate_invoice": true,
+    "jobs.generate_invoice": false,
     "jobs.collect_payment": false,
     "jobs.cancel_job": false,
     "jobs.reports": true,

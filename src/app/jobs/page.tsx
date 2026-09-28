@@ -40,6 +40,7 @@ export default function JobsListPage() {
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
   const isDispatcher = activeRole === "dispatcher";
+  const isCallCenter = activeRole === "call_center";
   const canViewFinancials = hasPermission("jobs.view_financials");
   const canReassignTech = hasPermission("jobs.reassign_tech");
   const canCreateJob = hasPermission("jobs.create_job");
@@ -572,7 +573,7 @@ export default function JobsListPage() {
         );      },
     },
     // Strictly hide Amount column if user lacks financial permission, showing warehouse material status instead
-    ...(!canViewFinancials && !isStorekeeper
+    ...((!canViewFinancials || isDispatcher || isCallCenter) && !isStorekeeper
       ? [
           {
             id: "storeInventorySummary",
@@ -633,7 +634,7 @@ export default function JobsListPage() {
             },
           },
         ]
-      : !isDispatcher && (isAdmin || isAccountant || canViewFinancials)
+      : !isDispatcher && !isCallCenter && (isAdmin || isAccountant || canViewFinancials)
       ? [
           {
             id: "amount",

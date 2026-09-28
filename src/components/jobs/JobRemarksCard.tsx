@@ -13,9 +13,13 @@ import {
   Tag,
 } from "lucide-react";
 
+import { useRole } from "@/contexts/RoleContext";
+
 interface JobRemarksCardProps {
   remarks?: string | null;
   className?: string;
+  showCustomerPayment?: boolean;
+  showUnusedStockReason?: boolean;
 }
 
 interface ParsedRemarks {
@@ -103,19 +107,48 @@ export function parseJobRemarks(rawRemarks?: string | null): ParsedRemarks {
   };
 }
 
-export default function JobRemarksCard({ remarks, className = "" }: JobRemarksCardProps) {
+export default function JobRemarksCard({
+  remarks,
+  className = "",
+  showCustomerPayment,
+  showUnusedStockReason,
+}: JobRemarksCardProps) {
+  const { activeRole, currentRole, hasPermission } = useRole();
+  const effectiveRole = (activeRole || currentRole || "").toLowerCase();
+  const isRestrictedRole = ["dispatcher", "call_center"].includes(effectiveRole);
+
+  const canSeePayment =
+    showCustomerPayment !== undefined
+      ? showCustomerPayment
+      : hasPermission("jobs.view_financials") && !isRestrictedRole;
+
+  const canSeeUnusedStock =
+    showUnusedStockReason !== undefined
+      ? showUnusedStockReason
+      : !isRestrictedRole;
+
   if (!remarks || !remarks.trim()) {
     return null;
   }
 
   const parsed = parseJobRemarks(remarks);
+  const showPaymentCard = Boolean(parsed.customerPayment && canSeePayment);
+  const showUnusedStockCard = Boolean(parsed.unusedStockReason && canSeeUnusedStock);
+  const showPhotosCard = Boolean(parsed.proofPhotos);
+
   const hasStructuredData =
-    parsed.equipment ||
-    parsed.primaryDiagnosis ||
-    parsed.fieldExecution ||
-    parsed.customerPayment ||
-    parsed.unusedStockReason ||
-    parsed.proofPhotos;
+    Boolean(parsed.equipment) ||
+    Boolean(parsed.primaryDiagnosis) ||
+    Boolean(parsed.fieldExecution) ||
+    showPaymentCard ||
+    showUnusedStockCard ||
+    showPhotosCard ||
+    parsed.otherLines.length > 0;
+
+  // If remarks only consisted of hidden financial/warehouse segments and nothing else is visible, return null
+  if (!hasStructuredData && (parsed.customerPayment || parsed.unusedStockReason)) {
+    return null;
+  }
 
   return (
     <div
@@ -200,9 +233,9 @@ export default function JobRemarksCard({ remarks, className = "" }: JobRemarksCa
         )}
 
         {/* Operational & Settlement Badges / Cards */}
-        {(parsed.customerPayment || parsed.unusedStockReason || parsed.proofPhotos) && (
+        {(showPaymentCard || showUnusedStockCard || showPhotosCard) && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-            {parsed.customerPayment && (
+            {showPaymentCard && (
               <div className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg p-3 flex items-start gap-2.5">
                 <div className="p-1.5 rounded-md bg-emerald-50 text-[#0D7A5F] border border-emerald-200 shrink-0">
                   <Banknote className="w-4 h-4" />
@@ -218,7 +251,7 @@ export default function JobRemarksCard({ remarks, className = "" }: JobRemarksCa
               </div>
             )}
 
-            {parsed.unusedStockReason && (
+            {showUnusedStockCard && (
               <div className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg p-3 flex items-start gap-2.5">
                 <div className="p-1.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
                   <Package className="w-4 h-4" />
@@ -234,7 +267,7 @@ export default function JobRemarksCard({ remarks, className = "" }: JobRemarksCa
               </div>
             )}
 
-            {parsed.proofPhotos && (
+            {showPhotosCard && (
               <div className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg p-3 flex items-start gap-2.5">
                 <div className="p-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                   <Camera className="w-4 h-4" />

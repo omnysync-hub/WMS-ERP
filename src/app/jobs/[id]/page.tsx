@@ -52,6 +52,9 @@ export default function JobDetailPage() {
   const isStorekeeper = activeRole === "storekeeper";
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
+  const isDispatcher = activeRole === "dispatcher";
+  const isCallCenter = activeRole === "call_center";
+  const isRestrictedRole = isDispatcher || isCallCenter;
   const canViewFinancials = hasPermission("jobs.view_financials");
   const canAddService = hasPermission("jobs.add_service");
   const canIssueStock = hasPermission("jobs.issue_stock");
@@ -484,17 +487,29 @@ export default function JobDetailPage() {
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             {isStorekeeper ? (
-              // Storekeeper can ONLY issue stock, no other action
-              canIssueStock && (
-                <button
-                  type="button"
-                  onClick={() => openIssueInventoryModal()}
-                  className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-500 hover:bg-amber-600 text-xs font-bold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-                >
-                  <Package className="w-3.5 h-3.5" />
-                  + Issue Warehouse Stock
-                </button>
-              )
+              // Storekeeper actions: issue warehouse stock and record store returns
+              <>
+                {canIssueStock && (
+                  <button
+                    type="button"
+                    onClick={() => openIssueInventoryModal()}
+                    className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-500 hover:bg-amber-600 text-xs font-bold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    + Issue Warehouse Stock
+                  </button>
+                )}
+                {canStockReturn && (
+                  <button
+                    type="button"
+                    onClick={() => setStockReturnDrawerOpen(true)}
+                    className="h-8 px-3 rounded-lg border border-emerald-400 bg-emerald-600 hover:bg-emerald-700 text-xs font-bold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Record Store Return
+                  </button>
+                )}
+              </>
             ) : (
               <>
                 {canIssueStock && (
@@ -514,7 +529,7 @@ export default function JobDetailPage() {
                     className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
-                    Record Stock Return
+                    Record Store Return
                   </button>
                 )}
                 {canMisplacedItem && (
@@ -528,7 +543,7 @@ export default function JobDetailPage() {
                   </button>
                 )}
 
-                {canAddService && (
+                {canAddService && !isRestrictedRole && (
                   <button
                     type="button"
                     onClick={() => setAddServiceDrawerOpen(true)}
@@ -538,7 +553,7 @@ export default function JobDetailPage() {
                     + Add Service / Item
                   </button>
                 )}
-                {(canGenerateInvoice || job.invoice) && (
+                {canViewFinancials && (canGenerateInvoice || job.invoice) && !isRestrictedRole && (
                   <button
                     type="button"
                     onClick={() => setTaxInvoiceDrawerOpen(true)}
@@ -549,7 +564,7 @@ export default function JobDetailPage() {
                   </button>
                 )}
 
-                {canViewFinancials && !job.finalizedAt && (
+                {canViewFinancials && !job.finalizedAt && !isRestrictedRole && (
                   <button
                     type="button"
                     onClick={() => setShowDiscountDrawer(true)}
@@ -736,7 +751,11 @@ export default function JobDetailPage() {
 
               {job.remarks && (
                 <div className="sm:col-span-2 pt-2">
-                  <JobRemarksCard remarks={job.remarks} />
+                  <JobRemarksCard
+                    remarks={job.remarks}
+                    showCustomerPayment={canViewFinancials && !isRestrictedRole}
+                    showUnusedStockReason={!isRestrictedRole}
+                  />
                 </div>
               )}
 
@@ -867,7 +886,7 @@ export default function JobDetailPage() {
                   Billing, invoices, and warehouse stock deductions are calculated strictly from actual completed quantities.
                 </p>
               </div>
-              {canAddService && (
+              {canAddService && !isRestrictedRole && (
                 <button
                   type="button"
                   onClick={() => setAddServiceDrawerOpen(true)}
@@ -886,7 +905,7 @@ export default function JobDetailPage() {
                     <th className="py-2.5 px-4">Item Description</th>
                     <th className="py-2.5 px-4 text-center">Planned Qty</th>
                     <th className="py-2.5 px-4 text-center">Actual Qty</th>
-                    {canViewFinancials ? (
+                    {canViewFinancials && !isRestrictedRole ? (
                       <>
                         <th className="py-2.5 px-4 text-right">Unit Rate</th>
                         <th className="py-2.5 px-4 text-right">Row Total</th>
@@ -915,14 +934,14 @@ export default function JobDetailPage() {
                         <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
                           <td className="py-2.5 px-4 font-medium text-[#18181B]">
                             <div>{cleanTitle}</div>
-                            {isRequested && canViewFinancials && (
+                            {isRequested && canViewFinancials && !isRestrictedRole && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                                   ⏳ {item.description.match(/\[Discount Requested: ([^\]]+)\]/)?.[1] || "Discount Requested"}
                                 </span>
                               </div>
                             )}
-                            {isApproved && canViewFinancials && (
+                            {isApproved && canViewFinancials && !isRestrictedRole && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                                   ✓ {item.description.match(/\[Discount Approved: ([^\]]+)\]/)?.[1] || "Discount Approved"}
@@ -951,7 +970,7 @@ export default function JobDetailPage() {
                               </span>
                             )}
                           </td>
-                          {canViewFinancials ? (
+                          {canViewFinancials && !isRestrictedRole ? (
                             <>
                               <td className="py-2.5 px-4 text-right font-mono text-[#52525B]">
                                 {formatCurrency(item.unitRate)}
@@ -998,7 +1017,7 @@ export default function JobDetailPage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={canViewFinancials ? 6 : 4} className="py-8 text-center text-[#71717A] text-xs">
+                      <td colSpan={canViewFinancials && !isRestrictedRole ? 6 : 4} className="py-8 text-center text-[#71717A] text-xs">
                         No planned line items recorded during intake. Scope of work and materials will be recorded by the technician or accountant.
                       </td>
                     </tr>
@@ -1008,7 +1027,7 @@ export default function JobDetailPage() {
             </div>
 
             {/* Financial Summary vs Physical Scope Footer */}
-            {canViewFinancials ? (
+            {canViewFinancials && !isRestrictedRole ? (
               <div className="p-5 bg-[#FAFAFA] border-t border-[#E4E4E7] space-y-1.5 text-xs">
                 <div className="flex items-center justify-between text-[#71717A]">
                   <span>Planned Estimated Total:</span>
@@ -1051,8 +1070,8 @@ export default function JobDetailPage() {
             )}
           </div>
 
-          {/* Settlements & Field Expenses (Masked if lacks financial permission) */}
-          {canViewFinancials && (
+          {/* Settlements & Field Expenses (Masked if lacks financial permission or restricted role) */}
+          {canViewFinancials && !isRestrictedRole && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Settlements */}
               <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
@@ -1081,9 +1100,11 @@ export default function JobDetailPage() {
                       <p className="text-[#52525B] text-[11px]">
                         Expected: {formatCurrency(s.amountExpected)} • Balance Due: {formatCurrency(s.balanceDue)}
                       </p>
-                      <p className="text-[#71717A] text-[10px]">
-                        Settled by {s.settledBy}
-                      </p>
+                      {s.settledBy && (
+                        <p className="text-[#71717A] text-[10px]">
+                          {s.settledBy}
+                        </p>
+                      )}
                     </div>
                   ))
                 )}
@@ -1233,8 +1254,59 @@ export default function JobDetailPage() {
             </div>
           )}
 
-          {/* Central Warehouse Material & Inventory Issuance Card (Controlled by permissions) */}
-          {(canIssueStock || canStockReturn) && (
+        </div>
+
+        {/* RIGHT COLUMN: Assigned Tech, Warehouse Inventory & Lifecycle Stepper */}
+        <div className="space-y-6">
+          {/* Assigned Technician Card */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-3">
+            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
+              <span>Assigned Technician</span>
+              <Briefcase className="w-3.5 h-3.5 text-[#71717A]" />
+            </h3>
+            {job.assignedTechnician ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-800 shrink-0">
+                    {job.assignedTechnician.name
+                      .split(" ")
+                      .map((n: string) => n[0])
+                      .join("")
+                      .slice(0, 2)}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-[#18181B]">{job.assignedTechnician.name}</p>
+                    <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
+                  </div>
+                </div>
+                {!job.finalizedAt && canReassignTech && (
+                  <button
+                    type="button"
+                    onClick={() => setShowReassignDrawer(true)}
+                    className="w-full py-1.5 px-3 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] transition flex items-center justify-center gap-1 shadow-2xs"
+                  >
+                    Change Technician
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <p className="text-xs text-[#A1A1AA] italic">No technician assigned to this work order.</p>
+                {!job.finalizedAt && canReassignTech && (
+                  <button
+                    type="button"
+                    onClick={() => setShowReassignDrawer(true)}
+                    className="w-full py-2 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    + Assign Technician
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Central Warehouse Material & Inventory Issuance Card (Shown under Assigned Technician) */}
+          {(canIssueStock || canStockReturn || (job.inventoryRequests && job.inventoryRequests.length > 0) || (job.stockReturns && job.stockReturns.length > 0)) && (
             <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-amber-100">
                 <div className="flex items-center gap-2">
@@ -1325,56 +1397,6 @@ export default function JobDetailPage() {
               )}
             </div>
           )}
-        </div>
-
-        {/* RIGHT COLUMN: State Machine Stepper & Assigned Tech */}
-        <div className="space-y-6">
-          {/* Assigned Technician Card */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-3">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
-              <span>Assigned Technician</span>
-              <Briefcase className="w-3.5 h-3.5 text-[#71717A]" />
-            </h3>
-            {job.assignedTechnician ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-800 shrink-0">
-                    {job.assignedTechnician.name
-                      .split(" ")
-                      .map((n: string) => n[0])
-                      .join("")
-                      .slice(0, 2)}
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-[#18181B]">{job.assignedTechnician.name}</p>
-                    <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
-                  </div>
-                </div>
-                {!job.finalizedAt && canReassignTech && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReassignDrawer(true)}
-                    className="w-full py-1.5 px-3 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] transition flex items-center justify-center gap-1 shadow-2xs"
-                  >
-                    Change Technician
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <p className="text-xs text-[#A1A1AA] italic">No technician assigned to this work order.</p>
-                {!job.finalizedAt && canReassignTech && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReassignDrawer(true)}
-                    className="w-full py-2 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    + Assign Technician
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
 
           {/* Lifecycle State Machine Vertical Stepper (Hidden for Storekeeper) */}
           {!isStorekeeper && (
