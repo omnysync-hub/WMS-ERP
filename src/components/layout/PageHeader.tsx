@@ -8,8 +8,6 @@ import {
   Download,
   Upload,
   MoreVertical,
-  GitFork,
-  Network,
 } from "lucide-react";
 
 export interface ViewVariant {
@@ -232,18 +230,8 @@ export default function PageHeader({
           )
         )}
 
-        {/* Page-Header Utility Icons Cluster (Sitemap & Kebab menu) */}
+        {/* Page-Header Utility Icons Cluster (Kebab menu) */}
         <div className="flex items-center gap-1 pl-1 border-l border-[#EDEDED]">
-          {/* Hierarchy/Sitemap Icon */}
-          <button
-            type="button"
-            title="View record relationship hierarchy"
-            aria-label="View record relationships"
-            onClick={() => alert("Relationship Hierarchy Map: Showing links between Work Orders, Technicians, Accounts, and Inventory")}
-            className="h-8 w-8 rounded-lg border border-[#EDEDED] bg-white hover:bg-[#F7F7F8] text-[#71717A] hover:text-[#18181B] flex items-center justify-center transition shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-          >
-            <Network className="w-3.5 h-3.5" />
-          </button>
 
           {/* Kebab / Vertical-Dots Menu */}
           <div className="relative">
