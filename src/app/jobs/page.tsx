@@ -28,6 +28,9 @@ import {
   ChevronRight,
   ArrowUpRight,
   RotateCcw,
+  CheckCircle2,
+  Clock,
+  CheckCheck,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
@@ -452,8 +455,67 @@ export default function JobsListPage() {
     },
     {
       id: "status",
-      header: "Status",
+      header: isStorekeeper ? "Material Status" : "Status",
       cell: (row) => {
+        if (isStorekeeper) {
+          const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
+          const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued" || r.status === "fulfilled").length || 0;
+          const returns = row.stockReturns || [];
+          const pendingAckCount = returns.filter((r: any) => !r.acknowledgedAt).length;
+          const ackedCount = returns.filter((r: any) => r.acknowledgedAt).length;
+          const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
+          const isDone = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
+          const returnableQty = row.items?.reduce((sum: number, it: any) => {
+            if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+              return sum + (it.quantityPlanned - it.quantityActual);
+            }
+            return sum;
+          }, 0) || 0;
+          const remainingReturnable = Math.max(0, returnableQty - ackedQty);
+
+          return (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {pendingCount > 0 && (
+                  <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 animate-pulse">
+                    <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Material Req Pending ({pendingCount})</span>
+                  </span>
+                )}
+                {issuedCount > 0 && (
+                  <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{issuedCount} {issuedCount === 1 ? "Item" : "Items"} Issued</span>
+                  </span>
+                )}
+                {pendingAckCount > 0 && (
+                  <span className="text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 animate-pulse">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>{pendingAckCount} Return Awaiting Ack</span>
+                  </span>
+                )}
+                {isDone && remainingReturnable > 0 && (
+                  <span className="text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5">
+                    <RotateCcw className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>{remainingReturnable} Returnable</span>
+                  </span>
+                )}
+                {ackedCount > 0 && (
+                  <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5">
+                    <CheckCheck className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                    <span>{ackedCount} Return Logged</span>
+                  </span>
+                )}
+                {pendingCount === 0 && issuedCount === 0 && !remainingReturnable && ackedCount === 0 && (
+                  <span className="text-[11px] text-[#71717A] italic">
+                    No Material Requests
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        }
+
         const hasPendingReq = row.inventoryRequests?.some((r: any) => r.status === "pending");
         const hasDiscountReq = row.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
         const hasPendingExpense = row.expenseClaims?.some((c: any) => c.status === "pending");
@@ -481,13 +543,13 @@ export default function JobsListPage() {
                 )}
               {(row.parentJob?.id || row.reassignedFromJobId) && row.parentJob?.jobNumber && (
                 <Link
-                  href={`/jobs/${row.parentJob.id}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-slate-100"
-                >
-                  Parent {row.parentJob.jobNumber}
-                </Link>
-              )}
+                    href={`/jobs/${row.parentJob.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[10px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-slate-100"
+                  >
+                    Parent {row.parentJob.jobNumber}
+                  </Link>
+                )}
             </div>
             {isStorekeeper && hasPendingReq && (
               <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
@@ -507,11 +569,10 @@ export default function JobsListPage() {
               </span>
             )}
           </div>
-        );
-      },
+        );      },
     },
     // Strictly hide Amount column if user lacks financial permission, showing warehouse material status instead
-    ...(!canViewFinancials
+    ...(!canViewFinancials && !isStorekeeper
       ? [
           {
             id: "storeInventorySummary",
@@ -796,34 +857,6 @@ export default function JobsListPage() {
       ) : (
         <>
           {/* Role Banner / Context */}
-          {isStorekeeper && (
-            <div className={`p-3 border rounded-lg flex items-center justify-between text-xs ${activeTab === "returnable" ? "bg-blue-50 border-blue-200 text-blue-950" : "bg-amber-50 border-amber-200 text-amber-950"}`}>
-              <div className="flex items-center gap-2">
-                {activeTab === "returnable" ? (
-                  <RotateCcw className="w-4 h-4 text-blue-700 shrink-0" />
-                ) : (
-                  <Package className="w-4 h-4 text-amber-700 shrink-0" />
-                )}
-                <span>
-                  {activeTab === "returnable" ? (
-                    <>
-                      <strong>Unused / Returnable Stock Queue:</strong> Record physical returns of unused materials from technicians. Confirming restocks warehouse inventory and reverses COGS.
-                    </>
-                  ) : (
-                    <>
-                      <strong>Storekeeper Material Fulfillment Queue:</strong> You are strictly restricted to jobs with material requests. You have sole authorization to issue physical stock from warehouse inventory.
-                    </>
-                  )}
-                </span>
-              </div>
-              <span className={`font-mono font-bold px-2.5 py-0.5 rounded text-[11px] shrink-0 ml-2 ${activeTab === "returnable" ? "bg-blue-200 text-blue-900" : "bg-amber-200 text-amber-900"}`}>
-                {activeTab === "returnable"
-                  ? `${storekeeperReturnableJobs.length} Returnable ${storekeeperReturnableJobs.length === 1 ? "Job" : "Jobs"}`
-                  : `${storekeeperJobs.length} Requested ${storekeeperJobs.length === 1 ? "Job" : "Jobs"}`}
-              </span>
-            </div>
-          )}
-
           {isAccountant && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-950">
               <div className="flex items-center gap-2">

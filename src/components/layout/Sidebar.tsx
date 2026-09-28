@@ -251,6 +251,13 @@ export default function Sidebar({
       roles: ["admin", "dispatcher", "call_center", "auditor"],
       perm: "dispatch.view_map",
     },
+    {
+      label: "Care-Of Parties",
+      href: "/jobs/care-of",
+      icon: Building,
+      roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
+      perm: "jobs.view_directory",
+    },
   ];
 
   const jobSubItems = allJobSubItems.filter((item) => {
@@ -418,6 +425,12 @@ export default function Sidebar({
       icon: ShieldCheck,
       roles: ["admin", "auditor"],
       perm: "settings.manage_users",
+    },
+    {
+      label: "Care-Of Settings",
+      href: "/jobs/care-of",
+      icon: Building,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "auditor"],
     },
   ];
 

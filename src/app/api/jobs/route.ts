@@ -91,6 +91,8 @@ export async function POST(req: NextRequest) {
     const {
       customerId,
       careOfPartyId,
+      careOfCompanyName,
+      careOfPersonName,
       manualJobNumber,
       jobType,
       remarks,
@@ -106,6 +108,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let effectiveCareOfId = careOfPartyId || null;
+    if (!effectiveCareOfId && careOfCompanyName && typeof careOfCompanyName === "string" && careOfCompanyName.trim()) {
+      let existingParty = await prisma.careOfParty.findFirst({
+        where: {
+          companyName: {
+            equals: careOfCompanyName.trim(),
+            mode: "insensitive",
+          },
+        },
+      });
+      if (!existingParty) {
+        existingParty = await prisma.careOfParty.create({
+          data: {
+            companyName: careOfCompanyName.trim(),
+            personName: careOfPersonName?.trim() || "",
+          },
+        });
+      }
+      effectiveCareOfId = existingParty.id;
+    }
+
     const count = await prisma.job.count();
     const jobNumber = `JOB-2026-${String(count + 1).padStart(4, "0")}`;
 
@@ -117,7 +140,7 @@ export async function POST(req: NextRequest) {
       data: {
         jobNumber,
         customerId,
-        careOfPartyId: careOfPartyId || null,
+        careOfPartyId: effectiveCareOfId,
         manualJobNumber: manualJobNumber || null,
         jobType,
         remarks: remarks || "",

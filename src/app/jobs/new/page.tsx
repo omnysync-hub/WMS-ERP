@@ -166,11 +166,17 @@ export default function NewJobIntakePage() {
     },
   ]);
 
-  // Care-Of Subcontract Toggle
+  // Care-Of Subcontract Toggle & Autocomplete
   const [isCareOf, setIsCareOf] = useState(false);
+  const [careOfParties, setCareOfParties] = useState<any[]>([]);
+  const [selectedCareOfPartyId, setSelectedCareOfPartyId] = useState<string | null>(null);
   const [careOfCompanyName, setCareOfCompanyName] = useState("");
   const [careOfPersonName, setCareOfPersonName] = useState("");
   const [manualJobNumber, setManualJobNumber] = useState("");
+  const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
+  const [isPersonDropdownOpen, setIsPersonDropdownOpen] = useState(false);
+  const companyInputRef = useRef<HTMLDivElement>(null);
+  const personInputRef = useRef<HTMLDivElement>(null);
 
   // Remarks
   const [remarks, setRemarks] = useState("");
@@ -186,15 +192,24 @@ export default function NewJobIntakePage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [custRes, techRes, invRes] = await Promise.all([
+      const [custRes, techRes, invRes, careOfRes] = await Promise.all([
         fetch("/api/customers"),
         fetch("/api/technicians"),
         fetch("/api/inventory"),
+        fetch("/api/care-of-parties"),
       ]);
 
       const custList = await custRes.json();
       const techData = await techRes.json();
       const invData = await invRes.json();
+      try {
+        const careOfData = await careOfRes.json();
+        if (Array.isArray(careOfData?.careOfParties)) {
+          setCareOfParties(careOfData.careOfParties);
+        }
+      } catch (e) {
+        // ignore
+      }
 
       if (Array.isArray(custList)) {
         setCustomers(custList);
@@ -215,6 +230,41 @@ export default function NewJobIntakePage() {
   useEffect(() => {
     loadData();
   }, []);
+  // Close Care-Of dropdowns on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (companyInputRef.current && !companyInputRef.current.contains(event.target as Node)) {
+        setIsCompanyDropdownOpen(false);
+      }
+      if (personInputRef.current && !personInputRef.current.contains(event.target as Node)) {
+        setIsPersonDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const matchingCareOfCompanies = useMemo(() => {
+    if (!careOfCompanyName.trim()) return careOfParties;
+    const q = careOfCompanyName.toLowerCase();
+    return careOfParties.filter((p) =>
+      p.companyName.toLowerCase().includes(q) ||
+      p.personName?.toLowerCase().includes(q)
+    );
+  }, [careOfParties, careOfCompanyName]);
+
+  const matchingCareOfPersons = useMemo(() => {
+    const list: { id: string; companyName: string; personName: string }[] = [];
+    for (const p of careOfParties) {
+      if (p.personName && p.personName.trim()) {
+        if (!careOfPersonName.trim() || p.personName.toLowerCase().includes(careOfPersonName.toLowerCase())) {
+          list.push({ id: p.id, companyName: p.companyName, personName: p.personName });
+        }
+      }
+    }
+    return list;
+  }, [careOfParties, careOfPersonName]);
+
 
   // Close customer dropdown when clicking outside
   useEffect(() => {
@@ -470,7 +520,9 @@ export default function NewJobIntakePage() {
 
       const payload = {
         customerId: selectedCustomerId,
-        careOfPartyId: null,
+        careOfPartyId: isCareOf ? selectedCareOfPartyId : null,
+        careOfCompanyName: isCareOf ? careOfCompanyName.trim() : null,
+        careOfPersonName: isCareOf ? careOfPersonName.trim() : null,
         manualJobNumber: isCareOf ? manualJobNumber : null,
         jobType: effectiveJobType.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 30),
         remarks: fullRemarks,
@@ -893,42 +945,194 @@ export default function NewJobIntakePage() {
               </div>
 
               {isCareOf && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 mt-2 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] animate-in fade-in">
-                  <div>
-                    <label className="font-semibold text-[#18181B] block mb-1">
-                      Care Of Company Name *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Apex Facilities Group"
-                      value={careOfCompanyName}
-                      onChange={(e) => setCareOfCompanyName(e.target.value)}
-                      className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none"
-                    />
+                <div className="p-3.5 mt-2 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] animate-in fade-in space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-[#E4E4E7]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-[#18181B]">
+                        Care-Of Organization Details
+                      </span>
+                      {selectedCareOfPartyId ? (
+                        <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Saved Partner Linked
+                        </span>
+                      ) : careOfCompanyName.trim() ? (
+                        <span className="text-[10px] font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 text-purple-600" />
+                          Will save as new organization
+                        </span>
+                      ) : null}
+                    </div>
+                    <Link
+                      href="/jobs/care-of"
+                      target="_blank"
+                      className="text-[11px] font-semibold text-[#0D7A5F] hover:text-[#0A614B] hover:underline inline-flex items-center gap-1"
+                    >
+                      <span>Manage Care-Of Directory &rarr;</span>
+                    </Link>
                   </div>
-                  <div>
-                    <label className="font-semibold text-[#18181B] block mb-1">
-                      Care Of Contact Person
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Engr. Usman Khan"
-                      value={careOfPersonName}
-                      onChange={(e) => setCareOfPersonName(e.target.value)}
-                      className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold text-[#18181B] block mb-1">
-                      External Job #
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. APX-9981"
-                      value={manualJobNumber}
-                      onChange={(e) => setManualJobNumber(e.target.value)}
-                      className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono"
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Searchable Company Name */}
+                    <div className="relative" ref={companyInputRef}>
+                      <label className="font-semibold text-xs text-[#18181B] block mb-1">
+                        Care Of Company Name <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <Building className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Search or type company..."
+                          value={careOfCompanyName}
+                          onFocus={() => setIsCompanyDropdownOpen(true)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCareOfCompanyName(val);
+                            setIsCompanyDropdownOpen(true);
+                            const match = careOfParties.find(
+                              (p) => p.companyName.toLowerCase() === val.trim().toLowerCase()
+                            );
+                            if (match) {
+                              setSelectedCareOfPartyId(match.id);
+                              if (match.personName && !careOfPersonName) {
+                                setCareOfPersonName(match.personName);
+                              }
+                            } else {
+                              setSelectedCareOfPartyId(null);
+                            }
+                          }}
+                          className="w-full text-xs pl-8.5 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
+                        />
+                        {careOfCompanyName && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCareOfCompanyName("");
+                              setSelectedCareOfPartyId(null);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-[#18181B]"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown Suggestions */}
+                      {isCompanyDropdownOpen && careOfParties.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-[#EDEDED] shadow-lg max-h-56 overflow-y-auto z-50 divide-y divide-[#F4F4F5] animate-in fade-in">
+                          <div className="p-1.5 bg-[#FAFAFA] text-[10px] font-semibold text-[#71717A] uppercase tracking-wider px-2">
+                            Select Saved Organization ({matchingCareOfCompanies.length})
+                          </div>
+                          {matchingCareOfCompanies.length === 0 ? (
+                            <div className="p-3 text-center text-xs text-[#71717A]">
+                              No matching partner found. Typed name will be registered.
+                            </div>
+                          ) : (
+                            matchingCareOfCompanies.map((party) => (
+                              <button
+                                key={party.id}
+                                type="button"
+                                onClick={() => {
+                                  setCareOfCompanyName(party.companyName);
+                                  setCareOfPersonName(party.personName || "");
+                                  setSelectedCareOfPartyId(party.id);
+                                  setIsCompanyDropdownOpen(false);
+                                }}
+                                className="w-full text-left p-2.5 hover:bg-[#F4F4F5] transition flex items-center justify-between text-xs group cursor-pointer"
+                              >
+                                <div>
+                                  <span className="font-bold text-[#18181B] group-hover:text-[#0D7A5F] block">
+                                    {party.companyName}
+                                  </span>
+                                  {party.personName && (
+                                    <span className="text-[11px] text-[#71717A] inline-flex items-center gap-1 mt-0.5">
+                                      <User className="w-3 h-3 text-[#A1A1AA]" />
+                                      {party.personName}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-[#0D7A5F] bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono group-hover:bg-emerald-100">
+                                  Auto-fill &rarr;
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Searchable Contact Person */}
+                    <div className="relative" ref={personInputRef}>
+                      <label className="font-semibold text-xs text-[#18181B] block mb-1">
+                        Care Of Contact Person
+                      </label>
+                      <div className="relative">
+                        <User className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="e.g. Engr. Usman Khan"
+                          value={careOfPersonName}
+                          onFocus={() => setIsPersonDropdownOpen(true)}
+                          onChange={(e) => setCareOfPersonName(e.target.value)}
+                          className="w-full text-xs pl-8.5 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
+                        />
+                        {careOfPersonName && (
+                          <button
+                            type="button"
+                            onClick={() => setCareOfPersonName("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-[#18181B]"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown Suggestions for Contact Person */}
+                      {isPersonDropdownOpen && matchingCareOfPersons.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-[#EDEDED] shadow-lg max-h-48 overflow-y-auto z-50 divide-y divide-[#F4F4F5] animate-in fade-in">
+                          <div className="p-1.5 bg-[#FAFAFA] text-[10px] font-semibold text-[#71717A] uppercase tracking-wider px-2">
+                            Suggested Contacts
+                          </div>
+                          {matchingCareOfPersons.map((p, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                setCareOfPersonName(p.personName);
+                                if (!careOfCompanyName && p.companyName) {
+                                  setCareOfCompanyName(p.companyName);
+                                  setSelectedCareOfPartyId(p.id);
+                                }
+                                setIsPersonDropdownOpen(false);
+                              }}
+                              className="w-full text-left p-2 hover:bg-[#F4F4F5] transition flex items-center justify-between text-xs cursor-pointer"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <User className="w-3 h-3 text-[#71717A]" />
+                                <span className="font-semibold text-[#18181B]">{p.personName}</span>
+                              </div>
+                              <span className="text-[10px] text-[#71717A]">
+                                {p.companyName}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* External Job # */}
+                    <div>
+                      <label className="font-semibold text-xs text-[#18181B] block mb-1">
+                        External Job #
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. APX-9981"
+                        value={manualJobNumber}
+                        onChange={(e) => setManualJobNumber(e.target.value)}
+                        className="w-full text-xs p-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs font-mono"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
