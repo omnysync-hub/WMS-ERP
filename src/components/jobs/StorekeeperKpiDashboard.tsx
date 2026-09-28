@@ -3,13 +3,10 @@
 import React from "react";
 import {
   Package,
-  Boxes,
   RotateCcw,
-  CheckCheck,
   Layers,
   X,
   Warehouse,
-  AlertCircle,
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -119,15 +116,6 @@ export default function StorekeeperKpiDashboard({
     return sum + Math.max(0, retQty - ackedQty);
   }, 0);
 
-  // 4. Returns Recorded / Restocked
-  const jobsWithReturns = storekeeperJobs.filter(
-    (j) => j.stockReturns && j.stockReturns.length > 0
-  );
-  const totalUnitsReturned = storekeeperJobs.reduce((sum, j) => {
-    const returns = j.stockReturns || [];
-    return sum + returns.reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
-  }, 0);
-
   const toggleFilter = (key: string) => {
     if (activeFilter === key) {
       onFilterSelect(null);
@@ -173,17 +161,6 @@ export default function StorekeeperKpiDashboard({
       activeRing: "ring-blue-500",
       badgeAlert: returnableJobs.length > 0,
       alertText: "Recoverable",
-    },
-    {
-      key: "recorded_returns",
-      label: "Processed Restocks",
-      count: totalUnitsReturned,
-      sublabel: `${jobsWithReturns.length} work order${jobsWithReturns.length === 1 ? "" : "s"} logged`,
-      icon: CheckCheck,
-      color: "text-teal-700",
-      bg: "bg-teal-50",
-      border: "border-teal-200",
-      activeRing: "ring-teal-500",
     },
     {
       key: "all_requisitions",
@@ -242,7 +219,7 @@ export default function StorekeeperKpiDashboard({
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {kpiCards.map((card) => {
           const Icon = card.icon;
           const isSelected = activeFilter === card.key;
