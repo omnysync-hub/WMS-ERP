@@ -92,8 +92,8 @@ export class JobsService {
         senderName: assignedBy,
         senderRole: "dispatcher",
         type: "JOB_DISPATCH",
-        title: `New Job Assigned: ${updated.jobNumber}`,
-        body: `You have been assigned to ${updated.customer?.name || "Customer"} for ${updated.jobType}. Tap to review and accept.`,
+        title: `New job — ${updated.jobNumber}`,
+        body: `${updated.customer?.name || "Customer"} · ${updated.jobType}. Tap to accept.`,
         priority: "high",
         actionRequired: true,
         payload: {
@@ -134,8 +134,8 @@ export class JobsService {
         senderName: assignedBy,
         senderRole: "dispatcher",
         type: "JOB_DISPATCH",
-        title: `New Job: ${job.jobNumber}`,
-        body: `Assigned to ${job.customer?.name || "customer"} - ${job.jobType}. Open the app to accept.`,
+        title: `New job — ${job.jobNumber}`,
+        body: `${job.customer?.name || "Customer"} · ${job.jobType}. Tap to accept.`,
         priority: "high",
         actionRequired: true,
         payload: {
@@ -316,8 +316,8 @@ export class JobsService {
           senderName: assignedBy,
           senderRole: "dispatcher",
           type: "JOB_DISPATCH",
-          title: `Job Assigned: ${updated.jobNumber}`,
-          body: `You have been assigned (${techId === primaryId ? "lead" : "assistant"}) to ${updated.customer?.name || "Customer"} â€” ${updated.jobType}.`,
+          title: `New job — ${updated.jobNumber}`,
+          body: `${updated.customer?.name || "Customer"} · ${updated.jobType} (${techId === primaryId ? "lead" : "helper"}). Tap to accept.`,
           priority: "high",
           actionRequired: true,
           payload: {
@@ -464,8 +464,8 @@ export class JobsService {
         senderName: assignedBy,
         senderRole: "dispatcher",
         type: "JOB_DISPATCH",
-        title: `Reassigned Job: ${newJob.jobNumber}`,
-        body: `You received work order ${newJob.jobNumber} (from ${job.jobNumber}) for ${newJob.customer?.name || "Customer"}. Tap to accept.`,
+        title: `New job — ${newJob.jobNumber}`,
+        body: `${newJob.customer?.name || "Customer"} · reassigned from ${job.jobNumber}. Tap to accept.`,
         priority: "high",
         actionRequired: true,
         payload: {
@@ -490,8 +490,8 @@ export class JobsService {
           senderName: assignedBy,
           senderRole: "dispatcher",
           type: "JOB_RESCHEDULED",
-          title: `Job ${job.jobNumber} reassigned`,
-          body: `Work order ${job.jobNumber} was reassigned. Historical data is preserved; successor is ${newJob.jobNumber}.`,
+          title: `Job moved — ${job.jobNumber}`,
+          body: `This job was given to someone else. New job is ${newJob.jobNumber}.`,
           priority: "normal",
           actionRequired: false,
           payload: {
@@ -784,7 +784,10 @@ export class JobsService {
 
     const oldRate = item.unitRate;
     const newRate = Math.max(0, oldRate - discountAmount);
-    const cleanDesc = item.description.replace(/\s*\[Discount.*?\]/gi, "");
+    const cleanDesc = item.description
+      .replace(/\s*\[[^\]]*\]/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
     const updatedDesc = `${cleanDesc} [Discount Approved: -$${discountAmount}, Rate: $${oldRate} -> $${newRate}]`;
 
     await prisma.jobItem.update({
@@ -809,9 +812,9 @@ export class JobsService {
         senderName: accountantName,
         senderRole: "accountant",
         type: "DISCOUNT_DECISION",
-        title: `Discount Approved for Job #${job.jobNumber}`,
-        body: `Item discount of PKR ${discountAmount} was approved for '${cleanDesc}'. New rate is PKR ${newRate}.`,
-        priority: "normal",
+        title: `Discount approved — ${job.jobNumber}`,
+        body: `${cleanDesc || "Item"}: PKR ${discountAmount} off. New price PKR ${newRate}.`,
+        priority: "high",
         actionRequired: false,
         payload: { jobId, itemId, discountAmount, newRate },
       }).catch((e) => console.error("[JobsService] Failed to send discount push:", e));
@@ -842,7 +845,10 @@ export class JobsService {
     const item = job.items.find((it) => it.id === itemId);
     if (!item) throw new Error("Item not found on job.");
 
-    const cleanDesc = item.description.replace(/\s*\[Discount.*?\]/gi, "");
+    const cleanDesc = item.description
+      .replace(/\s*\[[^\]]*\]/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
 
     await prisma.jobItem.update({
       where: { id: itemId },
@@ -863,9 +869,9 @@ export class JobsService {
         senderName: accountantName,
         senderRole: "accountant",
         type: "DISCOUNT_DECISION",
-        title: `Discount Request Rejected for Job #${job.jobNumber}`,
-        body: `Discount request for '${cleanDesc}' was declined: ${reason || "Standard pricing applies."}`,
-        priority: "normal",
+        title: `Discount declined — ${job.jobNumber}`,
+        body: `${cleanDesc || "Item"} — ${reason || "office kept the normal price."}`,
+        priority: "high",
         actionRequired: false,
         payload: { jobId, itemId, reason },
       }).catch((e) => console.error("[JobsService] Failed to send discount rejection push:", e));
@@ -912,8 +918,8 @@ export class JobsService {
         senderName: accountantName,
         senderRole: "accountant",
         type: "DISCOUNT_DECISION",
-        title: `Discount approved - ${job.jobNumber}`,
-        body: `PKR ${discountAmount} discount applied. Reason: ${reason}`,
+        title: `Discount approved — ${job.jobNumber}`,
+        body: `PKR ${discountAmount} off this job. ${reason}`,
         priority: "high",
         payload: { jobId, discountAmount, reason },
       }).catch((e) => console.error("[JobsService] discount push failed:", e));
@@ -1542,8 +1548,8 @@ export class JobsService {
         senderName: storekeeperName,
         senderRole: "storekeeper",
         type: "INVENTORY_ISSUED",
-        title: `Parts issued - ${job.jobNumber}`,
-        body: `${qty}Ã— ${product.name} ready for your job. Check stock on the job screen.`,
+        title: `Parts ready — ${job.jobNumber}`,
+        body: `${qty} x ${product.name} is ready. Open the job to check.`,
         priority: "high",
         payload: {
           jobId,

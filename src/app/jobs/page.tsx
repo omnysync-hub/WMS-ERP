@@ -8,6 +8,7 @@ import DataTable, { ColumnDef } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
 import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
+import JobsKpiDashboard from "@/components/jobs/JobsKpiDashboard";
 import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn } from "@/lib/utils";
 import {
   Plus,
@@ -34,6 +35,7 @@ export default function JobsListPage() {
   const isStorekeeper = activeRole === "storekeeper";
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
+  const isDispatcher = activeRole === "dispatcher";
   const canViewFinancials = hasPermission("jobs.view_financials");
   const canReassignTech = hasPermission("jobs.reassign_tech");
   const canCreateJob = hasPermission("jobs.create_job");
@@ -45,6 +47,7 @@ export default function JobsListPage() {
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Redirect legacy /jobs?view=reports links to dedicated /jobs/reports page
@@ -116,6 +119,55 @@ export default function JobsListPage() {
       return true;
     }
 
+    if (kpiFilter) {
+      if (kpiFilter === "unassigned") {
+        const isUnassigned =
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0));
+        if (!isUnassigned) return false;
+      } else if (kpiFilter === "assigned") {
+        if (j.status !== "Assigned") return false;
+      } else if (kpiFilter === "accepted") {
+        if (j.status !== "Accepted") return false;
+      } else if (kpiFilter === "in_progress") {
+        if (j.status !== "InProgress") return false;
+      } else if (kpiFilter === "paused") {
+        if (j.status !== "Paused") return false;
+      } else if (kpiFilter === "completed") {
+        if (
+          ![
+            "CompletedPendingVerification",
+            "Finalized",
+            "Verified",
+            "AwaitingFeedback",
+          ].includes(j.status)
+        )
+          return false;
+      } else if (kpiFilter === "pending_stock") {
+        if (!j.inventoryRequests?.some((r: any) => r.status === "pending")) return false;
+      } else if (kpiFilter === "approved_stock") {
+        if (
+          !j.inventoryRequests?.some(
+            (r: any) => r.status === "issued" || r.status === "fulfilled"
+          )
+        )
+          return false;
+      } else if (kpiFilter === "pending_discount") {
+        if (!j.items?.some((it: any) => it.description?.includes("[Discount Requested:"))) return false;
+      } else if (kpiFilter === "approved_discount") {
+        const hasApprovedDiscount =
+          (j.discountAmount && j.discountAmount > 0) ||
+          j.items?.some(
+            (it: any) =>
+              it.description?.includes("[Discount Approved:") ||
+              it.description?.includes("[Discount:")
+          );
+        if (!hasApprovedDiscount) return false;
+      }
+    }
+
     if (activeTab === "all") return true;
 
     if (isAccountant) {
@@ -124,6 +176,21 @@ export default function JobsListPage() {
       if (activeTab === "discount_requests") return j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
       if (activeTab === "pending_expenses") return j.expenseClaims?.some((c: any) => c.status === "pending");
       if (activeTab === "completed") return ["Finalized", "Verified"].includes(j.status);
+    } else if (isDispatcher) {
+      if (activeTab === "unassigned") {
+        return (
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0))
+        );
+      }
+      if (activeTab === "assigned") return j.status === "Assigned";
+      if (activeTab === "in_progress") return j.status === "InProgress" || j.status === "Accepted";
+      if (activeTab === "paused") return j.status === "Paused";
+      if (activeTab === "completed") {
+        return ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
+      }
     } else {
       // Admin / Manager / Ops / Call Center / Cashier / Auditor
       if (activeTab === "assigned_today") return j.status === "Assigned" || j.status === "InProgress";
@@ -484,7 +551,8 @@ export default function JobsListPage() {
             },
           },
         ]
-      : [
+      : !isDispatcher && (isAdmin || isAccountant || canViewFinancials)
+      ? [
           {
             id: "amount",
             header: "Amount",
@@ -509,7 +577,8 @@ export default function JobsListPage() {
               );
             },
           },
-        ]),
+        ]
+      : []),
     {
       id: "createdAt",
       header: "Created",
@@ -648,7 +717,42 @@ export default function JobsListPage() {
     { id: "completed", label: "Completed", count: jobs.filter((j) => ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)).length },
   ];
 
-  const activeTabsList = isAccountant ? accountantTabs : isStorekeeper ? storekeeperTabs : adminTabs;
+  const dispatcherTabs = [
+    { id: "all", label: "All Jobs", count: jobs.length },
+    {
+      id: "unassigned",
+      label: "Unassigned Queue",
+      count: jobs.filter(
+        (j) =>
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0))
+      ).length,
+    },
+    { id: "assigned", label: "Assigned", count: jobs.filter((j) => j.status === "Assigned").length },
+    {
+      id: "in_progress",
+      label: "In Progress / Active",
+      count: jobs.filter((j) => j.status === "InProgress" || j.status === "Accepted").length,
+    },
+    { id: "paused", label: "Paused on Site", count: jobs.filter((j) => j.status === "Paused").length },
+    {
+      id: "completed",
+      label: "Completed",
+      count: jobs.filter((j) =>
+        ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)
+      ).length,
+    },
+  ];
+
+  const activeTabsList = isAccountant
+    ? accountantTabs
+    : isStorekeeper
+    ? storekeeperTabs
+    : isDispatcher
+    ? dispatcherTabs
+    : adminTabs;
 
   return (
     <div className="space-y-4">
@@ -712,6 +816,23 @@ export default function JobsListPage() {
             </div>
           )}
 
+          {isDispatcher && (
+            <div className="p-3 bg-blue-50/80 border border-blue-200 text-blue-950 rounded-lg flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-blue-700 shrink-0" />
+                <span>
+                  <strong>Lead Dispatcher Operational Command:</strong> Live fleet technician assignment, queue monitoring, and field lifecycle control. Financial pricing is masked.
+                </span>
+              </div>
+              <Link
+                href="/dispatch/map"
+                className="font-bold text-blue-800 hover:text-blue-950 underline shrink-0 ml-2 inline-flex items-center gap-1"
+              >
+                <span>Live Dispatch Map &rarr;</span>
+              </Link>
+            </div>
+          )}
+
           {/* Page Header (Per 04-DESIGN.md Section 1) */}
           <PageHeader
             moduleName={isStorekeeper ? "Warehouse Material Dispatch" : isAccountant ? "Jobs Financial Ledger" : "Jobs"}
@@ -733,6 +854,15 @@ export default function JobsListPage() {
             }
             onExport={() => alert("Exporting jobs list...")}
           />
+
+          {/* Dispatcher & Operations KPI Dashboard Cards */}
+          {!isStorekeeper && (
+            <JobsKpiDashboard
+              jobs={jobs}
+              activeFilter={kpiFilter}
+              onFilterSelect={setKpiFilter}
+            />
+          )}
 
           {/* Dense Data Table (Per 04-DESIGN.md Section 2) */}
           <DataTable

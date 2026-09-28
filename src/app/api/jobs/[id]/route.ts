@@ -128,7 +128,13 @@ export async function PATCH(
           params.id,
           actor,
           payload.actualItems,
-          payload.completionDetails
+          {
+            ...(payload.completionDetails || {}),
+            technicianEmployeeId:
+              payload.completionDetails?.technicianEmployeeId ||
+              payload.technicianId ||
+              payload.completionDetails?.technicianId,
+          }
         );
         break;
 

@@ -139,9 +139,23 @@ export class MobilePushService {
 
     // 3. Dispatch native push notifications via Expo Push API (works for iOS and Android)
     if (activeTokens.length > 0) {
+      const isJobRing = type === "JOB_DISPATCH" || type === "EMERGENCY_ALERT";
+      const isUrgent =
+        isJobRing || priority === "urgent" || priority === "high";
+      const channelId = isJobRing
+        ? "job-ring-v1"
+        : isUrgent
+          ? "urgent-dispatch-v2"
+          : "general-dispatch";
+      const sound = isJobRing
+        ? "job_ring.wav"
+        : isUrgent
+          ? "alert_chime.wav"
+          : "default";
+
       const pushMessages = activeTokens.map((t: any) => ({
         to: t.token,
-        sound: "default",
+        sound,
         title,
         body,
         data: {
@@ -151,11 +165,8 @@ export class MobilePushService {
           actionRequired,
           ...payload,
         },
-        priority: priority === "urgent" || priority === "high" ? "high" : "default",
-        channelId:
-          priority === "urgent" || priority === "high"
-            ? "urgent-dispatch"
-            : "general-dispatch",
+        priority: isUrgent ? "high" : "default",
+        channelId,
         _contentAvailable: true,
       }));
 
