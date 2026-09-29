@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+
+/** Prisma client or interactive-transaction client. */
+export type DbClient = Prisma.TransactionClient | typeof prisma;
 
 export interface PostLineItem {
   accountId: string;
@@ -16,12 +20,16 @@ export interface PostEntryParams {
   approvedBy?: string;
   bypassPeriodLock?: boolean;
   lines: PostLineItem[];
+  /** When provided, the entry is written inside the caller's interactive transaction. */
+  tx?: Prisma.TransactionClient;
 }
 
 export interface ReverseEntryParams {
   journalEntryId: string;
   reversedBy: string;
   reason: string;
+  /** When provided, the reversal is written inside the caller's interactive transaction. */
+  tx?: Prisma.TransactionClient;
 }
 
 export class AccountsPostingService {
@@ -42,7 +50,9 @@ export class AccountsPostingService {
       approvedBy,
       bypassPeriodLock = false,
       lines,
+      tx: outerTx,
     } = params;
+    const db: DbClient = outerTx ?? prisma;
 
     if (!lines || lines.length === 0) {
       throw new Error("Posting rejected: A journal entry must have at least two line items.");
@@ -75,7 +85,7 @@ export class AccountsPostingService {
     // 1. Validate Fiscal Period Lock
     let targetFiscalPeriodId: string | null = null;
     if (!bypassPeriodLock) {
-      const activePeriod = await prisma.fiscalPeriod.findFirst({
+      const activePeriod = await db.fiscalPeriod.findFirst({
         where: {
           startDate: { lte: date },
           endDate: { gte: date },
@@ -94,7 +104,7 @@ export class AccountsPostingService {
 
     // 2. Validate Account Existence
     for (const line of lines) {
-      const account = await prisma.account.findUnique({
+      const account = await db.account.findUnique({
         where: { id: line.accountId },
       });
       if (!account) {
@@ -112,7 +122,7 @@ export class AccountsPostingService {
     }
 
     // 4. Atomically write journal entry and lines (Append-only)
-    return await prisma.$transaction(async (tx) => {
+    const write = async (tx: Prisma.TransactionClient) => {
       const entry = await tx.journalEntry.create({
         data: {
           date,
@@ -162,7 +172,8 @@ export class AccountsPostingService {
       });
 
       return entry;
-    });
+    };
+    return outerTx ? write(outerTx) : prisma.$transaction(write);
   }
 
   /**
@@ -171,9 +182,10 @@ export class AccountsPostingService {
    * Instead, an exact equal-and-opposite entry is generated referencing the original.
    */
   static async reverseEntry(params: ReverseEntryParams) {
-    const { journalEntryId, reversedBy, reason } = params;
+    const { journalEntryId, reversedBy, reason, tx: outerTx } = params;
+    const db: DbClient = outerTx ?? prisma;
 
-    const originalEntry = await prisma.journalEntry.findUnique({
+    const originalEntry = await db.journalEntry.findUnique({
       where: { id: journalEntryId },
       include: {
         lines: true,
@@ -196,7 +208,7 @@ export class AccountsPostingService {
 
     // Check period lock for today's reversal date
     const today = new Date();
-    const activePeriod = await prisma.fiscalPeriod.findFirst({
+    const activePeriod = await db.fiscalPeriod.findFirst({
       where: {
         startDate: { lte: today },
         endDate: { gte: today },
@@ -216,7 +228,7 @@ export class AccountsPostingService {
       credit: l.debit,   // Swap: original debit becomes credit
     }));
 
-    return await prisma.$transaction(async (tx) => {
+    const write = async (tx: Prisma.TransactionClient) => {
       // 1. Create reversal journal voucher
       const reversalEntry = await tx.journalEntry.create({
         data: {
@@ -271,7 +283,8 @@ export class AccountsPostingService {
       });
 
       return reversalEntry;
-    });
+    };
+    return outerTx ? write(outerTx) : prisma.$transaction(write);
   }
 
   /**

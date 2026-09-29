@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Check, Users, Search } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { canChangeTechnician, isPreStartStatus, isReassignableStatus } from "@/lib/jobStatus";
 
 interface ReassignTechDrawerProps {
   isOpen: boolean;
@@ -27,10 +28,10 @@ export default function ReassignTechDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isAlreadyAssigned = Boolean(job?.assignedTechnicianId || job?.assignedTechnician);
-  const midJobStatuses = ["Accepted", "InProgress", "Paused"];
-  const isMidJob = isAlreadyAssigned && midJobStatuses.includes(job?.status);
-  const canMultiAssign =
-    !isMidJob && (job?.status === "Created" || job?.status === "Assigned" || !job?.status);
+  // Mid-job (Accepted/InProgress/Paused) → reassign (successor job). Pre-start → direct assign.
+  const isMidJob = isAlreadyAssigned && isReassignableStatus(job?.status);
+  const canMultiAssign = !isMidJob && isPreStartStatus(job?.status);
+  const changeAllowed = job ? canChangeTechnician(job) : false;
 
   useEffect(() => {
     if (job) {
@@ -58,12 +59,16 @@ export default function ReassignTechDrawer({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!job || !selectedTechId) return;
+    if (!changeAllowed) {
+      alert(`Technician cannot be changed while the job is '${job.status}'.`);
+      return;
+    }
 
     try {
       setIsSubmitting(true);
 
       let body: Record<string, unknown>;
-      if (isMidJob || (isAlreadyAssigned && selectedTechId !== job.assignedTechnicianId)) {
+      if (isMidJob && selectedTechId !== job.assignedTechnicianId) {
         // Preserve history: create successor job
         body = {
           action: "reassign",
@@ -328,7 +333,7 @@ export default function ReassignTechDrawer({
           </div>
         )}
 
-        {(isMidJob || (isAlreadyAssigned && selectedTechId !== job.assignedTechnicianId)) && (
+        {isMidJob && (
           <div>
             <label className="font-semibold text-[#1A1D1F] block mb-1.5">Reassignment note</label>
             <textarea

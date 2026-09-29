@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { installErpActorFetch, type ErpActorSnapshot } from "@/lib/erpActorFetch";
 
 export type BuiltInRoleType =
   | "admin"
@@ -440,6 +441,17 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     users.find((u) => u.role === activeRole) ||
     users[0] ||
     DEFAULT_USERS[0];
+
+  // Keep API calls in sync with the active persona (server enforces jobs.* / procurement.* gates)
+  const actorRef = useRef<ErpActorSnapshot | null>(null);
+  actorRef.current = {
+    role: String(activeRole || "anonymous").toLowerCase(),
+    name: activeUser?.name || currentPersona?.name,
+    userId: activeUser?.id,
+  };
+  if (typeof window !== "undefined") {
+    installErpActorFetch(() => actorRef.current);
+  }
 
   const setRole = (role: RoleType) => {
     setActiveRoleState(role);

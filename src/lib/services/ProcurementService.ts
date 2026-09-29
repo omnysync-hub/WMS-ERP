@@ -940,15 +940,23 @@ export class ProcurementService {
     });
   }
 
+  /** PO statuses that may receive goods (schema: draft, approved, sent_to_vendor, partially_received, fully_received, closed, cancelled, rejected). */
+  static readonly GRN_RECEIVABLE_PO_STATUSES = ["approved", "sent_to_vendor", "sent", "partially_received"];
+
   static async createGoodsReceipt(data: CreateGrnInput) {
     const po = await prisma.purchaseOrder.findUnique({
       where: { id: data.poId },
       include: { items: { include: { product: true } }, vendor: true },
     });
     if (!po) throw new Error("Purchase order not found");
-
-    const count = await prisma.goodsReceipt.count();
-    const grnNumber = `GRN-2026-${String(count + 1).padStart(4, "0")}`;
+    if (!ProcurementService.GRN_RECEIVABLE_PO_STATUSES.includes(po.status)) {
+      throw new Error(
+        `Cannot receive goods against PO ${po.poNumber} in status '${po.status}'. Allowed: approved, sent_to_vendor, partially_received.`
+      );
+    }
+    if (!Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error("At least one GRN line is required");
+    }
 
     // Pre-validate all lines for over-receive before any mutations
     for (const item of data.items) {
@@ -965,7 +973,22 @@ export class ProcurementService {
       }
     }
 
-    const grnItemsData = [];
+    // Build GRN lines (pure computation)
+    const grnItemsData: Array<{
+      poItemId: string | null;
+      productId: string | null;
+      itemCode: string | null;
+      description: string;
+      unit: string;
+      quantityReceived: number;
+      quantityAccepted: number;
+      quantityRejected: number;
+      qualityStatus: string;
+      rejectionReason: string | null;
+      batchNumber: string | null;
+      serialNumber: string | null;
+      expiryDate: Date | null;
+    }> = [];
     let totalAcceptedValue = 0;
 
     for (const item of data.items) {
@@ -977,18 +1000,6 @@ export class ProcurementService {
       const quality = item.qualityStatus || "Accepted";
       const qtyAcc = quality === "Accepted" ? (item.quantityAccepted ?? qtyRec) : 0;
       const qtyRej = qtyRec - qtyAcc;
-
-      // Hard gate: block over-receive vs remaining PO qty
-      if (poItem) {
-        const alreadyReceived = Number(poItem.quantityReceived) || 0;
-        const ordered = Number(poItem.quantity) || 0;
-        const remaining = Math.max(0, ordered - alreadyReceived);
-        if (qtyRec > remaining + 1e-9) {
-          throw new Error(
-            `Cannot over-receive for PO line "${poItem.description || poItem.itemCode || poItem.id}": received ${qtyRec} but only ${remaining} remaining of ${ordered} ordered`
-          );
-        }
-      }
 
       totalAcceptedValue += qtyAcc * unitCost;
 
@@ -1007,133 +1018,117 @@ export class ProcurementService {
         serialNumber: item.serialNumber || null,
         expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
       });
+    }
 
-      // Update PO item quantityReceived
-      if (poItem) {
-        await prisma.purchaseOrderItem.update({
-          where: { id: poItem.id },
-          data: { quantityReceived: { increment: qtyAcc } },
+    // Resolve GL accounts before the write transaction (read-only)
+    const roundedValue = Math.round(totalAcceptedValue * 100) / 100;
+    const [inventoryAccount, grirAccount] =
+      roundedValue > 0
+        ? await Promise.all([
+            AccountMappingService.resolveAccount({ transactionType: "grn_receipt_asset" }),
+            AccountMappingService.resolveAccount({ transactionType: "grn_receipt_clearing" }),
+          ])
+        : [null, null];
+
+    // GRN + PO lines + PO status + stock movements + GL: all-or-nothing
+    return prisma.$transaction(
+      async (tx) => {
+        // Re-check PO status inside the transaction (concurrent GRN / cancel)
+        const livePo = await tx.purchaseOrder.findUnique({
+          where: { id: po.id },
+          include: { items: true },
         });
-      }
+        if (!livePo || !ProcurementService.GRN_RECEIVABLE_PO_STATUSES.includes(livePo.status)) {
+          throw new Error(`PO ${po.poNumber} is no longer receivable (status '${livePo?.status}').`);
+        }
+        for (const gi of grnItemsData) {
+          if (!gi.poItemId) continue;
+          const li = livePo.items.find((x) => x.id === gi.poItemId);
+          if (!li) continue;
+          const remaining = Math.max(0, (Number(li.quantity) || 0) - (Number(li.quantityReceived) || 0));
+          if (gi.quantityReceived > remaining + 1e-9) {
+            throw new Error(
+              `Cannot over-receive for PO line "${li.description || li.itemCode || li.id}": received ${gi.quantityReceived} but only ${remaining} remaining`
+            );
+          }
+        }
 
-      // Update Product physical stock if item has Product link and accepted > 0
-      if (pId && qtyAcc > 0) {
-        await prisma.product.update({
-          where: { id: pId },
-          data: { stockQuantity: { increment: qtyAcc } },
-        });
+        const count = await tx.goodsReceipt.count();
+        const grnNumber = `GRN-2026-${String(count + 1).padStart(4, "0")}`;
 
-        await prisma.stockLedger.create({
+        const grn = await tx.goodsReceipt.create({
           data: {
-            productId: pId,
-            qty: qtyAcc,
-            direction: "in",
-            refType: "grn",
-            refId: grnNumber,
-            notes: `Inward GRN ${grnNumber} under PO ${po.poNumber} (${quality})`,
+            grnNumber,
+            poId: po.id,
+            receivedBy: data.receivedBy.trim(),
+            receivedDate: data.receivedDate ? new Date(data.receivedDate) : new Date(),
+            warehouseLocation: data.warehouseLocation || "Central Warehouse",
+            deliveryChallan: data.deliveryChallan || null,
+            qualityStatus: data.qualityStatus || "Accepted",
+            status: "received",
+            notes: data.notes || null,
+            items: { create: grnItemsData },
           },
         });
-      }
-    }
 
-    // 1. Create GRN Record
-    const grn = await prisma.goodsReceipt.create({
-      data: {
-        grnNumber,
-        poId: po.id,
-        receivedBy: data.receivedBy.trim(),
-        receivedDate: data.receivedDate ? new Date(data.receivedDate) : new Date(),
-        warehouseLocation: data.warehouseLocation || "Central Warehouse",
-        deliveryChallan: data.deliveryChallan || null,
-        qualityStatus: data.qualityStatus || "Accepted",
-        status: "received",
-        notes: data.notes || null,
-        items: {
-          create: grnItemsData,
-        },
-      },
-      include: {
-        items: true,
-        po: { include: { vendor: true } },
-      },
-    });
-
-    // 2. Double-Entry General Ledger Posting
-    // Debit: 1200 Inventory Asset
-    // Credit: 2050 GR/IR Clearing Account (Unbilled Receipts)
-    const roundedValue = Math.round(totalAcceptedValue * 100) / 100;
-    if (roundedValue > 0) {
-      try {
-        const inventoryAccount = await AccountMappingService.resolveAccount({
-          transactionType: "grn_receipt_asset",
-        });
-        const grirAccount = await AccountMappingService.resolveAccount({
-          transactionType: "grn_receipt_clearing",
-        });
-
-        const journal = await AccountsPostingService.post({
-          memo: `Goods Receipt ${grnNumber} for PO ${po.poNumber} (${po.supplierName}) [Accepted Val: PKR ${roundedValue.toLocaleString()}]`,
-          refType: "grn_receipt",
-          refId: grn.id,
-          postedBy: data.receivedBy,
-          lines: [
-            { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
-            { accountId: grirAccount.id, debit: 0, credit: roundedValue },
-          ],
-        });
-
-        await prisma.goodsReceipt.update({
-          where: { id: grn.id },
-          data: { accountingJournalId: journal.id },
-        });
-      } catch (err: any) {
-        // Rollback GRN + stock increments so we never report success without GL
-        try {
-          for (const gi of grnItemsData) {
-            if (gi.poItemId && gi.quantityAccepted > 0) {
-              await prisma.purchaseOrderItem.update({
-                where: { id: gi.poItemId },
-                data: { quantityReceived: { decrement: gi.quantityAccepted } },
-              });
-            }
-            if (gi.productId && gi.quantityAccepted > 0) {
-              await prisma.product.update({
-                where: { id: gi.productId },
-                data: { stockQuantity: { decrement: gi.quantityAccepted } },
-              });
-              await prisma.stockLedger.deleteMany({
-                where: { refType: "grn", refId: grnNumber },
-              });
-            }
+        for (const gi of grnItemsData) {
+          if (gi.poItemId && gi.quantityAccepted > 0) {
+            await tx.purchaseOrderItem.update({
+              where: { id: gi.poItemId },
+              data: { quantityReceived: { increment: gi.quantityAccepted } },
+            });
           }
-          await prisma.goodsReceiptItem.deleteMany({ where: { grnId: grn.id } });
-          await prisma.goodsReceipt.delete({ where: { id: grn.id } });
-        } catch (rollbackErr: any) {
-          throw new Error(
-            `GRN GL posting failed (${err.message || err}) and rollback also failed (${rollbackErr.message || rollbackErr})`
-          );
+          if (gi.productId && gi.quantityAccepted > 0) {
+            await tx.product.update({
+              where: { id: gi.productId },
+              data: { stockQuantity: { increment: gi.quantityAccepted } },
+            });
+            await tx.stockLedger.create({
+              data: {
+                productId: gi.productId,
+                qty: gi.quantityAccepted,
+                direction: "in",
+                refType: "grn",
+                refId: grnNumber,
+                notes: `Inward GRN ${grnNumber} under PO ${po.poNumber} (${gi.qualityStatus})`,
+              },
+            });
+          }
         }
-        throw new Error(
-          `GRN GL posting failed - operation rolled back: ${err.message || err}`
-        );
-      }
-    }
 
-    // 3. Update PO Overall Status (partially_received or fully_received)
-    const updatedPo = await prisma.purchaseOrder.findUnique({
-      where: { id: po.id },
-      include: { items: true },
-    });
+        // Double-entry: Dr Inventory Asset / Cr GR-IR clearing (AccountMappingService roles)
+        if (roundedValue > 0 && inventoryAccount && grirAccount) {
+          const journal = await AccountsPostingService.post({
+            memo: `Goods Receipt ${grnNumber} for PO ${po.poNumber} (${po.supplierName}) [Accepted Val: PKR ${roundedValue.toLocaleString()}]`,
+            refType: "grn_receipt",
+            refId: grn.id,
+            postedBy: data.receivedBy,
+            lines: [
+              { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
+              { accountId: grirAccount.id, debit: 0, credit: roundedValue },
+            ],
+            tx,
+          });
+          await tx.goodsReceipt.update({
+            where: { id: grn.id },
+            data: { accountingJournalId: journal.id },
+          });
+        }
 
-    const isFullyReceived = updatedPo?.items.every((it) => it.quantityReceived >= it.quantity);
-    await prisma.purchaseOrder.update({
-      where: { id: po.id },
-      data: {
-        status: isFullyReceived ? "fully_received" : "partially_received",
+        const updatedItems = await tx.purchaseOrderItem.findMany({ where: { poId: po.id } });
+        const isFullyReceived = updatedItems.every((it) => it.quantityReceived >= it.quantity);
+        await tx.purchaseOrder.update({
+          where: { id: po.id },
+          data: { status: isFullyReceived ? "fully_received" : "partially_received" },
+        });
+
+        return tx.goodsReceipt.findUniqueOrThrow({
+          where: { id: grn.id },
+          include: { items: true, po: { include: { vendor: true } } },
+        });
       },
-    });
-
-    return grn;
+      { maxWait: 10000, timeout: 30000 }
+    );
   }
 
   static processGrn = this.createGoodsReceipt;

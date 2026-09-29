@@ -5,8 +5,8 @@ export interface FeedbackCallParams {
   calledBy: string;
   outcome: "approved" | "disapproved" | "no_answer" | "rescheduled";
   remarks: string;
-  /** Notes from calling the assigned technician (optional but encouraged). */
-  technicianRemarks?: string;
+  /** Notes from calling the assigned technician (required). */
+  technicianRemarks: string;
   followUpDate?: Date | null;
 }
 
@@ -64,8 +64,11 @@ export class FeedbackService {
       );
     }
 
-    if (!remarks || remarks.trim().length === 0) {
+    if (!remarks || String(remarks).trim().length === 0) {
       throw new Error("Customer call remarks are required.");
+    }
+    if (!technicianRemarks || String(technicianRemarks).trim().length === 0) {
+      throw new Error("Technician call remarks are required (call the assigned technician and note their account).");
     }
 
     if ((outcome === "no_answer" || outcome === "rescheduled") && !followUpDate) {
@@ -74,9 +77,7 @@ export class FeedbackService {
 
     const combinedRemarks = [
       remarks.trim(),
-      technicianRemarks?.trim()
-        ? `[Technician call] ${technicianRemarks.trim()}`
-        : null,
+      `[Technician call] ${String(technicianRemarks).trim()}`,
     ]
       .filter(Boolean)
       .join(" | ");

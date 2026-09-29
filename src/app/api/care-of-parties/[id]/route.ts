@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const gate = await requireJobsPermission(request, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -40,6 +43,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const gate = await requireJobsPermission(request, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const { id } = await params;
 

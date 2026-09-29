@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { canAddServiceOrItem } from "@/lib/jobStatus";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Plus, Trash2, Wrench, Check, AlertCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
@@ -108,6 +109,11 @@ export default function AddServiceDrawer({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (job && !canAddServiceOrItem(job)) {
+      setErrorMsg(`Services/items cannot be added to a ${job.finalizedAt ? "finalized" : job.status} job.`);
+      return;
+    }
 
     // Validation
     for (let i = 0; i < serviceRows.length; i++) {

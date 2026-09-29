@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { FeedbackService } from "@/lib/services/FeedbackService";
 import { prisma } from "@/lib/prisma";
 
@@ -23,9 +24,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const gate = await requireJobsPermission(req, "jobs.feedback");
+  if (gate.error) return gate.error;
   try {
     const body = await req.json();
-    const { jobId, calledBy = "Call Center Agent", outcome, remarks, technicianRemarks, followUpDate } = body;
+    const { jobId, calledBy = gate.actor.name || "Call Center Agent", outcome, remarks, technicianRemarks, followUpDate } = body;
 
     const call = await FeedbackService.recordFeedback({
       jobId,

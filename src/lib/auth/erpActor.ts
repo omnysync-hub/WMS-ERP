@@ -90,6 +90,7 @@ export function requireProcurementPermission(
           error: `Forbidden: role '${actor.role}' lacks permission '${permissionKey}'`,
           permission: permissionKey,
           role: actor.role,
+          code: "PERMISSION_DENIED",
         },
         { status: 403 }
       ),
@@ -127,6 +128,7 @@ export function requireAnyProcurementPermission(
           error: `Forbidden: role '${actor.role}' lacks any of [${permissionKeys.join(", ")}]`,
           permissions: permissionKeys,
           role: actor.role,
+          code: "PERMISSION_DENIED",
         },
         { status: 403 }
       ),
@@ -166,6 +168,7 @@ export function requirePermission(
           error: `Forbidden: role '${actor.role}' lacks permission '${permissionKey}'`,
           permission: permissionKey,
           role: actor.role,
+          code: "PERMISSION_DENIED",
         },
         { status: 403 }
       ),
@@ -175,5 +178,101 @@ export function requirePermission(
   return { actor };
 }
 
-/** Alias used by jobs verification APIs. */
-export const requireJobsPermission = requirePermission;
+type GateResult =
+  | { actor: ErpActor; error?: undefined }
+  | { actor: ErpActor; error: NextResponse };
+
+/**
+ * Resolve the calling actor for jobs APIs.
+ * - Mobile app: `Authorization: Bearer wms_mobile_...` is verified (HMAC) and the employee's
+ *   DB role is authoritative (headers cannot escalate a mobile session).
+ * - ERP web (demo RBAC): falls back to x-actor-role / x-actor-name / x-user-id headers.
+ * Returns `{ error }` (401) when a Bearer token is present but invalid/expired/deactivated.
+ */
+export async function resolveJobsActor(
+  req: NextRequest
+): Promise<{ actor: ErpActor; viaMobileToken: boolean; error?: NextResponse }> {
+  const auth = req.headers.get("authorization") || "";
+  if (auth.startsWith("Bearer ")) {
+    try {
+      // Lazy import keeps erpActor free of prisma for pure-header callers
+      const { resolveCaller } = await import("@/lib/auth/mobileAuth");
+      const caller = await resolveCaller(req);
+      if (!caller) {
+        return {
+          actor: resolveErpActorFromRequest(req),
+          viaMobileToken: true,
+          error: NextResponse.json(
+            { error: "Unauthorized: invalid, expired or deactivated mobile session. Sign in again." },
+            { status: 401 }
+          ),
+        };
+      }
+      return {
+        actor: {
+          id: caller.id,
+          role: (caller.role || "anonymous").toLowerCase(),
+          name: caller.name || req.headers.get("x-actor-name") || "Mobile User",
+        },
+        viaMobileToken: true,
+      };
+    } catch (e: any) {
+      return {
+        actor: resolveErpActorFromRequest(req),
+        viaMobileToken: true,
+        error: NextResponse.json(
+          // 503 (not 401): a transient DB/verify failure must not force-logout the mobile app
+          { error: `Could not verify mobile session right now (${e?.message || "unknown error"}). Try again.` },
+          { status: 503 }
+        ),
+      };
+    }
+  }
+  return { actor: resolveErpActorFromRequest(req), viaMobileToken: false };
+}
+
+/**
+ * Jobs permission gate (jobs.*, care-of, feedback, hisaab).
+ * Same header contract as procurement, plus verified mobile Bearer tokens.
+ * Async: callers MUST `await` it.
+ */
+export async function requireJobsPermission(
+  req: NextRequest,
+  permissionKey: string | string[]
+): Promise<GateResult> {
+  const resolved = await resolveJobsActor(req);
+  const actor = resolved.actor;
+  if (resolved.error) return { actor, error: resolved.error };
+
+  if (!actor.role || actor.role === "anonymous") {
+    return {
+      actor,
+      error: NextResponse.json(
+        {
+          error:
+            "Forbidden: missing actor role. Send x-actor-role (and optionally x-actor-name / x-user-id) or a mobile Bearer token.",
+          code: "PERMISSION_DENIED",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  const keys = Array.isArray(permissionKey) ? permissionKey : [permissionKey];
+  if (!keys.some((k) => roleHasPermission(actor.role, k))) {
+    return {
+      actor,
+      error: NextResponse.json(
+        {
+          error: `Forbidden: role '${actor.role}' lacks permission '${keys.join("' or '")}'`,
+          permission: keys.length === 1 ? keys[0] : keys,
+          role: actor.role,
+          code: "PERMISSION_DENIED",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { actor };
+}

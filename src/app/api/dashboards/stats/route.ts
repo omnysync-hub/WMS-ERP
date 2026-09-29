@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
           assignedTechnician: true,
           items: true,
           feedbackCalls: true,
-          hisaabSettlements: true,
+          hisaabSettlements: { where: { status: { not: "superseded" } } },
           expenseClaims: true,
         },
         orderBy: { createdAt: "desc" },

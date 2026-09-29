@@ -384,6 +384,7 @@ export class JobReportService {
             orderBy: { createdAt: "desc" },
           },
           hisaabSettlements: {
+            where: { status: { not: "superseded" } },
             orderBy: { settledAt: "desc" },
             take: 1,
           },

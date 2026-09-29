@@ -104,6 +104,78 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
         description: "Allow viewing detailed analytics, completion metrics, and Care-Of party aggregations",
         module: "jobs",
       },
+      {
+        key: "jobs.accept",
+        label: "Accept Assigned Job (Field)",
+        description: "Allow a technician to accept jobs assigned to them (single or batch)",
+        module: "jobs",
+      },
+      {
+        key: "jobs.start",
+        label: "Start / Resume Job (Field)",
+        description: "Allow starting an accepted job or resuming a paused job on site",
+        module: "jobs",
+      },
+      {
+        key: "jobs.pause",
+        label: "Pause Job (Field)",
+        description: "Allow pausing an in-progress job (stock stays with technician; no hisaab gate)",
+        module: "jobs",
+      },
+      {
+        key: "jobs.complete",
+        label: "Complete Job (Field)",
+        description: "Allow submitting job completion with actual quantities, proof photos and field collection",
+        module: "jobs",
+      },
+      {
+        key: "jobs.request_discount",
+        label: "Request Item Discount (Field)",
+        description: "Allow technicians to request an item-level discount for accountant approval",
+        module: "jobs",
+      },
+      {
+        key: "jobs.discount",
+        label: "Approve / Apply Discounts",
+        description: "Allow approving, rejecting, or applying item-level and job-level discounts",
+        module: "jobs",
+      },
+      {
+        key: "jobs.finalize",
+        label: "Finalize & Lock Job (Accountant)",
+        description: "Allow finalizing a job: invoice, revenue GL posting and read-only lock",
+        module: "jobs",
+      },
+      {
+        key: "jobs.feedback",
+        label: "Record Customer / Technician Feedback",
+        description: "Allow call center to record post-completion feedback calls",
+        module: "jobs",
+      },
+      {
+        key: "jobs.stock_return_request",
+        label: "File Stock Return Request (Field)",
+        description: "Allow technicians to file unused-stock return requests (storekeeper acknowledges separately)",
+        module: "jobs",
+      },
+      {
+        key: "jobs.inventory_request",
+        label: "Request Materials for Job (Field)",
+        description: "Allow technicians to request warehouse materials against a job",
+        module: "jobs",
+      },
+      {
+        key: "jobs.expense_claim",
+        label: "Submit Job Expense Claim",
+        description: "Allow submitting field expense claims against a job",
+        module: "jobs",
+      },
+      {
+        key: "jobs.manage",
+        label: "Manage Job Master Data (Care-Of Parties)",
+        description: "Allow creating, editing and deleting Care-Of parties used on jobs",
+        module: "jobs",
+      },
     ],
   },
   {
@@ -450,6 +522,11 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
   },
 ];
 
+// Helper: all jobs.* permission keys
+export const JOBS_PERMISSION_KEYS = (PERMISSION_GROUPS.find((g) => g.id === "jobs")?.permissions || []).map(
+  (p) => p.key
+);
+
 // Helper: All permission keys flat array
 export const ALL_PERMISSION_KEYS = PERMISSION_GROUPS.flatMap((g) =>
   g.permissions.map((p) => p.key)
@@ -474,6 +551,18 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.collect_payment": true,
     "jobs.cancel_job": false,
     "jobs.reports": true,
+    "jobs.accept": false,
+    "jobs.start": false,
+    "jobs.pause": false,
+    "jobs.complete": false,
+    "jobs.request_discount": false,
+    "jobs.discount": true,
+    "jobs.finalize": true,
+    "jobs.feedback": false,
+    "jobs.stock_return_request": false,
+    "jobs.inventory_request": false,
+    "jobs.expense_claim": true,
+    "jobs.manage": true,
     // Dispatch
     "dispatch.view_map": false,
     "dispatch.assign_job": false,
@@ -549,6 +638,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.collect_payment": false,
     "jobs.cancel_job": false,
     "jobs.reports": false,
+    "jobs.inventory_request": false,
+    "jobs.stock_return_request": false,
     // Dispatch
     "dispatch.view_map": false,
     "dispatch.assign_job": false,
@@ -624,6 +715,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.collect_payment": false,
     "jobs.cancel_job": false,
     "jobs.reports": true,
+    "jobs.feedback": true,
+    "jobs.manage": true,
     // Dispatch
     "dispatch.view_map": true,
     "dispatch.assign_job": true,
@@ -774,6 +867,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.collect_payment": false,
     "jobs.cancel_job": false,
     "jobs.reports": true,
+    "jobs.manage": true,
     // Dispatch
     "dispatch.view_map": true,
     "dispatch.assign_job": true,
@@ -872,6 +966,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.view_directory": true,
     "jobs.view_financials": true,
     "jobs.reports": true,
+    // Manager: full jobs control incl. reassign / finalize / verify
+    ...JOBS_PERMISSION_KEYS.reduce((acc, key) => ({ ...acc, [key]: true }), {} as Record<string, boolean>),
     "inventory.view_stock": true,
     "inventory.view_costs": true,
     // Procurement â€” approvals + reports; limited create
@@ -910,6 +1006,18 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.create_job": false,
     "jobs.cancel_job": false,
     "jobs.verify": true,
+    "jobs.accept": false,
+    "jobs.start": false,
+    "jobs.pause": false,
+    "jobs.complete": false,
+    "jobs.request_discount": false,
+    "jobs.discount": false,
+    "jobs.finalize": false,
+    "jobs.feedback": false,
+    "jobs.stock_return_request": false,
+    "jobs.inventory_request": false,
+    "jobs.expense_claim": false,
+    "jobs.manage": false,
     "procurement.create_pr": false,
     "procurement.approve_po": false,
     "procurement.grn": false,
@@ -955,8 +1063,20 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.view_directory": true,
     "jobs.view_financials": false,
     "jobs.issue_stock": false,
-    "jobs.stock_return": true,
+    // Storekeeper-side acknowledge (restock + GL) is NOT a technician action
+    "jobs.stock_return": false,
     "jobs.misplaced_item": true,
+    // Field execution (mobile app)
+    "jobs.accept": true,
+    "jobs.start": true,
+    "jobs.pause": true,
+    "jobs.complete": true,
+    "jobs.request_discount": true,
+    "jobs.stock_return_request": true,
+    "jobs.inventory_request": true,
+    "jobs.expense_claim": true,
+    // Mobile "Add services" screen adds catalog service lines while on site
+    "jobs.add_service": true,
     "dispatch.view_map": false,
     "inventory.view_stock": true,
     "inventory.view_costs": false,

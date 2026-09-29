@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 
@@ -64,75 +65,145 @@ export class InventoryService {
   }
 
   /**
-   * Acknowledge technician stock return.
-   * Increments product quantity, records acknowledgedAt, and posts stock restoration.
+   * Resolve the warehouse Product for a stock return.
+   * Order: explicit productId -> linked JobItem "(SKU)" -> "(SKU)" token in item text -> exact SKU -> exact name.
+   * Never uses fuzzy `contains` matching (that silently restocked the wrong product).
+   * Returns null when nothing resolves; callers decide whether that is an error.
    */
-  static async acknowledgeStockReturn(stockReturnId: string, storeKeeperName: string) {
-    const stockReturn = await prisma.stockReturn.findUnique({
-      where: { id: stockReturnId },
-      include: { job: true },
-    });
-    if (!stockReturn) throw new Error("Stock return record not found");
-    if (stockReturn.acknowledgedAt) {
-      throw new Error("Stock return has already been acknowledged.");
+  static async resolveReturnProduct(
+    db: Prisma.TransactionClient | typeof prisma,
+    input: { productId?: string | null; item?: string | null; jobItemId?: string | null }
+  ) {
+    if (input.productId) {
+      const byId = await db.product.findUnique({ where: { id: input.productId } });
+      if (!byId) {
+        throw new Error(`Stock return product '${input.productId}' was not found in warehouse inventory.`);
+      }
+      return byId;
     }
 
-    // Find matching product by name or SKU
-    const product = await prisma.product.findFirst({
-      where: {
-        OR: [
-          { name: { contains: stockReturn.item } },
-          { sku: stockReturn.item },
-        ],
-      },
-    });
+    const texts: string[] = [];
+    if (input.jobItemId) {
+      const ji = await db.jobItem.findUnique({ where: { id: input.jobItemId } });
+      if (ji?.description) texts.push(ji.description);
+    }
+    if (input.item) texts.push(input.item);
 
-    if (product) {
-      await prisma.product.update({
+    for (const text of texts) {
+      // "(SKU)" tokens, e.g. "Copper Pipe 1/4 (CP-014) [Issued by Storekeeper]"
+      const tokens = Array.from(text.matchAll(/\(([^()]+)\)/g)).map((m) => m[1].trim()).filter(Boolean);
+      for (const tok of tokens) {
+        const bySku = await db.product.findUnique({ where: { sku: tok } });
+        if (bySku) return bySku;
+      }
+      const bare = text
+        .replace(/\s*\[[^\]]*\]/g, "")
+        .replace(/\s*\([^()]*\)/g, "")
+        .trim();
+      for (const candidate of Array.from(new Set([text.trim(), bare])).filter(Boolean)) {
+        const bySku = await db.product.findUnique({ where: { sku: candidate } });
+        if (bySku) return bySku;
+        const byName = await db.product.findFirst({
+          where: { name: { equals: candidate, mode: "insensitive" } },
+        });
+        if (byName) return byName;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Acknowledge technician stock return (storekeeper check-in).
+   * One transaction: claim acknowledgedAt + restock + stock ledger + GL (inventory asset / COGS reversal).
+   * Idempotent: an already-acknowledged return is returned unchanged (no second movement).
+   * Requires a resolvable product; unmatched items fail with a clear error instead of
+   * being marked acknowledged with no stock movement.
+   */
+  static async acknowledgeStockReturn(
+    stockReturnId: string,
+    storeKeeperName: string,
+    opts?: { productId?: string | null; tx?: Prisma.TransactionClient }
+  ) {
+    // Resolve GL accounts up-front (read-only, outside the write transaction)
+    const [cogsAccount, inventoryAccount] = await Promise.all([
+      AccountMappingService.resolveAccount({ transactionType: "inventory_return_cogs" }),
+      AccountMappingService.resolveAccount({ transactionType: "inventory_return_asset" }),
+    ]);
+
+    const run = async (tx: Prisma.TransactionClient) => {
+      const stockReturn = await tx.stockReturn.findUnique({
+        where: { id: stockReturnId },
+        include: { job: true },
+      });
+      if (!stockReturn) throw new Error("Stock return record not found");
+      if (stockReturn.acknowledgedAt) {
+        return stockReturn; // idempotent no-op
+      }
+
+      const product = await InventoryService.resolveReturnProduct(tx, {
+        productId: opts?.productId || stockReturn.productId,
+        item: stockReturn.item,
+      });
+      if (!product) {
+        throw new Error(
+          `Cannot acknowledge stock return: '${stockReturn.item}' does not match any warehouse product (by id, SKU or exact name). ` +
+            `Select the product (productId) and retry — nothing was restocked.`
+        );
+      }
+
+      const qty = Number(stockReturn.qtyReturned) || 0;
+      if (qty <= 0) throw new Error("Stock return quantity must be greater than zero.");
+
+      // Claim the row first (guards concurrent double-acknowledge)
+      const claimed = await tx.stockReturn.updateMany({
+        where: { id: stockReturnId, acknowledgedAt: null },
+        data: {
+          acknowledgedBy: storeKeeperName,
+          acknowledgedAt: new Date(),
+          productId: product.id,
+        },
+      });
+      if (claimed.count === 0) {
+        return (await tx.stockReturn.findUnique({ where: { id: stockReturnId } }))!;
+      }
+
+      await tx.product.update({
         where: { id: product.id },
-        data: { stockQuantity: { increment: stockReturn.qtyReturned } },
+        data: { stockQuantity: { increment: qty } },
       });
 
-      await prisma.stockLedger.create({
+      await tx.stockLedger.create({
         data: {
           productId: product.id,
-          qty: stockReturn.qtyReturned,
+          qty,
           direction: "in",
           refType: "stock_return",
+          // refId stays jobId (field-allocation report in /api/inventory keys on it)
           refId: stockReturn.jobId,
-          notes: `Returned from Job ${stockReturn.job.jobNumber}`,
+          notes: `Returned from Job ${stockReturn.job.jobNumber} (return ${stockReturn.id}, ack by ${storeKeeperName})`,
         },
       });
 
-      // Restore inventory asset from COGS via AccountMappingService
-      const cogsAccount = await AccountMappingService.resolveAccount({
-        transactionType: "inventory_return_cogs",
-        });
-      const inventoryAccount = await AccountMappingService.resolveAccount({
-        transactionType: "inventory_return_asset",
-        });
-      const value = Math.round(stockReturn.qtyReturned * product.costPrice * 100) / 100;
-
+      const value = Math.round(qty * product.costPrice * 100) / 100;
       if (value > 0) {
         await AccountsPostingService.post({
-          memo: `Stock return from Job ${stockReturn.job.jobNumber} (${stockReturn.qtyReturned}x ${product.name})`,
+          memo: `Stock return from Job ${stockReturn.job.jobNumber} (${qty}x ${product.name})`,
           refType: "inventory_return",
           refId: stockReturn.id,
+          postedBy: storeKeeperName,
           lines: [
             { accountId: inventoryAccount.id, debit: value, credit: 0 },
             { accountId: cogsAccount.id, debit: 0, credit: value },
           ],
+          tx,
         });
       }
-    }
 
-    return await prisma.stockReturn.update({
-      where: { id: stockReturnId },
-      data: {
-        acknowledgedBy: storeKeeperName,
-        acknowledgedAt: new Date(),
-      },
-    });
+      return (await tx.stockReturn.findUnique({ where: { id: stockReturnId } }))!;
+    };
+
+    if (opts?.tx) return run(opts.tx);
+    return prisma.$transaction(run, { maxWait: 10000, timeout: 30000 });
   }
 
   /**

@@ -17,6 +17,8 @@ export type ReturnLineState = {
   returnQty: number;
   pendingReturnId?: string;
   pendingQty?: number;
+  /** Source job line (lets the server resolve the product via "(SKU)"). */
+  jobItemId?: string;
   include: boolean;
 };
 
@@ -79,6 +81,7 @@ function buildLines(job: any): ReturnLineState[] {
       returnQty: maxReturnable > 0 ? maxReturnable : 0,
       pendingReturnId: pending?.id,
       pendingQty,
+      jobItemId: it.id,
       include: maxReturnable > 0 || Boolean(pending),
     });
   }
@@ -197,6 +200,7 @@ export default function RecordStockReturnDrawer({
                 action: "record_stock_return",
                 technicianId: job.assignedTechnicianId,
                 item: line.itemLabel,
+                jobItemId: line.jobItemId,
                 quantity: extra,
                 notes: notes || undefined,
                 actor: storekeeperName,
@@ -219,6 +223,7 @@ export default function RecordStockReturnDrawer({
               action: "record_stock_return",
               technicianId: job.assignedTechnicianId,
               item: line.itemLabel,
+              jobItemId: line.jobItemId,
               quantity: Number(line.returnQty),
               notes: notes || undefined,
               actor: storekeeperName,

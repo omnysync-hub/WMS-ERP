@@ -3,6 +3,39 @@ import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { InventoryService } from "./InventoryService";
 import { MobilePushService } from "./MobilePushService";
+import type { Prisma } from "@prisma/client";
+import {
+  JOB_REASSIGNABLE_STATUSES,
+  canAddServiceOrItem,
+  canChangeTechnician,
+  isPreStartStatus,
+  isReassignableStatus,
+} from "../jobStatus";
+
+/** Interactive transaction options: remote Postgres (Vercel) needs more than Prisma's 5s default. */
+const TX_OPTS = { maxWait: 10000, timeout: 30000 } as const;
+
+/** Settlement money-movement JE ref types (vault Dr / AR Cr and their adjustments). */
+const SETTLEMENT_GL_REF_TYPES = [
+  "settlement_collection",
+  "settlement_handover",
+  "settlement_adjustment",
+];
+
+/** Technician-declared collection not yet confirmed / GL-posted by the accountant. */
+export function isFieldReportedSettlement(s: {
+  status?: string | null;
+  settledBy?: string | null;
+  accountantReceivedAt?: Date | string | null;
+}): boolean {
+  if (s.status === "field_reported") return true;
+  // Legacy rows (before the status column) created by completeJob
+  return (
+    (s.status === undefined || s.status === null || s.status === "posted") &&
+    /\(field app/i.test(s.settledBy || "") &&
+    !s.accountantReceivedAt
+  );
+}
 
 export class JobsService {
   /**
@@ -35,6 +68,11 @@ export class JobsService {
 
     if (job.finalizedAt) {
       throw new Error("Job is finalized and locked. Edits are rejected.");
+    }
+    if (!canChangeTechnician(job)) {
+      throw new Error(
+        `Cannot assign a technician to a job in status '${job.status}'. Assignment is only allowed before start (Created/Assigned) or via reassign mid-job (${JOB_REASSIGNABLE_STATUSES.join("/")}).`
+      );
     }
 
     // Mid-job reassignment must use reassignTechnician (creates successor job)
@@ -255,10 +293,24 @@ export class JobsService {
     if (job.status === "TechnicianReassigned") {
       throw new Error("Cannot assign technicians to a reassigned (closed) job.");
     }
+    if (!canChangeTechnician(job)) {
+      throw new Error(
+        `Cannot change technicians on a job in status '${job.status}'. Allowed before start (Created/Assigned) or mid-job (${JOB_REASSIGNABLE_STATUSES.join("/")}).`
+      );
+    }
     const ids = Array.from(new Set((technicianIds || []).filter(Boolean)));
     if (ids.length === 0) throw new Error("At least one technicianId is required");
 
     const primaryId = primaryTechnicianId && ids.includes(primaryTechnicianId) ? primaryTechnicianId : ids[0];
+    if (
+      isReassignableStatus(job.status) &&
+      job.assignedTechnicianId &&
+      primaryId !== job.assignedTechnicianId
+    ) {
+      throw new Error(
+        "Mid-job lead technician change requires reassignment (creates a new linked job). Use action 'reassign'."
+      );
+    }
 
     // Upsert all assignments
     for (const techId of ids) {
@@ -356,8 +408,12 @@ export class JobsService {
     if (job.status === "TechnicianReassigned") {
       throw new Error("Job was already reassigned. Use the successor job.");
     }
-    if (["Finalized", "Verified"].includes(job.status)) {
-      throw new Error(`Cannot reassign a ${job.status} job.`);
+    if (!isReassignableStatus(job.status)) {
+      throw new Error(
+        isPreStartStatus(job.status)
+          ? `Job is '${job.status}' (not started yet) — change the technician with a direct assign instead of reassign.`
+          : `Cannot reassign a job in status '${job.status}'. Reassign is only allowed while the job is ${JOB_REASSIGNABLE_STATUSES.join(", ")}.`
+      );
     }
     if (!newTechnicianId) throw new Error("newTechnicianId required");
     if (job.assignedTechnicianId === newTechnicianId) {
@@ -612,16 +668,15 @@ export class JobsService {
       }
     }
 
-    // Save actual quantities — services stay qty 1
-    for (const item of actualItems) {
-      const row = job.items.find((i) => i.id === item.id);
-      const isService =
-        !!row &&
-        (/\[Service/i.test(row.description) || /\[Service Added by/i.test(row.description));
-      await prisma.jobItem.update({
-        where: { id: item.id },
-        data: { quantityActual: isService ? 1 : item.quantityActual },
-      });
+    // Proof-of-work photos are mandatory (server-side; mobile no longer offers "Finish without")
+    // Cap + keep only image-ish strings (data: or http) - avoid blowing the row with junk
+    const photos = (completionDetails?.photos ?? [])
+      .filter((p) => typeof p === "string" && /^(data:image\/|https?:\/\/)/i.test(p))
+      .slice(0, 12);
+    if (photos.length === 0) {
+      throw new Error(
+        "Cannot complete: at least one proof-of-work photo is required (data:image/... or https URL)."
+      );
     }
 
     // Build consolidated job remarks
@@ -641,63 +696,71 @@ export class JobsService {
       if (completionDetails.unusedReason) {
         parts.push(`Unused Stock Reason: ${completionDetails.unusedReason}`);
       }
-      if (completionDetails.photos?.length) {
-        parts.push(`Proof photos: ${completionDetails.photos.length}`);
-      }
+      parts.push(`Proof photos: ${photos.length}`);
       if (parts.length > 0) {
         newRemarks = newRemarks ? `${newRemarks} | ${parts.join(" • ")}` : parts.join(" • ");
       }
     }
 
-    // Cap + keep only image-ish strings (data: or http) - avoid blowing the row with junk
-    const photos = (completionDetails?.photos ?? [])
-      .filter((p) => typeof p === "string" && /^(data:image\/|https?:\/\/)/i.test(p))
-      .slice(0, 12);
-
-    const updated = await prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status: "AwaitingFeedback",
-        remarks: newRemarks,
-        ...(photos.length > 0
-          ? { completionPhotos: JSON.stringify(photos) }
-          : {}),
-      },
-      include: { items: true, hisaabSettlements: true },
-    });
-
-    // Field collection → HisaabSettlement so ERP "Field Settlement & Customer Collections" shows it
     const means = completionDetails?.paymentMeans;
     const collected =
       means && means !== "unmarked" ? Number(completionDetails?.paymentAmount) || 0 : 0;
-    if (means && means !== "unmarked" && collected > 0) {
-      const techId =
-        completionDetails?.technicianEmployeeId ||
-        job.assignedTechnicianId ||
-        "";
-      if (techId) {
-        let expected = 0;
-        for (const it of updated.items) {
-          const qty = it.quantityActual ?? it.quantityPlanned;
-          expected += qty * it.unitRate;
-        }
-        expected = Math.max(0, expected - (job.discountAmount || 0));
-        const isFull = collected >= expected;
-        const balanceDue = Math.max(0, expected - collected);
 
-        await prisma.hisaabSettlement.create({
-          data: {
-            jobId,
-            technicianId: techId,
-            amountExpected: expected,
-            amountCollected: collected,
-            isFull,
-            balanceDue,
-            settledBy: `${technicianId} (field app · ${means})`,
-          },
+    await prisma.$transaction(async (tx) => {
+      // Status guard: only one completion wins (double-tap / offline replay safe)
+      const claimed = await tx.job.updateMany({
+        where: { id: jobId, status: "InProgress" },
+        data: {
+          status: "AwaitingFeedback",
+          remarks: newRemarks,
+          completionPhotos: JSON.stringify(photos),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new Error("Job is no longer InProgress (already completed or changed). Refresh and retry.");
+      }
+
+      // Save actual quantities — services stay qty 1
+      for (const item of actualItems) {
+        const row = job.items.find((i) => i.id === item.id);
+        if (!row) continue;
+        const isService =
+          /\[Service/i.test(row.description) || /\[Service Added by/i.test(row.description);
+        await tx.jobItem.update({
+          where: { id: item.id },
+          data: { quantityActual: isService ? 1 : item.quantityActual },
         });
       }
-    }
+
+      // Field collection → FIELD-REPORTED settlement only (no GL). The accountant hisaab POST /
+      // cash handover confirms it, posts GL once and updates this same row (never a 2nd settlement).
+      if (collected > 0) {
+        const techId =
+          completionDetails?.technicianEmployeeId || job.assignedTechnicianId || "";
+        if (techId) {
+          const items = await tx.jobItem.findMany({ where: { jobId } });
+          let expected = 0;
+          for (const it of items) {
+            const qty = it.quantityActual ?? it.quantityPlanned;
+            expected += qty * it.unitRate;
+          }
+          expected = Math.max(0, expected - (job.discountAmount || 0));
+
+          await tx.hisaabSettlement.create({
+            data: {
+              jobId,
+              technicianId: techId,
+              amountExpected: expected,
+              amountCollected: collected,
+              isFull: collected >= expected,
+              balanceDue: Math.max(0, expected - collected),
+              settledBy: `${technicianId} (field app · ${means})`,
+              status: "field_reported",
+            },
+          });
+        }
+      }
+    }, TX_OPTS);
 
     // Don't re-store full base64 blobs in history meta - count only
     const { photos: _photos, ...detailsSansPhotos } = completionDetails ?? {};
@@ -928,9 +991,31 @@ export class JobsService {
     return updated;
   }
 
+  /** Billable totals from ACTUAL quantities (planned as fallback) minus job-level discount. */
+  static computeJobTotals(job: {
+    items: { quantityActual: number | null; quantityPlanned: number; unitRate: number }[];
+    discountAmount?: number | null;
+  }) {
+    let gross = 0;
+    for (const item of job.items) {
+      const qty = item.quantityActual ?? item.quantityPlanned;
+      gross += qty * item.unitRate;
+    }
+    gross = Math.round(gross * 100) / 100;
+    const discount = Math.round(Math.min(Math.max(0, job.discountAmount || 0), gross) * 100) / 100;
+    const net = Math.round((gross - discount) * 100) / 100;
+    return { gross, discount, net };
+  }
+
   /**
    * Finalize Job by Accountant:
-   * Locks the job (read-only from here), generates invoice, posts revenue/AR through AccountsPostingService.
+   * Locks the job (read-only from here), creates/updates the invoice and posts revenue/AR
+   * through AccountsPostingService using AccountMappingService roles (no hardcoded codes).
+   *
+   * Re-finalize after auditor send-back: the total is recomputed. If it differs from what is
+   * currently booked, the invoice amount is updated, the active revenue JE(s) are reversed and a
+   * fresh revenue JE is posted — all inside ONE transaction. Unchanged totals → no GL activity.
+   * Idempotent: calling finalize on an already-Finalized job is a no-op that returns the job.
    */
   static async finalizeJob(jobId: string, accountantName: string) {
     const job = await prisma.job.findUnique({
@@ -938,19 +1023,16 @@ export class JobsService {
       include: { items: true, customer: true },
     });
     if (!job) throw new Error("Job not found");
+    if (job.status === "Finalized" && job.finalizedAt) {
+      return job; // idempotent (double-click / hisaab finalizeAndLock replay)
+    }
     if (job.status !== "CompletedPendingVerification") {
       throw new Error(`Job must be 'CompletedPendingVerification' to finalize.`);
     }
 
-    // Compute expected total from ACTUAL quantities only
-    let revenueTotal = 0;
-    for (const item of job.items) {
-      const qty = item.quantityActual ?? item.quantityPlanned;
-      revenueTotal += qty * item.unitRate;
-    }
-    const finalAmount = Math.max(0, revenueTotal - (job.discountAmount || 0));
+    const { gross, discount, net: finalAmount } = this.computeJobTotals(job);
 
-    // Post to Accounts Posting Engine via central AccountMappingService
+    // Resolve accounts via AccountMappingService (read-only, before the write transaction)
     const arAccount = await AccountMappingService.resolveAccount({
       transactionType: "job_revenue_receivable",
       categoryScope: job.jobType,
@@ -959,65 +1041,152 @@ export class JobsService {
       transactionType: "job_revenue_sales",
       categoryScope: job.jobType,
     });
-    const discountAccount = job.discountAmount > 0 
-      ? await AccountMappingService.resolveAccount({
-          transactionType: "job_revenue_discount",
-          categoryScope: job.jobType,
-        })
-      : null;
+    const discountAccount =
+      discount > 0
+        ? await AccountMappingService.resolveAccount({
+            transactionType: "job_revenue_discount",
+            categoryScope: job.jobType,
+          })
+        : null;
 
-    const postingLines = [];
-    if (job.discountAmount > 0 && discountAccount) {
+    const postingLines: { accountId: string; debit: number; credit: number }[] = [];
+    if (discount > 0 && discountAccount) {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
-      postingLines.push({ accountId: discountAccount.id, debit: job.discountAmount, credit: 0 });
-      postingLines.push({ accountId: revAccount.id, debit: 0, credit: revenueTotal });
+      postingLines.push({ accountId: discountAccount.id, debit: discount, credit: 0 });
+      postingLines.push({ accountId: revAccount.id, debit: 0, credit: gross });
     } else {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
       postingLines.push({ accountId: revAccount.id, debit: 0, credit: finalAmount });
     }
+    const hasAmount = postingLines.some((l) => l.debit > 0 || l.credit > 0);
 
-    // Idempotent on re-finalize after auditor send-back (supervisor override unlock)
-    const existingInvoice = await prisma.invoice.findFirst({ where: { jobId: job.id } });
-    let invoiceNumber = existingInvoice?.invoiceNumber;
-    if (!existingInvoice) {
-      await AccountsPostingService.post({
-        memo: `Revenue recognition for Job ${job.jobNumber} (${job.customer.name})`,
-        refType: "job_revenue",
-        refId: job.id,
-        lines: postingLines,
-      });
+    const wasSentBack = job.qualityFlag === "sent_back";
 
-      const invoiceCount = await prisma.invoice.count();
-      invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
-      await prisma.invoice.create({
+    const result = await prisma.$transaction(async (tx) => {
+      // Status guard: only one finalize wins (concurrency / replay)
+      const claimed = await tx.job.updateMany({
+        where: { id: jobId, status: "CompletedPendingVerification" },
         data: {
-          invoiceNumber,
-          jobId: job.id,
-          customerId: job.customerId,
-          customerName: job.customer.name,
-          amount: finalAmount,
-          status: "unpaid",
+          status: "Finalized",
+          finalizedAt: new Date(),
+          qualityFlag: wasSentBack ? null : job.qualityFlag,
         },
       });
-    }
+      if (claimed.count === 0) {
+        throw new Error("Job status changed while finalizing (already finalized?). Refresh and retry.");
+      }
 
-    // Lock job to read-only
-    const updated = await prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status: "Finalized",
-        finalizedAt: new Date(),
-        qualityFlag: job.qualityFlag === "sent_back" ? null : job.qualityFlag,
-      },
-    });
+      // Active (non-reversed) revenue entries for this job
+      const activeRevenue = await tx.journalEntry.findMany({
+        where: { refType: "job_revenue", refId: job.id, status: "posted" },
+        include: { lines: true },
+        orderBy: { postedAt: "asc" },
+      });
+      const bookedNet =
+        Math.round(
+          activeRevenue.reduce(
+            (sum, je) =>
+              sum +
+              je.lines
+                .filter((l) => l.accountId === arAccount.id)
+                .reduce((a, l) => a + (l.debit - l.credit), 0),
+            0
+          ) * 100
+        ) / 100;
+      const bookedGross =
+        Math.round(
+          activeRevenue.reduce(
+            (sum, je) =>
+              sum +
+              je.lines
+                .filter((l) => l.accountId === revAccount.id)
+                .reduce((a, l) => a + (l.credit - l.debit), 0),
+            0
+          ) * 100
+        ) / 100;
+      const expectedGross = discount > 0 && discountAccount ? gross : finalAmount;
+      const glUnchanged =
+        activeRevenue.length > 0 &&
+        Math.abs(bookedNet - finalAmount) < 0.005 &&
+        Math.abs(bookedGross - expectedGross) < 0.005;
 
-    await this.logStatusChange(jobId, "CompletedPendingVerification", "Finalized", accountantName, {
-      invoiceNumber,
-      finalAmount,
-      reFinalize: Boolean(existingInvoice),
-    });
+      let reversedEntryIds: string[] = [];
+      let revenueEntryId: string | null = activeRevenue[0]?.id ?? null;
+      if (!glUnchanged) {
+        for (const je of activeRevenue) {
+          const rev = await AccountsPostingService.reverseEntry({
+            journalEntryId: je.id,
+            reversedBy: accountantName,
+            reason: `Re-finalize of Job ${job.jobNumber}: total revised ${bookedNet} -> ${finalAmount}`,
+            tx,
+          });
+          reversedEntryIds.push(rev.id);
+        }
+        revenueEntryId = null;
+        if (hasAmount) {
+          const entry = await AccountsPostingService.post({
+            memo: `${activeRevenue.length ? "Revised revenue" : "Revenue"} recognition for Job ${job.jobNumber} (${job.customer.name})`,
+            refType: "job_revenue",
+            refId: job.id,
+            postedBy: accountantName,
+            lines: postingLines,
+            tx,
+          });
+          revenueEntryId = entry.id;
+        }
+      }
 
-    return updated;
+      // Invoice: create once; on re-finalize update amount when it drifted
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { jobId: job.id },
+        orderBy: { createdAt: "desc" },
+      });
+      let invoiceNumber = existingInvoice?.invoiceNumber;
+      let invoiceAmountBefore: number | null = existingInvoice?.amount ?? null;
+      if (!existingInvoice) {
+        const invoiceCount = await tx.invoice.count();
+        invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
+        await tx.invoice.create({
+          data: {
+            invoiceNumber,
+            jobId: job.id,
+            customerId: job.customerId,
+            customerName: job.customer.name,
+            amount: finalAmount,
+            status: "unpaid",
+          },
+        });
+      } else if (Math.abs((existingInvoice.amount || 0) - finalAmount) >= 0.005) {
+        await tx.invoice.update({
+          where: { id: existingInvoice.id },
+          data: { amount: finalAmount },
+        });
+      }
+
+      await tx.jobStatusHistory.create({
+        data: {
+          jobId,
+          fromStatus: "CompletedPendingVerification",
+          toStatus: "Finalized",
+          changedBy: accountantName,
+          metaJson: JSON.stringify({
+            invoiceNumber,
+            finalAmount,
+            gross,
+            discount,
+            reFinalize: Boolean(existingInvoice) || activeRevenue.length > 0,
+            invoiceAmountBefore,
+            glUnchanged,
+            reversedEntryIds,
+            revenueEntryId,
+          }),
+        },
+      });
+
+      return tx.job.findUnique({ where: { id: jobId } });
+    }, TX_OPTS);
+
+    return result!;
   }
 
   /**
@@ -1064,7 +1233,8 @@ export class JobsService {
   /**
    * Auditor / supervisor send-back (LOGICS supervisor-override):
    * Unlocks a Finalized job back to CompletedPendingVerification with a required note.
-   * Does not reverse ledger postings; re-finalize is idempotent for invoice/revenue.
+   * GL is left as-is here; on re-finalize, finalizeJob recomputes the total and, if it changed,
+   * updates the invoice and reverses + re-posts the revenue JE in one transaction.
    */
   static async sendBackFromVerification(jobId: string, actorName: string, note: string) {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -1584,8 +1754,21 @@ export class JobsService {
   ) {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
+    if (!canAddServiceOrItem(job)) {
+      throw new Error(
+        job.finalizedAt
+          ? "Job is finalized and locked. Services/items cannot be added (auditor send-back reopens it for correction)."
+          : `Cannot add services/items to a job in status '${job.status}'.`
+      );
+    }
+    if (!description || !String(description).trim()) {
+      throw new Error("Service/item description is required.");
+    }
 
     const rate = Number(unitRate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new Error("Unit rate must be a non-negative number.");
+    }
     // Services are always 1 — ignore caller qty for billable service lines
     const qty = 1;
 
@@ -1612,8 +1795,9 @@ export class JobsService {
 
   /**
    * Storekeeper records stock returned by technician upon job completion or pause.
-   * Creates an unacknowledged StockReturn then routes through InventoryService.acknowledgeStockReturn
-   * so warehouse is restocked and COGS is reversed correctly (same path as tech-filed returns).
+   * Creates the StockReturn AND acknowledges it (restock + ledger + GL) in ONE transaction,
+   * so a failed product match / GL posting leaves no half-recorded return.
+   * The product must resolve (productId, linked jobItemId "(SKU)", SKU or exact name).
    */
   static async recordStockReturn(
     jobId: string,
@@ -1621,7 +1805,8 @@ export class JobsService {
     item: string,
     qtyReturned: number,
     storekeeperName: string,
-    notes?: string
+    notes?: string,
+    opts?: { productId?: string | null; jobItemId?: string | null }
   ) {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
@@ -1629,29 +1814,52 @@ export class JobsService {
     const qty = Number(qtyReturned);
     if (!qty || qty <= 0) throw new Error("Quantity returned must be greater than zero");
 
-    const record = await prisma.stockReturn.create({
-      data: {
-        jobId,
-        technicianId: technicianId || job.assignedTechnicianId || "unknown",
-        item,
-        qtyReturned: qty,
-      },
-    });
-
-    // Prefer acknowledge path: restock warehouse + reverse COGS via AccountMappingService
-    const acknowledged = await InventoryService.acknowledgeStockReturn(
-      record.id,
-      storekeeperName
-    );
-
-    await this.logStatusChange(jobId, job.status, job.status, storekeeperName, {
-      action: "stock_return_recorded",
-      returnId: record.id,
+    const product = await InventoryService.resolveReturnProduct(prisma, {
+      productId: opts?.productId,
+      jobItemId: opts?.jobItemId,
       item,
-      qtyReturned: qty,
-      notes,
-      acknowledgedAt: acknowledged.acknowledgedAt,
     });
+    if (!product) {
+      throw new Error(
+        `Cannot record stock return: '${item}' does not match any warehouse product (by id, SKU or exact name). Pick the product and retry.`
+      );
+    }
+
+    const acknowledged = await prisma.$transaction(async (tx) => {
+      const record = await tx.stockReturn.create({
+        data: {
+          jobId,
+          technicianId: technicianId || job.assignedTechnicianId || "unknown",
+          item,
+          productId: product.id,
+          qtyReturned: qty,
+        },
+      });
+
+      const ack = await InventoryService.acknowledgeStockReturn(record.id, storekeeperName, {
+        productId: product.id,
+        tx,
+      });
+
+      await tx.jobStatusHistory.create({
+        data: {
+          jobId,
+          fromStatus: job.status,
+          toStatus: job.status,
+          changedBy: storekeeperName,
+          metaJson: JSON.stringify({
+            action: "stock_return_recorded",
+            returnId: record.id,
+            item,
+            productId: product.id,
+            qtyReturned: qty,
+            notes,
+            acknowledgedAt: ack.acknowledgedAt,
+          }),
+        },
+      });
+      return ack;
+    }, TX_OPTS);
 
     return acknowledged;
   }
@@ -1745,7 +1953,71 @@ export class JobsService {
   }
 
   /**
-   * Record cash handover from field technician to the office accountant
+   * Bring the GL for one settlement to `targetAmount` (vault Dr / AR Cr), posting only the delta.
+   * Makes hisaab confirm + cash handover + "update received amount" idempotent: the same
+   * money is never posted twice. Must run inside the caller's transaction.
+   */
+  static async syncSettlementCollectionGL(
+    tx: Prisma.TransactionClient,
+    params: {
+      settlementId: string;
+      targetAmount: number;
+      vaultAccountId: string;
+      receivableAccountId: string;
+      memo: string;
+      postedBy: string;
+      refType?: string;
+    }
+  ) {
+    const entries = await tx.journalEntry.findMany({
+      where: {
+        refId: params.settlementId,
+        refType: { in: SETTLEMENT_GL_REF_TYPES },
+        status: "posted",
+      },
+      include: { lines: true },
+    });
+    const alreadyPosted =
+      Math.round(
+        entries.reduce(
+          (sum, je) =>
+            sum +
+            je.lines
+              .filter((l) => l.accountId === params.vaultAccountId)
+              .reduce((a, l) => a + (l.debit - l.credit), 0),
+          0
+        ) * 100
+      ) / 100;
+    const target = Math.round((Number(params.targetAmount) || 0) * 100) / 100;
+    const delta = Math.round((target - alreadyPosted) * 100) / 100;
+    if (Math.abs(delta) < 0.005) return { posted: false, alreadyPosted, delta: 0 };
+
+    const amt = Math.abs(delta);
+    await AccountsPostingService.post({
+      memo: delta > 0 ? params.memo : `[Adjustment] ${params.memo} (reduced by PKR ${amt.toLocaleString()})`,
+      refType: entries.length === 0 ? params.refType || "settlement_collection" : "settlement_adjustment",
+      refId: params.settlementId,
+      postedBy: params.postedBy,
+      lines:
+        delta > 0
+          ? [
+              { accountId: params.vaultAccountId, debit: amt, credit: 0 },
+              { accountId: params.receivableAccountId, debit: 0, credit: amt },
+            ]
+          : [
+              { accountId: params.receivableAccountId, debit: amt, credit: 0 },
+              { accountId: params.vaultAccountId, debit: 0, credit: amt },
+            ],
+      tx,
+    });
+    return { posted: true, alreadyPosted, delta };
+  }
+
+  /**
+   * Record cash handover from field technician to the office accountant.
+   * - Confirms (consumes) a field-reported settlement instead of creating a second one.
+   * - GL is synced to the received amount via syncSettlementCollectionGL (delta only), so a
+   *   settlement already posted by hisaab is not double-posted.
    */
   static async recordTechnicianCashHandover(
     jobId: string,
@@ -1770,96 +2042,109 @@ export class JobsService {
       throw new Error("Amount received must be greater than zero.");
     }
 
-    const depositAccount = options?.depositAccount || "1000 - Cash on Hand (Office Safe)";
+    const depositAccount = options?.depositAccount || "Cash on Hand (Office Safe)";
     const notes = options?.notes || `Cash collection handed over to Accounts (${actor}) from technician`;
 
-    let settlement;
-    if (settlementId) {
-      settlement = await prisma.hisaabSettlement.findUnique({
-        where: { id: settlementId },
-      });
-    }
+    const [cashAccount, arAccount] = await Promise.all([
+      AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" }),
+      AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" }),
+    ]);
 
-    if (settlement) {
-      settlement = await prisma.hisaabSettlement.update({
-        where: { id: settlement.id },
-        data: {
-          amountReceivedByAccountant: amount,
-          accountantReceivedBy: actor,
-          accountantReceivedAt: new Date(),
-          accountantNotes: notes,
-          accountantDepositAccount: depositAccount,
-        },
-      });
-    } else {
-      let expected = options?.amountExpected || 0;
-      if (!expected) {
-        for (const it of job.items) {
-          const qty = it.quantityActual ?? it.quantityPlanned;
-          expected += qty * it.unitRate;
-        }
-        expected = Math.max(0, expected - (job.discountAmount || 0));
+    const settlement = await prisma.$transaction(async (tx) => {
+      let target =
+        settlementId
+          ? await tx.hisaabSettlement.findUnique({ where: { id: settlementId } })
+          : null;
+      if (target && target.jobId !== jobId) throw new Error("Settlement does not belong to this job");
+
+      // No explicit settlement: consume the technician's field report if there is one
+      if (!target) {
+        const fieldReports = (
+          await tx.hisaabSettlement.findMany({ where: { jobId }, orderBy: { settledAt: "desc" } })
+        ).filter(isFieldReportedSettlement);
+        target = fieldReports[0] || null;
       }
-      const techId = options?.technicianId || job.assignedTechnicianId || "technician";
-      const isFull = amount >= expected;
-      const balanceDue = Math.max(0, expected - amount);
 
-      settlement = await prisma.hisaabSettlement.create({
+      let saved;
+      if (target) {
+        const wasFieldReported = isFieldReportedSettlement(target);
+        saved = await tx.hisaabSettlement.update({
+          where: { id: target.id },
+          data: {
+            amountReceivedByAccountant: amount,
+            accountantReceivedBy: actor,
+            accountantReceivedAt: new Date(),
+            accountantNotes: wasFieldReported
+              ? `${notes} [Confirms field report of PKR ${target.amountCollected.toLocaleString()}]`
+              : notes,
+            accountantDepositAccount: depositAccount,
+            status: "posted",
+          },
+        });
+      } else {
+        const { net } = JobsService.computeJobTotals(job);
+        const expected = options?.amountExpected || net;
+        const techId = options?.technicianId || job.assignedTechnicianId || "technician";
+        saved = await tx.hisaabSettlement.create({
+          data: {
+            jobId,
+            technicianId: techId,
+            amountExpected: expected,
+            amountCollected: amount,
+            isFull: amount >= expected,
+            balanceDue: Math.max(0, expected - amount),
+            settledBy: `Direct Office Handover (${actor})`,
+            amountReceivedByAccountant: amount,
+            accountantReceivedBy: actor,
+            accountantReceivedAt: new Date(),
+            accountantNotes: notes,
+            accountantDepositAccount: depositAccount,
+            status: "posted",
+          },
+        });
+      }
+
+      const gl = await JobsService.syncSettlementCollectionGL(tx, {
+        settlementId: saved.id,
+        targetAmount: amount,
+        vaultAccountId: cashAccount.id,
+        receivableAccountId: arAccount.id,
+        memo: `Technician cash collection handover of PKR ${amount.toLocaleString()} received by ${actor} for Job ${job.jobNumber}`,
+        postedBy: actor,
+        refType: "settlement_handover",
+      });
+
+      if (saved.technicianId && gl.delta !== 0) {
+        await tx.technicianLedgerEntry.create({
+          data: {
+            technicianId: saved.technicianId,
+            type: "hisaab_received",
+            amount: gl.delta,
+            refJobId: jobId,
+            notes: `Cash collection handed over to Accounts (${actor}) for Job ${job.jobNumber}. Deposit: ${depositAccount}. ${notes}`,
+          },
+        });
+      }
+
+      await tx.jobStatusHistory.create({
         data: {
           jobId,
-          technicianId: techId,
-          amountExpected: expected,
-          amountCollected: amount,
-          isFull,
-          balanceDue,
-          settledBy: `Direct Office Handover (${actor})`,
-          amountReceivedByAccountant: amount,
-          accountantReceivedBy: actor,
-          accountantReceivedAt: new Date(),
-          accountantNotes: notes,
-          accountantDepositAccount: depositAccount,
+          fromStatus: job.status,
+          toStatus: job.status,
+          changedBy: actor,
+          metaJson: JSON.stringify({
+            action: "technician_cash_handover_recorded",
+            amountReceived: amount,
+            settlementId: saved.id,
+            depositAccount,
+            notes,
+            glDelta: gl.delta,
+          }),
         },
       });
-    }
 
-    // Record TechnicianLedgerEntry
-    if (settlement.technicianId) {
-      await prisma.technicianLedgerEntry.create({
-        data: {
-          technicianId: settlement.technicianId,
-          type: "hisaab_received",
-          amount: amount,
-          refJobId: jobId,
-          notes: `Cash collection handed over to Accounts (${actor}) for Job ${job.jobNumber}. Deposit: ${depositAccount}. ${notes}`,
-        },
-      });
-    }
-
-    // Post to accounting journal
-    try {
-      const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" });
-      const arAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" });
-
-      await AccountsPostingService.post({
-        memo: `Technician cash collection handover of PKR ${amount.toLocaleString()} received by ${actor} for Job ${job.jobNumber}`,
-        refType: "settlement_handover",
-        refId: settlement.id,
-        lines: [
-          { accountId: cashAccount.id, debit: amount, credit: 0 },
-          { accountId: arAccount.id, debit: 0, credit: amount },
-        ],
-      });
-    } catch (postErr) {
-      console.warn("Non-fatal accounts posting on handover:", postErr);
-    }
-
-    await this.logStatusChange(jobId, job.status, job.status, actor, {
-      action: "technician_cash_handover_recorded",
-      amountReceived: amount,
-      settlementId: settlement.id,
-      depositAccount,
-      notes,
-    });
+      return saved;
+    }, TX_OPTS);
 
     return settlement;
   }

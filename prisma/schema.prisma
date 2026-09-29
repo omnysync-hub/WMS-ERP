@@ -248,6 +248,8 @@ model StockReturn {
   job            Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
   technicianId   String
   item           String
+  /// Warehouse product being returned; required to acknowledge (restock + GL)
+  productId      String?
   qtyReturned    Float
   acknowledgedBy String?
   acknowledgedAt DateTime?
@@ -285,6 +287,9 @@ model HisaabSettlement {
   accountantReceivedAt       DateTime?
   accountantNotes            String?
   accountantDepositAccount   String?
+  /// field_reported = technician-declared at completeJob (NO GL yet); posted = confirmed by accountant (GL posted once);
+  /// superseded = duplicate field report folded into another settlement (excluded from totals)
+  status                     String    @default("posted")
 }
 
 // ==========================================

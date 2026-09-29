@@ -700,7 +700,16 @@ export default function AccountsPage() {
     }
     const finalExpected = Math.max(0, expected - (job.discountAmount || 0));
 
-    if (job.remarks?.toLowerCase().includes("unmarked")) {
+    // Technician already field-reported a collection at completion: prefill it. Submitting
+    // confirms/consumes that same record (server posts GL once — no second settlement).
+    const fieldReport = (job.hisaabSettlements || []).find(
+      (h: any) => h.status === "field_reported"
+    );
+    if (fieldReport) {
+      const m = /field app · (\w+)/i.exec(fieldReport.settledBy || "");
+      setAmountCollected(String(fieldReport.amountCollected || 0));
+      setCustomerPaymentMeans(m?.[1]?.toLowerCase() || "cash");
+    } else if (job.remarks?.toLowerCase().includes("unmarked")) {
       setAmountCollected("0");
       setCustomerPaymentMeans("unmarked");
     } else if (job.remarks?.toLowerCase().includes("online")) {
@@ -3579,6 +3588,20 @@ export default function AccountsPage() {
                   </div>
                 </div>
               </div>
+
+              {(settlementJob.hisaabSettlements || []).some((h: any) => h.status === "field_reported") && (
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                  Technician field-reported{" "}
+                  <strong>
+                    PKR{" "}
+                    {Number(
+                      (settlementJob.hisaabSettlements || []).find((h: any) => h.status === "field_reported")
+                        ?.amountCollected || 0
+                    ).toLocaleString()}
+                  </strong>{" "}
+                  at completion (not yet posted). Saving confirms that same record and posts GL once.
+                </div>
+              )}
 
               {/* Part B: Technician In-App Logged Expense Claims */}
               {settlementJob.expenseClaims?.length > 0 && (

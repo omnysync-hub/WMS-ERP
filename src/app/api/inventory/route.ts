@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { InventoryService } from "@/lib/services/InventoryService";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
@@ -182,11 +183,10 @@ export async function GET(req: NextRequest) {
           const hasReturnLedger = returnLedgers.some(
             (rl) => rl.productId === pId && rl.refId === job.id
           );
-          if (
-            hasReturnLedger ||
-            itemText.includes(pSku) ||
-            itemText.includes(pName)
-          ) {
+          const matchesProduct = (ret as any).productId
+            ? (ret as any).productId === pId
+            : hasReturnLedger || itemText.includes(pSku) || itemText.includes(pName);
+          if (matchesProduct) {
             jobReturned += ret.qtyReturned;
           }
         }
@@ -337,9 +337,12 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "acknowledge_return": {
+        const gate = await requireJobsPermission(req, ["jobs.stock_return", "inventory.storekeeper_queue"]);
+        if (gate.error) return gate.error;
         const result = await InventoryService.acknowledgeStockReturn(
           payload.stockReturnId,
-          payload.storeKeeperName || "Storekeeper"
+          payload.storeKeeperName || gate.actor.name || "Storekeeper",
+          { productId: payload.productId || null }
         );
         return NextResponse.json(result);
       }

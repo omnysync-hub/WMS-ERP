@@ -180,6 +180,7 @@ async function runVerification() {
       calledBy: "Sara Call Center",
       outcome: "disapproved",
       remarks: "Customer reported minor cooling duct rattle",
+      technicianRemarks: "Technician confirmed duct secured; rattle to be rechecked",
     });
     const disputedJob = await prisma.job.findUnique({ where: { id: job.id } });
     assert(disputedJob?.qualityFlag === "disputed", "Call Center disapproval sets qualityFlag = 'disputed' for Admin review");

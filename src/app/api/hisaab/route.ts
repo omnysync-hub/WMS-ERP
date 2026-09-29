@@ -21,6 +21,10 @@ export async function GET() {
         stockReturns: {
           orderBy: { createdAt: "desc" },
         },
+        // Technician field reports awaiting accountant confirmation (no GL yet)
+        hisaabSettlements: {
+          orderBy: { settledAt: "desc" },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -31,9 +35,12 @@ export async function GET() {
   }
 }
 
-import { JobsService } from "@/lib/services/JobsService";
+import { JobsService, isFieldReportedSettlement } from "@/lib/services/JobsService";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function POST(req: NextRequest) {
+  const gate = await requireJobsPermission(req, "jobs.collect_payment");
+  if (gate.error) return gate.error;
   try {
     const body = await req.json();
     const {
@@ -51,6 +58,15 @@ export async function POST(req: NextRequest) {
       paymentMeans = "cash",
       finalizeAndLock = false,
     } = body;
+
+    if (finalizeAndLock) {
+      // Check before any mutation so a denied finalize doesn't leave a half-done hisaab
+      const finGate = await requireJobsPermission(req, "jobs.finalize");
+      if (finGate.error) return finGate.error;
+    }
+    if (!jobId) {
+      return NextResponse.json({ error: "jobId required" }, { status: 400 });
+    }
 
     const collected = Number(amountCollected) || 0;
     const expected = Number(amountExpected) || 0;
@@ -79,37 +95,83 @@ export async function POST(req: NextRequest) {
     // Combine any paid claims + adhoc claims selected for payment
     const allClaimsToPay = [...paidExpenseClaimIds, ...createdAdhocClaimIds];
 
-    // 2. Create HisaabSettlement record
-    const settlement = await prisma.hisaabSettlement.create({
-      data: {
-        jobId,
-        technicianId,
-        amountExpected: expected,
-        amountCollected: collected,
-        isFull,
-        balanceDue,
-        nextVisitDate: nextVisitDate ? new Date(nextVisitDate) : null,
-        settledBy,
-      },
-    });
+    // 2+3. Settlement + customer-collection GL, in ONE transaction.
+    // If the technician already reported a field collection at completeJob, that row is
+    // CONFIRMED/CONSUMED here (updated in place, status -> posted) instead of creating a
+    // second settlement, and GL is synced to the confirmed amount exactly once (delta-only).
+    const [cashAccount, arAccount] = collected > 0
+      ? await Promise.all([
+          AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" }),
+          AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" }),
+        ])
+      : [null, null];
+    const meansLabel = paymentMeans ? `via ${String(paymentMeans).toUpperCase()}` : "in cash";
 
-    // 3. Post Customer Collection to Accounts Posting Engine
-    if (collected > 0) {
-      // Receiving account based on collection means via AccountMappingService
-      const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" });
-      const arAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" });
+    const settlement = await prisma.$transaction(async (tx) => {
+      const fieldReports = (
+        await tx.hisaabSettlement.findMany({
+          where: { jobId, ...(technicianId ? { technicianId } : {}) },
+          orderBy: { settledAt: "desc" },
+        })
+      ).filter(isFieldReportedSettlement);
 
-      const meansLabel = paymentMeans ? `via ${paymentMeans.toUpperCase()}` : "in cash";
-      await AccountsPostingService.post({
-        memo: `Field collection ${meansLabel} from customer on Job (Settled by ${settledBy})`,
-        refType: "settlement_collection",
-        refId: settlement.id,
-        lines: [
-          { accountId: cashAccount.id, debit: collected, credit: 0 },
-          { accountId: arAccount.id, debit: 0, credit: collected },
-        ],
-      });
-    }
+      let saved;
+      if (fieldReports.length > 0) {
+        const [primary, ...extra] = fieldReports;
+        saved = await tx.hisaabSettlement.update({
+          where: { id: primary.id },
+          data: {
+            amountExpected: expected,
+            amountCollected: collected,
+            isFull,
+            balanceDue,
+            nextVisitDate: nextVisitDate ? new Date(nextVisitDate) : null,
+            settledBy: `${settledBy} (confirmed field report)`,
+            accountantNotes: [
+              primary.accountantNotes,
+              `Field-reported PKR ${primary.amountCollected.toLocaleString()} by technician; accountant confirmed PKR ${collected.toLocaleString()} ${meansLabel}.`,
+            ]
+              .filter(Boolean)
+              .join(" | "),
+            status: "posted",
+          },
+        });
+        // Any further duplicate field reports are folded in (excluded from totals)
+        if (extra.length > 0) {
+          await tx.hisaabSettlement.updateMany({
+            where: { id: { in: extra.map((e) => e.id) } },
+            data: { status: "superseded", accountantNotes: `Superseded by settlement ${primary.id}` },
+          });
+        }
+      } else {
+        saved = await tx.hisaabSettlement.create({
+          data: {
+            jobId,
+            technicianId,
+            amountExpected: expected,
+            amountCollected: collected,
+            isFull,
+            balanceDue,
+            nextVisitDate: nextVisitDate ? new Date(nextVisitDate) : null,
+            settledBy,
+            status: "posted",
+          },
+        });
+      }
+
+      if (cashAccount && arAccount) {
+        await JobsService.syncSettlementCollectionGL(tx, {
+          settlementId: saved.id,
+          targetAmount: collected,
+          vaultAccountId: cashAccount.id,
+          receivableAccountId: arAccount.id,
+          memo: `Field collection ${meansLabel} from customer on Job (Settled by ${settledBy})`,
+          postedBy: settledBy,
+          refType: "settlement_collection",
+        });
+      }
+      return saved;
+    }, { maxWait: 10000, timeout: 30000 });
 
     // 4. Handle Expense Reimbursements & Partial Payouts
     // Allocate funds across selected claims (clearExpense / clearJobExpenses split pattern):

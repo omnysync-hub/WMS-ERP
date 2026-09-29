@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
 
@@ -80,13 +81,23 @@ export async function POST(req: NextRequest) {
 
     // Batch accept (mobile): { action: "batch_accept", jobIds: [], technicianId }
     if (body.action === "batch_accept" || body.action === "accept_jobs") {
-      const { jobIds, technicianId } = body;
+      const gate = await requireJobsPermission(req, "jobs.accept");
+      if (gate.error) return gate.error;
+      const { jobIds } = body;
+      // Verified mobile technician: accept strictly as self
+      const technicianId =
+        (req.headers.get("authorization") || "").startsWith("Bearer ") && gate.actor.role === "technician"
+          ? gate.actor.id
+          : body.technicianId;
       if (!technicianId) {
         return NextResponse.json({ error: "technicianId required" }, { status: 400 });
       }
       const result = await JobsService.acceptJobs(jobIds || [], technicianId);
       return NextResponse.json(result);
     }
+
+    const createGate = await requireJobsPermission(req, "jobs.create_job");
+    if (createGate.error) return createGate.error;
 
     const {
       customerId,

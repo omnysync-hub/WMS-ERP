@@ -733,6 +733,10 @@ export default function MobileCompanionPage() {
   const handleCompleteJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedJob || !technician) return;
+    if (completionPhotos.length === 0) {
+      alert("Add at least one proof-of-work photo before completing the job.");
+      return;
+    }
 
     const actualItems = selectedJob.items.map((it: any) => ({
       id: it.id,
@@ -755,6 +759,7 @@ export default function MobileCompanionPage() {
               body: JSON.stringify({
                 technicianId: technician.id,
                 item: `${it.description} [Unused Returnable: ${unused} units]`,
+                jobItemId: it.id,
                 qtyReturned: unused,
               }),
             });

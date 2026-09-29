@@ -43,7 +43,7 @@ export default function ReceiveTechnicianCashDrawer({
 
   const defaultHandover = technicianCollectedAmount > 0
     ? technicianCollectedAmount
-    : Number(job?.hisaabSettlements?.reduce((s: number, st: any) => s + (st.amountCollected || 0), 0)) || 0;
+    : Number(job?.hisaabSettlements?.filter((st: any) => st.status !== "superseded").reduce((s: number, st: any) => s + (st.amountCollected || 0), 0)) || 0;
 
   const [amountReceived, setAmountReceived] = useState<string>(String(defaultHandover || ""));
   const [depositAccount, setDepositAccount] = useState("1000 - Cash on Hand (Main Office Safe)");

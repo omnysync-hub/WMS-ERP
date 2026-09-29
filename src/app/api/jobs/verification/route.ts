@@ -9,7 +9,7 @@ import { requireJobsPermission } from "@/lib/auth/erpActor";
  * CompletedPendingVerification is accountant finalize work — not listed here.
  */
 export async function GET(req: NextRequest) {
-  const gate = requireJobsPermission(req, "jobs.verify");
+  const gate = await requireJobsPermission(req, "jobs.verify");
   if (gate.error) return gate.error;
 
   try {

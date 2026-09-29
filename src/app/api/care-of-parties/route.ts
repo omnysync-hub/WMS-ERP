@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -46,6 +47,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const gate = await requireJobsPermission(request, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const body = await request.json();
     const { companyName, personName, phone } = body;

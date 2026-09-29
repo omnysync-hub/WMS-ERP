@@ -58,13 +58,100 @@ export async function GET(
   }
 }
 
+/**
+ * Every PATCH action is gated server-side with a jobs.* permission (see DEFAULT_ROLE_PERMISSIONS).
+ * Actor = verified mobile Bearer token (DB role) or ERP demo headers (x-actor-role ...).
+ */
+const ACTION_PERMISSION: Record<string, string> = {
+  assign: "jobs.reassign_tech",
+  assign_technicians: "jobs.reassign_tech",
+  assign_multiple: "jobs.reassign_tech",
+  reassign: "jobs.reassign_tech",
+  accept: "jobs.accept",
+  start: "jobs.start",
+  resume: "jobs.start",
+  pause: "jobs.pause",
+  complete: "jobs.complete",
+  request_item_discount: "jobs.request_discount",
+  give_item_discount: "jobs.discount",
+  reject_item_discount: "jobs.discount",
+  discount: "jobs.discount",
+  finalize: "jobs.finalize",
+  sync_and_lock: "jobs.finalize",
+  verify: "jobs.verify",
+  send_back: "jobs.verify",
+  send_back_verification: "jobs.verify",
+  reject_verification: "jobs.verify",
+  clear_expense: "jobs.collect_payment",
+  clear_job_expenses: "jobs.collect_payment",
+  record_technician_cash_handover: "jobs.collect_payment",
+  receive_technician_cash: "jobs.collect_payment",
+  issue_inventory: "jobs.issue_stock",
+  add_service: "jobs.add_service",
+  record_stock_return: "jobs.stock_return",
+  record_misplaced_item: "jobs.misplaced_item",
+  generate_custom_invoice: "jobs.generate_invoice",
+};
+
+/** Field actions a technician may only perform on jobs they are assigned to. */
+const TECH_OWNED_ACTIONS = new Set([
+  "accept",
+  "start",
+  "resume",
+  "pause",
+  "complete",
+  "request_item_discount",
+  "add_service",
+]);
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     const body = await req.json();
-    const { action, actor = "User", ...payload } = body;
+    const { action, ...payload } = body;
+
+    const permission = ACTION_PERMISSION[action];
+    if (!permission) {
+      return NextResponse.json(
+        { error: `Unknown action: '${action}'` },
+        { status: 400 }
+      );
+    }
+    const gate = await requireJobsPermission(req, permission);
+    if (gate.error) return gate.error;
+
+    // History label: explicit body actor (legacy UI/mobile send a display name) or resolved actor
+    const actor: string = body.actor || gate.actor.name || "User";
+
+    // Mobile technician sessions: identity comes from the verified token, and field actions
+    // are restricted to jobs the technician is actually assigned to.
+    const viaMobileToken = (req.headers.get("authorization") || "").startsWith("Bearer ");
+    if (viaMobileToken && gate.actor.role === "technician") {
+      payload.technicianId = gate.actor.id;
+      if (payload.completionDetails && typeof payload.completionDetails === "object") {
+        payload.completionDetails.technicianEmployeeId = gate.actor.id;
+      }
+      if (TECH_OWNED_ACTIONS.has(action)) {
+        const owned = await prisma.job.findFirst({
+          where: {
+            id: params.id,
+            OR: [
+              { assignedTechnicianId: gate.actor.id },
+              { assignments: { some: { technicianId: gate.actor.id, status: { not: "Removed" } } } },
+            ],
+          },
+          select: { id: true },
+        });
+        if (!owned) {
+          return NextResponse.json(
+            { error: "Forbidden: you are not assigned to this job.", code: "PERMISSION_DENIED" },
+            { status: 403 }
+          );
+        }
+      }
+    }
 
     let result;
 
@@ -181,8 +268,6 @@ export async function PATCH(
         break;
 
       case "verify": {
-        const gate = requireJobsPermission(req, "jobs.verify");
-        if (gate.error) return gate.error;
         const actorName = gate.actor.name || actor;
         result = await JobsService.verifyJob(params.id, actorName, payload.checklist);
         break;
@@ -191,8 +276,6 @@ export async function PATCH(
       case "send_back":
       case "send_back_verification":
       case "reject_verification": {
-        const gate = requireJobsPermission(req, "jobs.verify");
-        if (gate.error) return gate.error;
         const actorName = gate.actor.name || actor;
         result = await JobsService.sendBackFromVerification(
           params.id,
@@ -289,7 +372,8 @@ export async function PATCH(
           payload.item,
           Number(payload.quantity || 1),
           actor,
-          payload.notes
+          payload.notes,
+          { productId: payload.productId || null, jobItemId: payload.jobItemId || null }
         );
         break;
 

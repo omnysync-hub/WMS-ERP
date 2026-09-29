@@ -44,6 +44,7 @@ import {
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
+import { canAddServiceOrItem, canChangeTechnician } from "@/lib/jobStatus";
 
 export default function JobDetailPage() {
   const params = useParams();
@@ -547,7 +548,7 @@ export default function JobDetailPage() {
                   </button>
                 )}
 
-                {canAddService && !isRestrictedRole && (
+                {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
                   <button
                     type="button"
                     onClick={() => setAddServiceDrawerOpen(true)}
@@ -819,6 +820,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
                   <button
                     type="button"
                     onClick={() => setAddServiceDrawerOpen(true)}
@@ -827,6 +829,7 @@ export default function JobDetailPage() {
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add Service</span>
                   </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setTaxInvoiceDrawerOpen(true)}
@@ -879,7 +882,7 @@ export default function JobDetailPage() {
                         {formatCurrency(netPayable)}
                       </span>
                       <span className="text-[10px] text-purple-700 font-medium mt-0.5 block">
-                        Collected: {formatCurrency(job.hisaabSettlements?.reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
+                        Collected: {formatCurrency(job.hisaabSettlements?.filter((st: any) => st.status !== "superseded").reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
                       </span>
                     </div>
                   </div>
@@ -899,7 +902,7 @@ export default function JobDetailPage() {
                   Billing, invoices, and warehouse stock deductions are calculated strictly from actual completed quantities.
                 </p>
               </div>
-              {canAddService && !isRestrictedRole && (
+              {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
                 <button
                   type="button"
                   onClick={() => setAddServiceDrawerOpen(true)}
@@ -1128,7 +1131,8 @@ export default function JobDetailPage() {
                     )}
                   </div>
                 ) : (
-                  job.hisaabSettlements.map((s: any) => {
+                  job.hisaabSettlements.filter((s: any) => s.status !== "superseded").map((s: any) => {
+                    const isFieldReported = s.status === "field_reported";
                     const hasHandover =
                       s.amountReceivedByAccountant !== null &&
                       s.amountReceivedByAccountant !== undefined;
@@ -1163,6 +1167,11 @@ export default function JobDetailPage() {
                             <p className="text-[#71717A] text-[10px]">
                               {s.settledBy}
                             </p>
+                          )}
+                          {isFieldReported && (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
+                              Field-reported by technician · not yet posted to GL
+                            </span>
                           )}
                         </div>
 
@@ -1431,7 +1440,7 @@ export default function JobDetailPage() {
                     <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
                   </div>
                 </div>
-                {!job.finalizedAt && canReassignTech && (
+                {canReassignTech && canChangeTechnician(job) && (
                   <button
                     type="button"
                     onClick={() => setShowReassignDrawer(true)}
@@ -1444,7 +1453,7 @@ export default function JobDetailPage() {
             ) : (
               <div className="space-y-2.5">
                 <p className="text-xs text-[#A1A1AA] italic">No technician assigned to this work order.</p>
-                {!job.finalizedAt && canReassignTech && (
+                {canReassignTech && canChangeTechnician(job) && (
                   <button
                     type="button"
                     onClick={() => setShowReassignDrawer(true)}
@@ -1578,7 +1587,7 @@ export default function JobDetailPage() {
 
       {/* REASSIGN / ASSIGN TECHNICIAN DRAWER */}
       <ReassignTechDrawer
-        isOpen={showReassignDrawer}
+        isOpen={showReassignDrawer && canChangeTechnician(job)}
         onClose={() => setShowReassignDrawer(false)}
         job={job}
         technicians={technicians}
@@ -2113,7 +2122,7 @@ export default function JobDetailPage() {
 
       {/* ADD SERVICE / LINE ITEM DRAWER */}
       <AddServiceDrawer
-        isOpen={addServiceDrawerOpen}
+        isOpen={addServiceDrawerOpen && canAddServiceOrItem(job)}
         onClose={() => setAddServiceDrawerOpen(false)}
         job={job}
         actor={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
