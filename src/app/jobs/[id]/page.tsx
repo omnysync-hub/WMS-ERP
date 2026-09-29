@@ -943,25 +943,20 @@ export default function JobDetailPage() {
                       const isApproved = item.description?.includes("[Discount Approved:");
                       const isIssuedByStore = item.description?.includes("[Issued by Storekeeper]");
                       const cleanTitle = (item.description || "")
+                        .replace(/^\s*\[Service\]\s*/gi, "")
+                        .replace(/\s*\[Service\]/gi, "")
+                        .replace(/^\s*\[Product\]\s*/gi, "")
+                        .replace(/\s*\[Product\]/gi, "")
                         .replace(/\s*\[Service Added by.*?\]/gi, "")
                         .replace(/\s*\[Issued by Storekeeper\]/gi, "")
                         .replace(/\s*\[Issued by.*?\]/gi, "")
-                        .replace(/^\s*\[Service\]\s*/gi, "")
-                        .replace(/\s*\[Service\]/gi, "")
                         .replace(/\s*\[Discount.*?\]/gi, "")
                         .trim();
 
                       return (
                         <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
                           <td className="py-2.5 px-4 font-medium text-[#18181B]">
-                            <div className="flex items-center gap-2">
-                              {isService && (
-                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-                                  Service
-                                </span>
-                              )}
-                              <span>{cleanTitle}</span>
-                            </div>
+                            <div>{cleanTitle}</div>
                             {isRequested && canViewFinancials && !isRestrictedRole && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">

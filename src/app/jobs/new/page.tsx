@@ -495,7 +495,7 @@ export default function NewJobIntakePage() {
             ...productLines
               .filter((l) => l.name.trim())
               .map((l) => ({
-                description: `[Product] ${l.name}${l.sku ? ` (${l.sku})` : ""}`,
+                description: `${l.name}${l.sku ? ` (${l.sku})` : ""}`.trim(),
                 quantityPlanned: l.quantity,
                 unitRate: l.unitRate,
                 productId: l.productId || null,
@@ -504,7 +504,7 @@ export default function NewJobIntakePage() {
             ...serviceLines
               .filter((s) => s.name.trim())
               .map((s) => ({
-                description: `[Service] ${s.name}`,
+                description: s.name.trim(),
                 quantityPlanned: s.quantity,
                 unitRate: s.unitRate,
                 productId: null,

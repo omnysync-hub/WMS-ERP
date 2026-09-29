@@ -149,16 +149,23 @@ export function isServiceItem(item: any): boolean {
 
   // Common service names & keywords
   if (
-    desc.includes("installation & commissioning") ||
-    desc.includes("installation and commissioning") ||
+    desc.includes("service") ||
+    desc.includes("commissioning") ||
+    desc.includes("installation") ||
     desc.includes("duct cleaning") ||
     desc.includes("gas recharge") ||
+    desc.includes("gas topup") ||
+    desc.includes("gas charging") ||
+    desc.includes("leakage test") ||
+    desc.includes("leak test") ||
     desc.includes("preventive maintenance") ||
-    desc.includes("inspection & audit") ||
-    desc.includes("audit & inspection") ||
-    desc.includes("repair service") ||
-    desc.includes("general service") ||
+    desc.includes("inspection") ||
+    desc.includes("audit") ||
     desc.includes("troubleshooting") ||
+    desc.includes("diagnostic") ||
+    desc.includes("repair") ||
+    desc.includes("visit fee") ||
+    desc.includes("visiting") ||
     desc.includes("labor") ||
     desc.includes("labour")
   ) {
