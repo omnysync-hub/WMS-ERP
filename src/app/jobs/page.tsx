@@ -461,7 +461,7 @@ export default function JobsListPage() {
     {
       id: "status",
       header: isStorekeeper ? "Material Status" : "Status",
-      width: "180px",
+      width: isStorekeeper ? "280px" : "180px",
       cell: (row) => {
         if (isStorekeeper) {
           const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
@@ -483,37 +483,37 @@ export default function JobsListPage() {
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 {pendingCount > 0 && (
-                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs">
+                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs whitespace-nowrap shrink-0">
                     <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>Pending Req ({pendingCount})</span>
                   </span>
                 )}
                 {issuedCount > 0 && (
-                  <span className="text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
+                  <span className="text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <span>{issuedCount} {issuedCount === 1 ? "Item" : "Items"} Issued</span>
                   </span>
                 )}
                 {pendingAckCount > 0 && (
-                  <span className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs">
+                  <span className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs whitespace-nowrap shrink-0">
                     <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     <span>{pendingAckCount} Awaiting Ack</span>
                   </span>
                 )}
                 {isDone && remainingReturnable > 0 && (
-                  <span className="text-xs font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
+                  <span className="text-xs font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0">
                     <RotateCcw className="w-3.5 h-3.5 text-purple-600 shrink-0" />
                     <span>{remainingReturnable} Returnable</span>
                   </span>
                 )}
                 {ackedCount > 0 && (
-                  <span className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
+                  <span className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0">
                     <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <span>{ackedCount} Return Logged</span>
                   </span>
                 )}
                 {pendingCount === 0 && issuedCount === 0 && !remainingReturnable && ackedCount === 0 && (
-                  <span className="text-xs text-[#71717A] italic">
+                  <span className="text-xs text-[#71717A] italic whitespace-nowrap shrink-0">
                     No Material Requests
                   </span>
                 )}
@@ -583,7 +583,7 @@ export default function JobsListPage() {
           {
             id: "storeInventorySummary",
             header: "Warehouse Material Status",
-            width: "240px",
+            width: "280px",
             cell: (row: any) => {
               const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
               const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued").length || 0;
@@ -605,37 +605,37 @@ export default function JobsListPage() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {issuedCount > 0 && (
-                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                         <span>{issuedCount} Item{issuedCount === 1 ? "" : "s"} Issued</span>
                       </span>
                     )}
                     {pendingCount > 0 && (
-                      <span className="bg-amber-50 text-amber-800 border border-amber-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse">
+                      <span className="bg-amber-50 text-amber-800 border border-amber-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse whitespace-nowrap shrink-0">
                         <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span>{pendingCount} Pending Req</span>
                       </span>
                     )}
                     {pendingAckCount > 0 && (
-                      <span className="bg-amber-50 text-amber-900 border border-amber-300 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse">
+                      <span className="bg-amber-50 text-amber-900 border border-amber-300 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse whitespace-nowrap shrink-0">
                         <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span>{pendingAckCount} Awaiting Ack</span>
                       </span>
                     )}
                     {isDone && remainingReturnable > 0 && (
-                      <span className="bg-purple-50 text-purple-800 border border-purple-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                      <span className="bg-purple-50 text-purple-800 border border-purple-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
                         <RotateCcw className="w-3.5 h-3.5 text-purple-600 shrink-0" />
                         <span>{remainingReturnable} Returnable</span>
                       </span>
                     )}
                     {ackedCount > 0 && (
-                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
                         <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span>{ackedCount} Return Recorded</span>
                       </span>
                     )}
                     {returnedCount > 0 && ackedCount === 0 && pendingAckCount === 0 && (
-                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
                         <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span>{returnedCount} Return Recorded</span>
                       </span>

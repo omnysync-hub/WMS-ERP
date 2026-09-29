@@ -87,8 +87,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             />
 
             {/* Inset White/Light Content Area (Floating rounded-rectangle-within-a-frame) */}
-            <div className="flex-1 bg-[#F7F7F8] rounded-tl-2xl overflow-y-auto p-5 sm:p-7 shadow-[inset_0_2px_4px_rgba(0,0,0,0.06)]">
-              <div className="max-w-7xl mx-auto w-full">
+            <div className="flex-1 bg-[#F7F7F8] rounded-tl-2xl overflow-y-auto p-3.5 sm:p-5 shadow-[inset_0_2px_4px_rgba(0,0,0,0.06)]">
+              <div className="w-full max-w-[1920px] mx-auto">
                 {children}
               </div>
             </div>

@@ -482,7 +482,7 @@ export default function DataTable<T extends Record<string, any>>({
         <div className="overflow-x-auto">
           <table
             className={cn(
-              "w-full min-w-[1150px] text-left text-xs border-collapse",
+              "w-full min-w-full text-left text-xs border-collapse",
               tableClassName
             )}
           >
@@ -504,19 +504,23 @@ export default function DataTable<T extends Record<string, any>>({
                   <span className="sr-only">Expand</span>
                 </th>
 
-                {displayedColumns.map((col) => (
-                  <th
-                    key={col.id}
-                    style={{ width: col.width }}
-                    className={cn(
-                      "py-3.5 px-3.5 font-semibold text-xs text-[#52525B]",
-                      col.align === "center" && "text-center",
-                      col.align === "right" && "text-right"
-                    )}
-                  >
-                    {col.header}
-                  </th>
-                ))}
+                {displayedColumns.map((col) => {
+                  const isActionCol = col.id === "actions";
+                  return (
+                    <th
+                      key={col.id}
+                      style={{ width: col.width }}
+                      className={cn(
+                        "py-3.5 px-3.5 font-semibold text-xs text-[#52525B]",
+                        col.align === "center" && "text-center",
+                        col.align === "right" && "text-right",
+                        isActionCol && "sticky right-0 bg-[#FAFAFA] z-10 shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.06)]"
+                      )}
+                    >
+                      {col.header}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
 
@@ -579,6 +583,7 @@ export default function DataTable<T extends Record<string, any>>({
                         {/* Data Columns */}
                         {displayedColumns.map((col) => {
                           const value = col.accessorKey ? row[col.accessorKey] : undefined;
+                          const isActionCol = col.id === "actions";
 
                           return (
                             <td
@@ -586,7 +591,11 @@ export default function DataTable<T extends Record<string, any>>({
                               className={cn(
                                 "py-3 px-3.5 align-middle",
                                 col.align === "center" && "text-center",
-                                col.align === "right" && "text-right"
+                                col.align === "right" && "text-right",
+                                isActionCol && cn(
+                                  "sticky right-0 z-10 bg-white group-hover:bg-[#F9FAFB] shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.06)] transition-colors",
+                                  isSelected && "bg-[#F0FDF4] group-hover:bg-[#DCFCE7]"
+                                )
                               )}
                             >
                               {col.isPrimaryLink ? (
