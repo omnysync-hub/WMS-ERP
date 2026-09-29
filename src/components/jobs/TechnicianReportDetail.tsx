@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatJobType } from "@/lib/utils";
 import { TechnicianReportItem, DetailedJobReportItem } from "@/lib/services/JobReportService";
 import {
   ChevronLeft,
@@ -396,8 +396,8 @@ export default function TechnicianReportDetail({
                             <span className="font-semibold text-[#18181B] block mt-0.5">
                               {job.customer?.name}
                             </span>
-                            <span className="text-[10px] text-[#71717A] capitalize">
-                              {job.jobType}
+                            <span className="text-[10px] text-[#71717A]">
+                              {formatJobType(job.jobType)}
                             </span>
                           </td>
 

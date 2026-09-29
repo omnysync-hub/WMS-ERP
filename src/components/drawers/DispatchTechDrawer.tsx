@@ -5,6 +5,7 @@ import SideDrawer from "@/components/ui/SideDrawer";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Phone, Briefcase, CheckCircle2, User, Clock, Smartphone, Send } from "lucide-react";
 import SendAppRequestModal from "@/components/modals/SendAppRequestModal";
+import { formatJobType } from "@/lib/utils";
 
 interface DispatchTechDrawerProps {
   isOpen: boolean;
@@ -162,7 +163,7 @@ export default function DispatchTechDrawer({
                         {j.jobNumber}
                       </p>
                       <p className="text-[11px] text-[#71717A]">
-                        {j.customer?.name} ({j.jobType})
+                        {j.customer?.name} ({formatJobType(j.jobType)})
                       </p>
                     </div>
                   </div>

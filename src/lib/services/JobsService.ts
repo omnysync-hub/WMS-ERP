@@ -1743,5 +1743,125 @@ export class JobsService {
 
     return created;
   }
+
+  /**
+   * Record cash handover from field technician to the office accountant
+   */
+  static async recordTechnicianCashHandover(
+    jobId: string,
+    settlementId: string | null,
+    amountReceived: number,
+    actor: string,
+    options?: {
+      depositAccount?: string;
+      notes?: string;
+      technicianId?: string;
+      amountExpected?: number;
+    }
+  ) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { items: true, hisaabSettlements: true, customer: true },
+    });
+    if (!job) throw new Error("Job not found");
+
+    const amount = Number(amountReceived) || 0;
+    if (amount <= 0) {
+      throw new Error("Amount received must be greater than zero.");
+    }
+
+    const depositAccount = options?.depositAccount || "1000 - Cash on Hand (Office Safe)";
+    const notes = options?.notes || `Cash collection handed over to Accounts (${actor}) from technician`;
+
+    let settlement;
+    if (settlementId) {
+      settlement = await prisma.hisaabSettlement.findUnique({
+        where: { id: settlementId },
+      });
+    }
+
+    if (settlement) {
+      settlement = await prisma.hisaabSettlement.update({
+        where: { id: settlement.id },
+        data: {
+          amountReceivedByAccountant: amount,
+          accountantReceivedBy: actor,
+          accountantReceivedAt: new Date(),
+          accountantNotes: notes,
+          accountantDepositAccount: depositAccount,
+        },
+      });
+    } else {
+      let expected = options?.amountExpected || 0;
+      if (!expected) {
+        for (const it of job.items) {
+          const qty = it.quantityActual ?? it.quantityPlanned;
+          expected += qty * it.unitRate;
+        }
+        expected = Math.max(0, expected - (job.discountAmount || 0));
+      }
+      const techId = options?.technicianId || job.assignedTechnicianId || "technician";
+      const isFull = amount >= expected;
+      const balanceDue = Math.max(0, expected - amount);
+
+      settlement = await prisma.hisaabSettlement.create({
+        data: {
+          jobId,
+          technicianId: techId,
+          amountExpected: expected,
+          amountCollected: amount,
+          isFull,
+          balanceDue,
+          settledBy: `Direct Office Handover (${actor})`,
+          amountReceivedByAccountant: amount,
+          accountantReceivedBy: actor,
+          accountantReceivedAt: new Date(),
+          accountantNotes: notes,
+          accountantDepositAccount: depositAccount,
+        },
+      });
+    }
+
+    // Record TechnicianLedgerEntry
+    if (settlement.technicianId) {
+      await prisma.technicianLedgerEntry.create({
+        data: {
+          technicianId: settlement.technicianId,
+          type: "hisaab_received",
+          amount: amount,
+          refJobId: jobId,
+          notes: `Cash collection handed over to Accounts (${actor}) for Job ${job.jobNumber}. Deposit: ${depositAccount}. ${notes}`,
+        },
+      });
+    }
+
+    // Post to accounting journal
+    try {
+      const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" });
+      const arAccount = await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" });
+
+      await AccountsPostingService.post({
+        memo: `Technician cash collection handover of PKR ${amount.toLocaleString()} received by ${actor} for Job ${job.jobNumber}`,
+        refType: "settlement_handover",
+        refId: settlement.id,
+        lines: [
+          { accountId: cashAccount.id, debit: amount, credit: 0 },
+          { accountId: arAccount.id, debit: 0, credit: amount },
+        ],
+      });
+    } catch (postErr) {
+      console.warn("Non-fatal accounts posting on handover:", postErr);
+    }
+
+    await this.logStatusChange(jobId, job.status, job.status, actor, {
+      action: "technician_cash_handover_recorded",
+      amountReceived: amount,
+      settlementId: settlement.id,
+      depositAccount,
+      notes,
+    });
+
+    return settlement;
+  }
 }
 

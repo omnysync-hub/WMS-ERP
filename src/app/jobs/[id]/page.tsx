@@ -13,8 +13,9 @@ import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawe
 import ReportMisplacedItemDrawer from "@/components/drawers/ReportMisplacedItemDrawer";
 import AddServiceDrawer from "@/components/drawers/AddServiceDrawer";
 import TaxInvoiceDrawer from "@/components/drawers/TaxInvoiceDrawer";
+import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianCashDrawer";
 import JobRemarksCard from "@/components/jobs/JobRemarksCard";
-import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
+import { cn, formatCurrency, formatDateTime, formatJobType } from "@/lib/utils";
 import {
   ArrowLeft,
   User,
@@ -38,6 +39,7 @@ import {
   Plus,
   RotateCcw,
   Wrench,
+  Banknote,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
@@ -102,6 +104,8 @@ export default function JobDetailPage() {
   const [misplacedDrawerOpen, setMisplacedDrawerOpen] = useState(false);
   const [addServiceDrawerOpen, setAddServiceDrawerOpen] = useState(false);
   const [taxInvoiceDrawerOpen, setTaxInvoiceDrawerOpen] = useState(false);
+  const [receiveCashDrawerOpen, setReceiveCashDrawerOpen] = useState(false);
+  const [selectedSettlementForHandover, setSelectedSettlementForHandover] = useState<any | null>(null);
 
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -472,7 +476,7 @@ export default function JobDetailPage() {
           { label: job.jobNumber },
         ]}
         title={`Work Order ${job.jobNumber}`}
-        subtitle={`${job.customer?.name} • ${job.jobType?.toUpperCase() || "HVAC SERVICE"}`}
+        subtitle={`${job.customer?.name} • ${formatJobType(job.jobType)}`}
         badge={
           <div className="flex items-center gap-2">
             {job.finalizedAt && (
@@ -522,7 +526,7 @@ export default function JobDetailPage() {
                     + Issue Warehouse Stock
                   </button>
                 )}
-                {canStockReturn && (
+                {canStockReturn && !isAccountant && (
                   <button
                     type="button"
                     onClick={() => setStockReturnDrawerOpen(true)}
@@ -928,7 +932,14 @@ export default function JobDetailPage() {
                       const isRequested = item.description?.includes("[Discount Requested:");
                       const isApproved = item.description?.includes("[Discount Approved:");
                       const isIssuedByStore = item.description?.includes("[Issued by Storekeeper]");
-                      const cleanTitle = item.description?.replace(/\s*\[Discount.*?\]/gi, "");
+                      const cleanTitle = (item.description || "")
+                        .replace(/\s*\[Service Added by.*?\]/gi, "")
+                        .replace(/\s*\[Issued by Storekeeper\]/gi, "")
+                        .replace(/\s*\[Issued by.*?\]/gi, "")
+                        .replace(/^\s*\[Service\]\s*/gi, "")
+                        .replace(/\s*\[Service\]/gi, "")
+                        .replace(/\s*\[Discount.*?\]/gi, "")
+                        .trim();
 
                       return (
                         <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
@@ -945,13 +956,6 @@ export default function JobDetailPage() {
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                                   ✓ {item.description.match(/\[Discount Approved: ([^\]]+)\]/)?.[1] || "Discount Approved"}
-                                </span>
-                              </div>
-                            )}
-                            {isIssuedByStore && (
-                              <div className="mt-1">
-                                <span className="text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                  📦 Issued by Warehouse Storekeeper
                                 </span>
                               </div>
                             )}
@@ -1055,58 +1059,184 @@ export default function JobDetailPage() {
                   </span>
                 </div>
               </div>
-            ) : (
-              <div className="p-4 bg-amber-50/40 border-t border-amber-200/60 flex items-center justify-between text-xs text-[#52525B]">
-                <div className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-amber-700" />
-                  <span className="font-semibold text-amber-950">
-                    Physical Warehouse Scope: {job.items?.length || 0} line items listed
-                  </span>
-                </div>
-                <span className="text-[11px] text-[#71717A] font-mono">
-                  Financial pricing & billing rates masked for current permission level
-                </span>
-              </div>
-            )}
+            ) : null}
           </div>
 
           {/* Settlements & Field Expenses (Masked if lacks financial permission or restricted role) */}
           {canViewFinancials && !isRestrictedRole && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Settlements */}
+              {/* Settlements & Technician Cash Handover */}
               <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7]">
-                  <Receipt className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                  Field Settlement & Customer Collections
-                </div>
-                {!job.hisaabSettlements || job.hisaabSettlements.length === 0 ? (
-                  <p className="text-xs text-[#A1A1AA] py-3 text-center">
-                    No cash settlement recorded yet.
-                  </p>
-                ) : (
-                  job.hisaabSettlements.map((s: any) => (
-                    <div
-                      key={s.id}
-                      className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs space-y-1"
+                <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                    <Receipt className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                    <span>Field Settlement & Customer Collections</span>
+                  </div>
+                  {(isAccountant || isAdmin || canViewFinancials) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSettlementForHandover(null);
+                        setReceiveCashDrawerOpen(true);
+                      }}
+                      className="text-[11px] font-bold text-[#0D7A5F] hover:text-[#0A624C] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition shadow-2xs inline-flex items-center gap-1"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-emerald-900 font-mono">
-                          {formatCurrency(s.amountCollected)} Collected
-                        </span>
-                        <span className="text-[10px] text-[#71717A]">
-                          {formatDateTime(s.settledAt)}
-                        </span>
+                      <Plus className="w-3 h-3" />
+                      <span>Receive Cash</span>
+                    </button>
+                  )}
+                </div>
+
+                {!job.hisaabSettlements || job.hisaabSettlements.length === 0 ? (
+                  <div className="p-4 bg-[#FAFAFA] rounded-xl border border-dashed border-[#E4E4E7] text-center space-y-1.5">
+                    <p className="text-xs text-[#71717A]">
+                      No customer cash settlement recorded yet.
+                    </p>
+                    {(isAccountant || isAdmin || canViewFinancials) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSettlementForHandover(null);
+                          setReceiveCashDrawerOpen(true);
+                        }}
+                        className="text-xs font-semibold text-[#0D7A5F] hover:underline"
+                      >
+                        + Record Cash Received from Technician
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  job.hisaabSettlements.map((s: any) => {
+                    const hasHandover =
+                      s.amountReceivedByAccountant !== null &&
+                      s.amountReceivedByAccountant !== undefined;
+                    const isFullyHandedOver =
+                      hasHandover &&
+                      Number(s.amountReceivedByAccountant) >= Number(s.amountCollected);
+                    const pendingHandoverAmount = Math.max(
+                      0,
+                      Number(s.amountCollected) - (Number(s.amountReceivedByAccountant) || 0)
+                    );
+
+                    return (
+                      <div
+                        key={s.id}
+                        className="p-3.5 bg-[#FAFAFA] rounded-xl border border-[#E4E4E7] text-xs space-y-2.5 transition hover:border-emerald-200 shadow-2xs"
+                      >
+                        {/* 1. Customer Collection Line */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-emerald-950 font-mono text-xs flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                              {formatCurrency(s.amountCollected)} Collected
+                            </span>
+                            <span className="text-[10px] text-[#71717A] font-mono">
+                              {formatDateTime(s.settledAt)}
+                            </span>
+                          </div>
+                          <p className="text-[#52525B] text-[11px]">
+                            Expected: {formatCurrency(s.amountExpected)} • Balance Due: {formatCurrency(s.balanceDue)}
+                          </p>
+                          {s.settledBy && (
+                            <p className="text-[#71717A] text-[10px]">
+                              {s.settledBy}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* 2. Accountant Cash Handover Verification Status */}
+                        <div className="pt-2 border-t border-[#EDEDED]">
+                          {hasHandover ? (
+                            <div
+                              className={`p-2.5 rounded-lg border text-xs space-y-1 ${
+                                isFullyHandedOver
+                                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-950"
+                                  : "bg-amber-50/80 border-amber-200 text-amber-950"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between flex-wrap gap-1">
+                                <span className="font-bold text-xs font-mono flex items-center gap-1.5">
+                                  {isFullyHandedOver ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  ) : (
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  )}
+                                  Received by Accounts: {formatCurrency(s.amountReceivedByAccountant)}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    isFullyHandedOver
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-amber-100 text-amber-900"
+                                  }`}
+                                >
+                                  {isFullyHandedOver
+                                    ? "Fully Handed Over"
+                                    : `Partial (${formatCurrency(pendingHandoverAmount)} with Tech)`}
+                                </span>
+                              </div>
+
+                              <p className="text-[11px] opacity-90">
+                                Received by <strong>{s.accountantReceivedBy || "Accounts"}</strong>
+                                {s.accountantReceivedAt ? ` on ${formatDateTime(s.accountantReceivedAt)}` : ""}
+                              </p>
+                              {s.accountantDepositAccount && (
+                                <p className="text-[10px] opacity-75 font-mono">
+                                  Vault / Safe: {s.accountantDepositAccount}
+                                </p>
+                              )}
+                              {s.accountantNotes && (
+                                <p className="text-[11px] italic opacity-85 mt-0.5">
+                                  "{s.accountantNotes}"
+                                </p>
+                              )}
+
+                              {(isAccountant || isAdmin || canViewFinancials) && (
+                                <div className="pt-1 flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSettlementForHandover(s);
+                                      setReceiveCashDrawerOpen(true);
+                                    }}
+                                    className="text-[10px] font-semibold text-[#0D7A5F] hover:underline"
+                                  >
+                                    Update Received Amount →
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="p-2.5 rounded-lg bg-amber-50/70 border border-amber-200 text-amber-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="space-y-0.5">
+                                <span className="font-bold flex items-center gap-1.5 text-amber-900">
+                                  <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  Pending Handover to Accounts
+                                </span>
+                                <p className="text-[11px] text-amber-800">
+                                  {formatCurrency(s.amountCollected)} is currently with the technician.
+                                </p>
+                              </div>
+
+                              {(isAccountant || isAdmin || canViewFinancials) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSettlementForHandover(s);
+                                    setReceiveCashDrawerOpen(true);
+                                  }}
+                                  className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs whitespace-nowrap flex items-center justify-center gap-1.5"
+                                >
+                                  <Banknote className="w-3.5 h-3.5" />
+                                  <span>Receive from Tech</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[#52525B] text-[11px]">
-                        Expected: {formatCurrency(s.amountExpected)} • Balance Due: {formatCurrency(s.balanceDue)}
-                      </p>
-                      {s.settledBy && (
-                        <p className="text-[#71717A] text-[10px]">
-                          {s.settledBy}
-                        </p>
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
@@ -1980,6 +2110,22 @@ export default function JobDetailPage() {
         netPayable={netPayable}
         onSuccess={(invNumber) => {
           setSuccessMsg(`Tax Invoice ${invNumber} generated successfully!`);
+          fetchJob();
+        }}
+      />
+
+      {/* RECEIVE TECHNICIAN CASH HANDOVER DRAWER */}
+      <ReceiveTechnicianCashDrawer
+        isOpen={receiveCashDrawerOpen}
+        onClose={() => {
+          setReceiveCashDrawerOpen(false);
+          setSelectedSettlementForHandover(null);
+        }}
+        job={job}
+        settlement={selectedSettlementForHandover}
+        currentAccountantName={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
+        onSuccess={() => {
+          setSuccessMsg(`Technician cash handover recorded and reconciled successfully!`);
           fetchJob();
         }}
       />

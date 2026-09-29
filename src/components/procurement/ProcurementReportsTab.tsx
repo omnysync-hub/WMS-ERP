@@ -8,8 +8,6 @@ import {
   AlertTriangle,
   PackageCheck,
   Building2,
-  Scale,
-  Clock,
   Printer,
   Calendar,
   CheckCircle2,
@@ -24,8 +22,8 @@ interface ProcurementReportsTabProps {
     overdueDeliveries: any[];
     grnPendingInvoice: any[];
     vendorWiseSpend: any[];
-    priceVarianceAnalysis: any[];
-    purchaseCycleTime: any[];
+    priceVarianceAnalysis?: any[];
+    purchaseCycleTime?: any[];
   };
   onRefresh: () => void;
 }
@@ -40,8 +38,6 @@ export default function ProcurementReportsTab({
     | "overdue_deliveries"
     | "grn_pending_invoice"
     | "vendor_spend"
-    | "price_variance"
-    | "cycle_time"
   >("pending_prs");
 
   const reportTabs = [
@@ -50,8 +46,6 @@ export default function ProcurementReportsTab({
     { id: "overdue_deliveries", label: "c. Overdue Deliveries", count: reportsData.overdueDeliveries.length, icon: AlertTriangle, isAlert: reportsData.overdueDeliveries.length > 0 },
     { id: "grn_pending_invoice", label: "d. GRN Pending Invoice", count: reportsData.grnPendingInvoice.length, icon: PackageCheck },
     { id: "vendor_spend", label: "e. Vendor-wise Spend", count: reportsData.vendorWiseSpend.length, icon: Building2 },
-    { id: "price_variance", label: "f. Price Variance Analysis", count: reportsData.priceVarianceAnalysis.length, icon: Scale },
-    { id: "cycle_time", label: "g. Purchase Cycle Time", count: reportsData.purchaseCycleTime.length, icon: Clock },
   ];
 
   return (
@@ -490,134 +484,6 @@ export default function ProcurementReportsTab({
         </div>
       )}
 
-      {/* Report 6: Price Variance Analysis */}
-      {activeReport === "price_variance" && (
-        <div className="bg-white border border-[#EDEDED] rounded-xl p-4 space-y-3 shadow-2xs">
-          <div className="flex justify-between items-center border-b border-[#EDEDED] pb-2">
-            <div>
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <Scale className="w-4 h-4 text-[#0D7A5F]" />
-                Report F: Price Variance Analysis (PPV)
-              </h3>
-              <p className="text-[11px] text-[#71717A] mt-0.5">
-                Audit of differences between Purchase Order agreed price and actual invoiced rates
-              </p>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto border border-[#EDEDED] rounded-xl shadow-2xs">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
-                  <th className="py-2.5 px-3.5">Invoice #</th>
-                  <th className="py-2.5 px-3">Supplier Name</th>
-                  <th className="py-2.5 px-3">PO Reference</th>
-                  <th className="py-2.5 px-3">Item Description</th>
-                  <th className="py-2.5 px-3 text-right">PO Rate</th>
-                  <th className="py-2.5 px-3 text-right">Billed Rate</th>
-                  <th className="py-2.5 px-3.5 text-right">Variance (PKR & %)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
-                {reportsData.priceVarianceAnalysis.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-6 text-center text-emerald-700 font-semibold">
-                      ✓ Perfect price conformity! Zero purchase price variances detected.
-                    </td>
-                  </tr>
-                ) : (
-                  reportsData.priceVarianceAnalysis.map((pv) => (
-                    <tr key={pv.id} className="hover:bg-[#F8FAFC]">
-                      <td className="py-2.5 px-3.5 font-mono font-bold text-[#18181B]">
-                        {pv.invoiceNumber}
-                      </td>
-                      <td className="py-2.5 px-3 font-semibold text-[#18181B]">{pv.vendorName}</td>
-                      <td className="py-2.5 px-3 font-mono text-[#71717A]">{pv.poNumber}</td>
-                      <td className="py-2.5 px-3 text-[#18181B]">{pv.itemDescription}</td>
-                      <td className="py-2.5 px-3 text-right font-mono text-[#71717A]">
-                        {formatCurrency(pv.poUnitPrice)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-[#18181B]">
-                        {formatCurrency(pv.billedUnitPrice)}
-                      </td>
-                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-rose-600">
-                        +{formatCurrency(pv.varianceAmount)} ({pv.variancePercent}%)
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Report 7: Purchase Cycle Time */}
-      {activeReport === "cycle_time" && (
-        <div className="bg-white border border-[#EDEDED] rounded-xl p-4 space-y-3 shadow-2xs">
-          <div className="flex justify-between items-center border-b border-[#EDEDED] pb-2">
-            <div>
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <Clock className="w-4 h-4 text-[#0D7A5F]" />
-                Report G: Purchase Cycle Time & Lead-Time Turnaround
-              </h3>
-              <p className="text-[11px] text-[#71717A] mt-0.5">
-                Milestone turnaround durations: Requisition $\rightarrow$ Approval $\rightarrow$ PO Issuance $\rightarrow$ GRN $\rightarrow$ 3-Way Match
-              </p>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto border border-[#EDEDED] rounded-xl shadow-2xs">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
-                  <th className="py-2.5 px-3.5">PO & PR #</th>
-                  <th className="py-2.5 px-3">Supplier</th>
-                  <th className="py-2.5 px-3 text-center">PR Approval</th>
-                  <th className="py-2.5 px-3 text-center">PO Issuance</th>
-                  <th className="py-2.5 px-3 text-center">Delivery Lead Time</th>
-                  <th className="py-2.5 px-3 text-center">3-Way Match Clearance</th>
-                  <th className="py-2.5 px-3.5 text-right">Total Turnaround</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
-                {reportsData.purchaseCycleTime.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-6 text-center text-[#71717A]">
-                      No completed procurement cycles recorded yet.
-                    </td>
-                  </tr>
-                ) : (
-                  reportsData.purchaseCycleTime.map((c, idx) => (
-                    <tr key={idx} className="hover:bg-[#F8FAFC]">
-                      <td className="py-2.5 px-3.5 font-mono">
-                        <strong className="text-[#18181B] block">{c.poNumber}</strong>
-                        <span className="text-[10px] text-[#A1A1AA]">{c.prNumber}</span>
-                      </td>
-                      <td className="py-2.5 px-3 font-semibold text-[#18181B]">{c.vendorName}</td>
-                      <td className="py-2.5 px-3 text-center font-mono text-[#71717A]">
-                        {c.prApprovalHours} hrs
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-mono text-[#71717A]">
-                        {c.poIssuanceHours} hrs
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-mono text-[#71717A]">
-                        {c.deliveryDays} days
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-mono text-[#71717A]">
-                        {c.matchingHours} hrs
-                      </td>
-                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-emerald-700">
-                        {c.totalCycleDays} Days Total
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

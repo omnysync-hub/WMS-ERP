@@ -268,18 +268,23 @@ model JobExpenseClaim {
 }
 
 model HisaabSettlement {
-  id              String    @id @default(uuid())
-  jobId           String
-  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  technicianId    String
-  amountExpected  Float
-  amountCollected Float
-  isFull          Boolean   @default(false)
-  balanceDue      Float     @default(0)
-  nextVisitDate   DateTime?
-  discountAmount  Float?
-  settledBy       String
-  settledAt       DateTime  @default(now())
+  id                         String    @id @default(uuid())
+  jobId                      String
+  job                        Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId               String
+  amountExpected             Float
+  amountCollected            Float
+  isFull                     Boolean   @default(false)
+  balanceDue                 Float     @default(0)
+  nextVisitDate              DateTime?
+  discountAmount             Float?
+  settledBy                  String
+  settledAt                  DateTime  @default(now())
+  amountReceivedByAccountant Float?
+  accountantReceivedBy       String?
+  accountantReceivedAt       DateTime?
+  accountantNotes            String?
+  accountantDepositAccount   String?
 }
 
 // ==========================================

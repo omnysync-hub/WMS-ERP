@@ -39,9 +39,92 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  MapPin,
+  Boxes,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
+
+interface WarehouseBranch {
+  id: string;
+  name: string;
+  city: string;
+  type: string;
+  badge: string;
+  address?: string;
+  incharge?: string;
+  contact?: string;
+  accent?: string;
+  locations: string[];
+  stockRatio?: number;
+  customStocks?: Record<string, number>;
+  itemLocations?: Record<string, string>;
+  isCentral?: boolean;
+}
+
+const DEFAULT_BRANCHES: WarehouseBranch[] = [
+  {
+    id: "branch-lahore",
+    name: "Central Warehouse (Lahore Hub)",
+    city: "Lahore (HQ)",
+    type: "Primary Distribution",
+    badge: "Hub Central",
+    address: "Workman Services Central Complex, Gulberg III, Lahore",
+    incharge: "Tariq Mehmood (Lead Storekeeper)",
+    contact: "+92 300 1234567",
+    accent: "border-[#0D7A5F] bg-[#0D7A5F]/5",
+    isCentral: true,
+    locations: ["Zone A - Main Heavy Storage", "Rack 1 - Motors & Compressors", "Aisle 2 - Copper Pipes & Fittings", "Bin 5 - Electronics & Sensors", "Tool Crib B"],
+    stockRatio: 1.0,
+    customStocks: {},
+    itemLocations: {},
+  },
+  {
+    id: "branch-karachi",
+    name: "Karachi Regional Depot",
+    city: "Karachi (South)",
+    type: "Regional Bin",
+    badge: "Active Depot",
+    address: "Korangi Industrial Area, Sector 23, Karachi",
+    incharge: "Kashif Siddiqui (Depot Manager)",
+    contact: "+92 321 9876543",
+    accent: "border-blue-200 bg-white",
+    locations: ["Bay 1 - Fast Moving Parts", "Bay 2 - Refrigerant Cylinders", "Shelf A - Capacitors & Relays"],
+    stockRatio: 0.42,
+    customStocks: {},
+    itemLocations: {},
+  },
+  {
+    id: "branch-islamabad",
+    name: "Islamabad Regional Depot",
+    city: "Islamabad (North)",
+    type: "Regional Bin",
+    badge: "Active Depot",
+    address: "I-9 Industrial Area, Islamabad",
+    incharge: "Imran Abbasi (North Logistics)",
+    contact: "+92 333 4567890",
+    accent: "border-purple-200 bg-white",
+    locations: ["Section North - HVAC Spares", "Section B - Ducting Consumables", "Tool Locker 1"],
+    stockRatio: 0.28,
+    customStocks: {},
+    itemLocations: {},
+  },
+  {
+    id: "branch-faisalabad",
+    name: "Faisalabad Workshop & Spares",
+    city: "Faisalabad",
+    type: "Workshop Depot",
+    badge: "Workshop Center",
+    address: "Small Industrial Estate, Faisalabad",
+    incharge: "Muhammad Aslam (Workshop Head)",
+    contact: "+92 345 6789012",
+    accent: "border-amber-200 bg-white",
+    locations: ["Workshop Floor - Overhaul Spares", "Welding & Brazing Bay", "Scrap & Salvage Bin"],
+    stockRatio: 0.15,
+    customStocks: {},
+    itemLocations: {},
+  },
+];
 
 function isServiceProduct(p: any) {
   if (!p) return false;
@@ -97,11 +180,30 @@ export default function InventoryPurchasingPage() {
   const [activeAllocationProduct, setActiveAllocationProduct] = useState<any>(null);
 
   // Branches & Multi-Movement Hub State
+  const [branches, setBranches] = useState<WarehouseBranch[]>(DEFAULT_BRANCHES);
   const [selectedBranch, setSelectedBranch] = useState("Central Warehouse (Lahore Hub)");
+  const [showBranchModal, setShowBranchModal] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<WarehouseBranch | null>(null);
+  const [showAddLocationModal, setShowAddLocationModal] = useState(false);
+  const [newLocationName, setNewLocationName] = useState("");
+  const [newLocationTargetBranch, setNewLocationTargetBranch] = useState("");
+  const [branchStockSearch, setBranchStockSearch] = useState("");
+  const [branchStockFilter, setBranchStockFilter] = useState<"all" | "low" | "out">("all");
+
+  // Branch form state
+  const [branchFormName, setBranchFormName] = useState("");
+  const [branchFormCity, setBranchFormCity] = useState("");
+  const [branchFormType, setBranchFormType] = useState("Regional Depot");
+  const [branchFormBadge, setBranchFormBadge] = useState("Active Depot");
+  const [branchFormAddress, setBranchFormAddress] = useState("");
+  const [branchFormIncharge, setBranchFormIncharge] = useState("");
+  const [branchFormContact, setBranchFormContact] = useState("");
+  const [branchFormLocations, setBranchFormLocations] = useState("");
+
   const [branchMovements, setBranchMovements] = useState<any[]>([]);
   const [equipmentList, setEquipmentList] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
-  const [activeMovementSubTab, setActiveMovementSubTab] = useState<"transfer" | "adjustment" | "workshop" | "equipment">("transfer");
+  const [activeMovementSubTab, setActiveMovementSubTab] = useState<"stock" | "transfer" | "adjustment" | "workshop" | "equipment">("stock");
   const [isSubmittingMovement, setIsSubmittingMovement] = useState(false);
 
   // Transfer Form State
@@ -518,9 +620,191 @@ export default function InventoryPurchasingPage() {
   const invEndIndex = Math.min(invStartIndex + inventoryPageSize, invTotalItems);
   const paginatedProducts = sortedProducts.slice(invStartIndex, invEndIndex);
 
+  // Persistent Branch Logic & Helpers
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("workman_warehouse_branches");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBranches(parsed);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  const saveBranches = (newBranches: WarehouseBranch[]) => {
+    setBranches(newBranches);
+    try {
+      localStorage.setItem("workman_warehouse_branches", JSON.stringify(newBranches));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const currentBranch = branches.find((b) => b.name === selectedBranch) || branches[0] || DEFAULT_BRANCHES[0];
+
+  const getProductStockInBranch = (branch: WarehouseBranch, product: any): number => {
+    if (!product || isServiceProduct(product)) return 0;
+    if (branch.customStocks && branch.customStocks[product.id] !== undefined) {
+      return branch.customStocks[product.id];
+    }
+    if (branch.isCentral) {
+      return product.stockQuantity || 0;
+    }
+    const ratio = branch.stockRatio !== undefined ? branch.stockRatio : 0.25;
+    return Math.max(0, Math.round((product.stockQuantity || 0) * ratio));
+  };
+
+  const getBranchTotalUnits = (branch: WarehouseBranch): number => {
+    return physicalProducts.reduce((sum, p) => sum + getProductStockInBranch(branch, p), 0);
+  };
+
+  const openCreateBranchModal = () => {
+    setEditingBranch(null);
+    setBranchFormName("");
+    setBranchFormCity("");
+    setBranchFormType("Regional Depot");
+    setBranchFormBadge("Active Depot");
+    setBranchFormAddress("");
+    setBranchFormIncharge("");
+    setBranchFormContact("");
+    setBranchFormLocations("Main Storage Bay, Aisle 1 - Fast Spares, Rack A");
+    setShowBranchModal(true);
+  };
+
+  const openEditBranchModal = (b: WarehouseBranch) => {
+    setEditingBranch(b);
+    setBranchFormName(b.name);
+    setBranchFormCity(b.city);
+    setBranchFormType(b.type);
+    setBranchFormBadge(b.badge);
+    setBranchFormAddress(b.address || "");
+    setBranchFormIncharge(b.incharge || "");
+    setBranchFormContact(b.contact || "");
+    setBranchFormLocations((b.locations || []).join(", "));
+    setShowBranchModal(true);
+  };
+
+  const handleSaveBranch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!branchFormName.trim() || !branchFormCity.trim()) {
+      return alert("Branch name and city/region are required.");
+    }
+    const parsedLocations = branchFormLocations
+      .split(/[,|\n]/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (editingBranch) {
+      const updated = branches.map((b) => {
+        if (b.id === editingBranch.id) {
+          return {
+            ...b,
+            name: branchFormName.trim(),
+            city: branchFormCity.trim(),
+            type: branchFormType,
+            badge: branchFormBadge.trim() || "Active Depot",
+            address: branchFormAddress.trim(),
+            incharge: branchFormIncharge.trim(),
+            contact: branchFormContact.trim(),
+            locations: parsedLocations.length > 0 ? parsedLocations : (b.locations || ["Main Bay"]),
+          };
+        }
+        return b;
+      });
+      saveBranches(updated);
+      setSelectedBranch(branchFormName.trim());
+      setNotification(`Warehouse branch "${branchFormName.trim()}" updated successfully.`);
+    } else {
+      const newBranch: WarehouseBranch = {
+        id: `branch-${Date.now()}`,
+        name: branchFormName.trim(),
+        city: branchFormCity.trim(),
+        type: branchFormType,
+        badge: branchFormBadge.trim() || "Active Depot",
+        address: branchFormAddress.trim(),
+        incharge: branchFormIncharge.trim(),
+        contact: branchFormContact.trim(),
+        accent: "border-emerald-200 bg-white",
+        locations: parsedLocations.length > 0 ? parsedLocations : ["Main Storage Bay", "Rack 1 - General"],
+        stockRatio: 0.25,
+        customStocks: {},
+        itemLocations: {},
+      };
+      const updated = [...branches, newBranch];
+      saveBranches(updated);
+      setSelectedBranch(newBranch.name);
+      setNotification(`New warehouse branch "${newBranch.name}" created successfully.`);
+    }
+    setShowBranchModal(false);
+  };
+
+  const handleDeleteBranch = (branchId: string) => {
+    const target = branches.find((b) => b.id === branchId);
+    if (!target) return;
+    if (target.isCentral) {
+      return alert("The Central Distribution Hub cannot be deleted.");
+    }
+    if (!confirm(`Are you sure you want to delete "${target.name}"? Stock assignments will be cleared.`)) {
+      return;
+    }
+    const updated = branches.filter((b) => b.id !== branchId);
+    saveBranches(updated);
+    if (selectedBranch === target.name) {
+      setSelectedBranch(updated[0]?.name || "Central Warehouse (Lahore Hub)");
+    }
+    setNotification(`Branch "${target.name}" deleted.`);
+  };
+
+  const handleAddLocationSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLocationName.trim()) return alert("Location or Bin name is required");
+    const targetName = newLocationTargetBranch || currentBranch.name;
+    const updated = branches.map((b) => {
+      if (b.name === targetName) {
+        const existing = b.locations || [];
+        if (existing.includes(newLocationName.trim())) return b;
+        return {
+          ...b,
+          locations: [...existing, newLocationName.trim()],
+        };
+      }
+      return b;
+    });
+    saveBranches(updated);
+    setNotification(`Storage location "${newLocationName.trim()}" added to ${targetName}.`);
+    setNewLocationName("");
+    setShowAddLocationModal(false);
+  };
+
+  const handleAssignItemLocation = (branchId: string, productId: string, location: string) => {
+    if (location === "+ New Location") {
+      setNewLocationTargetBranch(currentBranch.name);
+      setShowAddLocationModal(true);
+      return;
+    }
+    const updated = branches.map((b) => {
+      if (b.id === branchId) {
+        return {
+          ...b,
+          itemLocations: {
+            ...(b.itemLocations || {}),
+            [productId]: location,
+          },
+        };
+      }
+      return b;
+    });
+    saveBranches(updated);
+  };
+
   const handleBranchTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!transferProductId) return alert("Please select a product");
+    if (transferFromBranch === transferToBranch) return alert("Source and destination branch cannot be the same");
     setIsSubmittingMovement(true);
     try {
       const res = await fetch("/api/inventory", {
@@ -540,7 +824,36 @@ export default function InventoryPurchasingPage() {
         const err = await res.json();
         throw new Error(err.error || "Failed to transfer stock");
       }
-      setNotification(`Stock transfer dispatched successfully to ${transferToBranch}`);
+
+      // Update branch stock in source and destination
+      const qtyNum = Number(transferQty);
+      const prod = products.find((p) => p.id === transferProductId);
+      const updated = branches.map((b) => {
+        if (b.name === transferFromBranch) {
+          const current = getProductStockInBranch(b, prod);
+          return {
+            ...b,
+            customStocks: {
+              ...(b.customStocks || {}),
+              [transferProductId]: Math.max(0, current - qtyNum),
+            },
+          };
+        }
+        if (b.name === transferToBranch) {
+          const current = getProductStockInBranch(b, prod);
+          return {
+            ...b,
+            customStocks: {
+              ...(b.customStocks || {}),
+              [transferProductId]: current + qtyNum,
+            },
+          };
+        }
+        return b;
+      });
+      saveBranches(updated);
+
+      setNotification(`Stock transfer dispatched successfully from ${transferFromBranch} to ${transferToBranch}`);
       setTransferNotes("");
       loadData();
     } catch (err: any) {
@@ -1521,78 +1834,234 @@ export default function InventoryPurchasingPage() {
       {/* TAB 5: BRANCHES & MULTI-MOVEMENT HUB */}
       {activeTab === "branches" && (
         <div className="space-y-6">
-          {/* Branch Overview Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              {
-                name: "Central Warehouse (Lahore Hub)",
-                city: "Lahore (HQ)",
-                type: "Primary Distribution",
-                units: totalWarehouseUnits,
-                activeTransfers: 3,
-                accent: "border-[#0D7A5F] bg-[#0D7A5F]/5",
-                badge: "Hub Central",
-              },
-              {
-                name: "Karachi Regional Depot",
-                city: "Karachi (South)",
-                type: "Regional Bin",
-                units: Math.round(totalWarehouseUnits * 0.42),
-                activeTransfers: 1,
-                accent: "border-blue-200 bg-white",
-                badge: "Active Depot",
-              },
-              {
-                name: "Islamabad Regional Depot",
-                city: "Islamabad (North)",
-                type: "Regional Bin",
-                units: Math.round(totalWarehouseUnits * 0.28),
-                activeTransfers: 2,
-                accent: "border-purple-200 bg-white",
-                badge: "Active Depot",
-              },
-              {
-                name: "Faisalabad Workshop & Spares",
-                city: "Faisalabad",
-                type: "Workshop Depot",
-                units: Math.round(totalWarehouseUnits * 0.15),
-                activeTransfers: 0,
-                accent: "border-amber-200 bg-white",
-                badge: "Workshop Center",
-              },
-            ].map((b, idx) => (
-              <div
-                key={idx}
-                onClick={() => setSelectedBranch(b.name)}
-                className={`p-4 rounded-xl border transition cursor-pointer shadow-xs ${
-                  selectedBranch === b.name ? b.accent + " ring-2 ring-[#0D7A5F]" : "bg-white border-[#E4E4E7] hover:border-slate-300"
-                }`}
+          {/* Branch Overview Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-[#E4E4E7] shadow-xs">
+            <div>
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <Building className="w-4 h-4 text-[#0D7A5F]" />
+                Warehouse Network & Regional Hubs
+              </h3>
+              <p className="text-xs text-[#71717A] mt-0.5">
+                Manage branch warehouses, view localized stock on hand, configure storage bins/locations, and dispatch inter-branch transfers
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewLocationTargetBranch(currentBranch.name);
+                  setShowAddLocationModal(true);
+                }}
+                className="h-8 px-3 rounded-lg border border-[#D4D4D8] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-2xs"
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#71717A]">
-                    {b.city}
-                  </span>
-                  <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-[#F4F4F5] text-[#18181B] font-mono">
-                    {b.badge}
-                  </span>
-                </div>
-                <div className="mt-2">
-                  <h4 className="text-xs font-bold text-[#18181B] line-clamp-1">{b.name}</h4>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-xl font-bold font-mono text-[#18181B]">{b.units.toLocaleString()}</span>
-                    <span className="text-[11px] text-[#71717A]">units on hand</span>
-                  </div>
-                  <div className="mt-1 text-[10px] text-[#0D7A5F] font-semibold">
-                    {b.activeTransfers > 0 ? `📦 ${b.activeTransfers} inter-branch dispatches` : "All transfers clear"}
-                  </div>
-                </div>
-              </div>
-            ))}
+                <MapPin className="w-3.5 h-3.5 text-[#71717A]" />
+                + Add Storage Location
+              </button>
+              <button
+                type="button"
+                onClick={openCreateBranchModal}
+                className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                + Add Warehouse / Branch
+              </button>
+            </div>
           </div>
 
-          {/* Movement Hub Navigation */}
+          {/* Branch Overview Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {branches.map((b) => {
+              const isSelected = selectedBranch === b.name;
+              const totalUnits = getBranchTotalUnits(b);
+              const locationsCount = b.locations?.length || 0;
+
+              return (
+                <div
+                  key={b.id}
+                  onClick={() => setSelectedBranch(b.name)}
+                  className={`p-4 rounded-xl border transition cursor-pointer shadow-xs flex flex-col justify-between group ${
+                    isSelected
+                      ? "border-[#0D7A5F] bg-[#0D7A5F]/5 ring-2 ring-[#0D7A5F]"
+                      : "bg-white border-[#E4E4E7] hover:border-slate-300"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#71717A]">
+                        {b.city}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-[#F4F4F5] text-[#18181B] font-mono">
+                          {b.badge}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditBranchModal(b);
+                          }}
+                          className="p-1 rounded hover:bg-zinc-200/80 text-[#71717A] hover:text-[#18181B] transition opacity-70 group-hover:opacity-100"
+                          title="Edit branch details"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5">
+                      <h4 className="text-xs font-bold text-[#18181B] line-clamp-1 group-hover:text-[#0D7A5F] transition-colors">
+                        {b.name}
+                      </h4>
+                      <div className="mt-2 flex items-baseline gap-2">
+                        <span className="text-xl font-bold font-mono text-[#18181B]">
+                          {totalUnits.toLocaleString()}
+                        </span>
+                        <span className="text-[11px] text-[#71717A]">units on hand</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-[#E4E4E7]/80 flex items-center justify-between text-[10px]">
+                    <span className="inline-flex items-center gap-1 text-[#71717A] font-medium">
+                      <MapPin className="w-3 h-3 text-[#0D7A5F]" />
+                      {locationsCount} {locationsCount === 1 ? "storage bin" : "storage bins"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedBranch(b.name);
+                        setActiveMovementSubTab("stock");
+                      }}
+                      className="font-bold text-[#0D7A5F] hover:underline inline-flex items-center gap-0.5"
+                    >
+                      View Stock →
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Quick Add Branch Card */}
+            <div
+              onClick={openCreateBranchModal}
+              className="p-4 rounded-xl border border-dashed border-[#D4D4D8] hover:border-[#0D7A5F] bg-white hover:bg-emerald-50/20 transition cursor-pointer flex flex-col items-center justify-center text-center group min-h-[140px]"
+            >
+              <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#0D7A5F] group-hover:scale-110 transition-transform mb-2">
+                <Plus className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-[#18181B] group-hover:text-[#0D7A5F]">
+                + New Warehouse / Branch
+              </span>
+              <span className="text-[10px] text-[#71717A] mt-0.5">
+                Register depot, regional hub, or workshop
+              </span>
+            </div>
+          </div>
+
+          {/* Selected Branch Details & Storage Bins Strip */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-[#E4E4E7]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#0D7A5F]/10 text-[#0D7A5F] uppercase">
+                    Active Scope
+                  </span>
+                  <h3 className="text-sm font-bold text-[#18181B]">
+                    {currentBranch.name} ({currentBranch.city})
+                  </h3>
+                  <span className="text-xs text-[#71717A]">• {currentBranch.type}</span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] text-[#71717A] mt-1 flex-wrap">
+                  {currentBranch.incharge && (
+                    <span>👤 Incharge: <strong className="text-[#18181B]">{currentBranch.incharge}</strong></span>
+                  )}
+                  {currentBranch.contact && (
+                    <span>📞 Contact: <strong className="text-[#18181B]">{currentBranch.contact}</strong></span>
+                  )}
+                  {currentBranch.address && (
+                    <span>📍 Address: <span className="text-[#18181B]">{currentBranch.address}</span></span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEditBranchModal(currentBranch)}
+                  className="h-7 px-2.5 rounded-lg border border-[#D4D4D8] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-2xs"
+                >
+                  <Pencil className="w-3 h-3 text-[#71717A]" />
+                  Edit Branch Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewLocationTargetBranch(currentBranch.name);
+                    setShowAddLocationModal(true);
+                  }}
+                  className="h-7 px-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs font-semibold text-emerald-900 inline-flex items-center gap-1 transition shadow-2xs"
+                >
+                  <MapPin className="w-3 h-3 text-emerald-700" />
+                  + Add Bin / Zone
+                </button>
+                {!currentBranch.isCentral && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBranch(currentBranch.id)}
+                    className="h-7 px-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-xs font-semibold text-rose-700 inline-flex items-center gap-1 transition"
+                    title="Delete this branch"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Storage Locations / Bins Row */}
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider flex items-center gap-1 shrink-0">
+                <Boxes className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                Configured Storage Bins & Locations:
+              </span>
+              {(currentBranch.locations || []).map((loc) => (
+                <span
+                  key={loc}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#F8FAFC] border border-[#EDEDED] text-[#18181B] shadow-2xs"
+                >
+                  <MapPin className="w-3 h-3 text-[#0D7A5F]" />
+                  {loc}
+                </span>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setNewLocationTargetBranch(currentBranch.name);
+                  setShowAddLocationModal(true);
+                }}
+                className="text-xs text-[#0D7A5F] hover:underline font-bold inline-flex items-center gap-1 ml-1"
+              >
+                + New Location
+              </button>
+            </div>
+          </div>
+
+          {/* Movement Hub Navigation & Views */}
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
             <div className="flex items-center border-b border-[#E4E4E7] px-4 overflow-x-auto bg-[#FAFAFA]">
+              <button
+                type="button"
+                onClick={() => setActiveMovementSubTab("stock")}
+                className={`py-3 px-4 text-xs font-semibold inline-flex items-center gap-2 border-b-2 transition ${
+                  activeMovementSubTab === "stock"
+                    ? "border-[#0D7A5F] text-[#0D7A5F]"
+                    : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>Branch Stock & Inventory ({physicalProducts.length})</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveMovementSubTab("transfer")}
@@ -1646,6 +2115,218 @@ export default function InventoryPurchasingPage() {
               </button>
             </div>
 
+            {/* SUB-VIEW 0: BRANCH STOCK INVENTORY */}
+            {activeMovementSubTab === "stock" && (
+              <div className="p-6 space-y-4">
+                {/* Search & Filter Header */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-3 border-b border-[#E4E4E7]">
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:w-80">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                      <input
+                        type="text"
+                        placeholder={`Search ${currentBranch.name} stock or bin...`}
+                        value={branchStockSearch}
+                        onChange={(e) => setBranchStockSearch(e.target.value)}
+                        className="w-full bg-[#FAFAFA] border border-[#D4D4D8] rounded-lg pl-8 pr-3 py-1.5 text-xs text-[#18181B] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+                    <div className="flex items-center gap-1 bg-[#F4F4F5] p-0.5 rounded-lg border border-[#E4E4E7] text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setBranchStockFilter("all")}
+                        className={`px-2.5 py-1 rounded font-semibold transition ${
+                          branchStockFilter === "all"
+                            ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                            : "text-[#71717A] hover:text-[#18181B]"
+                        }`}
+                      >
+                        All ({physicalProducts.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBranchStockFilter("low")}
+                        className={`px-2.5 py-1 rounded font-semibold transition ${
+                          branchStockFilter === "low"
+                            ? "bg-amber-100 text-amber-900 shadow-2xs font-bold"
+                            : "text-[#71717A] hover:text-amber-800"
+                        }`}
+                      >
+                        Low Stock ({physicalProducts.filter((p) => {
+                          const q = getProductStockInBranch(currentBranch, p);
+                          return q <= (p.reorderPoint || 5) && q > 0;
+                        }).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBranchStockFilter("out")}
+                        className={`px-2.5 py-1 rounded font-semibold transition ${
+                          branchStockFilter === "out"
+                            ? "bg-rose-100 text-rose-900 shadow-2xs font-bold"
+                            : "text-[#71717A] hover:text-rose-800"
+                        }`}
+                      >
+                        Depleted ({physicalProducts.filter((p) => getProductStockInBranch(currentBranch, p) === 0).length})
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTransferFromBranch(currentBranch.name);
+                        setActiveMovementSubTab("transfer");
+                      }}
+                      className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      Transfer Stock
+                    </button>
+                  </div>
+                </div>
+
+                {/* Table of Branch Stock */}
+                {(() => {
+                  const filteredBranchProducts = physicalProducts.filter((p) => {
+                    const q = getProductStockInBranch(currentBranch, p);
+                    const assignedLoc = currentBranch.itemLocations?.[p.id] || "";
+                    const matchesQuery =
+                      p.name.toLowerCase().includes(branchStockSearch.toLowerCase()) ||
+                      p.sku.toLowerCase().includes(branchStockSearch.toLowerCase()) ||
+                      assignedLoc.toLowerCase().includes(branchStockSearch.toLowerCase());
+                    if (!matchesQuery) return false;
+
+                    if (branchStockFilter === "low") {
+                      return q <= (p.reorderPoint || 5) && q > 0;
+                    }
+                    if (branchStockFilter === "out") {
+                      return q === 0;
+                    }
+                    return true;
+                  });
+
+                  if (filteredBranchProducts.length === 0) {
+                    return (
+                      <div className="p-8 text-center text-xs text-[#71717A] bg-[#FAFAFA] rounded-xl border border-dashed border-[#D4D4D8]">
+                        No items found matching the current search & filter in {currentBranch.name}.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="overflow-x-auto border border-[#E4E4E7] rounded-xl shadow-2xs">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-[#F8FAFC] text-[#71717A] font-semibold text-[11px] uppercase tracking-wider border-b border-[#E4E4E7]">
+                            <th className="py-2.5 px-4">Item SKU & Name</th>
+                            <th className="py-2.5 px-4">Storage Bin / Location</th>
+                            <th className="py-2.5 px-4 text-center">Branch Stock</th>
+                            <th className="py-2.5 px-4 text-center">Network Total</th>
+                            <th className="py-2.5 px-4 text-right">Unit Value</th>
+                            <th className="py-2.5 px-4 text-center">Status</th>
+                            <th className="py-2.5 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E4E4E7] text-[#18181B]">
+                          {filteredBranchProducts.map((p) => {
+                            const bQty = getProductStockInBranch(currentBranch, p);
+                            const isLow = bQty <= (p.reorderPoint || 5) && bQty > 0;
+                            const isOut = bQty === 0;
+                            const currentLocation = currentBranch.itemLocations?.[p.id] || currentBranch.locations[0] || "Main Bay";
+
+                            return (
+                              <tr key={p.id} className="hover:bg-[#F8FAFC]">
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono font-bold text-xs bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded shadow-2xs">
+                                      {p.sku}
+                                    </span>
+                                    <span className="font-semibold text-xs text-[#18181B]">{p.name}</span>
+                                  </div>
+                                </td>
+
+                                <td className="py-3 px-4">
+                                  <select
+                                    value={currentLocation}
+                                    onChange={(e) => handleAssignItemLocation(currentBranch.id, p.id, e.target.value)}
+                                    className="bg-zinc-50 border border-zinc-200 text-[#18181B] text-[11px] rounded-md px-2 py-1 outline-none font-medium hover:bg-white focus:bg-white cursor-pointer"
+                                  >
+                                    {(currentBranch.locations || []).map((loc) => (
+                                      <option key={loc} value={loc}>
+                                        📍 {loc}
+                                      </option>
+                                    ))}
+                                    <option value="+ New Location">+ Add New Location...</option>
+                                  </select>
+                                </td>
+
+                                <td className="py-3 px-4 text-center font-mono">
+                                  {isOut ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                                      0 <span className="font-normal text-[10px] text-rose-600">{p.unit || "unit"}</span>
+                                    </span>
+                                  ) : isLow ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+                                      {bQty} <span className="font-normal text-[10px] text-amber-700">{p.unit || "unit"}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                                      {bQty} <span className="font-normal text-[10px] text-emerald-700">{p.unit || "unit"}</span>
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4 text-center font-mono font-bold text-xs text-[#71717A]">
+                                  {p.stockQuantity} <span className="text-[10px] font-normal">{p.unit || "unit"}</span>
+                                </td>
+
+                                <td className="py-3 px-4 text-right font-mono font-semibold text-xs text-[#18181B]">
+                                  {formatCurrency(p.unitPrice || p.costPrice || 0)}
+                                </td>
+
+                                <td className="py-3 px-4 text-center">
+                                  {isOut ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
+                                      Out of Stock
+                                    </span>
+                                  ) : isLow ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                      Low Reorder
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                      In Stock
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setTransferProductId(p.id);
+                                      setTransferFromBranch(currentBranch.name);
+                                      setActiveMovementSubTab("transfer");
+                                    }}
+                                    className="px-2.5 py-1 rounded bg-[#F4F4F5] hover:bg-[#E4E4E7] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1 transition shadow-2xs"
+                                  >
+                                    <ArrowRightLeft className="w-3 h-3 text-[#0D7A5F]" />
+                                    Transfer
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* SUB-VIEW 1: INTER-BRANCH STOCK TRANSFER */}
             {activeMovementSubTab === "transfer" && (
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1662,10 +2343,11 @@ export default function InventoryPurchasingPage() {
                       onChange={(e) => setTransferFromBranch(e.target.value)}
                       className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
                     >
-                      <option value="Central Warehouse (Lahore Hub)">Central Warehouse (Lahore Hub)</option>
-                      <option value="Karachi Regional Depot">Karachi Regional Depot</option>
-                      <option value="Islamabad Regional Depot">Islamabad Regional Depot</option>
-                      <option value="Faisalabad Workshop & Spares">Faisalabad Workshop & Spares</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.name}>
+                          {b.name} ({b.city})
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -1676,10 +2358,11 @@ export default function InventoryPurchasingPage() {
                       onChange={(e) => setTransferToBranch(e.target.value)}
                       className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs text-[#18181B] outline-none"
                     >
-                      <option value="Karachi Regional Depot">Karachi Regional Depot</option>
-                      <option value="Islamabad Regional Depot">Islamabad Regional Depot</option>
-                      <option value="Faisalabad Workshop & Spares">Faisalabad Workshop & Spares</option>
-                      <option value="Central Warehouse (Lahore Hub)">Central Warehouse (Lahore Hub)</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.name}>
+                          {b.name} ({b.city})
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -1692,11 +2375,15 @@ export default function InventoryPurchasingPage() {
                       required
                     >
                       <option value="">-- Choose Inventory Item --</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.sku}) — Stock: {p.stockQuantity} {p.unit || "unit"}
-                        </option>
-                      ))}
+                      {physicalProducts.map((p) => {
+                        const fromBr = branches.find((b) => b.name === transferFromBranch) || currentBranch;
+                        const availableInSource = getProductStockInBranch(fromBr, p);
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.sku}) — Available at Source: {availableInSource} {p.unit || "unit"}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 
@@ -2916,6 +3603,279 @@ export default function InventoryPurchasingPage() {
             </div>
           </>
         )}
+      </SideDrawer>
+
+      {/* CREATE / EDIT WAREHOUSE BRANCH MODAL */}
+      <SideDrawer
+        isOpen={showBranchModal}
+        onClose={() => setShowBranchModal(false)}
+        width="max-w-lg"
+        customHeader={
+          <div className="px-6 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-emerald-50/50 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                <Building className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B]">
+                  {editingBranch ? "Edit Warehouse / Branch" : "Add Warehouse / Branch"}
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  {editingBranch ? `Configure settings for ${editingBranch.name}` : "Create a new depot, hub, or regional storage facility"}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowBranchModal(false)}
+              className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        }
+        bodyClassName="p-0 flex flex-col flex-1 overflow-hidden"
+      >
+        <form onSubmit={handleSaveBranch} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+          <div>
+            <label className="font-semibold text-[#18181B] block mb-1">
+              Branch / Warehouse Name *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Multan Regional Depot"
+              value={branchFormName}
+              onChange={(e) => setBranchFormName(e.target.value)}
+              className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-bold text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-[#18181B] block mb-1">
+                City / Region *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Multan (South)"
+                value={branchFormCity}
+                onChange={(e) => setBranchFormCity(e.target.value)}
+                className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              />
+            </div>
+            <div>
+              <label className="font-semibold text-[#18181B] block mb-1">
+                Facility Type
+              </label>
+              <select
+                value={branchFormType}
+                onChange={(e) => setBranchFormType(e.target.value)}
+                className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              >
+                <option value="Primary Distribution">Primary Distribution</option>
+                <option value="Regional Depot">Regional Depot</option>
+                <option value="Workshop Depot">Workshop Depot</option>
+                <option value="Field Transit Hub">Field Transit Hub</option>
+                <option value="Service Center Spares">Service Center Spares</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-[#18181B] block mb-1">
+                Status Badge Label
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Active Depot, Hub Central"
+                value={branchFormBadge}
+                onChange={(e) => setBranchFormBadge(e.target.value)}
+                className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              />
+            </div>
+            <div>
+              <label className="font-semibold text-[#18181B] block mb-1">
+                Manager / Incharge Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Zahid Khan (Depot Lead)"
+                value={branchFormIncharge}
+                onChange={(e) => setBranchFormIncharge(e.target.value)}
+                className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-[#18181B] block mb-1">
+                Contact Phone / Extension
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. +92 300 9876543"
+                value={branchFormContact}
+                onChange={(e) => setBranchFormContact(e.target.value)}
+                className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              />
+            </div>
+            <div>
+              <label className="font-semibold text-[#18181B] block mb-1">
+                Physical Address
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Plot 14, Industrial Area Phase 2"
+                value={branchFormAddress}
+                onChange={(e) => setBranchFormAddress(e.target.value)}
+                className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="font-semibold text-[#18181B] block mb-1">
+              Storage Bins & Locations (comma or newline separated)
+            </label>
+            <textarea
+              rows={3}
+              placeholder="e.g. Zone A - Heavy Storage, Rack 1 - Compressors, Shelf B - Capacitors, Tool Bin"
+              value={branchFormLocations}
+              onChange={(e) => setBranchFormLocations(e.target.value)}
+              className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+            />
+            <p className="text-[10px] text-[#71717A] mt-1">
+              These locations will be available when assigning bins to materials stored at this branch.
+            </p>
+          </div>
+
+          <div className="pt-4 border-t border-[#E4E4E7] flex items-center justify-between">
+            {editingBranch && !editingBranch.isCentral ? (
+              <button
+                type="button"
+                onClick={() => {
+                  handleDeleteBranch(editingBranch.id);
+                  setShowBranchModal(false);
+                }}
+                className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-xs font-semibold text-rose-700 transition"
+              >
+                Delete Branch
+              </button>
+            ) : <div />}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBranchModal(false)}
+                className="px-4 py-2 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs"
+              >
+                {editingBranch ? "Save Changes" : "Create Branch"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </SideDrawer>
+
+      {/* ADD STORAGE LOCATION / BIN MODAL */}
+      <SideDrawer
+        isOpen={showAddLocationModal}
+        onClose={() => setShowAddLocationModal(false)}
+        width="max-w-md"
+        customHeader={
+          <div className="px-6 py-4 border-b border-[#E4E4E7] flex items-center justify-between bg-blue-50/50 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B]">
+                  Add Storage Location / Bin
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  Register an aisle, rack, shelf, or bin within a branch
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddLocationModal(false)}
+              className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-[#F4F4F5] transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        }
+        bodyClassName="p-0 flex flex-col flex-1 overflow-hidden"
+      >
+        <form onSubmit={handleAddLocationSubmit} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+          <div>
+            <label className="font-semibold text-[#18181B] block mb-1">
+              Target Branch *
+            </label>
+            <select
+              value={newLocationTargetBranch || currentBranch.name}
+              onChange={(e) => setNewLocationTargetBranch(e.target.value)}
+              className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none text-[#18181B]"
+            >
+              {branches.map((b) => (
+                <option key={b.id} value={b.name}>
+                  {b.name} ({b.city})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="font-semibold text-[#18181B] block mb-1">
+              Storage Bin / Location Name *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Rack C-4 - Refrigerant Cylinders"
+              value={newLocationName}
+              onChange={(e) => setNewLocationName(e.target.value)}
+              className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-bold text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none text-[#18181B]"
+            />
+          </div>
+
+          <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-200 space-y-1">
+            <span className="font-semibold text-[#18181B] block">Current Locations in Selected Branch:</span>
+            <div className="flex flex-wrap gap-1 pt-1">
+              {((branches.find((b) => b.name === (newLocationTargetBranch || currentBranch.name)) || currentBranch).locations || []).map((loc) => (
+                <span key={loc} className="px-2 py-0.5 rounded bg-white border border-zinc-200 text-[10px] text-zinc-700">
+                  📍 {loc}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-[#E4E4E7] flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAddLocationModal(false)}
+              className="px-4 py-2 text-xs text-[#71717A] hover:text-[#18181B] font-semibold rounded hover:bg-[#F4F4F5] transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs"
+            >
+              Add Storage Location
+            </button>
+          </div>
+        </form>
       </SideDrawer>
     </div>
   );

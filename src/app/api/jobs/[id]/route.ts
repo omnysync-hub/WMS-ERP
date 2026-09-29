@@ -228,6 +228,22 @@ export async function PATCH(
         }
         break;
 
+      case "record_technician_cash_handover":
+      case "receive_technician_cash":
+        result = await JobsService.recordTechnicianCashHandover(
+          params.id,
+          payload.settlementId || null,
+          Number(payload.amountReceived),
+          actor,
+          {
+            depositAccount: payload.depositAccount,
+            notes: payload.notes,
+            technicianId: payload.technicianId,
+            amountExpected: payload.amountExpected ? Number(payload.amountExpected) : undefined,
+          }
+        );
+        break;
+
       case "issue_inventory":
         result = await JobsService.issueInventory(
           params.id,

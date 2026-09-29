@@ -44,11 +44,11 @@ export function capitalizeWords(text: string | null | undefined): string {
 export function formatJobType(type: string | null | undefined): string {
   if (!type) return "General Service";
   
-  // Clean up common programmatic encodings
+  // Clean up common programmatic encodings and all underscores
   let formatted = type
     .replace(/___/g, " & ")
     .replace(/__/g, " - ")
-    .replace(/_/g, " ")
+    .replace(/_+/g, " ")
     .trim();
 
   // Acronym and casing map
@@ -63,11 +63,12 @@ export function formatJobType(type: string | null | undefined): string {
   };
 
   return formatted
-    .split(" ")
+    .split(/\s+/)
     .map((w) => {
       const lower = w.toLowerCase().replace(/[^a-z]/g, "");
+      if (lower === "repa") return "Repair";
       if (acronyms[lower]) {
-        return w.toLowerCase() === lower ? acronyms[lower] : w;
+        return acronyms[lower];
       }
       if (w === "&" || w === "-") return w;
       return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();

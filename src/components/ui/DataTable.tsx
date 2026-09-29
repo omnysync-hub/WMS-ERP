@@ -69,6 +69,7 @@ interface DataTableProps<T> {
   moduleName?: string;
   onRefresh?: () => void;
   pageSize?: number;
+  tableClassName?: string;
 }
 
 export default function DataTable<T extends Record<string, any>>({
@@ -90,6 +91,7 @@ export default function DataTable<T extends Record<string, any>>({
   moduleName = "records",
   onRefresh,
   pageSize: initialPageSize = 20,
+  tableClassName,
 }: DataTableProps<T>) {
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [expandedRowIds, setExpandedRowIds] = useState<string[]>([]);
@@ -475,25 +477,30 @@ export default function DataTable<T extends Record<string, any>>({
         </div>
       )}
 
-      {/* 3. Pure White Dense Data Table with Hairline Dividers */}
+      {/* 3. Pure White Data Table with Hairline Dividers */}
       <div className="bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+          <table
+            className={cn(
+              "w-full min-w-[1150px] text-left text-xs border-collapse",
+              tableClassName
+            )}
+          >
             <thead>
-              <tr className="border-b border-[#EDEDED] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#FAFAFA]">
+              <tr className="border-b border-[#EDEDED] text-xs font-semibold text-[#52525B] uppercase tracking-wider bg-[#FAFAFA]">
                 {/* Select All Checkbox */}
-                <th className="w-9 py-2.5 px-3 text-center">
+                <th className="w-10 py-3 px-3.5 text-center">
                   <input
                     type="checkbox"
                     checked={allSelected}
                     onChange={handleSelectAll}
                     aria-label="Select all rows"
-                    className="w-3.5 h-3.5 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
+                    className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
                   />
                 </th>
 
                 {/* Expand Chevron Column */}
-                <th className="w-7 py-2.5 px-1 text-center" aria-label="Expand chevron column">
+                <th className="w-8 py-3 px-1 text-center" aria-label="Expand chevron column">
                   <span className="sr-only">Expand</span>
                 </th>
 
@@ -502,7 +509,7 @@ export default function DataTable<T extends Record<string, any>>({
                     key={col.id}
                     style={{ width: col.width }}
                     className={cn(
-                      "py-2.5 px-3 font-semibold",
+                      "py-3.5 px-3.5 font-semibold text-xs text-[#52525B]",
                       col.align === "center" && "text-center",
                       col.align === "right" && "text-right"
                     )}
@@ -518,10 +525,10 @@ export default function DataTable<T extends Record<string, any>>({
                 <tr>
                   <td
                     colSpan={displayedColumns.length + 2}
-                    className="py-12 text-center text-xs text-[#71717A]"
+                    className="py-16 text-center text-xs text-[#71717A]"
                   >
-                    <p className="font-medium text-[#18181B]">{emptyMessage}</p>
-                    <p className="text-[11px] text-[#A1A1AA] mt-1">
+                    <p className="font-semibold text-sm text-[#18181B]">{emptyMessage}</p>
+                    <p className="text-xs text-[#A1A1AA] mt-1.5">
                       No records match the current tab and filter criteria.
                     </p>
                   </td>
@@ -536,23 +543,23 @@ export default function DataTable<T extends Record<string, any>>({
                     <React.Fragment key={rowId}>
                       <tr
                         className={cn(
-                          "h-10 hover:bg-[#F9FAFB] transition group",
+                          "hover:bg-[#F9FAFB] transition-colors group",
                           isSelected && "bg-emerald-50/40 hover:bg-emerald-50/60"
                         )}
                       >
                         {/* Row Checkbox */}
-                        <td className="w-9 py-2 px-3 text-center">
+                        <td className="w-10 py-3.5 px-3.5 text-center align-middle">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleSelectRow(rowId)}
                             aria-label={`Select row ${rowId}`}
-                            className="w-3.5 h-3.5 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
+                            className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
                           />
                         </td>
 
                         {/* Expand Chevron Button */}
-                        <td className="w-7 py-2 px-1 text-center">
+                        <td className="w-8 py-3.5 px-1 text-center align-middle">
                           <button
                             type="button"
                             onClick={() => toggleRowExpand(rowId)}
@@ -562,7 +569,7 @@ export default function DataTable<T extends Record<string, any>>({
                           >
                             <ChevronRight
                               className={cn(
-                                "w-3.5 h-3.5 transition-transform duration-150",
+                                "w-4 h-4 transition-transform duration-150",
                                 isExpanded && "rotate-90 text-[#0D7A5F]"
                               )}
                             />
@@ -577,7 +584,7 @@ export default function DataTable<T extends Record<string, any>>({
                             <td
                               key={col.id}
                               className={cn(
-                                "py-2 px-3",
+                                "py-3 px-3.5 align-middle",
                                 col.align === "center" && "text-center",
                                 col.align === "right" && "text-right"
                               )}

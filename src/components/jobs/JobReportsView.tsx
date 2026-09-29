@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { formatCurrency, formatDateTime, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatDate, formatJobType } from "@/lib/utils";
 import {
   CheckCircle2,
   Clock,
@@ -747,7 +747,7 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 text-[11px] text-[#71717A] mt-0.5">
-                              <span className="capitalize">{job.jobType}</span>
+                              <span>{formatJobType(job.jobType)}</span>
                               <span>•</span>
                               <span>{formatDateTime(job.createdAt)}</span>
                             </div>

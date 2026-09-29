@@ -280,11 +280,11 @@ export default function JobsListPage() {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border tracking-tight shadow-2xs whitespace-nowrap",
+          "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border tracking-tight shadow-2xs whitespace-nowrap",
           colorClasses
         )}
       >
-        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
+        <span className={cn("w-2 h-2 rounded-full shrink-0", dotColor)} />
         <span>{formatted}</span>
       </span>
     );
@@ -296,6 +296,7 @@ export default function JobsListPage() {
       id: "jobNumber",
       header: "Job # & External Ref",
       accessorKey: "jobNumber",
+      width: "185px",
       isPrimaryLink: true,
       getHref: (row) => `/jobs/${row.id}`,
       cell: (row) => {
@@ -313,19 +314,19 @@ export default function JobsListPage() {
           (row.parentJobId || row.reassignedFromJobId || row.status !== "TechnicianReassigned");
 
         return (
-          <div className="space-y-0.5">
-            <span className="font-mono font-bold text-xs text-[#0D7A5F] hover:underline block whitespace-nowrap">
+          <div className="space-y-1">
+            <span className="font-mono font-bold text-sm text-[#0D7A5F] hover:underline block whitespace-nowrap">
               {row.jobNumber}
             </span>
-            <div className="flex items-center gap-1 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {row.manualJobNumber && (
-                <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1 rounded font-mono inline-block">
+                <span className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded font-mono inline-block">
                   Ext: #{row.manualJobNumber}
                 </span>
               )}
               {row.careOfParty && (
-                <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-medium inline-flex items-center gap-0.5">
-                  <Building className="w-2.5 h-2.5 text-purple-500" />
+                <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1">
+                  <Building className="w-3 h-3 text-purple-500" />
                   c/o {row.careOfParty.companyName}
                 </span>
               )}
@@ -333,10 +334,10 @@ export default function JobsListPage() {
                 <Link
                   href={`/jobs/${openSuccessor.id}`}
                   onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5 hover:bg-violet-100"
+                  className="text-[11px] text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 hover:bg-violet-100"
                   title="Open successor work order"
                 >
-                  <ArrowUpRight className="w-2.5 h-2.5" />
+                  <ArrowUpRight className="w-3 h-3" />
                   Successor {openSuccessor.jobNumber}
                 </Link>
               )}
@@ -344,7 +345,7 @@ export default function JobsListPage() {
                 <Link
                   href={`/jobs/${parent.id}`}
                   onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] text-slate-700 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5 hover:bg-slate-100"
+                  className="text-[11px] text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 hover:bg-slate-100"
                   title="Open parent / reassigned-from work order"
                 >
                   From {parent.jobNumber}
@@ -358,6 +359,7 @@ export default function JobsListPage() {
     {
       id: "customer",
       header: "Customer",
+      width: "230px",
       cell: (row) => {
         const customerName = capitalizeWords(row.customer?.name || "Customer");
         const address = row.customer?.addressText || "";
@@ -366,20 +368,20 @@ export default function JobsListPage() {
           : capitalizeWords(address);
 
         return (
-          <div className="max-w-[210px]">
-            <p className="font-semibold text-[#18181B] text-xs truncate" title={customerName}>
+          <div className="max-w-[230px]">
+            <p className="font-semibold text-[#18181B] text-sm truncate" title={customerName}>
               {customerName}
             </p>
             {address ? (
               <p
-                className="text-[11px] text-[#71717A] truncate flex items-center gap-1 mt-0.5"
+                className="text-xs text-[#71717A] truncate flex items-center gap-1 mt-0.5"
                 title={address}
               >
-                <MapPin className="w-3 h-3 text-[#A1A1AA] shrink-0" />
+                <MapPin className="w-3.5 h-3.5 text-[#A1A1AA] shrink-0" />
                 <span className="truncate">{formattedAddress}</span>
               </p>
             ) : (
-              <p className="text-[11px] text-[#A1A1AA] italic">No address on file</p>
+              <p className="text-xs text-[#A1A1AA] italic mt-0.5">No address on file</p>
             )}
           </div>
         );
@@ -389,11 +391,13 @@ export default function JobsListPage() {
       id: "type",
       header: "Job Type",
       accessorKey: "jobType",
+      width: "210px",
       cell: (row) => getJobTypeBadge(row.jobType),
     },
     {
       id: "technician",
       header: "Technician",
+      width: "195px",
       cell: (row) => {
         const techName = row.assignedTechnician?.name
           ? capitalizeWords(row.assignedTechnician.name)
@@ -411,12 +415,12 @@ export default function JobsListPage() {
         return (
           <div className="flex items-center">
             {row.assignedTechnician ? (
-              <div className="inline-flex items-center gap-2 bg-white border border-[#E4E4E7] hover:border-emerald-300 rounded-full pl-1 pr-2 py-0.5 shadow-2xs transition group max-w-full">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-[#0D7A5F] text-[9px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
+              <div className="inline-flex items-center gap-2 bg-white border border-[#E4E4E7] hover:border-emerald-300 rounded-full pl-1 pr-2.5 py-0.5 shadow-2xs transition group max-w-full">
+                <span className="w-6 h-6 rounded-full bg-emerald-100 text-[#0D7A5F] text-[10px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
                   {initials}
                 </span>
                 <span
-                  className="font-semibold text-[#18181B] truncate text-xs max-w-[110px]"
+                  className="font-semibold text-[#18181B] truncate text-xs max-w-[115px]"
                   title={techName || ""}
                 >
                   {techName}
@@ -429,7 +433,7 @@ export default function JobsListPage() {
                       setReassignJob(row);
                     }}
                     title="Change assigned technician"
-                    className="text-[10px] font-semibold text-[#71717A] hover:text-[#0D7A5F] bg-[#F4F4F5] hover:bg-emerald-50 px-1.5 py-0.5 rounded-full border border-[#E4E4E7] hover:border-emerald-200 transition shrink-0 ml-0.5"
+                    className="text-[11px] font-semibold text-[#71717A] hover:text-[#0D7A5F] bg-[#F4F4F5] hover:bg-emerald-50 px-2 py-0.5 rounded-full border border-[#E4E4E7] hover:border-emerald-200 transition shrink-0 ml-0.5"
                   >
                     Change
                   </button>
@@ -442,9 +446,9 @@ export default function JobsListPage() {
                   e.stopPropagation();
                   setReassignJob(row);
                 }}
-                className="text-[11px] font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200 transition inline-flex items-center gap-1 shadow-2xs group"
+                className="text-xs font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200 transition inline-flex items-center gap-1.5 shadow-2xs group"
               >
-                <Plus className="w-3 h-3 group-hover:scale-110 transition" />
+                <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition" />
                 <span>+ Assign Tech</span>
               </button>
             ) : (
@@ -457,6 +461,7 @@ export default function JobsListPage() {
     {
       id: "status",
       header: isStorekeeper ? "Material Status" : "Status",
+      width: "180px",
       cell: (row) => {
         if (isStorekeeper) {
           const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
@@ -478,37 +483,37 @@ export default function JobsListPage() {
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 {pendingCount > 0 && (
-                  <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 animate-pulse">
+                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs">
                     <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Material Req Pending ({pendingCount})</span>
+                    <span>Pending Req ({pendingCount})</span>
                   </span>
                 )}
                 {issuedCount > 0 && (
-                  <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <span>{issuedCount} {issuedCount === 1 ? "Item" : "Items"} Issued</span>
                   </span>
                 )}
                 {pendingAckCount > 0 && (
-                  <span className="text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 animate-pulse">
+                  <span className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs">
                     <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>{pendingAckCount} Return Awaiting Ack</span>
+                    <span>{pendingAckCount} Awaiting Ack</span>
                   </span>
                 )}
                 {isDone && remainingReturnable > 0 && (
-                  <span className="text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5">
-                    <RotateCcw className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="text-xs font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
+                    <RotateCcw className="w-3.5 h-3.5 text-purple-600 shrink-0" />
                     <span>{remainingReturnable} Returnable</span>
                   </span>
                 )}
                 {ackedCount > 0 && (
-                  <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5">
-                    <CheckCheck className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs">
+                    <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <span>{ackedCount} Return Logged</span>
                   </span>
                 )}
                 {pendingCount === 0 && issuedCount === 0 && !remainingReturnable && ackedCount === 0 && (
-                  <span className="text-[11px] text-[#71717A] italic">
+                  <span className="text-xs text-[#71717A] italic">
                     No Material Requests
                   </span>
                 )}
@@ -524,10 +529,10 @@ export default function JobsListPage() {
         return (
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <StatusBadge status={row.status} />
+              <StatusBadge status={row.status} size="md" />
               {row.qualityFlag === "disputed" && (
-                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                  <AlertTriangle className="w-2.5 h-2.5 text-rose-600" />
+                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                  <AlertTriangle className="w-3 h-3 text-rose-600" />
                   Disputed
                 </span>
               )}
@@ -536,9 +541,9 @@ export default function JobsListPage() {
                   <Link
                     href={`/jobs/${(row.childJobs.find((c: any) => c.status !== "TechnicianReassigned") || row.childJobs[0]).id}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="text-[10px] font-bold text-violet-800 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-violet-100"
+                    className="text-[11px] font-bold text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-violet-100 shadow-2xs"
                   >
-                    <ArrowUpRight className="w-2.5 h-2.5" />
+                    <ArrowUpRight className="w-3 h-3" />
                     Open successor
                   </Link>
                 )}
@@ -546,26 +551,26 @@ export default function JobsListPage() {
                 <Link
                     href={`/jobs/${row.parentJob.id}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="text-[10px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-slate-100"
+                    className="text-[11px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-slate-100 shadow-2xs"
                   >
                     Parent {row.parentJob.jobNumber}
                   </Link>
                 )}
             </div>
             {isStorekeeper && hasPendingReq && (
-              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
-                <Package className="w-2.5 h-2.5 text-amber-600" />
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                <Package className="w-3 h-3 text-amber-600" />
                 Material Req Pending
               </span>
             )}
             {isAccountant && hasDiscountReq && (
-              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
                 Discount Requested
               </span>
             )}
             {isAccountant && hasPendingExpense && (
-              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
-                <Receipt className="w-2.5 h-2.5 text-blue-600" />
+              <span className="text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                <Receipt className="w-3 h-3 text-blue-600" />
                 Expense Pending
               </span>
             )}
@@ -578,6 +583,7 @@ export default function JobsListPage() {
           {
             id: "storeInventorySummary",
             header: "Warehouse Material Status",
+            width: "240px",
             cell: (row: any) => {
               const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
               const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued").length || 0;
@@ -596,36 +602,42 @@ export default function JobsListPage() {
               const remainingReturnable = Math.max(0, returnableQty - ackedQty);
 
               return (
-                <div className="space-y-1 text-[11px]">
+                <div className="space-y-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {issuedCount > 0 && (
-                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold px-1.5 py-0.5 rounded">
-                        {issuedCount} Item{issuedCount === 1 ? "" : "s"} Issued
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{issuedCount} Item{issuedCount === 1 ? "" : "s"} Issued</span>
                       </span>
                     )}
                     {pendingCount > 0 && (
-                      <span className="bg-amber-50 text-amber-800 border border-amber-200 font-bold px-1.5 py-0.5 rounded animate-pulse">
-                        {pendingCount} Pending Req
+                      <span className="bg-amber-50 text-amber-800 border border-amber-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse">
+                        <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>{pendingCount} Pending Req</span>
                       </span>
                     )}
                     {pendingAckCount > 0 && (
-                      <span className="bg-amber-50 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.5 rounded animate-pulse">
-                        {pendingAckCount} Awaiting Ack
+                      <span className="bg-amber-50 text-amber-900 border border-amber-300 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse">
+                        <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>{pendingAckCount} Awaiting Ack</span>
                       </span>
                     )}
                     {isDone && remainingReturnable > 0 && (
-                      <span className="bg-purple-50 text-purple-800 border border-purple-200 font-bold px-1.5 py-0.5 rounded">
-                        {remainingReturnable} Returnable
+                      <span className="bg-purple-50 text-purple-800 border border-purple-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                        <RotateCcw className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                        <span>{remainingReturnable} Returnable</span>
                       </span>
                     )}
                     {ackedCount > 0 && (
-                      <span className="bg-blue-50 text-blue-800 border border-blue-200 font-semibold px-1.5 py-0.5 rounded">
-                        {ackedCount} Return Recorded
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                        <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>{ackedCount} Return Recorded</span>
                       </span>
                     )}
                     {returnedCount > 0 && ackedCount === 0 && pendingAckCount === 0 && (
-                      <span className="bg-blue-50 text-blue-800 border border-blue-200 font-semibold px-1.5 py-0.5 rounded">
-                        {returnedCount} Return Recorded
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5">
+                        <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>{returnedCount} Return Recorded</span>
                       </span>
                     )}
                   </div>
@@ -640,6 +652,7 @@ export default function JobsListPage() {
             id: "amount",
             header: "Amount",
             align: "right" as const,
+            width: "130px",
             cell: (row: any) => {
               let total = 0;
               for (const it of row.items || []) {
@@ -648,11 +661,11 @@ export default function JobsListPage() {
               const net = Math.max(0, total - (row.discountAmount || 0));
               return (
                 <div className="text-right">
-                  <span className="font-mono font-bold text-[#18181B] text-xs block">
+                  <span className="font-mono font-bold text-[#18181B] text-sm block">
                     {formatCurrency(net)}
                   </span>
                   {row.discountAmount > 0 && (
-                    <span className="text-[10px] text-amber-700 font-mono inline-block bg-amber-50 border border-amber-200 px-1 rounded mt-0.5">
+                    <span className="text-[11px] text-amber-700 font-mono inline-block bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
                       -{formatCurrency(row.discountAmount)}
                     </span>
                   )}
@@ -666,15 +679,16 @@ export default function JobsListPage() {
       id: "createdAt",
       header: "Created",
       align: "right",
+      width: "130px",
       cell: (row) => {
-        if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">Ã¢â‚¬â€</span>;
+        if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">—</span>;
         const d = new Date(row.createdAt);
         const dateStr = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);
         const timeStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).format(d);
         return (
           <div className="text-right">
-            <span className="text-[11px] font-medium text-[#3F3F46] block">{dateStr}</span>
-            <span className="text-[10px] text-[#A1A1AA] font-mono block">{timeStr}</span>
+            <span className="text-xs font-semibold text-[#3F3F46] block">{dateStr}</span>
+            <span className="text-[11px] text-[#A1A1AA] font-mono block mt-0.5">{timeStr}</span>
           </div>
         );
       },
@@ -683,6 +697,7 @@ export default function JobsListPage() {
       id: "actions",
       header: "Quick Action",
       align: "right",
+      width: "140px",
       cell: (row) => {
         const onReturnableTab =
           isStorekeeper &&
@@ -700,7 +715,7 @@ export default function JobsListPage() {
                   e.stopPropagation();
                   setReturnJob(row);
                 }}
-                className="text-[11px] font-bold px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition inline-flex items-center gap-1.5"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Record return</span>
@@ -708,7 +723,7 @@ export default function JobsListPage() {
               <Link
                 href={`/jobs/${row.id}`}
                 onClick={(e) => e.stopPropagation()}
-                className="text-[11px] font-semibold px-2 py-1 rounded-lg text-[#52525B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#E4E4E7] transition"
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-[#52525B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#E4E4E7] transition"
                 title="Open job details / issue stock"
               >
                 Details
@@ -723,26 +738,26 @@ export default function JobsListPage() {
               href={`/jobs/${row.id}`}
               className={
                 isStorekeeper
-                  ? "text-[11px] font-bold px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+                  ? "text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
                   : isAccountant
-                  ? "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition inline-flex items-center gap-1"
-                  : "text-[11px] font-semibold px-2.5 py-1 rounded-lg text-[#0D7A5F] bg-emerald-50/70 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200/90 transition inline-flex items-center gap-1 shadow-2xs group"
+                  ? "text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition inline-flex items-center gap-1.5 shadow-2xs"
+                  : "text-xs font-semibold px-3 py-1.5 rounded-lg text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200 transition inline-flex items-center gap-1.5 shadow-2xs group"
               }
             >
               {isStorekeeper ? (
                 <>
                   <Package className="w-3.5 h-3.5" />
-                  <span>Details & Issue Stock</span>
+                  <span>Details & Issue</span>
                 </>
               ) : isAccountant ? (
                 <>
-                  <Receipt className="w-3 h-3" />
+                  <Receipt className="w-3.5 h-3.5" />
                   <span>Financials</span>
                 </>
               ) : (
                 <>
                   <span>Details</span>
-                  <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform text-[#0D7A5F]" />
+                  <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform text-[#0D7A5F]" />
                 </>
               )}
             </Link>

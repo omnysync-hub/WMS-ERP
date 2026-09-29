@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { PhoneCall, Check, AlertTriangle, Clock } from "lucide-react";
+import { formatJobType } from "@/lib/utils";
 
 interface FeedbackCallDrawerProps {
   isOpen: boolean;
@@ -110,7 +111,7 @@ export default function FeedbackCallDrawer({
             Customer phone: <a href={`tel:${job.customer?.phone}`} className="font-semibold text-[#0D7A5F] underline">{job.customer?.phone}</a>
           </p>
           <p className="text-[11px] text-[#71717A]">
-            Service: {job.jobType} • Tech: {job.assignedTechnician?.name || "Unassigned"}
+            Service: {formatJobType(job.jobType)} • Tech: {job.assignedTechnician?.name || "Unassigned"}
             {job.assignedTechnician?.phone ? (
               <>
                 {" "}

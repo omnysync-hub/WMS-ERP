@@ -2,7 +2,7 @@
 
 import React, { useRef } from "react";
 import { Flame, Printer, X, CheckCircle2 } from "lucide-react";
-import { formatCurrency, formatDate, numberToWords } from "@/lib/utils";
+import { formatCurrency, formatDate, formatJobType, numberToWords } from "@/lib/utils";
 import { printDocument } from "@/lib/printUtils";
 import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
 
@@ -168,7 +168,7 @@ export default function TaxInvoiceDocument({
             </span>
             <div>
               <span className="font-semibold text-zinc-800">Job Scope:</span>{" "}
-              <span className="capitalize">{job.jobType || "HVAC Maintenance & Technical Service"}</span>
+              <span>{formatJobType(job.jobType) || "HVAC Maintenance & Technical Service"}</span>
             </div>
             {(() => {
               const parsed = parseJobRemarks(job.remarks);

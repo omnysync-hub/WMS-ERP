@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatJobType } from "@/lib/utils";
 import {
   Briefcase,
   Clock,
@@ -1802,8 +1802,8 @@ export default function MobileCompanionPage() {
 
                             {/* Card Footer & Contextual Action */}
                             <div className="pt-2 border-t border-[#EDEDED] flex items-center justify-between text-xs">
-                              <span className="capitalize font-semibold text-[#71717A] text-[11px]">
-                                {job.jobType} • {job.items?.length || 0} items
+                              <span className="font-semibold text-[#71717A] text-[11px]">
+                                {formatJobType(job.jobType)} • {job.items?.length || 0} items
                               </span>
 
                               {isAssigned ? (

@@ -468,7 +468,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.reassign_tech": false,
     "jobs.add_service": true,
     "jobs.issue_stock": false,
-    "jobs.stock_return": true,
+    "jobs.stock_return": false,
     "jobs.misplaced_item": true,
     "jobs.generate_invoice": true,
     "jobs.collect_payment": true,

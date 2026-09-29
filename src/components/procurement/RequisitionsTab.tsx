@@ -24,7 +24,7 @@ import {
   Briefcase,
   Printer,
 } from "lucide-react";
-import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatJobType, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import PurchaseRequisitionDocument from "@/components/documents/PurchaseRequisitionDocument";
@@ -913,7 +913,7 @@ export default function RequisitionsTab({
                       ...jobs.map((j) => ({
                         value: j.jobNumber,
                         label: `${j.jobNumber} — ${j.customer?.name || "Job"}`,
-                        subLabel: j.jobType,
+                        subLabel: formatJobType(j.jobType),
                       })),
                       { value: "CUSTOM", label: "+ Enter Custom Job Number..." },
                     ]}

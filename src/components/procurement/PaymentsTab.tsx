@@ -90,10 +90,7 @@ export default function PaymentsTab({
     const balance = Math.max(0, inv.totalAmount - (inv.paidAmount || 0));
     setPaymentAmount(String(balance));
 
-    // Calculate default WHT based on vendor's rate
-    const whtRate = inv.vendor?.whtRate || 4.5;
-    const calculatedWht = Math.round((balance * whtRate) / 100);
-    setWhtAmount(String(calculatedWht));
+    setWhtAmount("0");
 
     setReference(`FT-${Date.now().toString().slice(-6)}`);
     setNotes(`Settlement of 3-Way Matched Bill ${inv.invoiceNumber} for ${inv.vendor?.name}`);
@@ -395,36 +392,20 @@ export default function PaymentsTab({
                 </div>
               </div>
 
-              {/* Amounts & WHT */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Disbursement Amount (PKR) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    required
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono font-bold focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Withholding Tax (WHT) Deducted
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={whtAmount}
-                    onChange={(e) => setWhtAmount(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
+              {/* Disbursement Amount */}
+              <div>
+                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                  Disbursement Amount (PKR) *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  required
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono font-bold focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                />
               </div>
 
               <div>
@@ -450,17 +431,9 @@ export default function PaymentsTab({
                 <div className="flex justify-between text-[#18181B]">
                   <span>Net Outflow from Bank Account (Credit):</span>
                   <strong className="text-emerald-800">
-                    {formatCurrency((Number(paymentAmount) || 0) - (Number(whtAmount) || 0))}
+                    {formatCurrency(Number(paymentAmount) || 0)}
                   </strong>
                 </div>
-                {(Number(whtAmount) || 0) > 0 && (
-                  <div className="flex justify-between text-[#18181B]">
-                    <span>Credit WHT 2200 Payable:</span>
-                    <strong className="text-amber-700">
-                      {formatCurrency(Number(whtAmount) || 0)}
-                    </strong>
-                  </div>
-                )}
               </div>
 
               

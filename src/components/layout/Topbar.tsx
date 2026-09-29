@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useRole, RoleType } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { formatJobType } from "@/lib/utils";
 
 interface TopbarProps {
   onOpenCustomerDrawer?: () => void;
@@ -232,7 +233,7 @@ export default function Topbar({
               type: "Job",
               id: j.id,
               title: `${j.jobNumber} — ${j.customer?.name}`,
-              subtitle: `${j.jobType} • Status: ${j.status}`,
+              subtitle: `${formatJobType(j.jobType)} • Status: ${j.status}`,
               href: `/jobs/${j.id}`,
             });
           });

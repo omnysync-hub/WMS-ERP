@@ -407,6 +407,9 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
           merged.call_center["jobs.add_service"] = false;
           merged.call_center["jobs.generate_invoice"] = false;
         }
+        if (merged.accountant) {
+          merged.accountant["jobs.stock_return"] = false;
+        }
         setRolePermissions(merged);
       }
 

@@ -164,9 +164,6 @@ export default function JobRemarksCard({
             Problem Diagnosis & Work Notes
           </h3>
         </div>
-        <span className="text-[10px] font-semibold font-mono text-[#0D7A5F] bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-          Diagnostic Log
-        </span>
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">
