@@ -15,7 +15,7 @@ import AddServiceDrawer from "@/components/drawers/AddServiceDrawer";
 import TaxInvoiceDrawer from "@/components/drawers/TaxInvoiceDrawer";
 import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianCashDrawer";
 import JobRemarksCard from "@/components/jobs/JobRemarksCard";
-import { cn, formatCurrency, formatDateTime, formatJobType } from "@/lib/utils";
+import { cn, formatCurrency, formatDateTime, formatJobType, isServiceItem } from "@/lib/utils";
 import {
   ArrowLeft,
   User,
@@ -838,44 +838,53 @@ export default function JobDetailPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3.5 bg-zinc-50/80 rounded-xl border border-zinc-200">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider block">Total Planned</span>
-                  <span className="text-xl font-black font-mono text-[#18181B] mt-1 block">
-                    {job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0} <span className="text-xs font-semibold text-zinc-500 font-sans">units</span>
-                  </span>
-                  <span className="text-[10px] text-zinc-500 mt-0.5 block">Scope of Work</span>
-                </div>
-                <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200">
-                  <span className="text-[10px] text-emerald-800 uppercase font-bold tracking-wider block">Installed / Used</span>
-                  <span className="text-xl font-black font-mono text-[#0D7A5F] mt-1 block">
-                    {job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0} <span className="text-xs font-semibold text-emerald-700 font-sans">units</span>
-                  </span>
-                  <span className="text-[10px] text-emerald-700 font-medium mt-0.5 block">Billable Actuals</span>
-                </div>
-                <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200">
-                  <span className="text-[10px] text-amber-800 uppercase font-bold tracking-wider block">Unused / Left</span>
-                  <span className="text-xl font-black font-mono text-amber-900 mt-1 block">
-                    {Math.max(
-                      0,
-                      (job.items?.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0) || 0) -
-                      (job.items?.reduce((s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0), 0) || 0)
-                    )} <span className="text-xs font-semibold text-amber-700 font-sans">units</span>
-                  </span>
-                  <span className="text-[10px] text-amber-700 font-medium mt-0.5 block">
-                    Returned: {job.stockReturns?.reduce((s: number, r: any) => s + (r.qtyReturned || 0), 0) || 0} units
-                  </span>
-                </div>
-                <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-200">
-                  <span className="text-[10px] text-purple-800 uppercase font-bold tracking-wider block">Net Invoice Total</span>
-                  <span className="text-xl font-black font-mono text-purple-950 mt-1 block">
-                    {formatCurrency(netPayable)}
-                  </span>
-                  <span className="text-[10px] text-purple-700 font-medium mt-0.5 block">
-                    Collected: {formatCurrency(job.hisaabSettlements?.reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const stockItems = (job.items || []).filter((it: any) => !isServiceItem(it));
+                const stockPlanned = stockItems.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0);
+                const stockActual = stockItems.reduce(
+                  (s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0),
+                  0
+                );
+                const stockUnused = Math.max(0, stockPlanned - stockActual);
+                const stockReturned = job.stockReturns?.reduce((s: number, r: any) => s + (r.qtyReturned || 0), 0) || 0;
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="p-3.5 bg-zinc-50/80 rounded-xl border border-zinc-200">
+                      <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider block">Total Planned</span>
+                      <span className="text-xl font-black font-mono text-[#18181B] mt-1 block">
+                        {stockPlanned} <span className="text-xs font-semibold text-zinc-500 font-sans">units</span>
+                      </span>
+                      <span className="text-[10px] text-zinc-500 mt-0.5 block">Stock Items</span>
+                    </div>
+                    <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-emerald-800 uppercase font-bold tracking-wider block">Installed / Used</span>
+                      <span className="text-xl font-black font-mono text-[#0D7A5F] mt-1 block">
+                        {stockActual} <span className="text-xs font-semibold text-emerald-700 font-sans">units</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-700 font-medium mt-0.5 block">Stock Consumed</span>
+                    </div>
+                    <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200">
+                      <span className="text-[10px] text-amber-800 uppercase font-bold tracking-wider block">Unused / Left</span>
+                      <span className="text-xl font-black font-mono text-amber-900 mt-1 block">
+                        {stockUnused} <span className="text-xs font-semibold text-amber-700 font-sans">units</span>
+                      </span>
+                      <span className="text-[10px] text-amber-700 font-medium mt-0.5 block">
+                        Returned: {stockReturned} units
+                      </span>
+                    </div>
+                    <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-200">
+                      <span className="text-[10px] text-purple-800 uppercase font-bold tracking-wider block">Net Invoice Total</span>
+                      <span className="text-xl font-black font-mono text-purple-950 mt-1 block">
+                        {formatCurrency(netPayable)}
+                      </span>
+                      <span className="text-[10px] text-purple-700 font-medium mt-0.5 block">
+                        Collected: {formatCurrency(job.hisaabSettlements?.reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -924,6 +933,7 @@ export default function JobDetailPage() {
                   {job.items && job.items.length > 0 ? (
                     job.items.map((item: any) => {
                       const actualQty = item.quantityActual;
+                      const isService = isServiceItem(item);
                       const rowActualTotal =
                         actualQty !== null && actualQty !== undefined
                           ? actualQty * item.unitRate
@@ -944,7 +954,14 @@ export default function JobDetailPage() {
                       return (
                         <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
                           <td className="py-2.5 px-4 font-medium text-[#18181B]">
-                            <div>{cleanTitle}</div>
+                            <div className="flex items-center gap-2">
+                              {isService && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                  Service
+                                </span>
+                              )}
+                              <span>{cleanTitle}</span>
+                            </div>
                             {isRequested && canViewFinancials && !isRestrictedRole && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -961,10 +978,16 @@ export default function JobDetailPage() {
                             )}
                           </td>
                           <td className="py-2.5 px-4 text-center text-[#71717A] font-mono">
-                            {item.quantityPlanned}
+                            {isService ? (
+                              <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
+                            ) : (
+                              item.quantityPlanned
+                            )}
                           </td>
                           <td className="py-2.5 px-4 text-center">
-                            {actualQty !== null && actualQty !== undefined ? (
+                            {isService ? (
+                              <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
+                            ) : actualQty !== null && actualQty !== undefined ? (
                               <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-[11px]">
                                 {actualQty}
                               </span>
@@ -1005,7 +1028,11 @@ export default function JobDetailPage() {
                             </>
                           ) : (
                             <td className="py-2.5 px-4 text-center">
-                              {isIssuedByStore ? (
+                              {isService ? (
+                                <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                                  Service Line
+                                </span>
+                              ) : isIssuedByStore ? (
                                 <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                                   ✓ Warehouse Issued
                                 </span>

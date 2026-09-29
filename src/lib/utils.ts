@@ -115,3 +115,55 @@ export function numberToWords(num: number): string {
   const rounded = Math.round(num);
   return inWords(rounded).trim() + " Rupees Only";
 }
+
+/**
+ * Determines whether a job line item is a Service (labor, commissioning, visit)
+ * versus a physical Stock / Material item.
+ */
+export function isServiceItem(item: any): boolean {
+  if (!item) return false;
+  if (item.isService === true) return true;
+  const desc = (typeof item === "string" ? item : item.description || "").toLowerCase().trim();
+  if (!desc) return false;
+
+  // Explicit service tags and patterns
+  if (
+    desc.startsWith("[service") ||
+    desc.includes("[service]") ||
+    desc.includes("[service added by") ||
+    desc.includes("service added by") ||
+    desc.startsWith("service:")
+  ) {
+    return true;
+  }
+
+  // Explicit product or warehouse issued tags are physical stock
+  if (
+    desc.startsWith("[product]") ||
+    desc.includes("[issued by storekeeper]") ||
+    desc.includes("issued by storekeeper") ||
+    desc.includes("[issued by")
+  ) {
+    return false;
+  }
+
+  // Common service names & keywords
+  if (
+    desc.includes("installation & commissioning") ||
+    desc.includes("installation and commissioning") ||
+    desc.includes("duct cleaning") ||
+    desc.includes("gas recharge") ||
+    desc.includes("preventive maintenance") ||
+    desc.includes("inspection & audit") ||
+    desc.includes("audit & inspection") ||
+    desc.includes("repair service") ||
+    desc.includes("general service") ||
+    desc.includes("troubleshooting") ||
+    desc.includes("labor") ||
+    desc.includes("labour")
+  ) {
+    return true;
+  }
+
+  return false;
+}

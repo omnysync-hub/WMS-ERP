@@ -10,7 +10,7 @@ import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
 import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
 import JobsKpiDashboard from "@/components/jobs/JobsKpiDashboard";
 import StorekeeperKpiDashboard from "@/components/jobs/StorekeeperKpiDashboard";
-import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn, isServiceItem } from "@/lib/utils";
 import {
   Plus,
   User,
@@ -105,7 +105,7 @@ export default function JobsListPage() {
       const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
       const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
       const returnableQty = j.items?.reduce((sum: number, it: any) => {
-        if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+        if (!isServiceItem(it) && it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
           return sum + (it.quantityPlanned - it.quantityActual);
         }
         return sum;
@@ -472,7 +472,7 @@ export default function JobsListPage() {
           const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
           const isDone = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
           const returnableQty = row.items?.reduce((sum: number, it: any) => {
-            if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+            if (!isServiceItem(it) && it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
               return sum + (it.quantityPlanned - it.quantityActual);
             }
             return sum;
@@ -594,7 +594,7 @@ export default function JobsListPage() {
               const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
               const isDone = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
               const returnableQty = row.items?.reduce((sum: number, it: any) => {
-                if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+                if (!isServiceItem(it) && it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
                   return sum + (it.quantityPlanned - it.quantityActual);
                 }
                 return sum;

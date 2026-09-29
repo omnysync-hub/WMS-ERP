@@ -9,7 +9,7 @@ import {
   Warehouse,
   CheckCircle2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, isServiceItem } from "@/lib/utils";
 
 export interface StorekeeperKpiDashboardProps {
   jobs: any[];
@@ -38,6 +38,7 @@ export default function StorekeeperKpiDashboard({
     const returnableQty =
       j.items?.reduce((sum: number, it: any) => {
         if (
+          !isServiceItem(it) &&
           it.quantityActual !== null &&
           it.quantityActual !== undefined &&
           it.quantityPlanned > it.quantityActual
@@ -87,6 +88,7 @@ export default function StorekeeperKpiDashboard({
     const returnableQty =
       j.items?.reduce((sum: number, it: any) => {
         if (
+          !isServiceItem(it) &&
           it.quantityActual !== null &&
           it.quantityActual !== undefined &&
           it.quantityPlanned > it.quantityActual
@@ -105,6 +107,7 @@ export default function StorekeeperKpiDashboard({
     const retQty =
       j.items?.reduce((s: number, it: any) => {
         if (
+          !isServiceItem(it) &&
           it.quantityActual !== null &&
           it.quantityActual !== undefined &&
           it.quantityPlanned > it.quantityActual
