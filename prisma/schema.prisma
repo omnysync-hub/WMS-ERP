@@ -105,6 +105,7 @@ model Invoice {
   id            String   @id @default(uuid())
   invoiceNumber String   @unique
   jobId         String?
+  projectId     String?
   customerId    String?
   customerName  String
   amount        Float
@@ -350,6 +351,7 @@ model PurchaseRequisition {
   dateRequired    DateTime?
   costCenter      String?
   projectCode     String?
+  projectId       String?
   budgetCode      String?
   priority        String                    @default("Normal") // Normal, Urgent
   status          String                    @default("draft") // draft, submitted, approved, rejected, converted_to_po, partially_converted
@@ -379,6 +381,7 @@ model PurchaseRequisitionItem {
   unit              String              @default("unit")
   estimatedPrice    Float               @default(0)
   convertedQuantity Float               @default(0)
+  boqItemId         String?
 }
 
 model RequestForQuotation {
@@ -969,31 +972,46 @@ model Payslip {
 // ==========================================
 
 model Project {
-  id            String        @id @default(uuid())
-  projectNumber String        @unique
-  name          String
-  customerId    String
-  customer      Customer      @relation(fields: [customerId], references: [id])
-  status        String        @default("planning") // planning, active, completed
-  totalBudget   Float         @default(0)
-  startDate     DateTime?
-  endDate       DateTime?
-  boqItems      BOQItem[]
-  tasks         ProjectTask[]
-  createdAt     DateTime      @default(now())
+  id               String             @id @default(uuid())
+  projectNumber    String             @unique
+  name             String
+  customerId       String
+  customer         Customer           @relation(fields: [customerId], references: [id])
+  status           String             @default("planning") // planning, active, completed, on_hold
+  totalBudget      Float              @default(0)
+  contractValue    Float              @default(0)
+  invoicedAmount   Float              @default(0)
+  paidAmount       Float              @default(0)
+  retentionPercent Float              @default(0)
+  revision         Int                @default(1)
+  billingMethod    String             @default("milestone") // milestone, percentage_completion, time_and_material
+  startDate        DateTime?
+  endDate          DateTime?
+  boqItems         BOQItem[]
+  tasks            ProjectTask[]
+  changeOrders     BOQChangeOrder[]
+  milestones       ProjectMilestone[]
+  createdAt        DateTime           @default(now())
 }
 
 model BOQItem {
-  id          String        @id @default(uuid())
-  projectId   String
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  itemCode    String
-  description String
-  unit        String
-  plannedQty  Float
-  unitRate    Float
-  tasks       ProjectTask[]
-  createdAt   DateTime      @default(now())
+  id             String        @id @default(uuid())
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  itemCode       String
+  description    String
+  unit           String
+  plannedQty     Float
+  unitRate       Float
+  category       String        @default("material") // material, labor, subcontract, equipment
+  actualQty      Float         @default(0)
+  actualCost     Float         @default(0)
+  completedQty   Float         @default(0)
+  version        Int           @default(1)
+  changeOrderRef String?
+  status         String        @default("pending") // pending, procuring, in_progress, completed
+  tasks          ProjectTask[]
+  createdAt      DateTime      @default(now())
 }
 
 model ProjectTask {
@@ -1004,10 +1022,47 @@ model ProjectTask {
   boqItem              BOQItem?  @relation(fields: [boqItemId], references: [id])
   title                String
   description          String?
-  status               String    @default("Created") // Reuses Job states: Created, Assigned, InProgress, Completed, Verified
+  status               String    @default("Created") // Created, Assigned, InProgress, Completed, Verified
   assignedTechnicianId String?
   assignedTechnician   Employee? @relation(fields: [assignedTechnicianId], references: [id])
+  startDate            DateTime?
+  dueDate              DateTime?
+  estimatedHours       Float     @default(0)
+  actualHours          Float     @default(0)
+  progressPercent      Float     @default(0)
+  priority             String    @default("normal") // low, normal, high, critical
+  dependencies         String?   // JSON string array of task IDs
   createdAt            DateTime  @default(now())
+}
+
+model BOQChangeOrder {
+  id           String    @id @default(uuid())
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changeNumber String    @unique
+  title        String
+  description  String?
+  requestedBy  String?
+  amountImpact Float     @default(0)
+  daysImpact   Int       @default(0)
+  status       String    @default("approved") // draft, pending_client, approved, rejected
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model ProjectMilestone {
+  id            String    @id @default(uuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  percentage    Float     @default(0)
+  amount        Float     @default(0)
+  targetDate    DateTime?
+  status        String    @default("pending") // pending, ready_to_bill, billed, paid
+  invoiceNumber String?
+  billedAt      DateTime?
+  createdAt     DateTime  @default(now())
 }
 
 // ==========================================

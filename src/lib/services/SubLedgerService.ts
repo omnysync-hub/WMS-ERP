@@ -11,6 +11,7 @@ export interface RecordCustomerEntryParams {
   credit: number;
   dueDate?: Date;
   notes?: string;
+  tx?: any;
 }
 
 export interface RecordVendorEntryParams {
@@ -24,6 +25,7 @@ export interface RecordVendorEntryParams {
   whtWithheld?: number;
   cprNumber?: string;
   notes?: string;
+  tx?: any;
 }
 
 export class SubLedgerService {
@@ -41,10 +43,13 @@ export class SubLedgerService {
       credit = 0,
       dueDate,
       notes,
+      tx,
     } = params;
 
+    const db = tx ?? prisma;
+
     // Get last running balance for this customer
-    const lastEntry = await prisma.customerLedgerEntry.findFirst({
+    const lastEntry = await db.customerLedgerEntry.findFirst({
       where: { customerId },
       orderBy: { postingDate: "desc" },
     });
@@ -52,7 +57,7 @@ export class SubLedgerService {
     const previousBalance = lastEntry ? lastEntry.runningBalance : 0;
     const runningBalance = Math.round((previousBalance + debit - credit) * 100) / 100;
 
-    return await prisma.customerLedgerEntry.create({
+    return await db.customerLedgerEntry.create({
       data: {
         customerId,
         entryType,
@@ -83,10 +88,13 @@ export class SubLedgerService {
       whtWithheld = 0,
       cprNumber,
       notes,
+      tx,
     } = params;
 
+    const db = tx ?? prisma;
+
     // Get last running balance for this vendor
-    const lastEntry = await prisma.vendorLedgerEntry.findFirst({
+    const lastEntry = await db.vendorLedgerEntry.findFirst({
       where: { vendorId },
       orderBy: { postingDate: "desc" },
     });
@@ -95,7 +103,7 @@ export class SubLedgerService {
     // For AP (Liability), Credit increases balance, Debit decreases balance
     const runningBalance = Math.round((previousBalance + credit - debit) * 100) / 100;
 
-    return await prisma.vendorLedgerEntry.create({
+    return await db.vendorLedgerEntry.create({
       data: {
         vendorId,
         entryType,

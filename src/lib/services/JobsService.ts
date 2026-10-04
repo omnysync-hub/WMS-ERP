@@ -2,6 +2,7 @@ import { prisma } from "../prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { InventoryService } from "./InventoryService";
+import { SubLedgerService } from "./SubLedgerService";
 import { MobilePushService } from "./MobilePushService";
 import type { Prisma } from "@prisma/client";
 import {
@@ -658,13 +659,24 @@ export class JobsService {
       throw new Error(`Cannot complete job with status '${job.status}'. Must be InProgress.`);
     }
 
-    // Validate that all items have actual quantities provided
+    // Validate that all items have actual quantities provided and non-negative
     for (const item of job.items) {
       const match = actualItems.find((a) => a.id === item.id);
       if (!match || match.quantityActual === null || match.quantityActual === undefined) {
         throw new Error(
           `Cannot complete: Missing actual quantity for item '${item.description}'. Actual quantities are strictly required.`
         );
+      }
+      if (Number(match.quantityActual) < 0) {
+        throw new Error(
+          `Cannot complete: Actual quantity for item '${item.description}' cannot be negative.`
+        );
+      }
+    }
+
+    if (completionDetails?.paymentAmount !== undefined && completionDetails.paymentAmount !== null) {
+      if (Number(completionDetails.paymentAmount) < 0) {
+        throw new Error("Cannot complete: Collected payment amount cannot be negative.");
       }
     }
 
@@ -720,7 +732,7 @@ export class JobsService {
         throw new Error("Job is no longer InProgress (already completed or changed). Refresh and retry.");
       }
 
-      // Save actual quantities — services stay qty 1
+      // Save actual quantities — services maintain planned quantity
       for (const item of actualItems) {
         const row = job.items.find((i) => i.id === item.id);
         if (!row) continue;
@@ -728,7 +740,7 @@ export class JobsService {
           /\[Service/i.test(row.description) || /\[Service Added by/i.test(row.description);
         await tx.jobItem.update({
           where: { id: item.id },
-          data: { quantityActual: isService ? 1 : item.quantityActual },
+          data: { quantityActual: isService ? (row.quantityPlanned || 1) : Math.max(0, Number(item.quantityActual) || 0) },
         });
       }
 
@@ -845,8 +857,15 @@ export class JobsService {
     const item = job.items.find((it) => it.id === itemId);
     if (!item) throw new Error("Item not found on job.");
 
+    const discount = Number(discountAmount);
+    if (!Number.isFinite(discount) || discount <= 0) {
+      throw new Error("Discount amount must be a positive number.");
+    }
     const oldRate = item.unitRate;
-    const newRate = Math.max(0, oldRate - discountAmount);
+    if (discount > oldRate) {
+      throw new Error(`Discount amount ($${discount}) cannot exceed the item rate ($${oldRate}).`);
+    }
+    const newRate = Math.round((oldRate - discount) * 100) / 100;
     const cleanDesc = item.description
       .replace(/\s*\[[^\]]*\]/g, "")
       .replace(/\s{2,}/g, " ")
@@ -955,16 +974,28 @@ export class JobsService {
     reason: string,
     accountantName: string
   ) {
-    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { items: true },
+    });
     if (!job) throw new Error("Job not found");
     if (job.finalizedAt) {
       throw new Error("Job is finalized and locked. Cannot apply discount.");
     }
 
+    const discount = Number(discountAmount);
+    if (!Number.isFinite(discount) || discount < 0) {
+      throw new Error("Discount amount must be a non-negative number.");
+    }
+    const { gross } = this.computeJobTotals(job);
+    if (discount > gross) {
+      throw new Error(`Discount amount ($${discount}) cannot exceed the gross total ($${gross}) of this job.`);
+    }
+
     const updated = await prisma.job.update({
       where: { id: jobId },
       data: {
-        discountAmount,
+        discountAmount: discount,
         discountReason: reason,
       },
     });
@@ -1156,6 +1187,18 @@ export class JobsService {
             status: "unpaid",
           },
         });
+
+        if (finalAmount > 0) {
+          await SubLedgerService.recordCustomerEntry({
+            customerId: job.customerId,
+            entryType: "invoice",
+            documentNumber: invoiceNumber!,
+            journalEntryId: revenueEntryId || undefined,
+            debit: finalAmount,
+            credit: 0,
+            notes: `Invoice for finalized Job ${job.jobNumber}`,
+          });
+        }
       } else if (Math.abs((existingInvoice.amount || 0) - finalAmount) >= 0.005) {
         await tx.invoice.update({
           where: { id: existingInvoice.id },
@@ -1660,6 +1703,17 @@ export class JobsService {
       );
     }
 
+    if (requestId) {
+      const invReq = await prisma.inventoryRequest.findUnique({ where: { id: requestId } });
+      if (!invReq) throw new Error("Inventory request not found.");
+      if (invReq.status === "issued") {
+        throw new Error(`Inventory request for '${invReq.item}' has already been issued.`);
+      }
+      if (invReq.status === "rejected") {
+        throw new Error(`Cannot issue rejected inventory request.`);
+      }
+    }
+
     // 1. Consume stock through InventoryService (handles ledger and COGS journal entry)
     await InventoryService.consumeStock(
       productId,
@@ -1769,8 +1823,11 @@ export class JobsService {
     if (!Number.isFinite(rate) || rate < 0) {
       throw new Error("Unit rate must be a non-negative number.");
     }
-    // Services are always 1 — ignore caller qty for billable service lines
-    const qty = 1;
+    const parsedQty = Number(quantity);
+    if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+      throw new Error("Quantity must be a positive number.");
+    }
+    const qty = parsedQty;
 
     const newItem = await prisma.jobItem.create({
       data: {
@@ -1822,6 +1879,32 @@ export class JobsService {
     if (!product) {
       throw new Error(
         `Cannot record stock return: '${item}' does not match any warehouse product (by id, SKU or exact name). Pick the product and retry.`
+      );
+    }
+
+    // Cap verification: Ensure quantity returned does not exceed what was issued to this job
+    const stockOutEntries = await prisma.stockLedger.findMany({
+      where: {
+        productId: product.id,
+        direction: "out",
+        refType: "job_consumption",
+        OR: [
+          { refId: jobId },
+          { notes: { contains: job.jobNumber } },
+        ],
+      },
+    });
+    const totalIssued = stockOutEntries.reduce((sum, e) => sum + e.qty, 0);
+
+    const previousReturns = await prisma.stockReturn.findMany({
+      where: { jobId, productId: product.id },
+    });
+    const alreadyReturned = previousReturns.reduce((sum, r) => sum + r.qtyReturned, 0);
+    const maxReturnable = Math.max(0, totalIssued - alreadyReturned);
+
+    if (totalIssued > 0 && qty > maxReturnable + 1e-9) {
+      throw new Error(
+        `Cannot return ${qty} of '${product.name}'. Total issued to Job ${job.jobNumber}: ${totalIssued}, already returned: ${alreadyReturned}. Maximum returnable: ${maxReturnable}.`
       );
     }
 
@@ -1920,6 +2003,14 @@ export class JobsService {
 
     const existing = await prisma.invoice.findUnique({ where: { invoiceNumber: invoiceNum } });
     if (existing) {
+      if (existing.jobId && existing.jobId !== job.id) {
+        throw new Error(
+          `Invoice '${invoiceNum}' is already assigned to another Job. Duplicate invoice numbers across different jobs are not permitted.`
+        );
+      }
+      if (existing.status === "paid") {
+        throw new Error(`Invoice '${invoiceNum}' is already marked paid and cannot be modified.`);
+      }
       const updated = await prisma.invoice.update({
         where: { invoiceNumber: invoiceNum },
         data: {
@@ -2114,6 +2205,14 @@ export class JobsService {
         refType: "settlement_handover",
       });
 
+      if (target && amount > target.amountCollected) {
+        if (!options?.notes || options.notes.trim().length < 5) {
+          throw new Error(
+            `Amount handed over (PKR ${amount.toLocaleString()}) exceeds the technician's reported collection (PKR ${target.amountCollected.toLocaleString()}). Please provide detailed receipt notes explaining this excess.`
+          );
+        }
+      }
+
       if (saved.technicianId && gl.delta !== 0) {
         await tx.technicianLedgerEntry.create({
           data: {
@@ -2123,6 +2222,18 @@ export class JobsService {
             refJobId: jobId,
             notes: `Cash collection handed over to Accounts (${actor}) for Job ${job.jobNumber}. Deposit: ${depositAccount}. ${notes}`,
           },
+        });
+      }
+
+      if (job.customerId && gl.delta > 0) {
+        await SubLedgerService.recordCustomerEntry({
+          customerId: job.customerId,
+          entryType: "payment",
+          documentNumber: `REC-${job.jobNumber}`,
+          debit: 0,
+          credit: gl.delta,
+          notes: `Customer collection handed over by technician for Job ${job.jobNumber} (${depositAccount})`,
+          tx,
         });
       }
 

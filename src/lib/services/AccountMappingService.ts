@@ -491,6 +491,21 @@ export class AccountMappingService {
   }
 
   /**
+   * Safe lookup that returns null rather than throwing if unmapped or inactive.
+   * Useful for optional workflows and reporting reconciliation.
+   */
+  static async resolveAccountOptional(
+    paramsOrType: string | AccountResolutionParams,
+    defaultCompanyId: string = "DEFAULT"
+  ): Promise<Account | null> {
+    try {
+      return await this.resolveAccount(paramsOrType, defaultCompanyId);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Helper to retrieve only the account code for callers that operate with accountCode strings.
    * Accepts either an AccountResolutionParams object or a transactionType string.
    */

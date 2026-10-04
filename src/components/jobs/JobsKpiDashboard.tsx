@@ -14,14 +14,20 @@ import {
   ShieldCheck,
   Activity,
   X,
+  Banknote,
+  Receipt,
+  ArrowDownLeft,
+  DollarSign,
+  AlertTriangle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 export interface JobsKpiDashboardProps {
   jobs: any[];
   activeFilter: string | null;
   onFilterSelect: (filterKey: string | null) => void;
   className?: string;
+  isAccountant?: boolean;
 }
 
 export default function JobsKpiDashboard({
@@ -29,6 +35,7 @@ export default function JobsKpiDashboard({
   activeFilter,
   onFilterSelect,
   className = "",
+  isAccountant = true,
 }: JobsKpiDashboardProps) {
   // 1. Created (only created but not assigned)
   const createdUnassignedCount = jobs.filter(
@@ -91,6 +98,73 @@ export default function JobsKpiDashboard({
           it.description?.includes("[Discount:")
       )
   ).length;
+
+  // =========================================================================
+  // ACCOUNTANT FINANCIAL CLEARANCE & CASH COLLECTION METRICS
+  // =========================================================================
+
+  // 11. Technician Expenses Cleared (Paid)
+  const jobsWithPaidExpenses = jobs.filter((j) =>
+    j.expenseClaims?.some((c: any) => c.status === "paid")
+  );
+  const paidExpensesTotal = jobs.reduce((sum, j) => {
+    const jobPaid = (j.expenseClaims || [])
+      .filter((c: any) => c.status === "paid")
+      .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+    return sum + jobPaid;
+  }, 0);
+
+  // 12. Technician Expenses Left / Pending Clearance
+  const jobsWithPendingExpenses = jobs.filter((j) =>
+    j.expenseClaims?.some((c: any) => c.status === "pending")
+  );
+  const pendingExpensesTotal = jobs.reduce((sum, j) => {
+    const jobPending = (j.expenseClaims || [])
+      .filter((c: any) => c.status === "pending")
+      .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+    return sum + jobPending;
+  }, 0);
+
+  // 13. Technician Payment Collections Handed Over / Received by Accountant
+  const jobsWithCollectedHandover = jobs.filter((j) =>
+    j.hisaabSettlements?.some(
+      (s: any) =>
+        s.status !== "superseded" &&
+        ((Number(s.amountReceivedByAccountant) || 0) > 0 || s.status === "posted")
+    )
+  );
+  const totalCashReceivedByAccountant = jobs.reduce((sum, j) => {
+    const jobHanded = (j.hisaabSettlements || [])
+      .filter((s: any) => s.status !== "superseded")
+      .reduce(
+        (s: number, st: any) =>
+          s +
+          (Number(st.amountReceivedByAccountant) ||
+            (st.status === "posted" ? Number(st.amountCollected) || 0 : 0)),
+        0
+      );
+    return sum + jobHanded;
+  }, 0);
+
+  // 14. Technician Cash Left / Pending Handover to Accountant
+  const jobsWithPendingCashHandover = jobs.filter((j) =>
+    j.hisaabSettlements?.some((s: any) => {
+      if (s.status === "superseded") return false;
+      const collected = Number(s.amountCollected) || 0;
+      const received = Number(s.amountReceivedByAccountant) || 0;
+      return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+    })
+  );
+  const totalPendingCashWithTechs = jobs.reduce((sum, j) => {
+    const jobPending = (j.hisaabSettlements || [])
+      .filter((s: any) => s.status !== "superseded")
+      .reduce((s: number, st: any) => {
+        const collected = Number(st.amountCollected) || 0;
+        const received = Number(st.amountReceivedByAccountant) || 0;
+        return s + Math.max(0, collected - received);
+      }, 0);
+    return sum + jobPending;
+  }, 0);
 
   const toggleFilter = (key: string) => {
     if (activeFilter === key) {
@@ -169,6 +243,56 @@ export default function JobsKpiDashboard({
     },
   ];
 
+  // Financial Cards specifically for Expense Clearance and Payment Collections
+  const financialCards = [
+    {
+      key: "expenses_cleared",
+      label: "Expenses Cleared",
+      count: jobsWithPaidExpenses.length,
+      sublabel: `${formatCurrency(paidExpensesTotal)} reimbursed`,
+      icon: CheckCircle2,
+      color: "text-emerald-700",
+      bg: "bg-emerald-50",
+      border: "border-emerald-200",
+      activeRing: "ring-emerald-500",
+    },
+    {
+      key: "pending_expenses",
+      label: "Expenses Left / Pending",
+      count: jobsWithPendingExpenses.length,
+      sublabel: `${formatCurrency(pendingExpensesTotal)} awaiting payout`,
+      icon: Receipt,
+      color: "text-rose-700",
+      bg: "bg-rose-50",
+      border: "border-rose-200",
+      activeRing: "ring-rose-500",
+      badgeAlert: jobsWithPendingExpenses.length > 0,
+    },
+    {
+      key: "cash_collected",
+      label: "Tech Payments Collected",
+      count: jobsWithCollectedHandover.length,
+      sublabel: `${formatCurrency(totalCashReceivedByAccountant)} received in safe`,
+      icon: Banknote,
+      color: "text-teal-700",
+      bg: "bg-teal-50",
+      border: "border-teal-200",
+      activeRing: "ring-teal-500",
+    },
+    {
+      key: "pending_cash_handover",
+      label: "Tech Cash Left / Pending",
+      count: jobsWithPendingCashHandover.length,
+      sublabel: `${formatCurrency(totalPendingCashWithTechs)} with field techs`,
+      icon: ArrowDownLeft,
+      color: "text-amber-700",
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+      activeRing: "ring-amber-500",
+      badgeAlert: jobsWithPendingCashHandover.length > 0,
+    },
+  ];
+
   const requestCards = [
     {
       key: "pending_stock",
@@ -232,17 +356,38 @@ export default function JobsKpiDashboard({
             <Activity className="w-3.5 h-3.5" />
           </div>
           <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-            Dispatch Operations & Request Overview
+            {isAccountant
+              ? "Dispatch Operations & Financial Clearance Overview"
+              : "Dispatch Operations & Request Overview"}
           </h2>
           <span className="text-[10px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full font-medium">
             {jobs.length} Total Jobs
           </span>
+          {isAccountant && (jobsWithPendingExpenses.length > 0 || jobsWithPendingCashHandover.length > 0) && (
+            <span className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+              {jobsWithPendingExpenses.length} Exp & {jobsWithPendingCashHandover.length} Cash Handover Pending
+            </span>
+          )}
         </div>
 
         {activeFilter && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-[#0D7A5F] font-semibold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5">
-              <span>Active Filter: <strong>{activeFilter.replace(/_/g, " ").toUpperCase()}</strong></span>
+              <span>
+                Active Filter:{" "}
+                <strong>
+                  {activeFilter === "expenses_cleared"
+                    ? "EXPENSES CLEARED"
+                    : activeFilter === "pending_expenses"
+                    ? "EXPENSES PENDING CLEARANCE"
+                    : activeFilter === "cash_collected"
+                    ? "PAYMENTS COLLECTED / IN SAFE"
+                    : activeFilter === "pending_cash_handover"
+                    ? "CASH PENDING HANDOVER"
+                    : activeFilter.replace(/_/g, " ").toUpperCase()}
+                </strong>
+              </span>
               <button
                 type="button"
                 onClick={() => onFilterSelect(null)}
@@ -313,7 +458,70 @@ export default function JobsKpiDashboard({
         </div>
       </div>
 
-      {/* Row 2: Stock & Discount Requests (4 cards) */}
+      {/* Row 2: Technician Expense Clearance & Cash Recovery (Accountant View) */}
+      {isAccountant && (
+        <div className="space-y-1.5 pt-1 border-t border-[#F4F4F5]">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold text-[#0D7A5F] tracking-wider flex items-center gap-1.5">
+              <Banknote className="w-3.5 h-3.5 text-[#0D7A5F]" />
+              Technician Financial Clearance & Cash Recovery (Accountant)
+            </span>
+            <span className="text-[10px] text-[#71717A]">
+              Click card to filter jobs list below
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {financialCards.map((card) => {
+              const Icon = card.icon;
+              const isSelected = activeFilter === card.key;
+              return (
+                <button
+                  key={card.key}
+                  type="button"
+                  onClick={() => toggleFilter(card.key)}
+                  className={cn(
+                    "p-3 rounded-xl border text-left transition-all duration-150 flex flex-col justify-between group relative overflow-hidden",
+                    card.border,
+                    isSelected
+                      ? "bg-emerald-50/40 border-[#0D7A5F] ring-2 ring-[#0D7A5F] shadow-xs"
+                      : "bg-[#FAFAFA] hover:bg-white hover:border-[#D4D4D8] hover:shadow-2xs"
+                  )}
+                >
+                  <div className="flex items-center justify-between w-full mb-1">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="text-[10px] font-semibold text-[#18181B] truncate">
+                        {card.label}
+                      </span>
+                      {card.badgeAlert && (
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                      )}
+                    </div>
+                    <div
+                      className={cn(
+                        "w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-transform group-hover:scale-105",
+                        card.bg,
+                        card.color
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-mono text-xl font-bold text-[#18181B] block">
+                      {card.count}
+                    </span>
+                    <span className="text-[10px] text-[#52525B] font-medium truncate block mt-0.5">
+                      {card.sublabel}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Row 3: Stock & Discount Requests (4 cards) */}
       <div className="space-y-1.5 pt-1 border-t border-[#F4F4F5]">
         <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
           Material Dispatches & Discount Authorizations

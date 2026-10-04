@@ -78,6 +78,11 @@ export default function ReceiveTechnicianCashDrawer({
       return;
     }
 
+    if (numCollected > 0 && numReceived > numCollected && (!notes || notes.trim().length < 5)) {
+      setErrorMsg("Amount exceeds the technician's reported collection. Please enter an explanation in the receipt notes describing the reason for the excess.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setErrorMsg("");

@@ -65,9 +65,9 @@ export async function GET(req: NextRequest) {
       const startStr = searchParams.get("startDate");
       const endStr = searchParams.get("endDate");
 
-      const asOfDate = asOfStr ? new Date(asOfStr) : new Date();
-      const startDate = startStr ? new Date(startStr) : new Date(new Date().getFullYear(), 0, 1);
-      const endDate = endStr ? new Date(endStr) : new Date();
+      const asOfDate = asOfStr ? new Date(`${asOfStr.split("T")[0]}T23:59:59.999Z`) : new Date();
+      const startDate = startStr ? new Date(`${startStr.split("T")[0]}T00:00:00.000Z`) : new Date(new Date().getFullYear(), 0, 1);
+      const endDate = endStr ? new Date(`${endStr.split("T")[0]}T23:59:59.999Z`) : new Date();
 
       if (statement === "trial_balance") {
         const tb = await FinancialReportingService.getTrialBalance(asOfDate);
@@ -364,6 +364,9 @@ export async function GET(req: NextRequest) {
             if (entry.type === "advance" || entry.type === "hisaab_given") {
               balance += entry.amount;
               totalAdvances += entry.amount;
+            } else if (entry.type === "hisaab_received" || entry.type === "advance_recovered") {
+              balance -= entry.amount;
+              totalAdvances = Math.max(0, totalAdvances - entry.amount);
             } else if (entry.type === "expense_owed") {
               balance -= entry.amount;
               totalExpensesOwed += entry.amount;
@@ -843,6 +846,9 @@ export async function GET(req: NextRequest) {
             if (entry.type === "advance" || entry.type === "hisaab_given") {
               balance += entry.amount;
               totalAdvances += entry.amount;
+            } else if (entry.type === "hisaab_received" || entry.type === "advance_recovered") {
+              balance -= entry.amount;
+              totalAdvances = Math.max(0, totalAdvances - entry.amount);
             } else if (entry.type === "expense_owed") {
               balance -= entry.amount;
               totalExpensesOwed += entry.amount;
@@ -1206,6 +1212,48 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid payment amount" }, { status: 400 });
         }
 
+        let targetInvoice = null;
+        let effectiveCustomerId = customerId;
+        let alreadyPaid = 0;
+
+        if (invoiceId) {
+          targetInvoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+          if (!targetInvoice) {
+            return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+          }
+          if (targetInvoice.status === "paid") {
+            return NextResponse.json(
+              { error: `Invoice ${targetInvoice.invoiceNumber} is already fully paid.` },
+              { status: 400 }
+            );
+          }
+          effectiveCustomerId = effectiveCustomerId || targetInvoice.customerId;
+
+          // Check existing payments on this invoice
+          const existingPayments = await prisma.journalEntry.findMany({
+            where: {
+              refType: "customer_payment",
+              refId: invoiceId,
+              status: "posted",
+            },
+            include: { lines: true },
+          });
+          alreadyPaid = existingPayments.reduce((sum, je) => {
+            const arLine = je.lines.find((l) => l.credit > 0);
+            return sum + (arLine?.credit || 0);
+          }, 0);
+
+          const pendingBalance = Math.round((targetInvoice.amount - alreadyPaid) * 100) / 100;
+          if (numAmount > pendingBalance + 0.01) {
+            return NextResponse.json(
+              {
+                error: `Payment amount ($${numAmount}) exceeds pending balance ($${pendingBalance}) of Invoice ${targetInvoice.invoiceNumber}. Overpayment is rejected.`,
+              },
+              { status: 400 }
+            );
+          }
+        }
+
         const cashAcc = receivingAccountCode
           ? await AccountsPostingService.getAccountByCode(receivingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving" });
@@ -1221,10 +1269,31 @@ export async function POST(req: NextRequest) {
           ],
         });
 
-        if (invoiceId) {
+        if (invoiceId && targetInvoice) {
+          const totalNowPaid = Math.round((numAmount + alreadyPaid) * 100) / 100;
+          const isFullyPaid = totalNowPaid >= targetInvoice.amount - 0.01;
           await prisma.invoice.update({
             where: { id: invoiceId },
-            data: { status: "paid" },
+            data: { status: isFullyPaid ? "paid" : "partially_paid" },
+          });
+
+          if (targetInvoice.projectId) {
+            await prisma.project.update({
+              where: { id: targetInvoice.projectId },
+              data: { paidAmount: { increment: numAmount } },
+            });
+          }
+        }
+
+        if (effectiveCustomerId) {
+          await SubLedgerService.recordCustomerEntry({
+            customerId: effectiveCustomerId,
+            entryType: "payment",
+            documentNumber: targetInvoice ? targetInvoice.invoiceNumber : `PAY-${Date.now().toString().slice(-6)}`,
+            journalEntryId: journal.id,
+            debit: 0,
+            credit: numAmount,
+            notes: notes || `Customer payment receipt via ${paymentMethod}`,
           });
         }
 

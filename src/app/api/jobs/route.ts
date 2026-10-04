@@ -59,6 +59,9 @@ export async function GET(req: NextRequest) {
         },
         items: true,
         expenseClaims: true,
+        hisaabSettlements: {
+          orderBy: { settledAt: "desc" },
+        },
         inventoryRequests: true,
         stockReturns: true,
         statusHistory: {

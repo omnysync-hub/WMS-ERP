@@ -15,18 +15,25 @@ export class InventoryService {
     refId?: string,
     notes?: string
   ) {
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error("Consumed stock quantity must be a positive number.");
+    }
+
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new Error("Product not found");
 
-    if (product.stockQuantity < quantity) {
-      throw new Error(`Insufficient stock for product '${product.name}'. Available: ${product.stockQuantity}, Requested: ${quantity}`);
-    }
-
-    // 1. Decrement stock
-    await prisma.product.update({
-      where: { id: productId },
-      data: { stockQuantity: { decrement: quantity } },
+    // 1. Atomic decrement stock using gte to prevent race condition & negative stock
+    const updated = await prisma.product.updateMany({
+      where: { id: productId, stockQuantity: { gte: qty } },
+      data: { stockQuantity: { decrement: qty } },
     });
+    if (updated.count === 0) {
+      const live = await prisma.product.findUnique({ where: { id: productId } });
+      throw new Error(
+        `Insufficient stock for product '${product.name}'. Available: ${live?.stockQuantity ?? 0}, Requested: ${qty}`
+      );
+    }
 
     // 2. Add Stock Ledger entry
     const ledger = await prisma.stockLedger.create({

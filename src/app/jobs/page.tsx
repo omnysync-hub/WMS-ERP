@@ -8,6 +8,7 @@ import DataTable, { ColumnDef } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
 import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
+import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianCashDrawer";
 import JobsKpiDashboard from "@/components/jobs/JobsKpiDashboard";
 import StorekeeperKpiDashboard from "@/components/jobs/StorekeeperKpiDashboard";
 import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn, isServiceItem } from "@/lib/utils";
@@ -31,6 +32,8 @@ import {
   CheckCircle2,
   Clock,
   CheckCheck,
+  Banknote,
+  ArrowDownLeft,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
@@ -68,6 +71,7 @@ export default function JobsListPage() {
   // Reassign Drawer state
   const [reassignJob, setReassignJob] = useState<any>(null);
   const [returnJob, setReturnJob] = useState<any>(null);
+  const [receiveCashJob, setReceiveCashJob] = useState<any>(null);
 
   async function fetchJobs() {
     try {
@@ -190,6 +194,25 @@ export default function JobsListPage() {
               it.description?.includes("[Discount:")
           );
         if (!hasApprovedDiscount) return false;
+      } else if (kpiFilter === "expenses_cleared") {
+        if (!j.expenseClaims?.some((c: any) => c.status === "paid")) return false;
+      } else if (kpiFilter === "pending_expenses") {
+        if (!j.expenseClaims?.some((c: any) => c.status === "pending")) return false;
+      } else if (kpiFilter === "cash_collected") {
+        const hasHandover = j.hisaabSettlements?.some(
+          (s: any) =>
+            s.status !== "superseded" &&
+            ((Number(s.amountReceivedByAccountant) || 0) > 0 || s.status === "posted")
+        );
+        if (!hasHandover) return false;
+      } else if (kpiFilter === "pending_cash_handover") {
+        const hasPendingHandover = j.hisaabSettlements?.some((s: any) => {
+          if (s.status === "superseded") return false;
+          const collected = Number(s.amountCollected) || 0;
+          const received = Number(s.amountReceivedByAccountant) || 0;
+          return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+        });
+        if (!hasPendingHandover) return false;
       }
     }
 
@@ -197,9 +220,17 @@ export default function JobsListPage() {
 
     if (isAccountant) {
       if (activeTab === "awaiting_feedback") return j.status === "AwaitingFeedback";
-    if (activeTab === "pending_clearance") return j.status === "CompletedPendingVerification";
+      if (activeTab === "pending_clearance") return j.status === "CompletedPendingVerification";
       if (activeTab === "discount_requests") return j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
       if (activeTab === "pending_expenses") return j.expenseClaims?.some((c: any) => c.status === "pending");
+      if (activeTab === "pending_cash") {
+        return j.hisaabSettlements?.some((s: any) => {
+          if (s.status === "superseded") return false;
+          const collected = Number(s.amountCollected) || 0;
+          const received = Number(s.amountReceivedByAccountant) || 0;
+          return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+        });
+      }
       if (activeTab === "completed") return ["Finalized", "Verified"].includes(j.status);
     } else if (isDispatcher) {
       if (activeTab === "unassigned") {
@@ -568,11 +599,55 @@ export default function JobsListPage() {
                 Discount Requested
               </span>
             )}
-            {isAccountant && hasPendingExpense && (
-              <span className="text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
-                <Receipt className="w-3 h-3 text-blue-600" />
-                Expense Pending
-              </span>
+            {isAccountant && (
+              (() => {
+                const pendingExpenseAmt = (row.expenseClaims || [])
+                  .filter((c: any) => c.status === "pending")
+                  .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+                const hasPaidExpense = (row.expenseClaims || []).some((c: any) => c.status === "paid");
+                const pendingSettlement = (row.hisaabSettlements || []).find((s: any) => {
+                  if (s.status === "superseded") return false;
+                  const collected = Number(s.amountCollected) || 0;
+                  const received = Number(s.amountReceivedByAccountant) || 0;
+                  return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+                });
+                const pendingCashAmt = pendingSettlement
+                  ? Math.max(0, (Number(pendingSettlement.amountCollected) || 0) - (Number(pendingSettlement.amountReceivedByAccountant) || 0))
+                  : 0;
+                const hasReceivedCash = (row.hisaabSettlements || []).some(
+                  (s: any) =>
+                    s.status !== "superseded" &&
+                    ((Number(s.amountReceivedByAccountant) || 0) > 0 || s.status === "posted")
+                );
+
+                return (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    {pendingExpenseAmt > 0 ? (
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                        <Receipt className="w-3 h-3 text-rose-600" />
+                        Exp Left: {formatCurrency(pendingExpenseAmt)}
+                      </span>
+                    ) : hasPaidExpense ? (
+                      <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Exp Cleared
+                      </span>
+                    ) : null}
+
+                    {pendingCashAmt > 0 ? (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1 animate-pulse shadow-2xs">
+                        <ArrowDownLeft className="w-3 h-3 text-amber-600" />
+                        Cash Left: {formatCurrency(pendingCashAmt)}
+                      </span>
+                    ) : hasReceivedCash ? (
+                      <span className="text-[10px] font-medium text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                        <Banknote className="w-3 h-3 text-teal-600" />
+                        Cash Collected
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })()
             )}
           </div>
         );      },
@@ -732,8 +807,34 @@ export default function JobsListPage() {
           );
         }
 
+        const pendingCashSettlement = isAccountant
+          ? row.hisaabSettlements?.find((s: any) => {
+              if (s.status === "superseded") return false;
+              const collected = Number(s.amountCollected) || 0;
+              const received = Number(s.amountReceivedByAccountant) || 0;
+              return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+            })
+          : null;
+        const pendingCashAmt = pendingCashSettlement
+          ? Math.max(0, (Number(pendingCashSettlement.amountCollected) || 0) - (Number(pendingCashSettlement.amountReceivedByAccountant) || 0))
+          : 0;
+
         return (
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-end gap-1.5">
+            {pendingCashAmt > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReceiveCashJob(row);
+                }}
+                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white shadow-2xs transition inline-flex items-center gap-1.5 whitespace-nowrap"
+                title="Receive cash handover from technician"
+              >
+                <Banknote className="w-3.5 h-3.5" />
+                <span>Receive Cash</span>
+              </button>
+            )}
             <Link
               href={`/jobs/${row.id}`}
               className={
@@ -774,6 +875,18 @@ export default function JobsListPage() {
     { id: "pending_clearance", label: "Needs Finalization", count: jobs.filter((j) => j.status === "CompletedPendingVerification").length },
     { id: "discount_requests", label: "Discount Requested", count: jobs.filter((j) => j.items?.some((it: any) => it.description?.includes("[Discount Requested:"))).length },
     { id: "pending_expenses", label: "Pending Expenses", count: jobs.filter((j) => j.expenseClaims?.some((c: any) => c.status === "pending")).length },
+    {
+      id: "pending_cash",
+      label: "Pending Cash Handover",
+      count: jobs.filter((j) =>
+        j.hisaabSettlements?.some((s: any) => {
+          if (s.status === "superseded") return false;
+          const collected = Number(s.amountCollected) || 0;
+          const received = Number(s.amountReceivedByAccountant) || 0;
+          return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+        })
+      ).length,
+    },
     { id: "completed", label: "Finalized / Verified", count: jobs.filter((j) => ["Finalized", "Verified"].includes(j.status)).length },
   ];
 
@@ -929,7 +1042,7 @@ export default function JobsListPage() {
             onExport={() => alert("Exporting jobs list...")}
           />
 
-          {/* Warehouse Storekeeper vs General / Dispatcher KPI Dashboard Cards */}
+          {/* Warehouse Storekeeper vs General / Dispatcher / Accountant KPI Dashboard Cards */}
           {isStorekeeper ? (
             <StorekeeperKpiDashboard
               jobs={jobs}
@@ -941,6 +1054,7 @@ export default function JobsListPage() {
               jobs={jobs}
               activeFilter={kpiFilter}
               onFilterSelect={setKpiFilter}
+              isAccountant={isAccountant || isAdmin || canViewFinancials}
             />
           )}
 
@@ -1088,6 +1202,30 @@ export default function JobsListPage() {
             storekeeperName={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
             onSuccess={fetchJobs}
           />
+
+          {/* Receive Technician Cash Handover Drawer */}
+          {receiveCashJob && (
+            <ReceiveTechnicianCashDrawer
+              isOpen={Boolean(receiveCashJob)}
+              onClose={() => setReceiveCashJob(null)}
+              job={receiveCashJob}
+              settlement={
+                receiveCashJob.hisaabSettlements?.find(
+                  (s: any) =>
+                    s.status !== "superseded" &&
+                    ((Number(s.amountCollected) || 0) > (Number(s.amountReceivedByAccountant) || 0) ||
+                      (s.status === "field_reported" && (Number(s.amountCollected) || 0) > 0))
+                ) ||
+                receiveCashJob.hisaabSettlements?.[0] ||
+                null
+              }
+              currentAccountantName={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
+              onSuccess={() => {
+                setReceiveCashJob(null);
+                fetchJobs();
+              }}
+            />
+          )}
         </>
       )}
     </div>

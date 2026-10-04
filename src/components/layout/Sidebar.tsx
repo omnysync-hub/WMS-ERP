@@ -360,6 +360,7 @@ export default function Sidebar({
     ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"].includes(activeRole);
 
   const allOperationsItems = [
+    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "hr", "purchasing"] },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
     { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "hr", "auditor"] },
@@ -377,7 +378,7 @@ export default function Sidebar({
   });
 
   const preAccountsOperations = operationsItems.filter((item) =>
-    ["/pos"].includes(item.href)
+    ["/projects", "/pos"].includes(item.href)
   );
 
   const inventoryOperations = operationsItems.filter((item) =>

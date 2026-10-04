@@ -238,65 +238,93 @@ export class FinancialReportingService {
     const incomeStmt = await this.getIncomeStatement(fromDate, toDate);
     const netIncome = incomeStmt.netOperatingProfit;
 
-    // Resolve GL proxies via AccountMapping (no hardcoded codes)
+    // Resolve GL proxies with safe fallbacks (never crash if an optional mapping is unconfigured)
+    const resolveSafe = async (type: string, fallbackCode: string, fallbackType: string) => {
+      try {
+        return await AccountMappingService.resolveAccount({ transactionType: type });
+      } catch {
+        return await prisma.account.findFirst({
+          where: {
+            OR: [
+              { code: { startsWith: fallbackCode } },
+              { type: fallbackType },
+            ],
+            isActive: true,
+          },
+        });
+      }
+    };
+
     const [deprAcc, arAcc, invAcc, apAcc, cashAcc, bankAcc] = await Promise.all([
-      AccountMappingService.resolveAccount({ transactionType: "depreciation_expense" }),
-      AccountMappingService.resolveAccount({ transactionType: "ar_control" }),
-      AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_asset" }),
-      AccountMappingService.resolveAccount({ transactionType: "ap_control" }),
-      AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving" }),
-      AccountMappingService.resolveAccount({ transactionType: "bank_operating" }),
+      resolveSafe("depreciation_expense", "5", "expense"),
+      resolveSafe("ar_control", "1100", "asset"),
+      resolveSafe("inventory_cogs_asset", "1200", "asset"),
+      resolveSafe("ap_control", "2000", "liability"),
+      resolveSafe("customer_payment_receiving", "1000", "asset"),
+      resolveSafe("bank_operating", "1010", "asset"),
     ]);
-    const cashAccountIds = Array.from(new Set([cashAcc.id, bankAcc.id]));
+    const cashAccountIds = Array.from(new Set([cashAcc?.id, bankAcc?.id].filter(Boolean) as string[]));
 
     // 1. Depreciation (Non-Cash Expense)
-    const deprLines = await prisma.journalLine.findMany({
-      where: {
-        accountId: deprAcc.id,
-        journalEntry: {
-          date: { gte: fromDate, lte: toDate },
-          status: { in: ["posted", "reversal"] },
+    let depreciationAdjustment = 0;
+    if (deprAcc) {
+      const deprLines = await prisma.journalLine.findMany({
+        where: {
+          accountId: deprAcc.id,
+          journalEntry: {
+            date: { gte: fromDate, lte: toDate },
+            status: { in: ["posted", "reversal"] },
+          },
         },
-      },
-    });
-    const depreciationAdjustment = Math.round(deprLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100) / 100;
+      });
+      depreciationAdjustment = Math.round(deprLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100) / 100;
+    }
 
     // 2. Working Capital Changes
     // Change in AR (1100): Increase in AR reduces cash, decrease in AR increases cash
-    const arLines = await prisma.journalLine.findMany({
-      where: {
-        accountId: arAcc.id,
-        journalEntry: {
-          date: { gte: fromDate, lte: toDate },
-          status: { in: ["posted", "reversal"] },
+    let changeInAr = 0;
+    if (arAcc) {
+      const arLines = await prisma.journalLine.findMany({
+        where: {
+          accountId: arAcc.id,
+          journalEntry: {
+            date: { gte: fromDate, lte: toDate },
+            status: { in: ["posted", "reversal"] },
+          },
         },
-      },
-    });
-    const changeInAr = Math.round(arLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100) / 100;
+      });
+      changeInAr = Math.round(arLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100) / 100;
+    }
 
     // Change in Inventory (1200): Increase in Inventory reduces cash
-    const invLines = await prisma.journalLine.findMany({
-      where: {
-        accountId: invAcc.id,
-        journalEntry: {
-          date: { gte: fromDate, lte: toDate },
-          status: { in: ["posted", "reversal"] },
+    let changeInInventory = 0;
+    if (invAcc) {
+      const invLines = await prisma.journalLine.findMany({
+        where: {
+          accountId: invAcc.id,
+          journalEntry: {
+            date: { gte: fromDate, lte: toDate },
+            status: { in: ["posted", "reversal"] },
+          },
         },
-      },
-    });
-    const changeInInventory = Math.round(invLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100) / 100;
+      });
+      changeInInventory = Math.round(invLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100) / 100;
+    }
 
     // Change in AP (2000): Increase in AP increases cash (delayed payment)
-    const apLines = await prisma.journalLine.findMany({
-      where: {
-        accountId: apAcc.id,
-        journalEntry: {
-          date: { gte: fromDate, lte: toDate },
-          status: { in: ["posted", "reversal"] },
+    let changeInAp = 0;
+    if (apAcc) {
+      const apLines = await prisma.journalLine.findMany({
+        where: {
+          accountId: apAcc.id,
+          journalEntry: {
+            date: { gte: fromDate, lte: toDate },
+            status: { in: ["posted", "reversal"] },
+          },
         },
-      },
-    });
-    const changeInAp = Math.round(apLines.reduce((sum, l) => sum + (l.credit - l.debit), 0) * 100) / 100;
+      });
+      changeInAp = Math.round(apLines.reduce((sum, l) => sum + (l.credit - l.debit), 0) * 100) / 100;
+    }
 
     // Net Cash from Operating Activities
     const netWorkingCapital = Math.round((changeInAp - changeInAr - changeInInventory) * 100) / 100;

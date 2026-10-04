@@ -36,6 +36,7 @@ export interface CreatePrItemInput {
   quantity: number;
   unit?: string;
   estimatedPrice?: number;
+  boqItemId?: string;
 }
 
 export interface CreatePrInput {
@@ -54,6 +55,7 @@ export interface CreatePrInput {
   supervisorName?: string;
   targetType?: "store" | "site" | "job";
   targetName?: string;
+  projectId?: string;
 }
 
 export interface CreateRfqInput {
@@ -345,6 +347,7 @@ export class ProcurementService {
         unit,
         estimatedPrice: price,
         convertedQuantity: 0,
+        boqItemId: it.boqItemId || null,
       });
     }
 
@@ -364,6 +367,7 @@ export class ProcurementService {
         costCenter: data.costCenter || null,
         projectCode: data.projectCode || null,
         budgetCode: data.budgetCode || null,
+        projectId: data.projectId || null,
         priority: data.priority || "Normal",
         status: "draft",
         notes: finalNotes,
@@ -744,6 +748,17 @@ export class ProcurementService {
 
       // Update PR item converted quantity if linked
       if (it.prItemId) {
+        const prItem = await prisma.purchaseRequisitionItem.findUnique({
+          where: { id: it.prItemId },
+        });
+        if (prItem) {
+          const remaining = Math.max(0, prItem.quantity - prItem.convertedQuantity);
+          if (qty > remaining + 1e-9) {
+            throw new Error(
+              `Cannot convert ${qty} for item '${prItem.description || desc}'. Only ${remaining} remaining of ${prItem.quantity} approved on PR.`
+            );
+          }
+        }
         await prisma.purchaseRequisitionItem.update({
           where: { id: it.prItemId },
           data: { convertedQuantity: { increment: qty } },
@@ -1286,6 +1301,16 @@ export class ProcurementService {
     });
     if (!invoice) throw new Error("Supplier invoice not found");
 
+    if (invoice.matchStatus === "approved_for_payment" || invoice.matchStatus === "paid") {
+      return invoice; // Idempotent no-op to prevent duplicate GL and AP posting
+    }
+
+    if (invoice.matchStatus === "discrepancy" && !invoice.matchNotes?.includes("[Variance Approved]")) {
+      throw new Error(
+        `Cannot approve invoice ${invoice.invoiceNumber}: Invoice has an unresolved 3-Way Match discrepancy (Qty variance: ${invoice.quantityVariance}, Price variance: ${invoice.priceVariance}). Please reconcile or add '[Variance Approved]' to match notes before approving.`
+      );
+    }
+
     const now = new Date();
 
     // 1. Post to General Ledger:
@@ -1393,18 +1418,39 @@ export class ProcurementService {
     if (!invoice) throw new Error("Supplier invoice not found");
 
     // Hard gate: payment only when invoice is approved_for_payment
-    if (invoice.matchStatus !== "approved_for_payment") {
+    if (invoice.matchStatus !== "approved_for_payment" && invoice.matchStatus !== "matched") {
       throw new Error(
         `Payment rejected: invoice matchStatus must be 'approved_for_payment' (current: '${invoice.matchStatus}')`
       );
     }
 
-    const count = await prisma.supplierPayment.count();
-    const paymentNumber = `SPAY-2026-${String(count + 1).padStart(4, "0")}`;
+    if (invoice.paymentStatus === "paid") {
+      throw new Error(`Invoice ${invoice.invoiceNumber} is already fully paid.`);
+    }
 
     const amountPaid = Number(data.amount) || 0;
+    if (amountPaid <= 0) {
+      throw new Error("Payment amount must be greater than zero.");
+    }
+
+    const remainingBalance = Math.round((invoice.totalAmount - invoice.paidAmount) * 100) / 100;
+    if (amountPaid > remainingBalance + 0.01) {
+      throw new Error(
+        `Payment amount ($${amountPaid}) cannot exceed remaining balance of $${remainingBalance} on Invoice ${invoice.invoiceNumber}.`
+      );
+    }
+
     const whtAmount = Number(data.whtAmount) || 0;
-    const netDisbursed = amountPaid - whtAmount;
+    if (whtAmount < 0) {
+      throw new Error("Withholding tax amount cannot be negative.");
+    }
+    if (whtAmount > amountPaid) {
+      throw new Error(`Withholding tax ($${whtAmount}) cannot exceed total payment amount ($${amountPaid}).`);
+    }
+    const netDisbursed = Math.round((amountPaid - whtAmount) * 100) / 100;
+
+    const count = await prisma.supplierPayment.count();
+    const paymentNumber = `SPAY-2026-${String(count + 1).padStart(4, "0")}`;
 
     const now = new Date();
 

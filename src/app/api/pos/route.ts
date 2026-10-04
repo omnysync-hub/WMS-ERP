@@ -147,24 +147,30 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid total sale amount" }, { status: 400 });
       }
 
-      // Step 1: Verify Stock Availability
-      const productIds = items.map((it: any) => it.productId);
-      const dbProducts = await prisma.product.findMany({
-        where: { id: { in: productIds } },
-      });
-
-      const productMap = new Map(dbProducts.map((p) => [p.id, p]));
-
-      for (const item of items) {
-        const prod = productMap.get(item.productId);
-        if (!prod) {
-          return NextResponse.json({ error: `Product ID ${item.productId} does not exist` }, { status: 400 });
+      // Step 1: Validate Item Quantities & Calculate Server-Side Subtotal
+      let calculatedSubtotal = 0;
+      for (const it of items) {
+        const q = Number(it.quantity);
+        const rate = Number(it.unitPrice);
+        if (!q || q <= 0 || isNaN(q)) {
+          return NextResponse.json({ error: "Each item must have a valid quantity greater than zero" }, { status: 400 });
         }
-        if (prod.stockQuantity < item.quantity) {
+        if (isNaN(rate) || rate < 0) {
+          return NextResponse.json({ error: "Item unit price cannot be negative" }, { status: 400 });
+        }
+        calculatedSubtotal += q * rate;
+      }
+      calculatedSubtotal = Math.round(calculatedSubtotal * 100) / 100;
+
+      const numDiscount = Math.max(0, Math.min(Number(discountAmount) || 0, calculatedSubtotal));
+      const numTax = Math.max(0, Number(taxAmount) || 0);
+      const computedTotal = Math.round((calculatedSubtotal - numDiscount + numTax) * 100) / 100;
+
+      if (paymentMethod === "cash") {
+        const tendered = Number(amountTendered) || computedTotal;
+        if (tendered < computedTotal - 0.01) {
           return NextResponse.json(
-            {
-              error: `Insufficient stock for '${prod.name}'. In Stock: ${prod.stockQuantity}, Requested: ${item.quantity}`,
-            },
+            { error: `Amount tendered ($${tendered}) is less than total amount due ($${computedTotal}).` },
             { status: 400 }
           );
         }
@@ -175,66 +181,75 @@ export async function POST(req: NextRequest) {
       const randomPart = Math.floor(1000 + Math.random() * 9000);
       const saleNumber = `POS-${datePart}-${randomPart}`;
 
-      // Step 3: Atomic Stock Depletion and POS Sale Creation
-      let totalCostOfGoods = 0;
-      for (const item of items) {
-        const prod = productMap.get(item.productId)!;
-        totalCostOfGoods += (prod.costPrice || 0) * item.quantity;
-      }
+      // Step 3: Atomic Stock Depletion and POS Sale Creation in a Single Transaction
+      const { sale, totalCostOfGoods } = await prisma.$transaction(async (tx) => {
+        let costSum = 0;
 
-      const sale = await (prisma as any).posSale.create({
-        data: {
-          saleNumber,
-          totalAmount: parsedTotal,
-          subtotal: Number(subtotal) || parsedTotal,
-          discountAmount: Number(discountAmount) || 0,
-          taxAmount: Number(taxAmount) || 0,
-          amountTendered: Number(amountTendered) || parsedTotal,
-          changeGiven: Number(changeGiven) || 0,
-          paymentMethod,
-          customerName: customerName.trim() || "Walk-in Customer",
-          customerPhone: customerPhone ? customerPhone.trim() : null,
-          cashierName: cashierName.trim() || "Counter Cashier",
-          notes: notes ? notes.trim() : null,
-          status: "completed",
-          items: {
-            create: items.map((it: any) => ({
-              productId: it.productId,
-              quantity: Number(it.quantity),
-              unitPrice: Number(it.unitPrice),
-            })),
+        for (const item of items) {
+          const qty = Number(item.quantity);
+          const decremented = await tx.product.updateMany({
+            where: { id: item.productId, stockQuantity: { gte: qty } },
+            data: { stockQuantity: { decrement: qty } },
+          });
+          if (decremented.count === 0) {
+            const current = await tx.product.findUnique({ where: { id: item.productId } });
+            throw new Error(
+              `Insufficient stock for '${current?.name || item.productId}'. Available: ${current?.stockQuantity ?? 0}, Requested: ${qty}`
+            );
+          }
+          const current = await tx.product.findUnique({ where: { id: item.productId } });
+          costSum += (current?.costPrice || 0) * qty;
+        }
+
+        const createdSale = await (tx as any).posSale.create({
+          data: {
+            saleNumber,
+            totalAmount: computedTotal,
+            subtotal: calculatedSubtotal,
+            discountAmount: numDiscount,
+            taxAmount: numTax,
+            amountTendered: Number(amountTendered) || computedTotal,
+            changeGiven: paymentMethod === "cash" ? Math.max(0, (Number(amountTendered) || computedTotal) - computedTotal) : 0,
+            paymentMethod,
+            customerName: customerName.trim() || "Walk-in Customer",
+            customerPhone: customerPhone ? customerPhone.trim() : null,
+            cashierName: cashierName.trim() || "Counter Cashier",
+            notes: notes ? notes.trim() : null,
+            status: "completed",
+            items: {
+              create: items.map((it: any) => ({
+                productId: it.productId,
+                quantity: Number(it.quantity),
+                unitPrice: Number(it.unitPrice),
+              })),
+            },
           },
-        },
-        include: {
-          items: {
-            include: {
-              product: {
-                select: { id: true, name: true, sku: true, unit: true, unitPrice: true },
+          include: {
+            items: {
+              include: {
+                product: {
+                  select: { id: true, name: true, sku: true, unit: true, unitPrice: true },
+                },
               },
             },
           },
-        },
+        });
+
+        for (const item of items) {
+          await tx.stockLedger.create({
+            data: {
+              productId: item.productId,
+              qty: Number(item.quantity),
+              direction: "out",
+              refType: "pos_sale",
+              refId: createdSale.id,
+              notes: `POS Receipt #${saleNumber} - Customer: ${customerName}`,
+            },
+          });
+        }
+
+        return { sale: createdSale, totalCostOfGoods: costSum };
       });
-
-      // Step 4: Decrement Stock and Log Stock Ledger
-      for (const item of items) {
-        const prod = productMap.get(item.productId)!;
-        await prisma.product.update({
-          where: { id: prod.id },
-          data: { stockQuantity: { decrement: Number(item.quantity) } },
-        });
-
-        await prisma.stockLedger.create({
-          data: {
-            productId: prod.id,
-            qty: Number(item.quantity),
-            direction: "out",
-            refType: "pos_sale",
-            refId: sale.id,
-            notes: `POS Receipt #${saleNumber} - Customer: ${customerName}`,
-          },
-        });
-      }
 
       // Step 5: GAAP Double-Entry Accounting Postings
       try {

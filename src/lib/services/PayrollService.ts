@@ -229,6 +229,15 @@ export class PayrollService {
             remainingToRecover = 0;
           }
         }
+
+        await prisma.technicianLedgerEntry.create({
+          data: {
+            technicianId: slip.employeeId,
+            type: "advance_recovered",
+            amount: slip.advanceDeduction,
+            notes: `Advance recovered via payroll deduction for period ${run.period}`,
+          },
+        });
       }
     }
 
