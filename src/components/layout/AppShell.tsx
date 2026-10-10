@@ -100,6 +100,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     window.open("/mobile", "_blank", "noopener,noreferrer");
   };
 
+  if (pathname === "/login" || pathname === "/change-password") {
+    return <>{children}</>;
+  }
+
   // If on dedicated mobile route, render mobile layout with RoleProvider
   if (pathname?.startsWith("/mobile")) {
     return (

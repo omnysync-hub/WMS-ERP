@@ -22,8 +22,9 @@ import {
   RotateCcw,
   ShoppingBag,
   Menu,
+  LogOut,
 } from "lucide-react";
-import { useRole, RoleType } from "@/contexts/RoleContext";
+import { useRole } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { formatJobType } from "@/lib/utils";
 
@@ -53,7 +54,7 @@ export default function Topbar({
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
 
   // Active ERP Role Context
-  const { activeRole, currentPersona, setRole, availablePersonas } = useRole();
+  const { activeRole, currentPersona, activeUser } = useRole();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   // Notifications Popover state
@@ -441,23 +442,23 @@ export default function Topbar({
 
           <div className="h-4 w-px bg-[#27272A] mx-1" />
 
-          {/* Logged-in User Profile & Full Role Switcher */}
+          {/* Logged-in user profile */}
           <div className="relative">
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              aria-label="User account and role selector"
+              aria-label="User account menu"
               aria-expanded={isUserMenuOpen}
               className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#27272A] transition text-left focus-visible:outline-none"
             >
               <div className={`w-7 h-7 rounded-full ${currentPersona.badgeColor} flex items-center justify-center text-xs font-bold shrink-0 shadow-xs`}>
-                {currentPersona.avatar}
+                  {activeUser.avatar || currentPersona.avatar}
               </div>
               <div className="hidden md:block">
                 <p className="text-xs font-semibold text-[#E4E4E7] leading-none">
-                  {currentPersona.name}
+                  {activeUser.name}
                 </p>
                 <p className="text-[10px] text-emerald-400 font-medium leading-none mt-1">
-                  {currentPersona.designation}
+                  {activeUser.designation}
                 </p>
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-[#A1A1AA]" />
@@ -473,52 +474,17 @@ export default function Topbar({
                   <div className="px-3 pb-2.5 border-b border-[#EDEDED]">
                     <div className="flex items-center gap-2">
                       <div className={`w-6 h-6 rounded-md ${currentPersona.badgeColor} flex items-center justify-center text-[10px] font-bold shrink-0`}>
-                        {currentPersona.avatar}
+                        {activeUser.avatar || currentPersona.avatar}
                       </div>
                       <div className="overflow-hidden">
-                        <p className="font-bold text-[#18181B] truncate">{currentPersona.name}</p>
-                        <p className="text-[10px] text-[#71717A] truncate">{currentPersona.email}</p>
+                        <p className="font-bold text-[#18181B] truncate">{activeUser.name}</p>
+                        <p className="text-[10px] text-[#71717A] truncate">{activeUser.email}</p>
                       </div>
                     </div>
                     <span className="inline-block mt-1.5 text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-2 py-0.5 rounded border border-emerald-200">
-                      {currentPersona.department} • {currentPersona.designation}
+                      {activeUser.department} • {activeRole.replace(/_/g, " ")}
                     </span>
                   </div>
-
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#71717A] mt-1 bg-[#F4F4F5]">
-                    Simulate Usable ERP Roles
-                  </div>
-
-                  {availablePersonas
-                    .filter((p) => p.role !== "technician")
-                    .map((p) => {
-                      const isCurrent = activeRole === p.role;
-                      return (
-                        <button
-                          key={p.role}
-                          onClick={() => {
-                            setRole(p.role as RoleType);
-                            setIsUserMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 hover:bg-[#F4F4F5] flex items-center justify-between transition ${
-                            isCurrent ? "bg-emerald-50/60 font-semibold" : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            <div className={`w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold shrink-0 ${p.badgeColor}`}>
-                              {p.avatar}
-                            </div>
-                            <div className="overflow-hidden">
-                              <span className="block text-xs text-[#18181B] truncate">{p.name}</span>
-                              <span className="block text-[10px] text-[#71717A] truncate">{p.designation}</span>
-                            </div>
-                          </div>
-                          {isCurrent && (
-                            <CheckCircle2 className="w-4 h-4 text-[#0D7A5F] shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
 
                   <div className="border-t border-[#EDEDED] mt-1 pt-1.5 px-1.5 space-y-1">
                     <Link
@@ -538,6 +504,18 @@ export default function Topbar({
                     <p className="text-[10px] text-[#71717A] px-2.5 py-1">
                       Full mutation rollbacks & real-time omni-click telemetry audit logs.
                     </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsUserMenuOpen(false);
+                        await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+                        window.location.assign("/login");
+                      }}
+                      className="w-full text-left px-2.5 py-2 rounded-lg text-rose-700 hover:bg-rose-50 font-semibold flex items-center gap-2 transition text-xs"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign out
+                    </button>
                   </div>
                 </div>
               </>

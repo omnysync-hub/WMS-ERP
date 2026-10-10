@@ -1,9 +1,10 @@
 /**
- * ERP actor resolution for browser-demo RBAC (no real ERP session yet).
+ * ERP actor resolution for authenticated web and mobile sessions.
  *
  * Approach (matches mobileAuth header conventions):
  * - Prefer Authorization Bearer mobile token via resolveCaller when present.
- * - Else trust demo headers: x-actor-role / x-user-role, x-actor-name, x-user-id / x-employee-id.
+ * - Web actor headers are accepted only after middleware validates the database session and
+ *   stamps x-workman-authenticated. Browser-supplied role headers are never trusted directly.
  * - Permission matrix comes from DEFAULT_ROLE_PERMISSIONS (+ legacy key aliases).
  * - UI must send the same headers on every /api/procurement call; server still enforces.
  */
@@ -20,6 +21,9 @@ export interface ErpActor {
 }
 
 export function resolveErpActorFromRequest(req: NextRequest): ErpActor {
+  if (req.headers.get("x-workman-authenticated") !== "1") {
+    return { id: "anonymous", role: "anonymous", name: "Unauthenticated" };
+  }
   const role = (
     req.headers.get("x-actor-role") ||
     req.headers.get("x-user-role") ||
@@ -186,7 +190,7 @@ type GateResult =
  * Resolve the calling actor for jobs APIs.
  * - Mobile app: `Authorization: Bearer wms_mobile_...` is verified (HMAC) and the employee's
  *   DB role is authoritative (headers cannot escalate a mobile session).
- * - ERP web (demo RBAC): falls back to x-actor-role / x-actor-name / x-user-id headers.
+ * - ERP web: uses the actor headers stamped by authenticated middleware.
  * Returns `{ error }` (401) when a Bearer token is present but invalid/expired/deactivated.
  */
 export async function resolveJobsActor(

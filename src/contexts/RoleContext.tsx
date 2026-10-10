@@ -181,6 +181,7 @@ export interface SystemUser {
   badgeColor: string;
   createdAt: string;
   permissionOverrides?: Record<string, boolean>;
+  isDemo?: boolean;
 }
 
 export const DEFAULT_USERS: SystemUser[] = [
@@ -349,11 +350,11 @@ interface RoleContextType {
   users: SystemUser[];
   activeUser: SystemUser;
   setActiveUserId: (userId: string) => void;
-  createUser: (user: Omit<SystemUser, "id" | "createdAt">) => void;
-  updateUser: (userId: string, data: Partial<SystemUser>) => void;
-  toggleUserStatus: (userId: string) => void;
-  deleteUser: (userId: string) => void;
-  setUserPermissionOverride: (userId: string, permKey: string, value: boolean) => void;
+  createUser: (user: Omit<SystemUser, "id" | "createdAt"> & { password: string }) => Promise<void>;
+  updateUser: (userId: string, data: Partial<SystemUser> & { password?: string }) => Promise<void>;
+  toggleUserStatus: (userId: string) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  setUserPermissionOverride: (userId: string, permKey: string, value: boolean) => Promise<void>;
 }
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
@@ -364,15 +365,11 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   const [rolePermissions, setRolePermissions] = useState<Record<string, Record<string, boolean>>>(DEFAULT_ROLE_PERMISSIONS);
   const [users, setUsers] = useState<SystemUser[]>(DEFAULT_USERS);
   const [activeUserId, setActiveUserIdState] = useState<string>("usr-admin-01");
+  const [sessionReady, setSessionReady] = useState(false);
 
   // Load from local storage
   useEffect(() => {
     try {
-      const savedRole = localStorage.getItem("active_erp_role") as RoleType;
-      if (savedRole) {
-        setActiveRoleState(savedRole);
-      }
-
       const savedCustomRoles = localStorage.getItem("workman_custom_roles");
       if (savedCustomRoles) {
         setCustomRoles(JSON.parse(savedCustomRoles));
@@ -414,18 +411,40 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         setRolePermissions(merged);
       }
 
-      const savedUsers = localStorage.getItem("workman_system_users");
-      if (savedUsers) {
-        setUsers(JSON.parse(savedUsers));
-      }
-
-      const savedActiveUser = localStorage.getItem("workman_active_user_id");
-      if (savedActiveUser) {
-        setActiveUserIdState(savedActiveUser);
-      }
     } catch (e) {
       // ignore
     }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!sessionResponse.ok) {
+          window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+          return;
+        }
+        const sessionData = await sessionResponse.json();
+        const sessionUser = sessionData.user as SystemUser;
+        if (cancelled || !sessionUser) return;
+        setActiveRoleState(sessionUser.role);
+        setActiveUserIdState(sessionUser.id);
+        setUsers([sessionUser]);
+
+        if (sessionUser.role === "admin") {
+          const usersResponse = await fetch("/api/users", { cache: "no-store" });
+          if (usersResponse.ok) {
+            const usersData = await usersResponse.json();
+            if (!cancelled && Array.isArray(usersData.users)) setUsers(usersData.users);
+          }
+        }
+        if (!cancelled) setSessionReady(true);
+      } catch {
+        if (!cancelled) window.location.assign("/login");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const allPersonasMap: Record<string, Persona> = {
@@ -454,32 +473,13 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   }
 
   const setRole = (role: RoleType) => {
-    setActiveRoleState(role);
-    try {
-      localStorage.setItem("active_erp_role", role);
-      // Auto-sync active user when role changes if user matches role
-      const matchedUser = users.find((u) => u.role === role);
-      if (matchedUser) {
-        setActiveUserIdState(matchedUser.id);
-        localStorage.setItem("workman_active_user_id", matchedUser.id);
-      }
-    } catch (e) {
-      // ignore
-    }
+    // A signed-in user's role is server-controlled. Keep this method for legacy callers,
+    // but never allow the former browser-side role impersonation behavior.
+    if (role === activeRole) setActiveRoleState(role);
   };
 
   const setActiveUserId = (userId: string) => {
-    setActiveUserIdState(userId);
-    const u = users.find((x) => x.id === userId);
-    if (u) {
-      setActiveRoleState(u.role);
-      try {
-        localStorage.setItem("workman_active_user_id", userId);
-        localStorage.setItem("active_erp_role", u.role);
-      } catch (e) {
-        // ignore
-      }
-    }
+    if (userId === activeUserId) setActiveUserIdState(userId);
   };
 
   // Granular Permission Engine Check
@@ -565,66 +565,49 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   };
 
   // User Management
-  const createUser = (userData: Omit<SystemUser, "id" | "createdAt">) => {
-    const newUser: SystemUser = {
-      ...userData,
-      id: `usr-${Date.now().toString().slice(-6)}`,
-      createdAt: new Date().toISOString(),
-    };
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    try {
-      localStorage.setItem("workman_system_users", JSON.stringify(updatedUsers));
-    } catch (e) {
-      // ignore
-    }
+  const createUser = async (userData: Omit<SystemUser, "id" | "createdAt"> & { password: string }) => {
+    const response = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(userData),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Could not create the user.");
+    setUsers((current) => [...current, data.user].sort((a, b) => a.name.localeCompare(b.name)));
   };
 
-  const updateUser = (userId: string, data: Partial<SystemUser>) => {
-    const updated = users.map((u) => (u.id === userId ? { ...u, ...data } : u));
-    setUsers(updated);
-    try {
-      localStorage.setItem("workman_system_users", JSON.stringify(updated));
-    } catch (e) {
-      // ignore
-    }
+  const updateUser = async (userId: string, patch: Partial<SystemUser> & { password?: string }) => {
+    const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Could not update the user.");
+    setUsers((current) => current.map((user) => (user.id === userId ? data.user : user)));
   };
 
-  const toggleUserStatus = (userId: string) => {
+  const toggleUserStatus = async (userId: string) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
-    if (user.role === "admin" && user.status === "active") {
-      const activeAdmins = users.filter((u) => u.role === "admin" && u.status === "active");
-      if (activeAdmins.length <= 1) {
-        alert("Cannot suspend the sole active Administrator account");
-        return;
-      }
-    }
     const nextStatus = user.status === "active" ? "suspended" : "active";
-    updateUser(userId, { status: nextStatus });
+    await updateUser(userId, { status: nextStatus });
   };
 
-  const deleteUser = (userId: string) => {
+  const deleteUser = async (userId: string) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
-    if (user.role === "admin") {
-      alert("Administrator accounts cannot be deleted directly");
-      return;
-    }
-    const updated = users.filter((u) => u.id !== userId);
-    setUsers(updated);
-    try {
-      localStorage.setItem("workman_system_users", JSON.stringify(updated));
-    } catch (e) {
-      // ignore
-    }
+    const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Could not delete the user.");
+    setUsers((current) => current.filter((item) => item.id !== userId));
   };
 
-  const setUserPermissionOverride = (userId: string, permKey: string, value: boolean) => {
+  const setUserPermissionOverride = async (userId: string, permKey: string, value: boolean) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
     const overrides = { ...(user.permissionOverrides || {}), [permKey]: value };
-    updateUser(userId, { permissionOverrides: overrides });
+    await updateUser(userId, { permissionOverrides: overrides });
   };
 
   const isModulePrimary = (moduleName: string) => {
@@ -659,7 +642,17 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         setUserPermissionOverride,
       }}
     >
-      {children}
+      {sessionReady ? (
+        children
+      ) : (
+        <div className="min-h-screen bg-[#0b1714] text-white flex items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto h-10 w-10 rounded-2xl border-2 border-emerald-400 border-t-transparent animate-spin" />
+            <p className="mt-4 text-sm font-semibold">Opening your secure workspace…</p>
+            <p className="mt-1 text-xs text-slate-400">Checking your account and access</p>
+          </div>
+        </div>
+      )}
     </RoleContext.Provider>
   );
 }

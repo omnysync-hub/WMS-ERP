@@ -6,6 +6,7 @@ import SearchableSelect from "@/components/ui/SearchableSelect";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { useRole, SystemUser, RoleType } from "@/contexts/RoleContext";
 import { PERMISSION_GROUPS, ALL_PERMISSION_KEYS } from "@/lib/permissions";
+import { ERP_ROLE_OPTIONS } from "@/lib/auth/erpRoles";
 import {
   Users,
   ShieldCheck,
@@ -33,6 +34,8 @@ import {
 } from "lucide-react";
 
 export default function UsersAndRolesSettingsPage() {
+  const roleDisplayName = (role: string, fallback?: string) =>
+    ERP_ROLE_OPTIONS.find((item) => item.key === role)?.label || fallback || role.replace(/_/g, " ");
   const {
     activeRole,
     currentRole,
@@ -69,6 +72,7 @@ export default function UsersAndRolesSettingsPage() {
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formUsername, setFormUsername] = useState("");
+  const [formPassword, setFormPassword] = useState("");
   const [formRole, setFormRole] = useState<RoleType>("call_center");
   const [formDesignation, setFormDesignation] = useState("");
   const [formDepartment, setFormDepartment] = useState("Customer Care & Operations");
@@ -92,6 +96,7 @@ export default function UsersAndRolesSettingsPage() {
     setFormName("");
     setFormEmail("");
     setFormUsername("");
+    setFormPassword("");
     setFormRole("call_center");
     setFormDesignation("Operations Coordinator");
     setFormDepartment("Customer Care & Operations");
@@ -104,6 +109,7 @@ export default function UsersAndRolesSettingsPage() {
     setFormName(user.name);
     setFormEmail(user.email);
     setFormUsername(user.username);
+    setFormPassword("");
     setFormRole(user.role);
     setFormDesignation(user.designation);
     setFormDepartment(user.department);
@@ -111,17 +117,21 @@ export default function UsersAndRolesSettingsPage() {
     setShowAddUserModal(true);
   };
 
-  const handleSaveUser = (e: React.FormEvent) => {
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formUsername.trim()) {
-      return alert("Name and Username are required");
+    if (!formName.trim() || !formUsername.trim() || !formEmail.trim()) {
+      return alert("Name, username, and email are required");
+    }
+    if (!editingUser && !formPassword) {
+      return alert("Set a temporary password for the new user");
     }
 
     const persona = availablePersonas.find((p) => p.role === formRole);
     const badgeColor = persona?.badgeColor || "bg-teal-600 text-white";
 
-    if (editingUser) {
-      updateUser(editingUser.id, {
+    try {
+      if (editingUser) {
+        await updateUser(editingUser.id, {
         name: formName.trim(),
         email: formEmail.trim(),
         username: formUsername.trim(),
@@ -130,10 +140,11 @@ export default function UsersAndRolesSettingsPage() {
         department: formDepartment.trim(),
         status: formStatus,
         badgeColor,
+        ...(formPassword ? { password: formPassword } : {}),
       });
-      notify(`User '${formName}' updated successfully`);
-    } else {
-      createUser({
+        notify(`User '${formName}' updated successfully`);
+      } else {
+        await createUser({
         name: formName.trim(),
         email: formEmail.trim(),
         username: formUsername.trim(),
@@ -148,11 +159,14 @@ export default function UsersAndRolesSettingsPage() {
           .slice(0, 2)
           .toUpperCase(),
         badgeColor,
+        password: formPassword,
       });
-      notify(`New user '${formName}' created successfully`);
+        notify(`New user '${formName}' created successfully`);
+      }
+      setShowAddUserModal(false);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not save this user");
     }
-
-    setShowAddUserModal(false);
   };
 
   const handleCreateRoleSubmit = (e: React.FormEvent) => {
@@ -302,19 +316,9 @@ export default function UsersAndRolesSettingsPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-300 font-mono">Switch Active User:</span>
-          <select
-            value={activeUser.id}
-            onChange={(e) => setActiveUserId(e.target.value)}
-            className="bg-slate-800 border border-slate-700 text-xs text-white rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-[#0D7A5F]"
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.role}) {u.status === "suspended" ? "[SUSPENDED]" : ""}
-              </option>
-            ))}
-          </select>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-wider text-slate-400">Signed in securely as</p>
+          <p className="text-xs font-bold text-emerald-300">{activeUser.username}</p>
         </div>
       </div>
 
@@ -372,7 +376,7 @@ export default function UsersAndRolesSettingsPage() {
                     { value: "all", label: `All Roles (${availablePersonas.length})` },
                     ...availablePersonas.map((p) => ({
                       value: p.role,
-                      label: p.name,
+                      label: roleDisplayName(p.role, p.name),
                       subLabel: p.role,
                     })),
                   ]}
@@ -445,7 +449,7 @@ export default function UsersAndRolesSettingsPage() {
                       <td className="py-3 px-4 text-center">
                         <button
                           type="button"
-                          onClick={() => toggleUserStatus(u.id)}
+                          onClick={() => toggleUserStatus(u.id).catch((error) => alert(error.message))}
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition shadow-2xs border ${
                             isActive
                               ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
@@ -492,7 +496,7 @@ export default function UsersAndRolesSettingsPage() {
                             <button
                               onClick={() => {
                                 if (confirm(`Are you sure you want to delete user ${u.name}?`)) {
-                                  deleteUser(u.id);
+                                  deleteUser(u.id).catch((error) => alert(error.message));
                                 }
                               }}
                               className="p-1 rounded text-[#71717A] hover:text-rose-600 hover:bg-rose-50 transition"
@@ -550,7 +554,7 @@ export default function UsersAndRolesSettingsPage() {
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-current" />
-                    <span>{p.name}</span>
+                    <span>{roleDisplayName(p.role, p.name)}</span>
                     <span className="text-[10px] font-mono font-normal opacity-70">({p.role})</span>
                   </button>
                 );
@@ -764,6 +768,22 @@ export default function UsersAndRolesSettingsPage() {
             </div>
           </div>
 
+          <div>
+            <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+              {editingUser ? "New Password (leave blank to keep current)" : "Temporary Password *"}
+            </label>
+            <input
+              type="password"
+              required={!editingUser}
+              autoComplete="new-password"
+              placeholder="10+ characters with upper, lower, number, symbol"
+              value={formPassword}
+              onChange={(e) => setFormPassword(e.target.value)}
+              className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+            />
+            <p className="text-[10px] text-[#71717A] mt-1">Changing a password signs the user out of any other browser immediately.</p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-mono text-[#71717A] mb-1">Official Email</label>
@@ -785,7 +805,7 @@ export default function UsersAndRolesSettingsPage() {
                 searchPlaceholder="Search role..."
                 options={availablePersonas.map((p) => ({
                   value: p.role,
-                  label: p.name,
+                  label: roleDisplayName(p.role, p.name),
                   subLabel: p.role,
                 }))}
               />
@@ -952,7 +972,7 @@ export default function UsersAndRolesSettingsPage() {
               searchPlaceholder="Search role template..."
               options={availablePersonas.map((p) => ({
                 value: p.role,
-                label: `Clone from: ${p.name} (${p.role})`,
+                label: `Clone from: ${roleDisplayName(p.role, p.name)} (${p.role})`,
                 subLabel: p.role,
               }))}
             />

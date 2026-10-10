@@ -806,6 +806,53 @@ model CompanySettings {
   updatedAt           DateTime  @updatedAt
 }
 
+// ==========================================
+// ERP WEB AUTHENTICATION & USER ACCESS
+// ==========================================
+
+model ErpUser {
+  id                  String       @id @default(uuid())
+  name                String
+  email               String       @unique
+  username            String       @unique
+  passwordHash        String
+  role                String
+  designation         String       @default("")
+  department          String       @default("")
+  status              String       @default("active") // active, suspended
+  avatar              String       @default("ERP")
+  badgeColor          String       @default("bg-slate-600 text-white")
+  permissionOverrides Json?
+  mustChangePassword  Boolean      @default(false)
+  isDemo              Boolean      @default(false)
+  failedLoginAttempts Int          @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  passwordChangedAt   DateTime     @default(now())
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  sessions            ErpSession[]
+
+  @@index([role, status])
+}
+
+model ErpSession {
+  id          String   @id @default(uuid())
+  userId      String
+  user        ErpUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  deviceLabel String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
 model FinancialAuditLog {
   id          String   @id @default(uuid())
   entity      String   // JournalEntry, FiscalPeriod, Vendor, SubLedger, FixedAsset, OpeningBalance
