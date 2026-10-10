@@ -17,12 +17,26 @@ import { FixedAssetService } from "@/lib/services/FixedAssetService";
 import { TaxService } from "@/lib/services/TaxService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { AccountSuggestionAgent } from "@/lib/services/AccountSuggestionAgent";
+import { requirePermission, resolveJobsActor, roleHasPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const view = searchParams.get("view"); // "technicians", "journal", "accounts", "invoices", "discounts", "parties", "party_ledger", "expenses", "pos_sales", "account_drilldown", "financial_statements", "bank_reconciliation", "subledger_reconciliation", "fixed_assets", "fiscal_periods", "vendors", "company_settings"
     const technicianId = searchParams.get("technicianId");
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    const isOwnTechnicianLedger =
+      resolved.viaMobileToken &&
+      resolved.actor.role === "technician" &&
+      view === "technicians" &&
+      technicianId === resolved.actor.id;
+    if (!isOwnTechnicianLedger && !roleHasPermission(resolved.actor.role, "accounts.general_ledger")) {
+      return NextResponse.json(
+        { error: "You do not have permission to view accounting records.", code: "PERMISSION_DENIED" },
+        { status: 403 }
+      );
+    }
     const partyType = searchParams.get("partyType"); // "customer", "technician", "vendor"
     const partyId = searchParams.get("partyId");
     const accountId = searchParams.get("accountId");
@@ -1078,6 +1092,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "accounts.general_ledger");
+    if (gate.error) return gate.error;
     const body = await req.json();
     const { action, ...payload } = body;
 

@@ -99,7 +99,7 @@ export async function POST(
 
     // 5. Payload & Dimension Validation
     const body = await req.json();
-    const { embedding, enrolledAt, actorName } = body;
+    const { embedding, enrolledAt } = body;
 
     if (!Array.isArray(embedding)) {
       return NextResponse.json(
@@ -152,7 +152,7 @@ export async function POST(
 
     // 7. Audit Logging with Authoritative Caller Identity
     await AuditService.logActivity({
-      actorName: actorName || caller.name || (isSelf ? employee.name : "HR Administrator"),
+      actorName: caller.name || (isSelf ? employee.name : "HR Administrator"),
       actorRole: caller.role,
       actorId: caller.id,
       category: "DATA_MUTATION",

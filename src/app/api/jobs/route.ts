@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { requireJobsPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
 
@@ -8,10 +8,20 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
-    const technicianId = searchParams.get("technicianId");
+    let technicianId = searchParams.get("technicianId");
     const customerId = searchParams.get("customerId");
     const search = searchParams.get("search");
     const hasInventoryRequest = searchParams.get("hasInventoryRequest") === "true";
+
+    const gate = await requireJobsPermission(req, "jobs.view_directory");
+    if (gate.error) return gate.error;
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    if (resolved.viaMobileToken && gate.actor.role === "technician") {
+      // A field user can only list jobs assigned to their own account, even if
+      // a different technicianId is supplied in the URL.
+      technicianId = gate.actor.id;
+    }
 
     const where: any = {};
     if (customerId) where.customerId = customerId;

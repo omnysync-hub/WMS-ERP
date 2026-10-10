@@ -2,9 +2,12 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { PayrollService } from "@/lib/services/PayrollService";
+import { requirePermission } from "@/lib/auth/erpActor";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "hrm.payroll");
+    if (gate.error) return gate.error;
     const runs = await prisma.payrollRun.findMany({
       include: {
         payslips: {
@@ -26,6 +29,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "hrm.payroll");
+    if (gate.error) return gate.error;
     const body = await req.json();
     const { action, period, runId, approverName = "HR Director" } = body;
 

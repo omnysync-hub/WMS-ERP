@@ -220,12 +220,17 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
     isMobileToken = true;
   }
 
-  // 2. Gateway / Internal session headers (trusted upstream proxies)
-  if (!callerId) {
+  // 2. Headers are trusted only when this application's middleware has
+  // authenticated the web session and stamped the request. Direct client
+  // supplied identity/role headers must never become an authenticated actor.
+  const middlewareAuthenticated = req.headers.get("x-workman-authenticated") === "1";
+  if (!callerId && middlewareAuthenticated) {
     callerId = req.headers.get("x-employee-id") || req.headers.get("x-user-id");
   }
 
-  const headerRole = req.headers.get("x-actor-role") || req.headers.get("x-user-role");
+  const headerRole = middlewareAuthenticated
+    ? req.headers.get("x-actor-role") || req.headers.get("x-user-role")
+    : null;
   if (headerRole) {
     callerRole = headerRole.toLowerCase();
   }

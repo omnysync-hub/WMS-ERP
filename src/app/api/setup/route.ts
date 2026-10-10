@@ -6,9 +6,12 @@ import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { FinancialReportingService } from "@/lib/services/FinancialReportingService";
 import { STANDARD_COA_DEFINITIONS } from "@/lib/constants/chartOfAccountsHierarchy";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "settings.accounting");
+    if (gate.error) return gate.error;
     // 1. Get or create CompanySettings singleton
     let settings = await prisma.companySettings.findFirst();
     if (!settings) {
@@ -101,6 +104,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "settings.accounting");
+    if (gate.error) return gate.error;
     const body = await req.json();
     const { action } = body;
 

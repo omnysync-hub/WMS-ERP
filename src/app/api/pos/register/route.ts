@@ -2,9 +2,12 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AuditService } from "@/lib/services/AuditService";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "accounts.cashier_register");
+    if (gate.error) return gate.error;
     const activeSession = await (prisma as any).posRegisterSession.findFirst({
       where: { status: "open" },
       orderBy: { openedAt: "desc" },
@@ -42,12 +45,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "accounts.cashier_register");
+    if (gate.error) return gate.error;
     const body = await req.json();
     const { action } = body;
 
     // 1. OPEN REGISTER SHIFT
     if (action === "open") {
-      const { cashierName = "Counter Cashier", openingFloat = 0, notes } = body;
+      const { openingFloat = 0, notes } = body;
 
       const existingOpen = await (prisma as any).posRegisterSession.findFirst({
         where: { status: "open" },
@@ -61,20 +66,23 @@ export async function POST(req: NextRequest) {
       }
 
       const sessionNumber = `REG-${Date.now().toString().slice(-6)}`;
-      const numFloat = Number(openingFloat) || 0;
+      const numFloat = Number(openingFloat);
+      if (!Number.isFinite(numFloat) || numFloat < 0) {
+        return NextResponse.json({ error: "Opening float must be a non-negative amount" }, { status: 400 });
+      }
 
       const session = await (prisma as any).posRegisterSession.create({
         data: {
           sessionNumber,
-          cashierName: cashierName.trim(),
+          cashierName: gate.actor.name,
           openingFloat: numFloat,
           status: "open",
-          notes: notes ? notes.trim() : null,
+          notes: typeof notes === "string" ? notes.trim() || null : null,
         },
       });
 
       await AuditService.logActivity({
-        actorName: cashierName,
+        actorName: gate.actor.name,
         actorRole: "cashier",
         category: "DATA_MUTATION",
         action: `Opened Register Shift #${sessionNumber} with PKR ${numFloat.toLocaleString()} Float`,
@@ -90,11 +98,14 @@ export async function POST(req: NextRequest) {
 
     // 2. CASH IN / CASH OUT (DRAWER DROPS & PETTY DRAWER PAYMENTS)
     if (action === "cash_drop") {
-      const { dropType, amount, reason, cashierName = "Counter Cashier" } = body; // dropType: "cash_in" | "cash_out"
+      const { dropType, amount, reason } = body; // dropType: "cash_in" | "cash_out"
       const numAmount = Number(amount);
 
-      if (!numAmount || numAmount <= 0) {
+      if (!Number.isFinite(numAmount) || numAmount <= 0) {
         return NextResponse.json({ error: "A valid positive amount is required" }, { status: 400 });
+      }
+      if (dropType !== "cash_in" && dropType !== "cash_out") {
+        return NextResponse.json({ error: "dropType must be cash_in or cash_out" }, { status: 400 });
       }
 
       const activeSession = await (prisma as any).posRegisterSession.findFirst({
@@ -115,7 +126,7 @@ export async function POST(req: NextRequest) {
       });
 
       await AuditService.logActivity({
-        actorName: cashierName,
+        actorName: gate.actor.name,
         actorRole: "cashier",
         category: "DATA_MUTATION",
         action: `Cash Drawer ${isCashIn ? "Cash-In Deposit" : "Payout Drop"}: PKR ${numAmount.toLocaleString()} (${reason || "No reason given"})`,
@@ -131,7 +142,7 @@ export async function POST(req: NextRequest) {
 
     // 3. CLOSE REGISTER SHIFT (END OF DAY / Z-REPORT)
     if (action === "close") {
-      const { closingCash, cashierName = "Counter Cashier", notes } = body;
+      const { closingCash, notes } = body;
       const numClosingCash = Number(closingCash);
 
       if (isNaN(numClosingCash) || numClosingCash < 0) {
@@ -168,7 +179,7 @@ export async function POST(req: NextRequest) {
       });
 
       await AuditService.logActivity({
-        actorName: cashierName,
+        actorName: gate.actor.name,
         actorRole: "cashier",
         category: "DATA_MUTATION",
         action: `Closed Register Shift #${activeSession.sessionNumber}: Counted PKR ${numClosingCash.toLocaleString()} (Discrepancy: PKR ${discrepancy.toLocaleString()})`,

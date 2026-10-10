@@ -3,11 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "hrm.advances");
+    if (gate.error) return gate.error;
     const body = await req.json();
-    const { employeeId, amount, approvedBy = "HR Manager" } = body;
+    const { employeeId, amount } = body;
 
     const advAmount = Math.round(Number(amount) * 100) / 100;
     if (!Number.isFinite(advAmount) || advAmount <= 0) {
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
         }),
       ]);
       const created = await tx.employeeAdvance.create({
-        data: { employeeId, amount: advAmount, status: "approved", approvedBy },
+        data: { employeeId, amount: advAmount, status: "approved", approvedBy: gate.actor.name },
       });
       if (employee.role === "technician") {
         await tx.technicianLedgerEntry.create({
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest) {
             technicianId: employee.id,
             type: "advance",
             amount: advAmount,
-            notes: `Advance granted by ${approvedBy}`,
+            notes: `Advance granted by ${gate.actor.name}`,
           },
         });
       }

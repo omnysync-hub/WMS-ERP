@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -12,10 +12,8 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function PUT(req: NextRequest, context: Ctx) {
   try {
     const params = await context.params;
-    const caller = await resolveCaller(req);
-    if (caller && !caller.isAdminOrHr) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = requirePermission(req, "hrm.attendance");
+    if (gate.error) return gate.error;
 
     const zone = await prisma.geofenceZone.findUnique({ where: { id: params.id } });
     if (!zone) {

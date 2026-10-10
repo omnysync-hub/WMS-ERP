@@ -2,25 +2,18 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AuditService } from "@/lib/services/AuditService";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "audit.view_logs");
+    if (gate.error) return gate.error;
     const { searchParams } = new URL(req.url);
     const tab = searchParams.get("tab") || "all";
     const search = searchParams.get("search") || "";
     const category = searchParams.get("category");
     const actor = searchParams.get("actor");
     const entityType = searchParams.get("entityType");
-
-    // Check if we need to seed initial demonstration audit & rollback records
-    const [actCount, rollCount] = await Promise.all([
-      prisma.activityLog.count(),
-      prisma.rollbackLog.count(),
-    ]);
-
-    if (actCount === 0 || rollCount === 0) {
-      await seedInitialAuditData();
-    }
 
     // Fetch Activities
     const activityWhere: any = {};
@@ -86,6 +79,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "audit.view_logs");
+    if (gate.error) return gate.error;
     const body = await req.json();
     const { action, ...payload } = body;
 
@@ -93,9 +88,9 @@ export async function POST(req: NextRequest) {
       case "log_activity": {
         const activityPayload = (payload as any).activity || payload;
         const log = await AuditService.logActivity({
-          actorName: activityPayload.actorName || "Haris Qureshi",
-          actorRole: activityPayload.actorRole || "admin",
-          actorId: activityPayload.actorId,
+          actorName: gate.actor.name,
+          actorRole: gate.actor.role,
+          actorId: gate.actor.id,
           category: activityPayload.category || "UI_CLICK",
           action: activityPayload.actionText || activityPayload.action || "User interaction",
           target: activityPayload.target || "System Interface",
@@ -106,13 +101,13 @@ export async function POST(req: NextRequest) {
       }
 
       case "rollback": {
-        const { rollbackLogId, rolledBackBy, reason } = payload;
+        const { rollbackLogId, reason } = payload;
         if (!rollbackLogId) {
           return NextResponse.json({ error: "Missing rollbackLogId" }, { status: 400 });
         }
         const result = await AuditService.executeRollback(
           rollbackLogId,
-          rolledBackBy || "Haris Qureshi (Admin)",
+          gate.actor.name,
           reason || "User triggered instant state rollback"
         );
         return NextResponse.json({ success: true, rollback: result });

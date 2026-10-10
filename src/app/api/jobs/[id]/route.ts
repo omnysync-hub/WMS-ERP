@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
-import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { requireJobsPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 
 export async function GET(
   req: NextRequest,
@@ -10,6 +10,10 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
+    const gate = await requireJobsPermission(req, "jobs.view_directory");
+    if (gate.error) return gate.error;
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
     const job = await prisma.job.findUnique({
       where: { id: params.id },
       include: {
@@ -48,13 +52,22 @@ export async function GET(
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
+    if (resolved.viaMobileToken && gate.actor.role === "technician") {
+      const assignedToCaller =
+        job.assignedTechnicianId === gate.actor.id ||
+        job.assignments.some((assignment) => assignment.technicianId === gate.actor.id);
+      if (!assignedToCaller) {
+        return NextResponse.json({ error: "Job not found" }, { status: 404 });
+      }
+    }
+
     const invoice = await prisma.invoice.findFirst({
       where: { jobId: params.id },
       orderBy: { createdAt: "desc" },
     });
 
     let customerJobHistory: any[] = [];
-    if (job.customerId) {
+    if (job.customerId && !(resolved.viaMobileToken && gate.actor.role === "technician")) {
       customerJobHistory = await prisma.job.findMany({
         where: {
           customerId: job.customerId,

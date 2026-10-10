@@ -1,11 +1,14 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const gate = await requireJobsPermission(req, "jobs.view_directory");
+  if (gate.error) return gate.error;
   try {
     const { id } = await params;
     const project = await prisma.project.findUnique({
@@ -59,6 +62,8 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const gate = await requireJobsPermission(req, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const { id } = await params;
     const body = await req.json();
@@ -92,6 +97,8 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const gate = await requireJobsPermission(req, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const { id } = await params;
     await prisma.project.delete({

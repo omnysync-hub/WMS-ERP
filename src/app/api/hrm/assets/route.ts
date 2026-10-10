@@ -1,9 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { HrmService } from "@/lib/services/HrmService";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "hrm.view_employees");
+    if (gate.error) return gate.error;
     const { searchParams } = new URL(req.url);
     const status = (searchParams.get("status") as any) || undefined;
     const category = searchParams.get("category") || undefined;
@@ -18,6 +21,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "hrm.manage_employees");
+    if (gate.error) return gate.error;
     const body = await req.json();
     const action = body.action || "create";
 

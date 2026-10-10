@@ -77,6 +77,35 @@ export class AttendanceService {
 
     const serverReceiptTime = new Date();
 
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      return {
+        status: "rejected",
+        code: "INVALID_COORDINATES",
+        message: "Latitude or longitude is outside the valid geographic range.",
+      };
+    }
+    if (faceMatchScore !== undefined && (!Number.isFinite(faceMatchScore) || faceMatchScore < 0 || faceMatchScore > 1)) {
+      return {
+        status: "rejected",
+        code: "INVALID_FACE_SCORE",
+        message: "Face match score must be between 0 and 1.",
+      };
+    }
+    if (livenessScore !== undefined && (!Number.isFinite(livenessScore) || livenessScore < 0 || livenessScore > 1)) {
+      return {
+        status: "rejected",
+        code: "INVALID_LIVENESS_SCORE",
+        message: "Liveness score must be between 0 and 1.",
+      };
+    }
+    if (typeof deviceId !== "string" || !deviceId.trim() || deviceId.length > 160) {
+      return {
+        status: "rejected",
+        code: "INVALID_DEVICE_ID",
+        message: "A valid device identity is required.",
+      };
+    }
+
     // 1. Employee existence check
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
@@ -195,7 +224,7 @@ export class AttendanceService {
     let calculatedSpeedKmH: number | null = null;
     let jumpReason: string | null = null;
 
-    if (priorLog && priorLog.lat && priorLog.lng) {
+    if (priorLog && priorLog.lat !== null && priorLog.lng !== null) {
       const timeDiffMs = Math.abs(serverReceiptTime.getTime() - priorLog.timestamp.getTime());
       const distanceMeters = this.calculateDistance(lat, lng, priorLog.lat, priorLog.lng);
       const distanceKm = distanceMeters / 1000;

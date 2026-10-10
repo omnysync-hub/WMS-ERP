@@ -1,20 +1,14 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-async function assertAdminIfAuthed(req: NextRequest) {
-  const caller = await resolveCaller(req);
-  if (caller && !caller.isAdminOrHr) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  return null;
-}
-
 export async function GET(req: NextRequest, context: Ctx) {
   try {
+    const gate = requirePermission(req, "hrm.attendance");
+    if (gate.error) return gate.error;
     const params = await context.params;
     const zone = await prisma.geofenceZone.findUnique({
       where: { id: params.id },
@@ -49,8 +43,8 @@ export async function GET(req: NextRequest, context: Ctx) {
 export async function PATCH(req: NextRequest, context: Ctx) {
   try {
     const params = await context.params;
-    const denied = await assertAdminIfAuthed(req);
-    if (denied) return denied;
+    const gate = requirePermission(req, "hrm.attendance");
+    if (gate.error) return gate.error;
 
     const body = await req.json();
     const data: Record<string, unknown> = {};
@@ -58,7 +52,17 @@ export async function PATCH(req: NextRequest, context: Ctx) {
     if (body.lat !== undefined) data.lat = Number(body.lat);
     if (body.lng !== undefined) data.lng = Number(body.lng);
     if (body.radiusMeters !== undefined) {
-      data.radiusMeters = Math.max(20, Number(body.radiusMeters) || 150);
+      const radius = Number(body.radiusMeters);
+      if (!Number.isFinite(radius) || radius < 20 || radius > 10_000) {
+        return NextResponse.json({ error: "Geofence radius must be between 20 and 10,000 metres." }, { status: 400 });
+      }
+      data.radiusMeters = radius;
+    }
+    if (data.lat !== undefined && (!Number.isFinite(data.lat) || (data.lat as number) < -90 || (data.lat as number) > 90)) {
+      return NextResponse.json({ error: "Enter a valid latitude." }, { status: 400 });
+    }
+    if (data.lng !== undefined && (!Number.isFinite(data.lng) || (data.lng as number) < -180 || (data.lng as number) > 180)) {
+      return NextResponse.json({ error: "Enter a valid longitude." }, { status: 400 });
     }
     if (body.isActive !== undefined) data.isActive = Boolean(body.isActive);
     if (body.address !== undefined) {
@@ -92,8 +96,8 @@ export async function PATCH(req: NextRequest, context: Ctx) {
 export async function DELETE(req: NextRequest, context: Ctx) {
   try {
     const params = await context.params;
-    const denied = await assertAdminIfAuthed(req);
-    if (denied) return denied;
+    const gate = requirePermission(req, "hrm.attendance");
+    if (gate.error) return gate.error;
 
     await prisma.employeeGeofenceAssignment.deleteMany({
       where: { zoneId: params.id },

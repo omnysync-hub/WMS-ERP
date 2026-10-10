@@ -3,15 +3,19 @@ import { authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAut
 
 export const runtime = "nodejs";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/mobile"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
-function isPublic(pathname: string) {
+function isPublic(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  // Only the credential exchange is public. Every other mobile endpoint must
+  // pass through the signed Bearer-token/session validation below.
+  if (pathname === "/api/mobile/auth" && request.method === "POST") return true;
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (isPublic(pathname) && pathname !== "/login") return NextResponse.next();
+  if (isPublic(request) && pathname !== "/login") return NextResponse.next();
 
   const authorization = request.headers.get("authorization") || "";
   if (pathname.startsWith("/api/") && authorization.startsWith("Bearer ")) {

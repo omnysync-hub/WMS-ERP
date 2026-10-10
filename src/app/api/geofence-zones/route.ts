@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 /**
  * Geofence / attendance sites API
@@ -13,8 +14,23 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get("activeOnly") !== "false";
-    const employeeId = searchParams.get("employeeId") || undefined;
-    const includeStaff = searchParams.get("includeStaff") === "true";
+    let employeeId = searchParams.get("employeeId") || undefined;
+    let includeStaff = searchParams.get("includeStaff") === "true";
+    const isMobile = (req.headers.get("authorization") || "").startsWith("Bearer ");
+    if (isMobile) {
+      const caller = await resolveCaller(req);
+      if (!caller) return NextResponse.json({ error: "Valid session required." }, { status: 401 });
+      if (!caller.isAdminOrHr) {
+        if (employeeId && employeeId !== caller.id) {
+          return NextResponse.json({ error: "You can only view your own assigned sites." }, { status: 403 });
+        }
+        employeeId = caller.id;
+        includeStaff = false;
+      }
+    } else {
+      const gate = requirePermission(req, "hrm.attendance");
+      if (gate.error) return gate.error;
+    }
 
     // Mobile / scoped: only zones assigned to this employee (if any assignments exist)
     if (employeeId) {
@@ -89,12 +105,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const caller = await resolveCaller(req);
-    // Allow unauthenticated ERP browser session for now (HRM page has no mobile token);
-    // if a mobile token is present, require admin/HR.
-    if (caller && !caller.isAdminOrHr) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const gate = requirePermission(req, "hrm.attendance");
+    if (gate.error) return gate.error;
 
     const body = await req.json();
     const {
@@ -108,19 +120,28 @@ export async function POST(req: NextRequest) {
       employeeIds,
     } = body;
 
-    if (!name || lat === undefined || lng === undefined) {
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    const parsedRadius = Number(radiusMeters);
+    if (typeof name !== "string" || !name.trim() || name.trim().length > 160 || lat === undefined || lng === undefined) {
       return NextResponse.json(
         { error: "name, lat, and lng are required to create a geofence zone." },
         { status: 400 }
       );
     }
+    if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90 || !Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
+      return NextResponse.json({ error: "Enter valid latitude and longitude coordinates." }, { status: 400 });
+    }
+    if (!Number.isFinite(parsedRadius) || parsedRadius < 20 || parsedRadius > 10_000) {
+      return NextResponse.json({ error: "Geofence radius must be between 20 and 10,000 metres." }, { status: 400 });
+    }
 
     const zone = await prisma.geofenceZone.create({
       data: {
         name: String(name).trim(),
-        lat: Number(lat),
-        lng: Number(lng),
-        radiusMeters: Math.max(20, Number(radiusMeters) || 150),
+        lat: parsedLat,
+        lng: parsedLng,
+        radiusMeters: parsedRadius,
         isActive: Boolean(isActive),
         address: address ? String(address).trim() : null,
         notes: notes ? String(notes).trim() : null,

@@ -4,8 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
+import { requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
+  const gate = await requireJobsPermission(req, "jobs.view_directory");
+  if (gate.error) return gate.error;
   try {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search");
@@ -102,6 +105,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const gate = await requireJobsPermission(req, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const body = await req.json();
     const { action, ...payload } = body;
@@ -705,6 +710,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const gate = await requireJobsPermission(req, "jobs.manage");
+  if (gate.error) return gate.error;
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");

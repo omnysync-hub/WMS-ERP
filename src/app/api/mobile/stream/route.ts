@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { MobilePushService } from "@/lib/services/MobilePushService";
+import { resolveCaller } from "@/lib/auth/mobileAuth";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -10,6 +11,20 @@ export async function GET(req: NextRequest) {
   if (!employeeId) {
     return new Response(JSON.stringify({ error: "employeeId parameter is required" }), {
       status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const caller = await resolveCaller(req);
+  if (!caller) {
+    return new Response(JSON.stringify({ error: "Valid session required" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (caller.id !== employeeId && !caller.isAdminOrHr) {
+    return new Response(JSON.stringify({ error: "You can only subscribe to your own events" }), {
+      status: 403,
       headers: { "Content-Type": "application/json" },
     });
   }

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AttendanceService } from "@/lib/services/AttendanceService";
 import { comparePassword, resolveCaller } from "@/lib/auth/mobileAuth";
+import { requirePermission } from "@/lib/auth/erpActor";
 
 const BACKUP_VERIFY_MAX_ATTEMPTS = 5;
 const BACKUP_VERIFY_LOCK_MS = 15 * 60 * 1000;
@@ -18,9 +19,27 @@ const BACKUP_VERIFY_LOCK_MS = 15 * 60 * 1000;
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const employeeId = searchParams.get("employeeId") || undefined;
+    let employeeId = searchParams.get("employeeId") || undefined;
     const flaggedOnly = searchParams.get("flagged") === "true";
-    const limit = Number(searchParams.get("limit") || "50");
+    const requestedLimit = Number(searchParams.get("limit") || "50");
+    const limit = Number.isFinite(requestedLimit) ? Math.min(200, Math.max(1, Math.trunc(requestedLimit))) : 50;
+
+    const auth = req.headers.get("authorization") || "";
+    const isMobile = auth.startsWith("Bearer ");
+    const caller = isMobile ? await resolveCaller(req) : null;
+    if (isMobile && !caller) {
+      return NextResponse.json({ error: "Valid session required." }, { status: 401 });
+    }
+    if (!isMobile) {
+      const gate = requirePermission(req, "hrm.attendance");
+      if (gate.error) return gate.error;
+    }
+    if (isMobile && caller && !caller.isAdminOrHr) {
+      if (employeeId && employeeId !== caller.id) {
+        return NextResponse.json({ error: "You can only view your own attendance." }, { status: 403 });
+      }
+      employeeId = caller.id;
+    }
 
     const where: any = {};
     if (employeeId) where.employeeId = employeeId;
@@ -46,13 +65,13 @@ export async function GET(req: NextRequest) {
         take: limit,
       }),
       prisma.attendanceLog.count({
-        where: { flaggedForReview: true },
+        where: { flaggedForReview: true, ...(employeeId ? { employeeId } : {}) },
       }),
       prisma.geofenceZone.findMany({
         orderBy: { name: "asc" },
       }),
       prisma.employee.findMany({
-        where: { active: true },
+        where: { active: true, ...(isMobile && caller && !caller.isAdminOrHr ? { id: caller.id } : {}) },
         select: {
           id: true,
           name: true,
@@ -230,8 +249,10 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const gate = requirePermission(req, "hrm.attendance");
+    if (gate.error) return gate.error;
     const body = await req.json();
-    const { logId, resolvedBy = "HR Administrator", notes, action = "approve" } = body;
+    const { logId, notes, action = "approve" } = body;
 
     if (!logId) {
       return NextResponse.json(
@@ -242,7 +263,7 @@ export async function PATCH(req: NextRequest) {
 
     const updated = await AttendanceService.resolveFlaggedLog({
       logId,
-      resolvedBy,
+      resolvedBy: gate.actor.name,
       notes,
       action: action === "dismiss" ? "dismiss" : "approve",
     });
