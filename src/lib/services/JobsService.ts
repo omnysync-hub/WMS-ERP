@@ -673,6 +673,12 @@ export class JobsService {
           `Cannot complete: Actual quantity for item '${item.description}' must be a valid non-negative number.`
         );
       }
+      const isService = /^\[Service\]/i.test(item.description || "") || /\[Service Added by/i.test(item.description || "");
+      if (!isService && actualQuantity > Number(item.quantityPlanned || 0)) {
+        throw new Error(
+          `Cannot complete: Used quantity for '${item.description}' cannot exceed the issued quantity (${item.quantityPlanned || 0}).`
+        );
+      }
     }
 
     if (completionDetails?.paymentAmount !== undefined && completionDetails.paymentAmount !== null) {
@@ -691,11 +697,17 @@ export class JobsService {
     // Cap + keep only image-ish strings (data: or http) - avoid blowing the row with junk
     const photos = (completionDetails?.photos ?? [])
       .filter((p) => typeof p === "string" && /^(data:image\/|https?:\/\/)/i.test(p))
-      .slice(0, 12);
+      .slice(0, 4);
     if (photos.length === 0) {
       throw new Error(
         "Cannot complete: at least one proof-of-work photo is required (data:image/... or https URL)."
       );
+    }
+    if (photos.some((photo) => photo.startsWith("data:image/") && photo.length > 2_700_000)) {
+      throw new Error("Cannot complete: each proof photo must be smaller than 2 MB.");
+    }
+    if (photos.reduce((sum, photo) => sum + photo.length, 0) > 8_000_000) {
+      throw new Error("Cannot complete: proof photos are too large together. Remove one and retry.");
     }
 
     // Build consolidated job remarks
@@ -709,7 +721,7 @@ export class JobsService {
         const meansLabel =
           completionDetails.paymentMeans === "unmarked"
             ? "Unmarked / Unpaid (Pending)"
-            : `${completionDetails.paymentMeans.toUpperCase()} ($${completionDetails.paymentAmount || 0})`;
+            : `${completionDetails.paymentMeans.toUpperCase()} (PKR ${completionDetails.paymentAmount || 0})`;
         parts.push(`Customer Payment: ${meansLabel}${completionDetails.paymentNotes ? ` [${completionDetails.paymentNotes}]` : ""}`);
       }
       if (completionDetails.unusedReason) {

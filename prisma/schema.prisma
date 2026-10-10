@@ -853,6 +853,11 @@ model Employee {
   mobilePasswordSetAt  DateTime?
   failedLoginAttempts  Int                   @default(0)
   lockedUntil          DateTime?
+  mobileDeviceId       String?
+  mobileDeviceLabel    String?
+  mobileSessionId      String?               @unique
+  mobileSessionStartedAt DateTime?
+  lastMobileSessionAt  DateTime?
   lat                  Float?
   lng                  Float?
   lastPingAt           DateTime?

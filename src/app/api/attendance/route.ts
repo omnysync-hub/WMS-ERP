@@ -2,7 +2,10 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AttendanceService } from "@/lib/services/AttendanceService";
-import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { comparePassword, resolveCaller } from "@/lib/auth/mobileAuth";
+
+const BACKUP_VERIFY_MAX_ATTEMPTS = 5;
+const BACKUP_VERIFY_LOCK_MS = 15 * 60 * 1000;
 
 /**
  * Attendance Verification & Audit API
@@ -98,6 +101,7 @@ export async function POST(req: NextRequest) {
       livenessScore,
       deviceId,
       notes,
+      backupPassword,
     } = body;
 
     if (!employeeId || lat === undefined || lng === undefined) {
@@ -122,6 +126,78 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let backupVerified = false;
+    if (backupPassword !== undefined) {
+      if (caller.id !== employeeId) {
+        return NextResponse.json(
+          {
+            status: "rejected",
+            code: "BACKUP_VERIFY_FORBIDDEN",
+            message: "Backup verification can only be used for your own check-in.",
+          },
+          { status: 403 }
+        );
+      }
+
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: {
+          mobilePasswordHash: true,
+          failedLoginAttempts: true,
+          lockedUntil: true,
+        },
+      });
+      const now = new Date();
+      if (employee?.lockedUntil && employee.lockedUntil > now) {
+        return NextResponse.json(
+          {
+            status: "rejected",
+            code: "BACKUP_VERIFY_LOCKED",
+            message: "Too many incorrect attempts. Wait 15 minutes, then try again.",
+          },
+          { status: 429 }
+        );
+      }
+      if (!employee?.mobilePasswordHash || typeof backupPassword !== "string") {
+        return NextResponse.json(
+          {
+            status: "rejected",
+            code: "BACKUP_VERIFY_UNAVAILABLE",
+            message: "Backup verification is unavailable. Ask your administrator for help.",
+          },
+          { status: 400 }
+        );
+      }
+
+      backupVerified = await comparePassword(backupPassword, employee.mobilePasswordHash);
+      if (!backupVerified) {
+        const attempts = (employee.failedLoginAttempts || 0) + 1;
+        const shouldLock = attempts >= BACKUP_VERIFY_MAX_ATTEMPTS;
+        await prisma.employee.update({
+          where: { id: employeeId },
+          data: {
+            failedLoginAttempts: shouldLock ? 0 : attempts,
+            lockedUntil: shouldLock ? new Date(now.getTime() + BACKUP_VERIFY_LOCK_MS) : null,
+          },
+        });
+        return NextResponse.json(
+          {
+            status: "rejected",
+            code: shouldLock ? "BACKUP_VERIFY_LOCKED" : "BACKUP_VERIFY_FAILED",
+            message: shouldLock
+              ? "Too many incorrect attempts. Wait 15 minutes, then try again."
+              : "That work password is incorrect.",
+          },
+          { status: shouldLock ? 429 : 401 }
+        );
+      }
+
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
+
     const result = await AttendanceService.validateAndRecordAttendance({
       employeeId,
       geofenceZoneId,
@@ -132,6 +208,7 @@ export async function POST(req: NextRequest) {
       livenessScore: livenessScore !== undefined && livenessScore !== null ? Number(livenessScore) : undefined,
       deviceId,
       notes,
+      backupVerified,
     });
 
     if (result.status === "rejected") {

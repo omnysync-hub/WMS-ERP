@@ -1,9 +1,12 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import {
   signMobileToken,
+  verifyMobileToken,
+  resolveCaller,
   comparePassword,
   MOBILE_LOGIN_LOCKOUT_THRESHOLD,
   MOBILE_LOGIN_LOCKOUT_MINUTES,
@@ -18,8 +21,19 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { phone, email, employeeId, username, password, pin } = body;
+    const { phone, email, employeeId, username, password, pin, deviceId, deviceName } = body;
     const credentialInput = password || pin;
+
+    if (
+      typeof deviceId !== "string" ||
+      deviceId.trim().length < 16 ||
+      deviceId.trim().length > 128
+    ) {
+      return NextResponse.json(
+        { error: "A valid app device identity is required. Update the mobile app and try again." },
+        { status: 400 }
+      );
+    }
 
     // 1. Password is mandatory for mobile authentication
     if (!credentialInput || typeof credentialInput !== "string" || credentialInput.trim().length === 0) {
@@ -160,19 +174,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. Successful login: Reset failed attempts & lockout
-    if (employee.failedLoginAttempts > 0 || employee.lockedUntil) {
-      await prisma.employee.update({
-        where: { id: employee.id },
-        data: {
-          failedLoginAttempts: 0,
-          lockedUntil: null,
+    // 7. Enforce one physical app installation per employee account.
+    const cleanDeviceId = deviceId.trim();
+    const sessionId = crypto.randomUUID();
+    const sessionStartedAt = new Date();
+    const bound = await prisma.employee.updateMany({
+      where: {
+        id: employee.id,
+        OR: [{ mobileDeviceId: null }, { mobileDeviceId: cleanDeviceId }],
+      },
+      data: {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        mobileDeviceId: cleanDeviceId,
+        mobileDeviceLabel:
+          typeof deviceName === "string" ? deviceName.trim().slice(0, 120) || null : null,
+        mobileSessionId: sessionId,
+        mobileSessionStartedAt: sessionStartedAt,
+        lastMobileSessionAt: sessionStartedAt,
+      },
+    });
+    if (bound.count !== 1) {
+      return NextResponse.json(
+        {
+          error: "This account is already signed in on another device. Sign out there first or ask an administrator to reset the mobile session.",
+          code: "DEVICE_ALREADY_BOUND",
         },
-      });
+        { status: 409 }
+      );
     }
 
     // Issue cryptographically signed mobile session token (HMAC-SHA256)
-    const token = signMobileToken(employee.id);
+    const token = signMobileToken(employee.id, sessionStartedAt.getTime(), sessionId);
 
     return NextResponse.json({
       success: true,
@@ -206,6 +239,14 @@ export async function GET(req: NextRequest) {
         { error: "employeeId query parameter is required." },
         { status: 400 }
       );
+    }
+
+    const caller = await resolveCaller(req);
+    if (!caller) {
+      return NextResponse.json({ error: "Valid session required." }, { status: 401 });
+    }
+    if (caller.id !== employeeId && !caller.isAdminOrHr) {
+      return NextResponse.json({ error: "You can only view your own mobile profile." }, { status: 403 });
     }
 
     const employee = await prisma.employee.findUnique({
@@ -282,4 +323,24 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
+}
+
+export async function DELETE(req: NextRequest) {
+  const verified = verifyMobileToken(req.headers.get("authorization") || "");
+  if (!verified?.sessionId) {
+    return NextResponse.json({ error: "Valid mobile session required." }, { status: 401 });
+  }
+
+  await prisma.employee.updateMany({
+    where: { id: verified.employeeId, mobileSessionId: verified.sessionId },
+    data: {
+      mobileDeviceId: null,
+      mobileDeviceLabel: null,
+      mobileSessionId: null,
+      mobileSessionStartedAt: null,
+      lastMobileSessionAt: new Date(),
+    },
+  });
+
+  return NextResponse.json({ success: true });
 }

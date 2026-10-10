@@ -98,6 +98,11 @@ async function main() {
     };
   }
 
+  const mobileDevice = {
+    deviceId: "test-device-0000000000000001",
+    deviceName: "Mobile auth lifecycle test",
+  };
+
   const initialDirectPassword = "SecurePass#2026";
   const customUsername = `tech.alpha.${timestamp}`;
 
@@ -218,7 +223,7 @@ async function main() {
     // =========================================================================
     console.log("TEST 7: Testing Immediate Direct Login using Username and Direct Password...");
     const userLoginRes = await authPost(
-      mockRequest({ username: customUsername, password: initialDirectPassword })
+      mockRequest({ username: customUsername, password: initialDirectPassword, ...mobileDevice })
     );
     const userLoginData = await userLoginRes.json();
     if (userLoginRes.status !== 200 || !userLoginData.success || !userLoginData.token) {
@@ -229,10 +234,25 @@ async function main() {
     }
     console.log("PASSED: Employee logged in immediately with direct credentials without forced reset.\n");
 
+    console.log("TEST 7a: Blocking the same account on a different device...");
+    const otherDeviceRes = await authPost(
+      mockRequest({
+        username: customUsername,
+        password: initialDirectPassword,
+        deviceId: "test-device-0000000000000002",
+        deviceName: "Unauthorized second phone",
+      })
+    );
+    const otherDeviceData = await otherDeviceRes.json();
+    if (otherDeviceRes.status !== 409 || otherDeviceData.code !== "DEVICE_ALREADY_BOUND") {
+      throw new Error(`Test 7a FAILED: second device was not blocked: ${JSON.stringify(otherDeviceData)}`);
+    }
+    console.log("PASSED: Second-device login rejected with HTTP 409.\n");
+
     // Test identifier flexibility: phone + password
     console.log("TEST 7b: Testing Login with Phone + Password...");
     const phoneLoginRes = await authPost(
-      mockRequest({ phone: empA.phone, password: initialDirectPassword })
+      mockRequest({ phone: empA.phone, password: initialDirectPassword, ...mobileDevice })
     );
     if (phoneLoginRes.status !== 200) {
       throw new Error(`Test 7b FAILED: Phone login failed: ${phoneLoginRes.status}`);
@@ -244,7 +264,7 @@ async function main() {
     // =========================================================================
     console.log("TEST 8: Testing Incorrect Password Login -> 401 & failedLoginAttempts increment...");
     const wrongPassRes = await authPost(
-      mockRequest({ username: customUsername, password: "WrongPassword999" })
+      mockRequest({ username: customUsername, password: "WrongPassword999", ...mobileDevice })
     );
     const wrongPassData = await wrongPassRes.json();
     if (wrongPassRes.status !== 401 || wrongPassData.remainingAttempts !== 4) {
@@ -265,12 +285,12 @@ async function main() {
     // =========================================================================
     console.log("TEST 9: Testing Brute-Force Lockout Enforcement (Simulating 4 more failures)...");
     for (let i = 2; i <= 4; i++) {
-      await authPost(mockRequest({ username: customUsername, password: "WrongPassword999" }));
+      await authPost(mockRequest({ username: customUsername, password: "WrongPassword999", ...mobileDevice }));
     }
 
     // 5th attempt: triggers lockout
     const lockTriggerRes = await authPost(
-      mockRequest({ username: customUsername, password: "WrongPassword999" })
+      mockRequest({ username: customUsername, password: "WrongPassword999", ...mobileDevice })
     );
     const lockTriggerData = await lockTriggerRes.json();
     if (lockTriggerRes.status !== 401 || !lockTriggerData.isLocked) {
@@ -279,7 +299,7 @@ async function main() {
 
     // Subsequent attempt with WRONG password while locked -> 423
     const whileLockedWrongRes = await authPost(
-      mockRequest({ username: customUsername, password: "WrongPassword999" })
+      mockRequest({ username: customUsername, password: "WrongPassword999", ...mobileDevice })
     );
     if (whileLockedWrongRes.status !== 423) {
       throw new Error(`Test 9 FAILED: Expected 423 Locked on wrong pass while locked, got ${whileLockedWrongRes.status}`);
@@ -288,7 +308,7 @@ async function main() {
     // CRITICAL: Subsequent attempt with CORRECT password while locked MUST ALSO RETURN 423!
     console.log("TEST 9b: Testing Locked Account Rejection with CORRECT Password (Anti-timing guard)...");
     const whileLockedCorrectRes = await authPost(
-      mockRequest({ username: customUsername, password: initialDirectPassword })
+      mockRequest({ username: customUsername, password: initialDirectPassword, ...mobileDevice })
     );
     if (whileLockedCorrectRes.status !== 423) {
       throw new Error(`Test 9b FAILED: Expected 423 Locked even with correct password while locked, got ${whileLockedCorrectRes.status}`);
@@ -332,7 +352,7 @@ async function main() {
     console.log("TEST 11: Testing Login with New Reset Password vs Old Password...");
     // Old password must fail
     const oldLoginRes = await authPost(
-      mockRequest({ username: customUsername, password: initialDirectPassword })
+      mockRequest({ username: customUsername, password: initialDirectPassword, ...mobileDevice })
     );
     if (oldLoginRes.status !== 401) {
       throw new Error(`Test 11 FAILED: Expected old password to fail, got ${oldLoginRes.status}`);
@@ -340,7 +360,7 @@ async function main() {
 
     // New password must succeed immediately
     const newLoginRes = await authPost(
-      mockRequest({ username: customUsername, password: newAdminSetPassword })
+      mockRequest({ username: customUsername, password: newAdminSetPassword, ...mobileDevice })
     );
     const newLoginData = await newLoginRes.json();
     if (newLoginRes.status !== 200 || !newLoginData.token) {
@@ -393,7 +413,7 @@ async function main() {
 
     // Verify login with user-updated password
     const selfLoginRes = await authPost(
-      mockRequest({ username: customUsername, password: legitimateSelfPass })
+      mockRequest({ username: customUsername, password: legitimateSelfPass, ...mobileDevice })
     );
     const selfLoginData = await selfLoginRes.json();
     if (selfLoginRes.status !== 200 || !selfLoginData.token) {
@@ -428,7 +448,7 @@ async function main() {
     }
 
     // Login attempt to /api/mobile/auth must be rejected with 403 deactivated
-    const deactLoginRes = await authPost(mockRequest({ username: customUsername, password: legitimateSelfPass }));
+    const deactLoginRes = await authPost(mockRequest({ username: customUsername, password: legitimateSelfPass, ...mobileDevice }));
     if (deactLoginRes.status !== 403) {
       throw new Error(`Test 13 FAILED: Expected 403 for deactivated employee login, got ${deactLoginRes.status}`);
     }
@@ -447,7 +467,7 @@ async function main() {
     }
 
     // Login with existing password succeeds
-    const reactLoginRes = await authPost(mockRequest({ username: customUsername, password: legitimateSelfPass }));
+    const reactLoginRes = await authPost(mockRequest({ username: customUsername, password: legitimateSelfPass, ...mobileDevice }));
     const reactLoginData = await reactLoginRes.json();
     if (reactLoginRes.status !== 200 || !reactLoginData.success) {
       throw new Error(`Test 14 FAILED: Reactivation did not restore login with established password: ${JSON.stringify(reactLoginData)}`);

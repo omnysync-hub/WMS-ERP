@@ -103,11 +103,17 @@ export interface AuthenticatedCaller {
 
 /**
  * Issues a cryptographically signed mobile session token using HMAC-SHA256.
- * Format: wms_mobile_<base64url(employeeId:timestamp)>.<hmac_signature_hex>
+ * Format: wms_mobile_<base64url(employeeId:timestamp:sessionId)>.<hmac_signature_hex>
  */
-export function signMobileToken(employeeId: string, timestamp: number = Date.now()): string {
+export function signMobileToken(
+  employeeId: string,
+  timestamp: number = Date.now(),
+  sessionId?: string
+): string {
   const secret = getMobileAuthSecret();
-  const payload = Buffer.from(`${employeeId}:${timestamp}`).toString("base64url");
+  const payload = Buffer.from(
+    sessionId ? `${employeeId}:${timestamp}:${sessionId}` : `${employeeId}:${timestamp}`
+  ).toString("base64url");
   const signature = crypto
     .createHmac("sha256", secret)
     .update(payload)
@@ -127,7 +133,7 @@ export function signMobileToken(employeeId: string, timestamp: number = Date.now
 export function verifyMobileToken(
   rawToken: string,
   maxAgeMs: number = 30 * 24 * 60 * 60 * 1000
-): { employeeId: string; timestamp: number } | null {
+): { employeeId: string; timestamp: number; sessionId?: string } | null {
   if (!rawToken) return null;
 
   let token = rawToken.trim();
@@ -169,7 +175,7 @@ export function verifyMobileToken(
     }
 
     const decoded = Buffer.from(payload, "base64url").toString("utf-8");
-    const [employeeId, timestampStr] = decoded.split(":");
+    const [employeeId, timestampStr, sessionId] = decoded.split(":");
     if (!employeeId || !timestampStr) {
       return null;
     }
@@ -184,7 +190,7 @@ export function verifyMobileToken(
       return null;
     }
 
-    return { employeeId, timestamp };
+    return { employeeId, timestamp, sessionId: sessionId || undefined };
   } catch {
     return null;
   }
@@ -201,6 +207,7 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
   let callerId: string | null = null;
   let callerRole: string | null = null;
   let isMobileToken = false;
+  let mobileSessionId: string | undefined;
 
   // 1. Mobile Bearer token with cryptographic HMAC-SHA256 signature verification
   if (authHeader.startsWith("Bearer wms_mobile_") || authHeader.startsWith("Bearer ")) {
@@ -209,6 +216,7 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
       return null; // Token is unsigned, forged, tampered, or expired
     }
     callerId = verified.employeeId;
+    mobileSessionId = verified.sessionId;
     isMobileToken = true;
   }
 
@@ -229,7 +237,14 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
   // 3. Database lookup to confirm active status and resolve authoritative role
   const callerEmp = await prisma.employee.findUnique({
     where: { id: callerId },
-    select: { id: true, name: true, role: true, active: true, mobileLoginActive: true },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      active: true,
+      mobileLoginActive: true,
+      mobileSessionId: true,
+    },
   });
 
   if (!callerEmp) {
@@ -252,6 +267,14 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
 
   // If request authenticated via a mobile token, immediately reject if mobile login is deactivated
   if (isMobileToken && !callerEmp.mobileLoginActive) {
+    return null;
+  }
+
+  // A bound account accepts only the token for its current device session.
+  if (
+    isMobileToken &&
+    (callerEmp.mobileSessionId ?? undefined) !== mobileSessionId
+  ) {
     return null;
   }
 

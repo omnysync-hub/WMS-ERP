@@ -63,6 +63,11 @@ export async function POST(
       where: { id: employeeId },
       data: {
         mobileLoginActive: false,
+        mobileDeviceId: null,
+        mobileDeviceLabel: null,
+        mobileSessionId: null,
+        mobileSessionStartedAt: null,
+        lastMobileSessionAt: now,
       },
     });
 

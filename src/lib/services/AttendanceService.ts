@@ -10,6 +10,8 @@ export interface AttendanceSubmissionPayload {
   livenessScore?: number; // anti-spoofing liveness metric (0.0 to 1.0)
   deviceId?: string;
   notes?: string;
+  /** Set only by the authenticated API after verifying the employee's work password. */
+  backupVerified?: boolean;
 }
 
 export interface AttendanceVerificationResult {
@@ -70,6 +72,7 @@ export class AttendanceService {
       livenessScore,
       deviceId = "unknown_device",
       notes,
+      backupVerified = false,
     } = params;
 
     const serverReceiptTime = new Date();
@@ -242,10 +245,7 @@ export class AttendanceService {
     // do not reject punches on MiniFASNet thresholds here.
     const match = Number(faceMatchScore);
 
-    const notesLower = (notes || "").toLowerCase();
-    const isPinOverride = notesLower.includes("pin_override");
-
-    if (!isPinOverride) {
+    if (!backupVerified) {
       // Accept either cosine (0–1) or percent (0–100) from older clients
       const match01 = match > 1 ? match / 100 : match;
       if (Number.isNaN(match01) || match01 < 0.5) {
@@ -258,7 +258,7 @@ export class AttendanceService {
       }
     } else {
       flaggedForReview = true;
-      flagReasons.push("PIN override used after face match exhaustion — HR review required.");
+      flagReasons.push("Work-password backup verification used after face match exhaustion.");
     }
 
     const flagReasonStr = flagReasons.length > 0 ? flagReasons.join(" | ") : null;
