@@ -136,10 +136,59 @@ export default function Topbar({
       } catch (e) {}
     };
 
+    const loadBlockedDeviceAlerts = async () => {
+      try {
+        const res = await fetch(
+          "/api/audit?search=MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE"
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const alerts = (Array.isArray(data.activities) ? data.activities : [])
+          .filter((activity: any) => activity.action === "MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE")
+          .slice(0, 20)
+          .map((activity: any) => {
+            let metadata: Record<string, unknown> = {};
+            try {
+              metadata = activity.metadata ? JSON.parse(activity.metadata) : {};
+            } catch {
+              metadata = {};
+            }
+            const attemptedDevice =
+              typeof metadata.attemptedDeviceName === "string" && metadata.attemptedDeviceName
+                ? metadata.attemptedDeviceName
+                : "another device";
+            return {
+              id: `device-login-${activity.id}`,
+              title: "Blocked second-device login",
+              message: `${activity.actorName || "A technician"} tried to sign in from ${attemptedDevice}. The existing device session was kept active.`,
+              timestamp: activity.timestamp
+                ? new Date(activity.timestamp).toLocaleString()
+                : "Recently",
+              unread: true,
+              href: "/audit",
+            };
+          });
+
+        if (alerts.length > 0) {
+          setNotifications((prev) => {
+            const ids = new Set(prev.map((notice) => notice.id));
+            return [...alerts.filter((notice: any) => !ids.has(notice.id)), ...prev];
+          });
+        }
+      } catch {
+        // The audit feed is permission-gated; non-admin roles simply do not receive these alerts.
+      }
+    };
+
     loadNotices();
     loadPendingDiscounts();
+    loadBlockedDeviceAlerts();
+    const securityAlertTimer = window.setInterval(loadBlockedDeviceAlerts, 30_000);
     window.addEventListener("admin_notification_update", loadNotices);
-    return () => window.removeEventListener("admin_notification_update", loadNotices);
+    return () => {
+      window.clearInterval(securityAlertTimer);
+      window.removeEventListener("admin_notification_update", loadNotices);
+    };
   }, []);
 
   // Real-time Event Subscription across ERP

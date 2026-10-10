@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { AuditService } from "@/lib/services/AuditService";
 import {
   signMobileToken,
   verifyMobileToken,
@@ -195,6 +196,24 @@ export async function POST(req: NextRequest) {
       },
     });
     if (bound.count !== 1) {
+      await AuditService.logActivity({
+        actorName: employee.name,
+        actorRole: employee.role,
+        actorId: employee.id,
+        category: "DATA_MUTATION",
+        action: "MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE",
+        target: `Employee: ${employee.name} (${employee.id})`,
+        metadata: {
+          employeeId: employee.id,
+          attemptedDeviceId: cleanDeviceId,
+          attemptedDeviceName:
+            typeof deviceName === "string" ? deviceName.trim().slice(0, 120) || null : null,
+          boundDeviceId: employee.mobileDeviceId,
+          boundDeviceName: employee.mobileDeviceLabel,
+          attemptedAt: sessionStartedAt.toISOString(),
+        },
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || undefined,
+      });
       return NextResponse.json(
         {
           error: "This account is already signed in on another device. Sign out there first or ask an administrator to reset the mobile session.",

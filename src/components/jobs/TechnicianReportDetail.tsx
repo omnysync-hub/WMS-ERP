@@ -730,7 +730,7 @@ export default function TechnicianReportDetail({
                         </Link>
                       </td>
                       <td className="py-2.5 px-3 font-medium text-[#18181B]">
-                        {claim.note}
+                        {claim.category ? `${claim.category} · ` : ""}{claim.note}
                       </td>
                       <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
                         {formatCurrency(claim.amount)}

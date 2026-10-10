@@ -15,7 +15,7 @@ model Account {
   id               String                @id @default(uuid())
   code             String                @unique // NOTE: per-company @@unique([companyId, code]) deferred — single-company DEFAULT polish; changing would need careful data migration
   name             String
-  type             String                // asset, liability, equity, revenue, expense, contra_revenue
+  type             String // asset, liability, equity, revenue, expense, contra_revenue
   description      String?
   isActive         Boolean               @default(true)
   isSystem         Boolean               @default(false)
@@ -26,7 +26,7 @@ model Account {
   currency         String                @default("PKR")
   companyId        String?               @default("DEFAULT")
   createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt @default(now())
+  updatedAt        DateTime              @default(now()) @updatedAt
   journalLines     JournalLine[]
   mappings         AccountMapping[]
   auditSuggestions AccountMappingAudit[]
@@ -44,7 +44,7 @@ model AccountMapping {
   accountId       String
   account         Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
   updatedBy       String?
-  updatedAt       DateTime @updatedAt @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
   createdAt       DateTime @default(now())
 
   @@unique([companyId, transactionType, categoryScope])
@@ -76,7 +76,7 @@ model JournalEntry {
   id               String        @id @default(uuid())
   date             DateTime      @default(now())
   memo             String
-  refType          String        // job_revenue, inventory_cogs, tech_advance, tech_expense, discount, payroll, grn_receipt, pos_sale, opening_balance, year_end_close, reversal
+  refType          String // job_revenue, inventory_cogs, tech_advance, tech_expense, discount, payroll, grn_receipt, pos_sale, opening_balance, year_end_close, reversal
   refId            String?
   postedBy         String        @default("System")
   postedAt         DateTime      @default(now())
@@ -128,13 +128,13 @@ model Quotation {
 // ==========================================
 
 model Customer {
-  id          String     @id @default(uuid())
-  name        String
-  phone       String
-  email       String?
-  addressText String
-  lat         Float?
-  lng         Float?
+  id                    String                @id @default(uuid())
+  name                  String
+  phone                 String
+  email                 String?
+  addressText           String
+  lat                   Float?
+  lng                   Float?
   jobs                  Job[]
   projects              Project[]
   customerLedgerEntries CustomerLedgerEntry[]
@@ -155,30 +155,30 @@ model CareOfParty {
 // ==========================================
 
 model Job {
-  id                   String              @id @default(uuid())
-  jobNumber            String              @unique
+  id                   String                   @id @default(uuid())
+  jobNumber            String                   @unique
   customerId           String
-  customer             Customer            @relation(fields: [customerId], references: [id])
+  customer             Customer                 @relation(fields: [customerId], references: [id])
   careOfPartyId        String?
-  careOfParty          CareOfParty?        @relation(fields: [careOfPartyId], references: [id])
+  careOfParty          CareOfParty?             @relation(fields: [careOfPartyId], references: [id])
   manualJobNumber      String?
-  jobType              String              // installation, maintenance, repair, inspection
+  jobType              String // installation, maintenance, repair, inspection
   remarks              String?
   /// JSON array of completion proof photos (data URLs or https URLs) from field tech
   completionPhotos     String?
-  status               String              @default("Created") // Created, Assigned, Accepted, InProgress, Paused, AwaitingFeedback, CompletedPendingVerification, Finalized, Verified, TechnicianReassigned
+  status               String                   @default("Created") // Created, Assigned, Accepted, InProgress, Paused, AwaitingFeedback, CompletedPendingVerification, Finalized, Verified, TechnicianReassigned
   assignedTechnicianId String?
-  assignedTechnician   Employee?           @relation(fields: [assignedTechnicianId], references: [id])
+  assignedTechnician   Employee?                @relation(fields: [assignedTechnicianId], references: [id])
   /// Mid-job reassignment: new job sets parentJobId / reassignedFromJobId; old job status -> TechnicianReassigned
   parentJobId          String?
-  parentJob            Job?                @relation("JobReassignmentTree", fields: [parentJobId], references: [id])
-  childJobs            Job[]               @relation("JobReassignmentTree")
+  parentJob            Job?                     @relation("JobReassignmentTree", fields: [parentJobId], references: [id])
+  childJobs            Job[]                    @relation("JobReassignmentTree")
   reassignedFromJobId  String?
-  discountAmount       Float               @default(0)
+  discountAmount       Float                    @default(0)
   discountReason       String?
-  qualityFlag          String?             // clean, disputed
-  verifiedChecklist    String?             // JSON of checked items
-  createdAt            DateTime            @default(now())
+  qualityFlag          String? // clean, disputed
+  verifiedChecklist    String? // JSON of checked items
+  createdAt            DateTime                 @default(now())
   finalizedAt          DateTime?
   verifiedAt           DateTime?
   items                JobItem[]
@@ -193,9 +193,9 @@ model Job {
 }
 
 model JobItem {
-  id              String  @id @default(uuid())
+  id              String @id @default(uuid())
   jobId           String
-  job             Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job             Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   description     String
   quantityPlanned Float
   quantityActual  Float?
@@ -203,16 +203,15 @@ model JobItem {
 }
 
 model JobStatusHistory {
-  id        String   @id @default(uuid())
-  jobId     String
-  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  jobId      String
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   fromStatus String
   toStatus   String
   changedBy  String
   changedAt  DateTime @default(now())
-  metaJson   String?  // JSON string
+  metaJson   String? // JSON string
 }
-
 
 model JobAssignment {
   id           String    @id @default(uuid())
@@ -258,16 +257,21 @@ model StockReturn {
 }
 
 model JobExpenseClaim {
-  id           String    @id @default(uuid())
-  jobId        String
-  job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  technicianId String
-  amount       Float
-  note         String
-  receiptUrl   String?
-  status       String    @default("pending") // pending, paid
-  paidAt       DateTime?
-  createdAt    DateTime  @default(now())
+  id                String    @id @default(uuid())
+  jobId             String
+  job               Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId      String
+  amount            Float
+  note              String
+  category          String?
+  allocationGroupId String?
+  receiptUrl        String?
+  status            String    @default("pending") // pending, paid
+  paidAt            DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([allocationGroupId])
+  @@index([technicianId, createdAt])
 }
 
 model HisaabSettlement {
@@ -300,7 +304,7 @@ model HisaabSettlement {
 model TechnicianLedgerEntry {
   id           String   @id @default(uuid())
   technicianId String
-  type         String   // advance, hisaab_given, expense_owed, expense_paid
+  type         String // advance, hisaab_given, expense_owed, expense_paid
   amount       Float
   refJobId     String?
   notes        String?
@@ -312,22 +316,22 @@ model TechnicianLedgerEntry {
 // ==========================================
 
 model Product {
-  id           String             @id @default(uuid())
-  sku          String             @unique
-  name         String
-  unit         String             // pcs, meters, kg, units
-  unitPrice    Float
-  costPrice    Float
-  stockQuantity Float             @default(0)
-  reorderLevel Float              @default(5)
-  stockEntries StockLedger[]
-  prItems      PurchaseRequisitionItem[]
-  poItems      PurchaseOrderItem[]
-  grnItems     GoodsReceiptItem[]
-  posItems     PosSaleItem[]
-  rfqItems     RfqItem[]
+  id                   String                    @id @default(uuid())
+  sku                  String                    @unique
+  name                 String
+  unit                 String // pcs, meters, kg, units
+  unitPrice            Float
+  costPrice            Float
+  stockQuantity        Float                     @default(0)
+  reorderLevel         Float                     @default(5)
+  stockEntries         StockLedger[]
+  prItems              PurchaseRequisitionItem[]
+  poItems              PurchaseOrderItem[]
+  grnItems             GoodsReceiptItem[]
+  posItems             PosSaleItem[]
+  rfqItems             RfqItem[]
   supplierInvoiceItems SupplierInvoiceItem[]
-  createdAt    DateTime           @default(now())
+  createdAt            DateTime                  @default(now())
 }
 
 model StockLedger {
@@ -335,8 +339,8 @@ model StockLedger {
   productId String
   product   Product  @relation(fields: [productId], references: [id])
   qty       Float
-  direction String   // in, out
-  refType   String   // grn, job_consumption, stock_return, pos_sale, adjustment
+  direction String // in, out
+  refType   String // grn, job_consumption, stock_return, pos_sale, adjustment
   refId     String?
   notes     String?
   createdAt DateTime @default(now())
@@ -356,7 +360,7 @@ model PurchaseRequisition {
   priority        String                    @default("Normal") // Normal, Urgent
   status          String                    @default("draft") // draft, submitted, approved, rejected, converted_to_po, partially_converted
   notes           String?
-  attachments     String?                   // Specifications, drawings notes or URLs
+  attachments     String? // Specifications, drawings notes or URLs
   approvedBy      String?
   approvedAt      DateTime?
   rejectedBy      String?
@@ -385,11 +389,11 @@ model PurchaseRequisitionItem {
 }
 
 model RequestForQuotation {
-  id             String                @id @default(uuid())
-  rfqNumber      String                @unique
+  id             String               @id @default(uuid())
+  rfqNumber      String               @unique
   title          String
   dueDate        DateTime
-  status         String                @default("draft") // draft, sent, quotes_received, evaluated, awarded, closed
+  status         String               @default("draft") // draft, sent, quotes_received, evaluated, awarded, closed
   notes          String?
   winnerVendorId String?
   awardedAt      DateTime?
@@ -397,8 +401,8 @@ model RequestForQuotation {
   vendors        RfqVendor[]
   prLinks        RfqRequisitionLink[]
   purchaseOrders PurchaseOrder[]
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @default(now()) @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @default(now()) @updatedAt
 }
 
 model RfqItem {
@@ -457,92 +461,92 @@ model RfqRequisitionLink {
 }
 
 model PurchaseOrder {
-  id                 String              @id @default(uuid())
-  poNumber           String              @unique
-  poType             String              @default("standard") // standard, blanket, service
-  prId               String?
-  pr                 PurchaseRequisition? @relation(fields: [prId], references: [id])
-  rfqId              String?
-  rfq                RequestForQuotation? @relation(fields: [rfqId], references: [id])
-  vendorId           String?
-  vendor             Vendor?             @relation(fields: [vendorId], references: [id])
-  supplierName       String
-  supplierEmail      String
-  poDate             DateTime            @default(now())
+  id                   String               @id @default(uuid())
+  poNumber             String               @unique
+  poType               String               @default("standard") // standard, blanket, service
+  prId                 String?
+  pr                   PurchaseRequisition? @relation(fields: [prId], references: [id])
+  rfqId                String?
+  rfq                  RequestForQuotation? @relation(fields: [rfqId], references: [id])
+  vendorId             String?
+  vendor               Vendor?              @relation(fields: [vendorId], references: [id])
+  supplierName         String
+  supplierEmail        String
+  poDate               DateTime             @default(now())
   expectedDeliveryDate DateTime?
-  paymentTerms       String              @default("Net 30")
-  currency           String              @default("PKR")
-  shippingAddress    String?
-  termsAndConditions String?
-  status             String              @default("draft") // draft, approved, sent_to_vendor, partially_received, fully_received, closed, cancelled
-  approvedBy         String?
-  approvedAt         DateTime?
-  sentAt             DateTime?
-  totalAmount        Float               @default(0)
-  whtAmount          Float               @default(0)
-  netPayable         Float               @default(0)
-  items              PurchaseOrderItem[]
-  goodsReceipts      GoodsReceipt[]
-  supplierInvoices   SupplierInvoice[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @default(now()) @updatedAt
+  paymentTerms         String               @default("Net 30")
+  currency             String               @default("PKR")
+  shippingAddress      String?
+  termsAndConditions   String?
+  status               String               @default("draft") // draft, approved, sent_to_vendor, partially_received, fully_received, closed, cancelled
+  approvedBy           String?
+  approvedAt           DateTime?
+  sentAt               DateTime?
+  totalAmount          Float                @default(0)
+  whtAmount            Float                @default(0)
+  netPayable           Float                @default(0)
+  items                PurchaseOrderItem[]
+  goodsReceipts        GoodsReceipt[]
+  supplierInvoices     SupplierInvoice[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @default(now()) @updatedAt
 }
 
 model PurchaseOrderItem {
-  id               String               @id @default(uuid())
+  id               String                @id @default(uuid())
   poId             String
-  po               PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
+  po               PurchaseOrder         @relation(fields: [poId], references: [id], onDelete: Cascade)
   productId        String?
-  product          Product?             @relation(fields: [productId], references: [id])
+  product          Product?              @relation(fields: [productId], references: [id])
   itemCode         String?
   description      String?
-  unit             String               @default("unit")
+  unit             String                @default("unit")
   quantity         Float
   unitCost         Float
-  discountPercent  Float                @default(0)
-  taxPercent       Float                @default(0)
-  lineTotal        Float                @default(0)
+  discountPercent  Float                 @default(0)
+  taxPercent       Float                 @default(0)
+  lineTotal        Float                 @default(0)
   deliverySchedule String?
   prItemId         String?
-  quantityReceived Float                @default(0)
-  quantityInvoiced Float                @default(0)
+  quantityReceived Float                 @default(0)
+  quantityInvoiced Float                 @default(0)
   grnItems         GoodsReceiptItem[]
   invoiceItems     SupplierInvoiceItem[]
 }
 
 model GoodsReceipt {
-  id                 String              @id @default(uuid())
-  grnNumber          String              @unique
-  poId               String
-  po                 PurchaseOrder       @relation(fields: [poId], references: [id])
-  receivedBy         String
-  receivedDate       DateTime            @default(now())
-  warehouseLocation  String              @default("Central Warehouse")
-  deliveryChallan    String?
-  qualityStatus      String              @default("Accepted") // Accepted, Rejected, Hold
-  status             String              @default("received")
-  notes              String?
+  id                  String             @id @default(uuid())
+  grnNumber           String             @unique
+  poId                String
+  po                  PurchaseOrder      @relation(fields: [poId], references: [id])
+  receivedBy          String
+  receivedDate        DateTime           @default(now())
+  warehouseLocation   String             @default("Central Warehouse")
+  deliveryChallan     String?
+  qualityStatus       String             @default("Accepted") // Accepted, Rejected, Hold
+  status              String             @default("received")
+  notes               String?
   accountingJournalId String?
-  items              GoodsReceiptItem[]
-  supplierInvoices   SupplierInvoice[]
-  createdAt          DateTime            @default(now())
+  items               GoodsReceiptItem[]
+  supplierInvoices    SupplierInvoice[]
+  createdAt           DateTime           @default(now())
 }
 
 model GoodsReceiptItem {
-  id               String               @id @default(uuid())
+  id               String                @id @default(uuid())
   grnId            String
-  grn              GoodsReceipt         @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  grn              GoodsReceipt          @relation(fields: [grnId], references: [id], onDelete: Cascade)
   poItemId         String?
-  poItem           PurchaseOrderItem?   @relation(fields: [poItemId], references: [id])
+  poItem           PurchaseOrderItem?    @relation(fields: [poItemId], references: [id])
   productId        String?
-  product          Product?             @relation(fields: [productId], references: [id])
+  product          Product?              @relation(fields: [productId], references: [id])
   itemCode         String?
   description      String?
-  unit             String               @default("unit")
+  unit             String                @default("unit")
   quantityReceived Float
-  quantityAccepted Float                @default(0)
-  quantityRejected Float                @default(0)
-  qualityStatus    String               @default("Accepted")
+  quantityAccepted Float                 @default(0)
+  quantityRejected Float                 @default(0)
+  qualityStatus    String                @default("Accepted")
   rejectionReason  String?
   batchNumber      String?
   serialNumber     String?
@@ -636,11 +640,11 @@ model PosSale {
 }
 
 model PosSaleItem {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   saleId    String
-  sale      PosSale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale      PosSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
   quantity  Float
   unitPrice Float
 }
@@ -672,8 +676,8 @@ model PosRegisterSession {
 model FiscalPeriod {
   id           String    @id @default(uuid())
   fiscalYear   Int
-  periodNumber Int       // 1 to 12
-  name         String    // e.g. "January 2026", "July 2026"
+  periodNumber Int // 1 to 12
+  name         String // e.g. "January 2026", "July 2026"
   startDate    DateTime
   endDate      DateTime
   status       String    @default("open") // open, closed, locked
@@ -716,8 +720,8 @@ model CustomerLedgerEntry {
   customerId     String
   customer       Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   postingDate    DateTime  @default(now())
-  entryType      String    // invoice, payment, credit_note, opening_balance
-  documentNumber String    // INV-2026-0001, REC-2026-0001
+  entryType      String // invoice, payment, credit_note, opening_balance
+  documentNumber String // INV-2026-0001, REC-2026-0001
   journalEntryId String?
   debit          Float     @default(0)
   credit         Float     @default(0)
@@ -734,15 +738,15 @@ model VendorLedgerEntry {
   vendorId       String
   vendor         Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   postingDate    DateTime  @default(now())
-  entryType      String    // bill, payment, debit_note, opening_balance
-  documentNumber String    // PO-2026-0001, PAY-2026-0001
+  entryType      String // bill, payment, debit_note, opening_balance
+  documentNumber String // PO-2026-0001, PAY-2026-0001
   journalEntryId String?
   debit          Float     @default(0)
   credit         Float     @default(0)
   runningBalance Float     @default(0)
   dueDate        DateTime?
   whtWithheld    Float     @default(0)
-  cprNumber      String?   // FBR Computerized Payment Receipt number
+  cprNumber      String? // FBR Computerized Payment Receipt number
   clearedAmount  Float     @default(0)
   isFullyCleared Boolean   @default(false)
   notes          String?
@@ -751,7 +755,7 @@ model VendorLedgerEntry {
 
 model BankStatementLine {
   id                   String    @id @default(uuid())
-  bankAccountId        String    // Level 4 Account code or ID, e.g. "1010"
+  bankAccountId        String // Level 4 Account code or ID, e.g. "1010"
   statementDate        DateTime
   valueDate            DateTime?
   description          String
@@ -768,42 +772,42 @@ model BankStatementLine {
 }
 
 model FixedAsset {
-  id                      String    @id @default(uuid())
-  assetNumber             String    @unique // e.g. FA-2026-0001
+  id                      String   @id @default(uuid())
+  assetNumber             String   @unique // e.g. FA-2026-0001
   name                    String
-  category                String    // Vehicles, Machinery, Tools, IT Equipment, Furniture
-  hrmAssetId              String?   // Link to HRM physical Asset.id if applicable
+  category                String // Vehicles, Machinery, Tools, IT Equipment, Furniture
+  hrmAssetId              String? // Link to HRM physical Asset.id if applicable
   acquisitionDate         DateTime
   acquisitionCost         Float
-  salvageValue            Float     @default(0)
-  usefulLifeMonths        Int       @default(60)
-  depreciationMethod      String    @default("straight_line") // straight_line
-  assetAccountCode        String    @default("1500") // schema default only; create path resolves via fixed_asset_cost mapping
-  accumDeprAccountCode    String    @default("1590") // resolved via accumulated_depreciation mapping at create time
-  deprExpenseAccountCode  String    @default("6350") // resolved via depreciation_expense mapping at create time
-  accumulatedDepreciation Float     @default(0)
+  salvageValue            Float    @default(0)
+  usefulLifeMonths        Int      @default(60)
+  depreciationMethod      String   @default("straight_line") // straight_line
+  assetAccountCode        String   @default("1500") // schema default only; create path resolves via fixed_asset_cost mapping
+  accumDeprAccountCode    String   @default("1590") // resolved via accumulated_depreciation mapping at create time
+  deprExpenseAccountCode  String   @default("6350") // resolved via depreciation_expense mapping at create time
+  accumulatedDepreciation Float    @default(0)
   bookValue               Float
-  lastDepreciationPeriod  String?   // e.g. "2026-09"
-  status                  String    @default("active") // active, fully_depreciated, disposed
-  createdAt               DateTime  @default(now())
+  lastDepreciationPeriod  String? // e.g. "2026-09"
+  status                  String   @default("active") // active, fully_depreciated, disposed
+  createdAt               DateTime @default(now())
 }
 
 model CompanySettings {
-  id                  String    @id @default(uuid())
-  legalName           String    @default("Workman Services (Pvt) Ltd")
-  tradeName           String?   @default("Workman Services")
-  addressText         String    @default("Main Boulevard, Gulberg III, Lahore, Pakistan")
-  phone               String    @default("042-111-WORKMAN")
-  email               String    @default("finance@workmanservices.pk")
-  ntnNumber           String?   @default("9482710-3")
-  strnNumber          String?   @default("3277876123456")
-  baseCurrency        String    @default("PKR")
-  fiscalYearStartMonth Int      @default(7) // July in Pakistan (July-June)
-  approvalThreshold   Float     @default(50000) // Vouchers above PKR 50,000 need approval
-  isSetupCompleted    Boolean   @default(false)
-  goLiveDate          DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  legalName            String    @default("Workman Services (Pvt) Ltd")
+  tradeName            String?   @default("Workman Services")
+  addressText          String    @default("Main Boulevard, Gulberg III, Lahore, Pakistan")
+  phone                String    @default("042-111-WORKMAN")
+  email                String    @default("finance@workmanservices.pk")
+  ntnNumber            String?   @default("9482710-3")
+  strnNumber           String?   @default("3277876123456")
+  baseCurrency         String    @default("PKR")
+  fiscalYearStartMonth Int       @default(7) // July in Pakistan (July-June)
+  approvalThreshold    Float     @default(50000) // Vouchers above PKR 50,000 need approval
+  isSetupCompleted     Boolean   @default(false)
+  goLiveDate           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 // ==========================================
@@ -837,15 +841,15 @@ model ErpUser {
 }
 
 model ErpSession {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
-  user        ErpUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash   String   @unique
+  user        ErpUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
   deviceLabel String?
   ipAddress   String?
   userAgent   String?
-  createdAt   DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
   expiresAt   DateTime
   revokedAt   DateTime?
 
@@ -855,11 +859,11 @@ model ErpSession {
 
 model FinancialAuditLog {
   id          String   @id @default(uuid())
-  entity      String   // JournalEntry, FiscalPeriod, Vendor, SubLedger, FixedAsset, OpeningBalance
+  entity      String // JournalEntry, FiscalPeriod, Vendor, SubLedger, FixedAsset, OpeningBalance
   entityId    String
-  action      String   // POST, REVERSE, CLOSE_PERIOD, CLOSE_YEAR, RECONCILE, DISBURSE
-  beforeValue String?  // JSON snapshot
-  afterValue  String?  // JSON snapshot
+  action      String // POST, REVERSE, CLOSE_PERIOD, CLOSE_YEAR, RECONCILE, DISBURSE
+  beforeValue String? // JSON snapshot
+  afterValue  String? // JSON snapshot
   userId      String?
   userName    String   @default("System")
   userRole    String   @default("accountant")
@@ -872,63 +876,63 @@ model FinancialAuditLog {
 // ==========================================
 
 model Employee {
-  id                   String                @id @default(uuid())
-  name                 String
-  phone                String
-  email                String?
-  role                 String                // technician, dispatcher, accountant, admin, storekeeper, call_center, hr
-  department           String                // Operations, Accounts, HR, Maintenance, Sales, Management
-  designation          String?               // Senior HVAC Technician, Lead Dispatcher, Operations Manager
-  employmentType       String                @default("Full-time") // Full-time, Contract, Probation, Part-time
-  joinDate             DateTime              @default(now())
-  salary               Float                 @default(0)
-  status               String                @default("Active") // Active, On Leave, Resigning, Terminated, Inactive
-  probationEndDate     DateTime?
-  probationStatus      String?               @default("Confirmed") // On Probation, Confirmed
-  reportingManagerId   String?
-  reportingManager     Employee?             @relation("ReportingChain", fields: [reportingManagerId], references: [id])
-  directReports        Employee[]            @relation("ReportingChain")
-  faceEnrolled         Boolean               @default(false)
-  faceTemplateUrl      String?
-  faceEmbedding        Float[]               @default([])
-  faceEnrolledAt       DateTime?
-  faceEnrollmentCount  Int                   @default(0)
-  active               Boolean               @default(true)
-  mobileLoginActive    Boolean               @default(false)
-  mobileUsername       String?               @unique
-  mobilePasswordHash   String?
-  mobilePasswordSetAt  DateTime?
-  failedLoginAttempts  Int                   @default(0)
-  lockedUntil          DateTime?
-  mobileDeviceId       String?
-  mobileDeviceLabel    String?
-  mobileSessionId      String?               @unique
+  id                     String                       @id @default(uuid())
+  name                   String
+  phone                  String
+  email                  String?
+  role                   String // technician, dispatcher, accountant, admin, storekeeper, call_center, hr
+  department             String // Operations, Accounts, HR, Maintenance, Sales, Management
+  designation            String? // Senior HVAC Technician, Lead Dispatcher, Operations Manager
+  employmentType         String                       @default("Full-time") // Full-time, Contract, Probation, Part-time
+  joinDate               DateTime                     @default(now())
+  salary                 Float                        @default(0)
+  status                 String                       @default("Active") // Active, On Leave, Resigning, Terminated, Inactive
+  probationEndDate       DateTime?
+  probationStatus        String?                      @default("Confirmed") // On Probation, Confirmed
+  reportingManagerId     String?
+  reportingManager       Employee?                    @relation("ReportingChain", fields: [reportingManagerId], references: [id])
+  directReports          Employee[]                   @relation("ReportingChain")
+  faceEnrolled           Boolean                      @default(false)
+  faceTemplateUrl        String?
+  faceEmbedding          Float[]                      @default([])
+  faceEnrolledAt         DateTime?
+  faceEnrollmentCount    Int                          @default(0)
+  active                 Boolean                      @default(true)
+  mobileLoginActive      Boolean                      @default(false)
+  mobileUsername         String?                      @unique
+  mobilePasswordHash     String?
+  mobilePasswordSetAt    DateTime?
+  failedLoginAttempts    Int                          @default(0)
+  lockedUntil            DateTime?
+  mobileDeviceId         String?
+  mobileDeviceLabel      String?
+  mobileSessionId        String?                      @unique
   mobileSessionStartedAt DateTime?
-  lastMobileSessionAt  DateTime?
-  lat                  Float?
-  lng                  Float?
-  lastPingAt           DateTime?
-  jobs                 Job[]
-  jobAssignments       JobAssignment[]
-  attendanceLogs       AttendanceLog[]
-  advances             EmployeeAdvance[]
-  payslips             Payslip[]
-  projectTasks         ProjectTask[]
-  leaveBalances        LeaveBalance[]
-  leaveRequests        LeaveRequest[]
-  assetAssignments     AssetAssignment[]
-  onboardingChecklists OnboardingChecklist[]
-  offboardingChecklists OffboardingChecklist[]
-  exitInterview        ExitInterview?
-  finalSettlements     FinalSettlement[]
-  grievanceTickets     GrievanceTicket[]
-  pushTokens           DevicePushToken[]
-  receivedAppRequests  MobileAppRequest[]
-  locationPings        TechnicianLocationPing[]
-  consentRecords       TechnicianConsentRecord[]
-  offlineGaps          OfflineGapLog[]
-  geofenceAssignments  EmployeeGeofenceAssignment[]
-  createdAt            DateTime              @default(now())
+  lastMobileSessionAt    DateTime?
+  lat                    Float?
+  lng                    Float?
+  lastPingAt             DateTime?
+  jobs                   Job[]
+  jobAssignments         JobAssignment[]
+  attendanceLogs         AttendanceLog[]
+  advances               EmployeeAdvance[]
+  payslips               Payslip[]
+  projectTasks           ProjectTask[]
+  leaveBalances          LeaveBalance[]
+  leaveRequests          LeaveRequest[]
+  assetAssignments       AssetAssignment[]
+  onboardingChecklists   OnboardingChecklist[]
+  offboardingChecklists  OffboardingChecklist[]
+  exitInterview          ExitInterview?
+  finalSettlements       FinalSettlement[]
+  grievanceTickets       GrievanceTicket[]
+  pushTokens             DevicePushToken[]
+  receivedAppRequests    MobileAppRequest[]
+  locationPings          TechnicianLocationPing[]
+  consentRecords         TechnicianConsentRecord[]
+  offlineGaps            OfflineGapLog[]
+  geofenceAssignments    EmployeeGeofenceAssignment[]
+  createdAt              DateTime                     @default(now())
 }
 
 model GeofenceZone {
@@ -978,7 +982,7 @@ model AttendanceLog {
   flagResolvedAt      DateTime?
   flagResolvedBy      String?
   flagResolutionNotes String?
-  result              String        // pass, fail
+  result              String // pass, fail
   notes               String?
 }
 
@@ -994,7 +998,7 @@ model EmployeeAdvance {
 
 model PayrollRun {
   id              String    @id @default(uuid())
-  period          String    // e.g. "September 2026"
+  period          String // e.g. "September 2026"
   status          String    @default("Draft") // Draft, Approved, Paid
   approvedBy      String?
   approvedAt      DateTime?
@@ -1083,7 +1087,7 @@ model ProjectTask {
   actualHours          Float     @default(0)
   progressPercent      Float     @default(0)
   priority             String    @default("normal") // low, normal, high, critical
-  dependencies         String?   // JSON string array of task IDs
+  dependencies         String? // JSON string array of task IDs
   createdAt            DateTime  @default(now())
 }
 
@@ -1127,7 +1131,7 @@ model FeedbackCall {
   job          Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
   calledBy     String
   calledAt     DateTime  @default(now())
-  outcome      String    // approved, disapproved, no_answer, rescheduled
+  outcome      String // approved, disapproved, no_answer, rescheduled
   remarks      String?
   followUpDate DateTime?
   createdAt    DateTime  @default(now())
@@ -1242,8 +1246,8 @@ model FinalSettlement {
 
 model LeaveType {
   id          String         @id @default(uuid())
-  name        String         // Annual, Sick, Casual, Emergency
-  accrualRule String         // e.g. "22 days/year", "10 days/year"
+  name        String // Annual, Sick, Casual, Emergency
+  accrualRule String // e.g. "22 days/year", "10 days/year"
   maxDays     Float          @default(22)
   balances    LeaveBalance[]
   requests    LeaveRequest[]
@@ -1291,7 +1295,7 @@ model Asset {
   id                String            @id @default(uuid())
   tag               String            @unique // AST-2026-001
   name              String
-  category          String            // Laptop, Hand Tools, HVAC Gauges, Company Vehicle
+  category          String // Laptop, Hand Tools, HVAC Gauges, Company Vehicle
   status            String            @default("In Storage") // Assigned, In Storage, Under Repair
   purchaseDate      DateTime?
   currentEmployeeId String?
@@ -1320,7 +1324,7 @@ model GrievanceTicket {
   ticketNumber  String                   @unique // GRV-2026-001
   employeeId    String
   employee      Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  category      String                   // Workplace, Payroll, Equipment, Safety, Policy
+  category      String // Workplace, Payroll, Equipment, Safety, Policy
   description   String
   status        String                   @default("Open") // Open, In Progress, Resolved
   assignedTo    String?
@@ -1354,30 +1358,30 @@ model GrievanceStatusHistory {
 // ==========================================
 
 model ActivityLog {
-  id         String   @id @default(uuid())
-  timestamp  DateTime @default(now())
-  actorId    String?
-  actorName  String
-  actorRole  String
-  category   String   // UI_CLICK, NAVIGATION, DATA_MUTATION, ROLE_SWITCH, SEARCH, MODAL, EXPORT
-  action     String   // Description of activity
-  target     String?  // Target element, URL, or identifier
-  metadata   String?  // JSON string of additional context
-  ipAddress  String?  @default("127.0.0.1 (Local Session)")
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  actorId   String?
+  actorName String
+  actorRole String
+  category  String // UI_CLICK, NAVIGATION, DATA_MUTATION, ROLE_SWITCH, SEARCH, MODAL, EXPORT
+  action    String // Description of activity
+  target    String? // Target element, URL, or identifier
+  metadata  String? // JSON string of additional context
+  ipAddress String?  @default("127.0.0.1 (Local Session)")
+  createdAt DateTime @default(now())
 }
 
 model RollbackLog {
   id           String    @id @default(uuid())
   timestamp    DateTime  @default(now())
-  entityType   String    // Job, InventoryRequest, StockReturn, Discount, Expense, JournalEntry
+  entityType   String // Job, InventoryRequest, StockReturn, Discount, Expense, JournalEntry
   entityId     String
-  entityNumber String?   // e.g. JOB-2026-0001
-  action       String    // e.g. "Status changed from Assigned to InProgress"
+  entityNumber String? // e.g. JOB-2026-0001
+  action       String // e.g. "Status changed from Assigned to InProgress"
   actorName    String
   actorRole    String
-  stateBefore  String    // JSON snapshot
-  stateAfter   String    // JSON snapshot
+  stateBefore  String // JSON snapshot
+  stateAfter   String // JSON snapshot
   status       String    @default("ACTIVE") // ACTIVE, ROLLED_BACK
   rolledBackAt DateTime?
   rolledBackBy String?
@@ -1395,10 +1399,10 @@ model DevicePushToken {
   employeeId   String
   employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   token        String   @unique // e.g. ExponentPushToken[...] or APNs/FCM token
-  platform     String   // ios, android, web
-  deviceModel  String?  // e.g. iPhone 15 Pro, Samsung S24
-  osVersion    String?  // e.g. iOS 17.5, Android 14
-  appVersion   String?  // e.g. 1.0.0
+  platform     String // ios, android, web
+  deviceModel  String? // e.g. iPhone 15 Pro, Samsung S24
+  osVersion    String? // e.g. iOS 17.5, Android 14
+  appVersion   String? // e.g. 1.0.0
   isActive     Boolean  @default(true)
   lastActiveAt DateTime @default(now())
   createdAt    DateTime @default(now())
@@ -1412,14 +1416,14 @@ model MobileAppRequest {
   senderId           String?
   senderName         String    @default("System")
   senderRole         String    @default("dispatcher")
-  type               String    // JOB_DISPATCH, JOB_RESCHEDULED, JOB_CANCELLED, DISCOUNT_DECISION, INVENTORY_ISSUED, EMERGENCY_ALERT, HISAAB_CLEARED, PING_REQUEST, GENERAL_MESSAGE
+  type               String // JOB_DISPATCH, JOB_RESCHEDULED, JOB_CANCELLED, DISCOUNT_DECISION, INVENTORY_ISSUED, EMERGENCY_ALERT, HISAAB_CLEARED, PING_REQUEST, GENERAL_MESSAGE
   title              String
   body               String
   priority           String    @default("normal") // urgent, high, normal, low
-  payloadJson        String?   // JSON payload: { jobId, jobNumber, customerName, lat, lng, items, etc. }
+  payloadJson        String? // JSON payload: { jobId, jobNumber, customerName, lat, lng, items, etc. }
   actionRequired     Boolean   @default(false)
   actionStatus       String?   @default("pending") // pending, accepted, rejected, acknowledged, expired
-  actionResponseJson String?   // JSON response from technician: { note, reason, eta }
+  actionResponseJson String? // JSON response from technician: { note, reason, eta }
   deliveryStatus     String    @default("queued") // queued, sent, delivered, read, failed
   sentAt             DateTime?
   readAt             DateTime?
@@ -1432,20 +1436,20 @@ model MobileAppRequest {
 // ==========================================
 
 model TechnicianLocationPing {
-  id             String    @id @default(uuid())
-  employeeId     String
-  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  lat            Float
-  lng            Float
-  accuracy       Float?
-  speed          Float?    // km/h
-  batteryLevel   Float?    // percentage 0-100
-  isMoving       Boolean   @default(false)
-  isShiftActive  Boolean   @default(false)
-  activeJobId    String?
-  activeJob      Job?      @relation(fields: [activeJobId], references: [id], onDelete: SetNull)
-  source         String    @default("mobile_gps") // mobile_gps, geofence_punch, manual
-  timestamp      DateTime  @default(now())
+  id            String   @id @default(uuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lat           Float
+  lng           Float
+  accuracy      Float?
+  speed         Float? // km/h
+  batteryLevel  Float? // percentage 0-100
+  isMoving      Boolean  @default(false)
+  isShiftActive Boolean  @default(false)
+  activeJobId   String?
+  activeJob     Job?     @relation(fields: [activeJobId], references: [id], onDelete: SetNull)
+  source        String   @default("mobile_gps") // mobile_gps, geofence_punch, manual
+  timestamp     DateTime @default(now())
 
   @@index([employeeId, timestamp])
   @@index([timestamp])
@@ -1453,35 +1457,34 @@ model TechnicianLocationPing {
 }
 
 model TechnicianConsentRecord {
-  id              String    @id @default(uuid())
-  employeeId      String
-  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  consentType     String    @default("LOCATION_SURVEILLANCE")
-  policyVersion   String    @default("1.0")
-  disclosureText  String
-  isAcknowledged  Boolean   @default(true)
-  acknowledgedAt  DateTime  @default(now())
-  ipAddress       String?
-  deviceModel     String?
+  id             String   @id @default(uuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  consentType    String   @default("LOCATION_SURVEILLANCE")
+  policyVersion  String   @default("1.0")
+  disclosureText String
+  isAcknowledged Boolean  @default(true)
+  acknowledgedAt DateTime @default(now())
+  ipAddress      String?
+  deviceModel    String?
 
   @@index([employeeId, consentType])
 }
 
 model OfflineGapLog {
-  id              String    @id @default(uuid())
-  employeeId      String
-  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  gapStartAt      DateTime
-  gapEndAt        DateTime?
-  durationMinutes Float?
-  lastKnownLat    Float
-  lastKnownLng    Float
-  resumeLat       Float?
-  resumeLng       Float?
+  id               String    @id @default(uuid())
+  employeeId       String
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  gapStartAt       DateTime
+  gapEndAt         DateTime?
+  durationMinutes  Float?
+  lastKnownLat     Float
+  lastKnownLng     Float
+  resumeLat        Float?
+  resumeLng        Float?
   lastBatteryLevel Float?
-  reason          String?   @default("HEARTBEAT_TIMEOUT") // HEARTBEAT_TIMEOUT, BATTERY_DEPLETED, PERMISSION_REVOKED
-  createdAt       DateTime  @default(now())
+  reason           String?   @default("HEARTBEAT_TIMEOUT") // HEARTBEAT_TIMEOUT, BATTERY_DEPLETED, PERMISSION_REVOKED
+  createdAt        DateTime  @default(now())
 
   @@index([employeeId, gapStartAt])
 }
-

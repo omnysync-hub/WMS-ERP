@@ -12,6 +12,7 @@ import SubLedgerReconciliationTab from "@/components/accounts/SubLedgerReconcili
 import ReverseJournalEntryModal from "@/components/accounts/ReverseJournalEntryModal";
 import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import CoaManagerModal from "@/components/accounts/CoaManagerModal";
+import StatementOfAccountsTab from "@/components/accounts/StatementOfAccountsTab";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
 import {
@@ -61,6 +62,7 @@ import {
 export default function AccountsPage() {
   const [activeTab, setActiveTab] = useState<
     | "ledgers"
+    | "statements"
     | "expenses"
     | "pos"
     | "cashbook"
@@ -83,6 +85,7 @@ export default function AccountsPage() {
           tab &&
           [
             "ledgers",
+            "statements",
             "expenses",
             "pos",
             "cashbook",
@@ -1068,6 +1071,11 @@ export default function AccountsPage() {
 
       {/* ========================================================================= */}
       {/* TAB 2: PARTY LEDGERS (Customers, Technicians, Vendors) */}
+      {/* ========================================================================= */}
+      {/* STATEMENTS OF ACCOUNT: ALL PARTY LEDGERS, AGING, PRINT & PDF */}
+      {/* ========================================================================= */}
+      {activeTab === "statements" && <StatementOfAccountsTab />}
+
       {/* ========================================================================= */}
       {activeTab === "ledgers" && (
         <div className="space-y-5">
@@ -3630,7 +3638,9 @@ export default function AccountsPage() {
                             }}
                             className="w-4 h-4 rounded text-[#0D7A5F] accent-[#0D7A5F]"
                           />
-                          <span className="font-medium text-[#18181B]">{claim.note}</span>
+                          <span className="font-medium text-[#18181B]">
+                            {claim.category ? `${claim.category} · ` : ""}{claim.note}
+                          </span>
                         </div>
                         <span className="font-mono font-bold text-[#18181B]">
                           {formatCurrency(claim.amount)}

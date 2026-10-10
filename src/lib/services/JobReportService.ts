@@ -88,6 +88,7 @@ export interface DetailedJobReportItem {
     id: string;
     amount: number;
     note: string;
+    category?: string | null;
     status: string;
     paidAt?: string | null;
     createdAt: string;
@@ -139,6 +140,7 @@ export interface TechnicianReportItem {
     jobNumber: string;
     amount: number;
     note: string;
+    category?: string | null;
     status: string;
     paidAt?: string | null;
     createdAt: string;
@@ -597,6 +599,7 @@ export class JobReportService {
         id: exp.id,
         amount: exp.amount,
         note: exp.note,
+        category: exp.category,
         status: exp.status,
         paidAt: exp.paidAt ? exp.paidAt.toISOString() : null,
         createdAt: exp.createdAt.toISOString(),
@@ -745,6 +748,7 @@ export class JobReportService {
             jobNumber: job.jobNumber,
             amount: exp.amount,
             note: exp.note,
+            category: exp.category,
             status: exp.status,
             paidAt: exp.paidAt,
             createdAt: exp.createdAt,
