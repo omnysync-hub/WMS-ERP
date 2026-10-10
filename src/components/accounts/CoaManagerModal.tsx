@@ -45,8 +45,6 @@ export default function CoaManagerModal({
   accountToEdit,
   allAccounts,
 }: CoaManagerModalProps) {
-  if (!isOpen) return null;
-
   // Form states: Create / Edit
   const [code, setCode] = useState(accountToEdit?.code || "");
   const [name, setName] = useState(accountToEdit?.name || "");
@@ -64,6 +62,8 @@ export default function CoaManagerModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  if (!isOpen) return null;
 
   // Filter possible Level 3 parent accounts
   const parentOptions = allAccounts.filter((a) => a.level === 3);

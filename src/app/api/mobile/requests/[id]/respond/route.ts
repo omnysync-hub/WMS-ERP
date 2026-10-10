@@ -8,9 +8,10 @@ import { resolveCaller } from "@/lib/auth/mobileAuth";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const caller = await resolveCaller(req);
     if (!caller) {
       return NextResponse.json(

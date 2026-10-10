@@ -127,8 +127,14 @@ export default function VendorsTab({
       return;
     }
 
-    setIsSubmitting(true);
-    setFormError("");
+    if (phone.trim()) {
+      const phoneDigits = phone.replace(/\D/g, "");
+      if (phoneDigits.length !== 11) {
+        setFormError("Vendor phone number must be exactly 11 digits (e.g. 03001234567).");
+        setIsSubmitting(false);
+        return;
+      }
+    }
 
     try {
       const payload: any = {

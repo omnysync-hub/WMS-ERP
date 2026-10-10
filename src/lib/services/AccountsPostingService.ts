@@ -54,29 +54,40 @@ export class AccountsPostingService {
     } = params;
     const db: DbClient = outerTx ?? prisma;
 
-    if (!lines || lines.length === 0) {
+    if (!lines || lines.length < 2) {
       throw new Error("Posting rejected: A journal entry must have at least two line items.");
     }
 
-    let totalDebit = 0;
-    let totalCredit = 0;
-
-    for (const line of lines) {
+    let totalDebitCents = 0;
+    let totalCreditCents = 0;
+    const normalizedLines = lines.map((line) => {
+      if (!Number.isFinite(line.debit) || !Number.isFinite(line.credit)) {
+        throw new Error("Posting rejected: Debit and Credit amounts must be valid finite numbers.");
+      }
       if (line.debit < 0 || line.credit < 0) {
         throw new Error("Posting rejected: Debit and Credit amounts cannot be negative.");
       }
-      if (line.debit > 0 && line.credit > 0) {
+      const debitCents = Math.round(line.debit * 100);
+      const creditCents = Math.round(line.credit * 100);
+      if (debitCents > 0 && creditCents > 0) {
         throw new Error("Posting rejected: A line item cannot have both debit and credit amounts.");
       }
-      totalDebit += line.debit;
-      totalCredit += line.credit;
-    }
+      if (debitCents === 0 && creditCents === 0) {
+        throw new Error("Posting rejected: Each line item must contain at least one cent of value.");
+      }
+      totalDebitCents += debitCents;
+      totalCreditCents += creditCents;
+      return {
+        accountId: line.accountId,
+        debit: debitCents / 100,
+        credit: creditCents / 100,
+      };
+    });
 
-    // Round to 2 decimal places to avoid floating point issues
-    const roundedDebit = Math.round(totalDebit * 100) / 100;
-    const roundedCredit = Math.round(totalCredit * 100) / 100;
+    const roundedDebit = totalDebitCents / 100;
+    const roundedCredit = totalCreditCents / 100;
 
-    if (Math.abs(roundedDebit - roundedCredit) > 0.01) {
+    if (totalDebitCents !== totalCreditCents) {
       throw new Error(
         `Posting rejected: Journal entry is unbalanced. Total Debit: ${roundedDebit}, Total Credit: ${roundedCredit}`
       );
@@ -103,7 +114,7 @@ export class AccountsPostingService {
     }
 
     // 2. Validate Account Existence
-    for (const line of lines) {
+    for (const line of normalizedLines) {
       const account = await db.account.findUnique({
         where: { id: line.accountId },
       });
@@ -137,10 +148,10 @@ export class AccountsPostingService {
           approvedAt: approvedBy ? new Date() : null,
           fiscalPeriodId: targetFiscalPeriodId,
           lines: {
-            create: lines.map((l) => ({
+            create: normalizedLines.map((l) => ({
               accountId: l.accountId,
-              debit: Math.round(l.debit * 100) / 100,
-              credit: Math.round(l.credit * 100) / 100,
+              debit: l.debit,
+              credit: l.credit,
             })),
           },
         },

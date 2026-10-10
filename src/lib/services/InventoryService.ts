@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 
+const RECEIVABLE_PO_STATUSES = ["approved", "sent_to_vendor", "sent", "partially_received"];
+
 export class InventoryService {
   /**
    * Consume stock for a job or general usage.
@@ -23,52 +25,47 @@ export class InventoryService {
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new Error("Product not found");
 
-    // 1. Atomic decrement stock using gte to prevent race condition & negative stock
-    const updated = await prisma.product.updateMany({
-      where: { id: productId, stockQuantity: { gte: qty } },
-      data: { stockQuantity: { decrement: qty } },
-    });
-    if (updated.count === 0) {
-      const live = await prisma.product.findUnique({ where: { id: productId } });
-      throw new Error(
-        `Insufficient stock for product '${product.name}'. Available: ${live?.stockQuantity ?? 0}, Requested: ${qty}`
-      );
-    }
+    const costAmount = Math.round(qty * product.costPrice * 100) / 100;
+    const [cogsAccount, inventoryAccount] =
+      costAmount > 0
+        ? await Promise.all([
+            AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_expense" }),
+            AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_asset" }),
+          ])
+        : [null, null];
 
-    // 2. Add Stock Ledger entry
-    const ledger = await prisma.stockLedger.create({
-      data: {
-        productId,
-        qty: quantity,
-        direction: "out",
-        refType,
-        refId,
-        notes,
-      },
-    });
-
-    // 3. Post to Accounts Posting Engine via AccountMappingService: Debit COGS, Credit Inventory Asset
-    const cogsAccount = await AccountMappingService.resolveAccount({
-      transactionType: "inventory_cogs_expense",
-    });
-    const inventoryAccount = await AccountMappingService.resolveAccount({
-      transactionType: "inventory_cogs_asset",
-    });
-
-    const costAmount = Math.round(quantity * product.costPrice * 100) / 100;
-    if (costAmount > 0) {
-      await AccountsPostingService.post({
-        memo: `COGS posting for ${quantity}x ${product.name} (${refType})`,
-        refType: "inventory_cogs",
-        refId: ledger.id,
-        lines: [
-          { accountId: cogsAccount.id, debit: costAmount, credit: 0 },
-          { accountId: inventoryAccount.id, debit: 0, credit: costAmount },
-        ],
+    // Stock, ledger and GL must either all succeed or all roll back.
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.product.updateMany({
+        where: { id: productId, stockQuantity: { gte: qty } },
+        data: { stockQuantity: { decrement: qty } },
       });
-    }
+      if (updated.count === 0) {
+        const live = await tx.product.findUnique({ where: { id: productId } });
+        throw new Error(
+          `Insufficient stock for product '${product.name}'. Available: ${live?.stockQuantity ?? 0}, Requested: ${qty}`
+        );
+      }
 
-    return ledger;
+      const ledger = await tx.stockLedger.create({
+        data: { productId, qty, direction: "out", refType, refId, notes },
+      });
+
+      if (costAmount > 0 && cogsAccount && inventoryAccount) {
+        await AccountsPostingService.post({
+          memo: `COGS posting for ${qty}x ${product.name} (${refType})`,
+          refType: "inventory_cogs",
+          refId: ledger.id,
+          lines: [
+            { accountId: cogsAccount.id, debit: costAmount, credit: 0 },
+            { accountId: inventoryAccount.id, debit: 0, credit: costAmount },
+          ],
+          tx,
+        });
+      }
+
+      return ledger;
+    }, { maxWait: 10000, timeout: 30000 });
   }
 
   /**
@@ -218,41 +215,107 @@ export class InventoryService {
    * Increments stock levels and posts Debit Inventory Asset / Credit Accounts Payable.
    */
   static async processGRN(poId: string, receivedBy: string, items: { productId: string; quantityReceived: number }[]) {
+    if (!receivedBy?.trim()) throw new Error("Received-by name is required.");
+    if (!Array.isArray(items) || items.length === 0) throw new Error("At least one received item is required.");
+
+    const normalized = items.map((item) => ({
+      productId: item.productId,
+      quantityReceived: Number(item.quantityReceived),
+    }));
+    if (normalized.some((item) => !item.productId || !Number.isFinite(item.quantityReceived) || item.quantityReceived <= 0)) {
+      throw new Error("Every received item must have a product and a positive numeric quantity.");
+    }
+    if (new Set(normalized.map((item) => item.productId)).size !== normalized.length) {
+      throw new Error("A product may appear only once in a goods receipt.");
+    }
+
     const po = await prisma.purchaseOrder.findUnique({
       where: { id: poId },
       include: { items: true },
     });
     if (!po) throw new Error("Purchase Order not found");
+    if (!RECEIVABLE_PO_STATUSES.includes(po.status)) {
+      throw new Error(`Purchase Order ${po.poNumber} cannot receive goods in status '${po.status}'.`);
+    }
 
-    const grnCount = await prisma.goodsReceipt.count();
-    const grnNumber = `GRN-${new Date().getFullYear()}-${String(grnCount + 1).padStart(4, "0")}`;
-
-    let totalReceiptValue = 0;
-
-    const grn = await prisma.goodsReceipt.create({
-      data: {
-        grnNumber,
-        poId,
-        receivedBy,
-        items: {
-          create: items.map((it) => ({
-            productId: it.productId,
-            quantityReceived: it.quantityReceived,
-          })),
-        },
-      },
-      include: { items: true },
+    const products = await prisma.product.findMany({
+      where: { id: { in: normalized.map((item) => item.productId) } },
     });
+    const productById = new Map(products.map((product) => [product.id, product]));
+    for (const item of normalized) {
+      const product = productById.get(item.productId);
+      if (!product) throw new Error(`Product '${item.productId}' was not found.`);
+      const poItem = po.items.find((line) => line.productId === item.productId);
+      if (!poItem) throw new Error(`Product '${product.name}' is not part of PO ${po.poNumber}.`);
+      const remaining = Math.max(0, poItem.quantity - poItem.quantityReceived);
+      if (item.quantityReceived > remaining + 1e-9) {
+        throw new Error(`Cannot receive ${item.quantityReceived} of '${product.name}'; only ${remaining} remains on the PO.`);
+      }
+    }
 
-    for (const item of items) {
-      const product = await prisma.product.findUnique({ where: { id: item.productId } });
-      if (product) {
-        await prisma.product.update({
+    const totalReceiptValue = normalized.reduce(
+      (sum, item) => sum + item.quantityReceived * productById.get(item.productId)!.costPrice,
+      0
+    );
+
+    // Post to accounts: Debit Inventory Asset, Credit GR/IR Clearing via AccountMappingService
+    const roundedValue = Math.round(totalReceiptValue * 100) / 100;
+    const [inventoryAccount, grirAccount] = roundedValue > 0
+      ? await Promise.all([
+          AccountMappingService.resolveAccount({ transactionType: "grn_receipt_asset" }),
+          AccountMappingService.resolveAccount({ transactionType: "grn_receipt_clearing" }),
+        ])
+      : [null, null];
+
+    return prisma.$transaction(async (tx) => {
+      const livePo = await tx.purchaseOrder.findUnique({ where: { id: poId }, include: { items: true } });
+      if (!livePo || !RECEIVABLE_PO_STATUSES.includes(livePo.status)) {
+        throw new Error(`Purchase Order ${po.poNumber} is no longer receivable.`);
+      }
+      for (const item of normalized) {
+        const line = livePo.items.find((poItem) => poItem.productId === item.productId);
+        const remaining = line ? Math.max(0, line.quantity - line.quantityReceived) : 0;
+        if (!line || item.quantityReceived > remaining + 1e-9) {
+          throw new Error("Purchase order quantities changed while the receipt was being prepared. Refresh and retry.");
+        }
+      }
+
+      const grnCount = await tx.goodsReceipt.count();
+      const grnNumber = `GRN-${new Date().getFullYear()}-${String(grnCount + 1).padStart(4, "0")}`;
+      const grn = await tx.goodsReceipt.create({
+        data: {
+          grnNumber,
+          poId,
+          receivedBy: receivedBy.trim(),
+          items: {
+            create: normalized.map((item) => {
+              const poItem = livePo.items.find((line) => line.productId === item.productId)!;
+              const product = productById.get(item.productId)!;
+              return {
+                poItemId: poItem.id,
+                productId: item.productId,
+                itemCode: product.sku,
+                description: product.name,
+                quantityReceived: item.quantityReceived,
+                quantityAccepted: item.quantityReceived,
+              };
+            }),
+          },
+        },
+        include: { items: true },
+      });
+
+      for (const item of normalized) {
+        const poItem = livePo.items.find((line) => line.productId === item.productId)!;
+        await tx.purchaseOrderItem.update({
+          where: { id: poItem.id },
+          data: { quantityReceived: { increment: item.quantityReceived } },
+        });
+        await tx.product.update({
           where: { id: item.productId },
           data: { stockQuantity: { increment: item.quantityReceived } },
         });
-
-        await prisma.stockLedger.create({
+        await tx.stockLedger.create({
           data: {
             productId: item.productId,
             qty: item.quantityReceived,
@@ -262,38 +325,28 @@ export class InventoryService {
             notes: `Receipt under ${grnNumber} for PO ${po.poNumber}`,
           },
         });
-
-        totalReceiptValue += item.quantityReceived * product.costPrice;
       }
-    }
 
-    // Post to accounts: Debit Inventory Asset, Credit GR/IR Clearing via AccountMappingService
-    const inventoryAccount = await AccountMappingService.resolveAccount({
-      transactionType: "grn_receipt_asset",
-    });
-    const grirAccount = await AccountMappingService.resolveAccount({
-      transactionType: "grn_receipt_clearing",
-    });
-    const roundedValue = Math.round(totalReceiptValue * 100) / 100;
+      if (roundedValue > 0 && inventoryAccount && grirAccount) {
+        await AccountsPostingService.post({
+          memo: `Goods receipt ${grnNumber} for PO ${po.poNumber} (${po.supplierName})`,
+          refType: "grn_receipt",
+          refId: grn.id,
+          lines: [
+            { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
+            { accountId: grirAccount.id, debit: 0, credit: roundedValue },
+          ],
+          tx,
+        });
+      }
 
-    if (roundedValue > 0) {
-      await AccountsPostingService.post({
-        memo: `Goods receipt ${grnNumber} for PO ${po.poNumber} (${po.supplierName})`,
-        refType: "grn_receipt",
-        refId: grn.id,
-        lines: [
-          { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
-          { accountId: grirAccount.id, debit: 0, credit: roundedValue },
-        ],
+      const updatedItems = await tx.purchaseOrderItem.findMany({ where: { poId } });
+      await tx.purchaseOrder.update({
+        where: { id: poId },
+        data: { status: updatedItems.every((line) => line.quantityReceived >= line.quantity) ? "fully_received" : "partially_received" },
       });
-    }
-
-    await prisma.purchaseOrder.update({
-      where: { id: poId },
-      data: { status: "completed" },
-    });
-
-    return grn;
+      return grn;
+    }, { maxWait: 10000, timeout: 30000 });
   }
 
   /**

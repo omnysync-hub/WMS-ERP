@@ -9,8 +9,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { employeeId, amount, approvedBy = "HR Manager" } = body;
 
-    const advAmount = Number(amount) || 0;
-    if (advAmount <= 0) {
+    const advAmount = Math.round(Number(amount) * 100) / 100;
+    if (!Number.isFinite(advAmount) || advAmount <= 0) {
       return NextResponse.json({ error: "Advance amount must be greater than 0" }, { status: 400 });
     }
 
@@ -19,44 +19,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Employee not found" }, { status: 404 });
     }
 
-    const advance = await prisma.employeeAdvance.create({
-      data: {
-        employeeId,
-        amount: advAmount,
-        status: "approved",
-        approvedBy,
-      },
-    });
-
-    // If technician, also record in technician_ledger_entries (type = "advance")
-    if (employee.role === "technician") {
-      await prisma.technicianLedgerEntry.create({
-        data: {
-          technicianId: employee.id,
-          type: "advance",
-          amount: advAmount,
-          notes: `Advance granted by ${approvedBy}`,
-        },
+    const advance = await prisma.$transaction(async (tx) => {
+      const [advAccount, cashAccount] = await Promise.all([
+        AccountMappingService.resolveAccount({
+          transactionType: "advance_granted_receivable",
+          prismaClient: tx,
+        }),
+        AccountMappingService.resolveAccount({
+          transactionType: "advance_granted_disbursing",
+          prismaClient: tx,
+        }),
+      ]);
+      const created = await tx.employeeAdvance.create({
+        data: { employeeId, amount: advAmount, status: "approved", approvedBy },
       });
-    }
-
-    // Post to Accounts Posting Engine via AccountMappingService:
-    // Debit Employee Advances Asset, Credit Cash & Bank
-    const advAccount = await AccountMappingService.resolveAccount({
-      transactionType: "advance_granted_receivable",
-    });
-    const cashAccount = await AccountMappingService.resolveAccount({
-      transactionType: "advance_granted_disbursing",
-    });
-
-    await AccountsPostingService.post({
-      memo: `Salary/Field Advance granted to ${employee.name} (${employee.role})`,
-      refType: "advance_granted",
-      refId: advance.id,
-      lines: [
-        { accountId: advAccount.id, debit: advAmount, credit: 0 },
-        { accountId: cashAccount.id, debit: 0, credit: advAmount },
-      ],
+      if (employee.role === "technician") {
+        await tx.technicianLedgerEntry.create({
+          data: {
+            technicianId: employee.id,
+            type: "advance",
+            amount: advAmount,
+            notes: `Advance granted by ${approvedBy}`,
+          },
+        });
+      }
+      await AccountsPostingService.post({
+        memo: `Salary/Field Advance granted to ${employee.name} (${employee.role})`,
+        refType: "advance_granted",
+        refId: created.id,
+        lines: [
+          { accountId: advAccount.id, debit: advAmount, credit: 0 },
+          { accountId: cashAccount.id, debit: 0, credit: advAmount },
+        ],
+        tx,
+      });
+      return created;
     });
 
     return NextResponse.json(advance, { status: 201 });

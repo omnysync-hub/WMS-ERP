@@ -54,7 +54,7 @@ export default function MobileSimulatorModal({ isOpen, onClose }: MobileSimulato
             <iframe
               src="/mobile"
               className="w-full h-full border-0"
-              title="Mobile Companion App"
+              title="Workman Mobile App"
             />
           </div>
 

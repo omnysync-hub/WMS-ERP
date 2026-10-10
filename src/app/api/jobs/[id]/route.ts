@@ -6,9 +6,10 @@ import { requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const job = await prisma.job.findUnique({
       where: { id: params.id },
       include: {
@@ -52,7 +53,38 @@ export async function GET(
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ ...job, invoice });
+    let customerJobHistory: any[] = [];
+    if (job.customerId) {
+      customerJobHistory = await prisma.job.findMany({
+        where: {
+          customerId: job.customerId,
+          id: { not: params.id },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: {
+          id: true,
+          jobNumber: true,
+          status: true,
+          jobType: true,
+          remarks: true,
+          createdAt: true,
+          finalizedAt: true,
+          assignedTechnician: { select: { id: true, name: true, phone: true } },
+          items: {
+            select: {
+              id: true,
+              description: true,
+              quantityPlanned: true,
+              quantityActual: true,
+              unitRate: true,
+            },
+          },
+        },
+      });
+    }
+
+    return NextResponse.json({ ...job, invoice, customerJobHistory });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -106,9 +138,10 @@ const TECH_OWNED_ACTIONS = new Set([
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const body = await req.json();
     const { action, ...payload } = body;
 
@@ -377,10 +410,15 @@ export async function PATCH(
         );
         break;
 
-      case "record_misplaced_item":
+      case "record_misplaced_item": {
+        const cashCollection = payload.collectCashNow && Number(payload.cashAmount) > 0
+          ? { amount: Number(payload.cashAmount), notes: payload.cashNotes }
+          : undefined;
+
         if (Array.isArray(payload.items) && payload.items.length > 0) {
           const results = [];
-          for (const itm of payload.items) {
+          for (let i = 0; i < payload.items.length; i++) {
+            const itm = payload.items[i];
             if (itm.item && Number(itm.quantity) > 0) {
               results.push(
                 await JobsService.recordMisplacedItem(
@@ -389,12 +427,13 @@ export async function PATCH(
                   itm.item,
                   Number(itm.quantity || 1),
                   actor,
-                  itm.reason || payload.reason
+                  itm.reason || payload.reason,
+                  i === 0 ? cashCollection : undefined // apply cash recovery to the batch
                 )
               );
             }
           }
-          result = { success: true, count: results.length, items: results };
+          result = { success: true, count: results.length, items: results, cashRecovery: cashCollection };
         } else {
           result = await JobsService.recordMisplacedItem(
             params.id,
@@ -402,10 +441,12 @@ export async function PATCH(
             payload.item,
             Number(payload.quantity || 1),
             actor,
-            payload.reason
+            payload.reason,
+            cashCollection
           );
         }
         break;
+      }
 
       case "generate_custom_invoice":
         result = await JobsService.generateCustomInvoice(

@@ -54,6 +54,20 @@ export default function AddCustomerDrawer({
       return;
     }
 
+    const primaryDigits = phone.replace(/\D/g, "");
+    if (primaryDigits.length !== 11) {
+      setErrorMsg("Customer primary phone number must be exactly 11 digits (e.g., 03001234567).");
+      return;
+    }
+
+    if (secPhone.trim()) {
+      const secDigits = secPhone.replace(/\D/g, "");
+      if (secDigits.length !== 11) {
+        setErrorMsg("Secondary phone number must be exactly 11 digits (e.g., 03211234567).");
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
       setErrorMsg("");

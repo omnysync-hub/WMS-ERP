@@ -40,6 +40,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const primaryDigits = String(phone).replace(/\D/g, "");
+    if (primaryDigits.length !== 11) {
+      return NextResponse.json(
+        { error: "Customer primary phone number must be exactly 11 digits (e.g. 03001234567)." },
+        { status: 400 }
+      );
+    }
+
+    if (secPhone && String(secPhone).trim()) {
+      const secDigits = String(secPhone).replace(/\D/g, "");
+      if (secDigits.length !== 11) {
+        return NextResponse.json(
+          { error: "Secondary phone number must be exactly 11 digits (e.g. 03211234567)." },
+          { status: 400 }
+        );
+      }
+    }
+
     // Combine primary and secondary phone if secondary provided
     const combinedPhone = secPhone?.trim()
       ? `${phone.trim()} / ${secPhone.trim()}`

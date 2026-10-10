@@ -161,8 +161,8 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
     email: "ali@company.com",
     avatar: "AR",
     badgeColor: "bg-[#0D7A5F] text-white",
-    description: "Field mobile companion user: on-site job execution, material requests, job pausing, biometric attendance, and ESS.",
-    primaryModules: ["Field Companion"],
+    description: "Field mobile app user: on-site job execution, material requests, job execution, biometric attendance, and ESS.",
+    primaryModules: ["Field Operations"],
   },
 };
 

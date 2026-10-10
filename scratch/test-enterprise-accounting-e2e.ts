@@ -114,7 +114,7 @@ async function runEnterpriseAccountingE2E() {
   }
 
   const whtPayment = await TaxService.postVendorPaymentWithWht({
-    vendorId: vendor.id,
+    vendorId: vendor!.id,
     grossAmount: 100000, // PKR 100,000 gross bill
     disbursingAccountCode: "1000",
     memo: "E2E Compressor shipment settlement",

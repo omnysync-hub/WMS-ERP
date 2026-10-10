@@ -36,6 +36,7 @@ import {
   ArrowDownLeft,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
+import { realtimeSync } from "@/lib/realtimeSync";
 
 export default function JobsListPage() {
   const { activeRole, currentPersona, hasPermission } = useRole();
@@ -94,12 +95,28 @@ export default function JobsListPage() {
 
   useEffect(() => {
     fetchJobs();
+
+    // Subscribe to realtime bus so updates from mobile app and other users reflect without refreshing
+    const unsub = realtimeSync.subscribe(() => {
+      fetchJobs();
+    });
+
+    // Auto-poll in background every 8 seconds for true zero-refresh live data
+    const interval = setInterval(() => {
+      fetchJobs();
+    }, 8000);
+
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
   }, []);
 
   // Filter states for individual chips
   const [selectedTechFilter, setSelectedTechFilter] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("");
   const [selectedTypeFilter, setSelectedTypeFilter] = useState("");
+  const [selectedDateFilter, setSelectedDateFilter] = useState("all");
 
   // Filter based on active tab & role
   const filteredByTab = jobs.filter((j) => {
@@ -198,6 +215,25 @@ export default function JobsListPage() {
         if (!j.expenseClaims?.some((c: any) => c.status === "paid")) return false;
       } else if (kpiFilter === "pending_expenses") {
         if (!j.expenseClaims?.some((c: any) => c.status === "pending")) return false;
+      } else if (kpiFilter === "partially_cleared_expenses") {
+        const hasPaid = j.expenseClaims?.some((c: any) => c.status === "paid");
+        const hasPending = j.expenseClaims?.some((c: any) => c.status === "pending");
+        const hasPartialNote = j.expenseClaims?.some(
+          (c: any) =>
+            c.note?.includes("[Partially Cleared") || c.note?.includes("[Remaining Balance")
+        );
+        if (!((hasPaid && hasPending) || hasPartialNote)) return false;
+      } else if (kpiFilter === "receivables") {
+        const hasBalanceDue = j.hisaabSettlements?.some(
+          (s: any) => s.status !== "superseded" && Number(s.balanceDue) > 0
+        );
+        const isCareOfReceivable = Boolean(j.careOfPartyId);
+        const isUnsettledCompleted =
+          ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status) &&
+          (!j.hisaabSettlements ||
+            j.hisaabSettlements.length === 0 ||
+            j.hisaabSettlements.every((s: any) => Number(s.amountCollected) === 0));
+        if (!(hasBalanceDue || isCareOfReceivable || isUnsettledCompleted)) return false;
       } else if (kpiFilter === "cash_collected") {
         const hasHandover = j.hisaabSettlements?.some(
           (s: any) =>
@@ -214,6 +250,30 @@ export default function JobsListPage() {
         });
         if (!hasPendingHandover) return false;
       }
+    }
+
+    // Timeframe / Date filters (Today, This Week, Last Week, This Month, Last Month, This Quarter, This Year)
+    if (selectedDateFilter && selectedDateFilter !== "all") {
+      const jobTime = new Date(j.createdAt || j.jobDate || 0).getTime();
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const dayOfWeek = now.getDay();
+      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek).getTime();
+      const startOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek - 7).getTime();
+      const endOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek, 0, 0, 0, -1).getTime();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).getTime();
+      const startOfQuarter = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).getTime();
+      const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
+
+      if (selectedDateFilter === "today" && jobTime < startOfToday) return false;
+      if (selectedDateFilter === "this_week" && jobTime < startOfWeek) return false;
+      if (selectedDateFilter === "last_week" && (jobTime < startOfLastWeek || jobTime > endOfLastWeek)) return false;
+      if (selectedDateFilter === "this_month" && jobTime < startOfMonth) return false;
+      if (selectedDateFilter === "last_month" && (jobTime < startOfLastMonth || jobTime > endOfLastMonth)) return false;
+      if (selectedDateFilter === "this_quarter" && jobTime < startOfQuarter) return false;
+      if (selectedDateFilter === "this_year" && jobTime < startOfYear) return false;
     }
 
     if (activeTab === "all") return true;
@@ -327,9 +387,7 @@ export default function JobsListPage() {
       id: "jobNumber",
       header: "Job # & External Ref",
       accessorKey: "jobNumber",
-      width: "185px",
-      isPrimaryLink: true,
-      getHref: (row) => `/jobs/${row.id}`,
+      width: "215px",
       cell: (row) => {
         const successors = (row.childJobs || []).filter(
           (c: any) => c && c.id
@@ -346,24 +404,23 @@ export default function JobsListPage() {
 
         return (
           <div className="space-y-1">
-            <span className="font-mono font-bold text-sm text-[#0D7A5F] hover:underline block whitespace-nowrap">
+            <Link
+              href={`/jobs/${row.id}`}
+              scroll={false}
+              className="font-mono font-bold text-sm text-[#0D7A5F] hover:underline inline-block whitespace-nowrap focus-visible:outline-none"
+            >
               {row.jobNumber}
-            </span>
+            </Link>
             <div className="flex items-center gap-1.5 flex-wrap">
               {row.manualJobNumber && (
                 <span className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded font-mono inline-block">
                   Ext: #{row.manualJobNumber}
                 </span>
               )}
-              {row.careOfParty && (
-                <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1">
-                  <Building className="w-3 h-3 text-purple-500" />
-                  c/o {row.careOfParty.companyName}
-                </span>
-              )}
               {row.status === "TechnicianReassigned" && openSuccessor && (
                 <Link
                   href={`/jobs/${openSuccessor.id}`}
+                  scroll={false}
                   onClick={(e) => e.stopPropagation()}
                   className="text-[11px] text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 hover:bg-violet-100"
                   title="Open successor work order"
@@ -375,6 +432,7 @@ export default function JobsListPage() {
               {showParent && parent && (
                 <Link
                   href={`/jobs/${parent.id}`}
+                  scroll={false}
                   onClick={(e) => e.stopPropagation()}
                   className="text-[11px] text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 hover:bg-slate-100"
                   title="Open parent / reassigned-from work order"
@@ -383,6 +441,17 @@ export default function JobsListPage() {
                 </Link>
               )}
             </div>
+            {row.careOfParty && (
+              <div className="pt-0.5">
+                <span
+                  className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1 max-w-full"
+                  title={`Care-Of: ${row.careOfParty.companyName}`}
+                >
+                  <Building className="w-3 h-3 text-purple-500 shrink-0" />
+                  <span className="truncate">c/o {row.careOfParty.companyName}</span>
+                </span>
+              </div>
+            )}
           </div>
         );
       },
@@ -456,6 +525,11 @@ export default function JobsListPage() {
                 >
                   {techName}
                 </span>
+                {row.assignments?.some((a: any) => a.technicianId === row.assignedTechnician?.id && a.role === "primary") && (
+                  <span className="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 py-0.5 rounded border border-amber-200 shrink-0">
+                    ★ Lead
+                  </span>
+                )}
                 {canReassignTech && (
                   <button
                     type="button"
@@ -837,6 +911,7 @@ export default function JobsListPage() {
             )}
             <Link
               href={`/jobs/${row.id}`}
+              scroll={false}
               className={
                 isStorekeeper
                   ? "text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
@@ -951,7 +1026,7 @@ export default function JobsListPage() {
       label: "In Progress / Active",
       count: jobs.filter((j) => j.status === "InProgress" || j.status === "Accepted").length,
     },
-    { id: "paused", label: "Paused on Site", count: jobs.filter((j) => j.status === "Paused").length },
+    { id: "paused", label: "Partially Completed", count: jobs.filter((j) => j.status === "Paused").length },
     {
       id: "completed",
       label: "Completed",
@@ -1055,6 +1130,7 @@ export default function JobsListPage() {
               activeFilter={kpiFilter}
               onFilterSelect={setKpiFilter}
               isAccountant={isAccountant || isAdmin || canViewFinancials}
+              isDispatcher={isDispatcher}
             />
           )}
 
@@ -1075,6 +1151,22 @@ export default function JobsListPage() {
             onSearchChange={setSearchQuery}
             filterChips={[
               {
+                id: "dateRange",
+                label: "Timeframe",
+                options: [
+                  { label: "All Time", value: "all" },
+                  { label: "Today", value: "today" },
+                  { label: "This Week", value: "this_week" },
+                  { label: "Last Week", value: "last_week" },
+                  { label: "This Month", value: "this_month" },
+                  { label: "Last Month", value: "last_month" },
+                  { label: "This Quarter", value: "this_quarter" },
+                  { label: "This Year", value: "this_year" },
+                ],
+                selected: selectedDateFilter,
+                onSelect: setSelectedDateFilter,
+              },
+              {
                 id: "technician",
                 label: "Technician",
                 options: technicians.map((t) => ({
@@ -1092,7 +1184,7 @@ export default function JobsListPage() {
                   { label: "Assigned", value: "Assigned" },
                   { label: "Accepted", value: "Accepted" },
                   { label: "In Progress", value: "InProgress" },
-                  { label: "Paused", value: "Paused" },
+                  { label: "Partially Completed", value: "Paused" },
                   { label: "Pending Verification", value: "CompletedPendingVerification" },
                   { label: "Finalized", value: "Finalized" },
                   { label: "Verified", value: "Verified" },

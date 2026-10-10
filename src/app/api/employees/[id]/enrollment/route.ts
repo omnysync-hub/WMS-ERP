@@ -25,9 +25,10 @@ import {
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const employeeId = params.id;
 
     // 1. Resolve & Authenticate Caller
@@ -199,9 +200,10 @@ export async function POST(
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const employeeId = params.id;
     const url = req.url ? new URL(req.url) : null;
     const includeEmbedding = url ? url.searchParams.get("includeEmbedding") === "true" : false;

@@ -29,6 +29,18 @@ export interface RecordVendorEntryParams {
 }
 
 export class SubLedgerService {
+  private static validateAmounts(debit: number, credit: number, label: string) {
+    if (!Number.isFinite(debit) || !Number.isFinite(credit)) {
+      throw new Error(`${label} rejected: debit and credit must be finite numbers.`);
+    }
+    if (debit < 0 || credit < 0) {
+      throw new Error(`${label} rejected: debit and credit cannot be negative.`);
+    }
+    if ((debit > 0 && credit > 0) || (debit === 0 && credit === 0)) {
+      throw new Error(`${label} rejected: exactly one of debit or credit must be positive.`);
+    }
+  }
+
   /**
    * Record a customer transactional sub-ledger entry (Accounts Receivable).
    * Customer debt increases on Debit (invoice), decreases on Credit (payment).
@@ -48,10 +60,15 @@ export class SubLedgerService {
 
     const db = tx ?? prisma;
 
+    this.validateAmounts(debit, credit, "Customer sub-ledger entry");
+    if (!customerId || !documentNumber?.trim()) {
+      throw new Error("Customer sub-ledger entry rejected: customer and document number are required.");
+    }
+
     // Get last running balance for this customer
     const lastEntry = await db.customerLedgerEntry.findFirst({
       where: { customerId },
-      orderBy: { postingDate: "desc" },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     });
 
     const previousBalance = lastEntry ? lastEntry.runningBalance : 0;
@@ -93,10 +110,18 @@ export class SubLedgerService {
 
     const db = tx ?? prisma;
 
+    this.validateAmounts(debit, credit, "Vendor sub-ledger entry");
+    if (!vendorId || !documentNumber?.trim()) {
+      throw new Error("Vendor sub-ledger entry rejected: vendor and document number are required.");
+    }
+    if (!Number.isFinite(whtWithheld) || whtWithheld < 0) {
+      throw new Error("Vendor sub-ledger entry rejected: WHT withheld must be a non-negative finite number.");
+    }
+
     // Get last running balance for this vendor
     const lastEntry = await db.vendorLedgerEntry.findFirst({
       where: { vendorId },
-      orderBy: { postingDate: "desc" },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     });
 
     const previousBalance = lastEntry ? lastEntry.runningBalance : 0;
@@ -161,7 +186,7 @@ export class SubLedgerService {
     const customers = await prisma.customer.findMany({
       include: {
         customerLedgerEntries: {
-          orderBy: { postingDate: "desc" },
+          orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: 1,
         },
       },
@@ -178,7 +203,7 @@ export class SubLedgerService {
     const vendors = await prisma.vendor.findMany({
       include: {
         vendorLedgerEntries: {
-          orderBy: { postingDate: "desc" },
+          orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: 1,
         },
       },

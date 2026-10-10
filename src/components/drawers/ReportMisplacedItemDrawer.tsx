@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
-import { AlertTriangle, Check, AlertCircle, Package } from "lucide-react";
+import { AlertTriangle, Check, AlertCircle, Package, Banknote } from "lucide-react";
 
 interface MisplacedLineItem {
   id: string;
@@ -41,6 +41,9 @@ export default function ReportMisplacedItemDrawer({
   const [showAdHoc, setShowAdHoc] = useState(false);
   const [adHocItem, setAdHocItem] = useState("");
   const [adHocQty, setAdHocQty] = useState("1");
+  const [collectCashOnTheSpot, setCollectCashOnTheSpot] = useState(false);
+  const [cashCollectedAmount, setCashCollectedAmount] = useState("");
+  const [cashReceiptNotes, setCashReceiptNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -48,6 +51,9 @@ export default function ReportMisplacedItemDrawer({
     if (!isOpen || !job) return;
 
     setErrorMsg("");
+    setCollectCashOnTheSpot(false);
+    setCashCollectedAmount("");
+    setCashReceiptNotes("");
     setCommonReason("Technician reported item misplaced/lost on site during work execution");
     setShowAdHoc(false);
     setAdHocItem("");
@@ -129,6 +135,11 @@ export default function ReportMisplacedItemDrawer({
         });
       }
 
+      if (collectCashOnTheSpot && (!Number(cashCollectedAmount) || Number(cashCollectedAmount) <= 0)) {
+        setErrorMsg("Please enter a valid cash amount collected from the technician.");
+        return;
+      }
+
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -138,6 +149,9 @@ export default function ReportMisplacedItemDrawer({
           items: itemsToReport,
           reason: commonReason.trim(),
           actor: actor,
+          collectCashNow: collectCashOnTheSpot,
+          cashAmount: collectCashOnTheSpot ? Number(cashCollectedAmount) : 0,
+          cashNotes: cashReceiptNotes.trim() || undefined,
         }),
       });
 
@@ -340,6 +354,70 @@ export default function ReportMisplacedItemDrawer({
             placeholder="State why this item was not returned to warehouse..."
             className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] text-xs focus:bg-white focus:ring-2 focus:ring-rose-600 focus:outline-none"
           />
+        </div>
+
+        {/* On-the-spot Cash Collection Option */}
+        <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={collectCashOnTheSpot}
+              onChange={(e) => {
+                setCollectCashOnTheSpot(e.target.checked);
+                if (!e.target.checked) {
+                  setCashCollectedAmount("");
+                  setCashReceiptNotes("");
+                }
+              }}
+              className="w-4 h-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-600"
+            />
+            <div className="flex-1">
+              <span className="font-semibold text-emerald-950 flex items-center gap-1.5 text-xs">
+                <Banknote className="w-4 h-4 text-emerald-600" />
+                Collect On-the-Spot Cash from Technician
+              </span>
+              <p className="text-[11px] text-emerald-800">
+                Recover lost/misplaced item cost directly from {techName} now and credit the company cash ledger.
+              </p>
+            </div>
+          </label>
+
+          {collectCashOnTheSpot && (
+            <div className="pt-2 border-t border-emerald-200/60 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-[10px] font-bold text-emerald-950 uppercase tracking-wider block mb-1">
+                  Cash Amount Collected (PKR) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-emerald-700">
+                    PKR
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    required={collectCashOnTheSpot}
+                    placeholder="e.g. 1500"
+                    value={cashCollectedAmount}
+                    onChange={(e) => setCashCollectedAmount(e.target.value)}
+                    className="w-full bg-white pl-12 pr-3 py-1.5 rounded-lg border border-emerald-300 text-xs font-mono font-bold text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-emerald-950 uppercase tracking-wider block mb-1">
+                  Receipt / Notes (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Receipt # / Note"
+                  value={cashReceiptNotes}
+                  onChange={(e) => setCashReceiptNotes(e.target.value)}
+                  className="w-full bg-white px-3 py-1.5 rounded-lg border border-emerald-300 text-xs text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="p-3 bg-rose-50 rounded-lg text-[11px] text-rose-950 space-y-1 border border-rose-200 leading-relaxed">

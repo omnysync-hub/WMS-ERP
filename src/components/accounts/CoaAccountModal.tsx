@@ -25,6 +25,12 @@ interface CoaAccountModalProps {
   allAccounts: CoaModalAccount[];
   onClose: () => void;
   onSuccess: (msg: string) => void;
+  initialType?: string;
+  initialName?: string;
+  initialDescription?: string;
+  allowedTypes?: string[];
+  mapToTransactionType?: string;
+  onAccountCreated?: (account: CoaModalAccount) => void | Promise<void>;
 }
 
 export default function CoaAccountModal({
@@ -34,6 +40,12 @@ export default function CoaAccountModal({
   allAccounts,
   onClose,
   onSuccess,
+  initialType,
+  initialName,
+  initialDescription,
+  allowedTypes,
+  mapToTransactionType,
+  onAccountCreated,
 }: CoaAccountModalProps) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -54,14 +66,14 @@ export default function CoaAccountModal({
       setCurrency(accountToEdit.currency || "PKR");
     } else {
       setCode("");
-      setName("");
-      setType("expense");
-      setDescription("");
+      setName(initialName || "");
+      setType(initialType || allowedTypes?.[0] || "expense");
+      setDescription(initialDescription || "");
       setParentId("");
       setCurrency("PKR");
     }
     setErrorMsg("");
-  }, [mode, accountToEdit, isOpen]);
+  }, [mode, accountToEdit, isOpen, initialType, initialName, initialDescription, allowedTypes]);
 
   if (!isOpen) return null;
 
@@ -99,7 +111,8 @@ export default function CoaAccountModal({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "create_account",
+            action: mapToTransactionType ? "create_and_map_account" : "create_account",
+            transactionType: mapToTransactionType,
             code: code.trim(),
             name: name.trim(),
             type,
@@ -116,7 +129,12 @@ export default function CoaAccountModal({
           throw new Error(data.error || "Failed to create account");
         }
 
-        onSuccess(`Account ${code.trim()} — ${name.trim()} successfully created.`);
+        await onAccountCreated?.(data.account);
+        onSuccess(
+          mapToTransactionType
+            ? `Account ${code.trim()} — ${name.trim()} created and mapped successfully.`
+            : `Account ${code.trim()} — ${name.trim()} successfully created.`
+        );
       } else if (mode === "edit" && accountToEdit) {
         const res = await fetch("/api/accounts", {
           method: "POST",
@@ -217,12 +235,18 @@ export default function CoaAccountModal({
                   mode === "edit" && "opacity-60 cursor-not-allowed"
                 )}
               >
-                <option value="asset">Asset</option>
-                <option value="liability">Liability</option>
-                <option value="equity">Equity</option>
-                <option value="revenue">Revenue</option>
-                <option value="expense">Expense</option>
-                <option value="contra_revenue">Contra Revenue</option>
+                {[
+                  ["asset", "Asset"],
+                  ["liability", "Liability"],
+                  ["equity", "Equity"],
+                  ["revenue", "Revenue"],
+                  ["expense", "Expense"],
+                  ["contra_revenue", "Contra Revenue"],
+                ]
+                  .filter(([value]) => !allowedTypes?.length || allowedTypes.includes(value))
+                  .map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
               </select>
             </div>
           </div>

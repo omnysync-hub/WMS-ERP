@@ -9,10 +9,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const technicianId = searchParams.get("technicianId");
+    const customerId = searchParams.get("customerId");
     const search = searchParams.get("search");
     const hasInventoryRequest = searchParams.get("hasInventoryRequest") === "true";
 
     const where: any = {};
+    if (customerId) where.customerId = customerId;
     if (status && status !== "ALL") where.status = status;
     if (technicianId) {
       // Include jobs where tech is primary assignee OR active JobAssignment member

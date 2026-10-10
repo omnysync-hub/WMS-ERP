@@ -38,6 +38,12 @@ export default function AddEmployeeDrawer({
       return;
     }
 
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length !== 11) {
+      setErrorMsg("Employee phone number must be exactly 11 digits (e.g. 03001234567).");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setErrorMsg("");

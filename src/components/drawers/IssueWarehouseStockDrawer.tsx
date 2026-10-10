@@ -5,6 +5,7 @@ import SideDrawer from "@/components/ui/SideDrawer";
 import { Package, AlertTriangle, Check, AlertCircle } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 
 interface IssueWarehouseStockDrawerProps {
   isOpen: boolean;
@@ -90,6 +91,11 @@ export default function IssueWarehouseStockDrawer({
     e.preventDefault();
     if (!selectedProductId || !issueQuantity || Number(issueQuantity) <= 0) {
       setErrorMsg("Please select a product and valid quantity.");
+      return;
+    }
+
+    if (reqItem?.qtyRequested && Number(issueQuantity) > Number(reqItem.qtyRequested)) {
+      setErrorMsg(`Cannot issue more than the requested stock quantity (${reqItem.qtyRequested} units requested).`);
       return;
     }
 
@@ -201,22 +207,21 @@ export default function IssueWarehouseStockDrawer({
               <label className="font-semibold text-[#18181B] block mb-1">
                 Select Warehouse Product *
               </label>
-              <select
+              <SearchableSelect
+                options={warehouseProducts.map((p: any) => ({
+                  value: p.id,
+                  label: `${p.name} (${p.sku || "N/A"})`,
+                  subLabel: `Stock: ${p.stockQuantity} ${p.unitOfMeasure || "units"}`,
+                  badge: p.stockQuantity > 0 ? "In Stock" : "Out of Stock",
+                  badgeTone: p.stockQuantity > 0 ? "green" : "red",
+                }))}
                 value={selectedProductId}
-                onChange={(e) => setSelectedProductId(e.target.value)}
+                onChange={(val: string) => setSelectedProductId(val)}
+                placeholder="-- Select or Search Warehouse Product --"
+                searchPlaceholder="Search products by name or SKU..."
                 required
-                className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:bg-white focus:ring-2 focus:ring-amber-600 focus:outline-none"
-              >
-                {warehouseProducts.length === 0 ? (
-                  <option value="">No products in warehouse</option>
-                ) : (
-                  warehouseProducts.map((p: any) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.sku || "N/A"}) — Stock: {p.stockQuantity} {p.unitOfMeasure || "units"}
-                    </option>
-                  ))
-                )}
-              </select>
+                className="w-full"
+              />
             </div>
 
             {selectedProduct && (

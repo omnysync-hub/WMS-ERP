@@ -3,14 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 
-type Ctx = { params: { id: string } };
+type Ctx = { params: Promise<{ id: string }> };
 
 /**
  * PUT /api/geofence-zones/[id]/staff
  * Body: { employeeIds: string[] } — replaces the site roster.
  */
-export async function PUT(req: NextRequest, { params }: Ctx) {
+export async function PUT(req: NextRequest, context: Ctx) {
   try {
+    const params = await context.params;
     const caller = await resolveCaller(req);
     if (caller && !caller.isAdminOrHr) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

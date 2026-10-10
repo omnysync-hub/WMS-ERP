@@ -1160,28 +1160,29 @@ export async function POST(req: NextRequest) {
           ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_disbursing" });
 
-        // Balanced double entry: Debit Expense, Credit Cash/Bank
-        const journal = await AccountsPostingService.post({
-          memo: memo || `Expense: ${payeeName} (${receiptRef || "Voucher"})`,
-          refType: "expense_voucher",
-          refId: receiptRef || null,
-          lines: [
-            { accountId: expenseAcc.id, debit: numAmount, credit: 0 },
-            { accountId: disbursingAcc.id, debit: 0, credit: numAmount },
-          ],
-        });
-
-        // If associated with a technician, record in their running hisaab ledger
-        if (technicianId) {
-          await prisma.technicianLedgerEntry.create({
-            data: {
-              technicianId,
-              type: "expense_paid",
-              amount: numAmount,
-              notes: `${memo || "Field expense clearance"} [Ref: ${receiptRef || "JV-" + journal.id.slice(-4)}]`,
-            },
+        const journal = await prisma.$transaction(async (tx) => {
+          const posted = await AccountsPostingService.post({
+            memo: memo || `Expense: ${payeeName} (${receiptRef || "Voucher"})`,
+            refType: "expense_voucher",
+            refId: receiptRef || null,
+            lines: [
+              { accountId: expenseAcc.id, debit: numAmount, credit: 0 },
+              { accountId: disbursingAcc.id, debit: 0, credit: numAmount },
+            ],
+            tx,
           });
-        }
+          if (technicianId) {
+            await tx.technicianLedgerEntry.create({
+              data: {
+                technicianId,
+                type: "expense_paid",
+                amount: numAmount,
+                notes: `${memo || "Field expense clearance"} [Ref: ${receiptRef || "JV-" + posted.id.slice(-4)}]`,
+              },
+            });
+          }
+          return posted;
+        });
 
         await AuditService.logActivity({
           actorName,
@@ -1254,48 +1255,65 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const cashAcc = receivingAccountCode
-          ? await AccountsPostingService.getAccountByCode(receivingAccountCode)
-          : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving" });
-        const arAcc = await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receivable" });
-
-        const journal = await AccountsPostingService.post({
-          memo: notes || `Customer payment received via ${paymentMethod.toUpperCase()}`,
-          refType: "customer_payment",
-          refId: invoiceId || customerId || null,
-          lines: [
-            { accountId: cashAcc.id, debit: numAmount, credit: 0 },
-            { accountId: arAcc.id, debit: 0, credit: numAmount },
-          ],
-        });
-
-        if (invoiceId && targetInvoice) {
-          const totalNowPaid = Math.round((numAmount + alreadyPaid) * 100) / 100;
-          const isFullyPaid = totalNowPaid >= targetInvoice.amount - 0.01;
-          await prisma.invoice.update({
-            where: { id: invoiceId },
-            data: { status: isFullyPaid ? "paid" : "partially_paid" },
-          });
-
-          if (targetInvoice.projectId) {
-            await prisma.project.update({
-              where: { id: targetInvoice.projectId },
-              data: { paidAmount: { increment: numAmount } },
-            });
-          }
+        if (!effectiveCustomerId) {
+          return NextResponse.json(
+            { error: "Customer payment requires a customer or an invoice linked to a customer." },
+            { status: 400 }
+          );
         }
 
-        if (effectiveCustomerId) {
+        const journal = await prisma.$transaction(async (tx) => {
+          const cashAcc = receivingAccountCode
+            ? await tx.account.findUnique({ where: { code: receivingAccountCode } })
+            : await AccountMappingService.resolveAccount({
+                transactionType: "customer_payment_receiving",
+                prismaClient: tx,
+              });
+          if (!cashAcc || !cashAcc.isActive || cashAcc.type !== "asset" || cashAcc.level < 4) {
+            throw new Error("Receiving account must be an active level-4 asset account.");
+          }
+          const arAcc = await AccountMappingService.resolveAccount({
+            transactionType: "customer_payment_receivable",
+            prismaClient: tx,
+          });
+          const posted = await AccountsPostingService.post({
+            memo: notes || `Customer payment received via ${paymentMethod.toUpperCase()}`,
+            refType: "customer_payment",
+            refId: invoiceId || customerId || null,
+            lines: [
+              { accountId: cashAcc.id, debit: numAmount, credit: 0 },
+              { accountId: arAcc.id, debit: 0, credit: numAmount },
+            ],
+            tx,
+          });
+
+          if (invoiceId && targetInvoice) {
+            const totalNowPaid = Math.round((numAmount + alreadyPaid) * 100) / 100;
+            const isFullyPaid = totalNowPaid >= targetInvoice.amount - 0.01;
+            await tx.invoice.update({
+              where: { id: invoiceId },
+              data: { status: isFullyPaid ? "paid" : "partially_paid" },
+            });
+            if (targetInvoice.projectId) {
+              await tx.project.update({
+                where: { id: targetInvoice.projectId },
+                data: { paidAmount: { increment: numAmount } },
+              });
+            }
+          }
+
           await SubLedgerService.recordCustomerEntry({
             customerId: effectiveCustomerId,
             entryType: "payment",
             documentNumber: targetInvoice ? targetInvoice.invoiceNumber : `PAY-${Date.now().toString().slice(-6)}`,
-            journalEntryId: journal.id,
+            journalEntryId: posted.id,
             debit: 0,
             credit: numAmount,
             notes: notes || `Customer payment receipt via ${paymentMethod}`,
+            tx,
           });
-        }
+          return posted;
+        });
 
         await AuditService.logActivity({
           actorName,
@@ -1329,23 +1347,26 @@ export async function POST(req: NextRequest) {
           ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "advance_granted_disbursing" });
 
-        const journal = await AccountsPostingService.post({
-          memo: `Cash advance / float disbursed to technician`,
-          refType: "tech_advance",
-          refId: technicianId,
-          lines: [
-            { accountId: advanceAcc.id, debit: numAmount, credit: 0 },
-            { accountId: cashAcc.id, debit: 0, credit: numAmount },
-          ],
-        });
-
-        const entry = await prisma.technicianLedgerEntry.create({
-          data: {
-            technicianId,
-            type: "advance",
-            amount: numAmount,
-            notes: notes || "Cash advance disbursed by accounting",
-          },
+        const { journal, entry } = await prisma.$transaction(async (tx) => {
+          const journal = await AccountsPostingService.post({
+            memo: `Cash advance / float disbursed to technician`,
+            refType: "tech_advance",
+            refId: technicianId,
+            lines: [
+              { accountId: advanceAcc.id, debit: numAmount, credit: 0 },
+              { accountId: cashAcc.id, debit: 0, credit: numAmount },
+            ],
+            tx,
+          });
+          const entry = await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId,
+              type: "advance",
+              amount: numAmount,
+              notes: notes || "Cash advance disbursed by accounting",
+            },
+          });
+          return { journal, entry };
         });
 
         await AuditService.logActivity({
@@ -1720,6 +1741,71 @@ export async function POST(req: NextRequest) {
         const { companyId = "DEFAULT", actorName = "Fatima Noor (Accountant)", threshold = 0.85 } = payload;
         const res = await AccountSuggestionAgent.acceptAllHighConfidence(companyId, actorName, Number(threshold));
         return NextResponse.json({ success: true, ...res });
+      }
+
+      // 20.4 ONBOARDING: ATOMICALLY CREATE A CUSTOM LEAF ACCOUNT AND MAP IT
+      case "create_and_map_account": {
+        const {
+          transactionType,
+          code,
+          name,
+          type,
+          description,
+          parentId,
+          currency = "PKR",
+          companyId = "DEFAULT",
+          categoryScope = null,
+          actorName = "Setup Wizard",
+        } = payload;
+        if (!transactionType || !code?.trim() || !name?.trim() || !type) {
+          return NextResponse.json(
+            { error: "transactionType, code, name, and type are required" },
+            { status: 400 }
+          );
+        }
+        const validTypes = new Set(["asset", "liability", "equity", "revenue", "expense", "contra_revenue"]);
+        if (!validTypes.has(type)) {
+          return NextResponse.json({ error: `Unsupported account type '${type}'.` }, { status: 400 });
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+          const normalizedCode = String(code).trim();
+          const existing = await tx.account.findUnique({ where: { code: normalizedCode } });
+          if (existing) throw new Error(`Account with code '${normalizedCode}' already exists.`);
+
+          if (parentId) {
+            const parent = await tx.account.findUnique({ where: { id: parentId } });
+            if (!parent || !parent.isActive || parent.level !== 3 || parent.type !== type) {
+              throw new Error("Parent must be an active level-3 account with the same classification.");
+            }
+          }
+
+          const account = await tx.account.create({
+            data: {
+              code: normalizedCode,
+              name: String(name).trim(),
+              type,
+              description: description?.trim() || null,
+              parentId: parentId || null,
+              level: 4,
+              currency: currency || "PKR",
+              companyId: companyId || "DEFAULT",
+              isSystem: false,
+              isActive: true,
+            },
+          });
+          const mapping = await AccountMappingService.setMapping(
+            companyId,
+            transactionType,
+            account.id,
+            categoryScope,
+            actorName,
+            tx
+          );
+          return { account, mapping };
+        });
+
+        return NextResponse.json({ success: true, ...result });
       }
 
       // 21. CREATE ACCOUNT (WITH 4-LEVEL HIERARCHY SUPPORT)

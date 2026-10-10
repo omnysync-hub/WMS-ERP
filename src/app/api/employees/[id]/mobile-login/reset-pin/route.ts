@@ -9,7 +9,7 @@ import { POST as resetPasswordPost } from "../reset-password/route";
  */
 export async function POST(
   req: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   return resetPasswordPost(req, context);
 }

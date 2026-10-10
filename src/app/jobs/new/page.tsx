@@ -29,10 +29,11 @@ import {
   Info,
   Users,
   Star,
+  Clock,
 } from "lucide-react";
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import { realtimeSync } from "@/lib/realtimeSync";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatJobType } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
 
 // Standard HVAC Job Types
@@ -152,8 +153,18 @@ export default function NewJobIntakePage() {
 
   // Product, Brand & Model
   const [productType, setProductType] = useState("Inverter AC (1.0 / 1.5 / 2.0 Ton)");
+  const [isCustomProductType, setIsCustomProductType] = useState(false);
+  const [customProductType, setCustomProductType] = useState("");
+
   const [productBrand, setProductBrand] = useState("Gree");
+  const [isCustomBrand, setIsCustomBrand] = useState(false);
+  const [customBrand, setCustomBrand] = useState("");
+
   const [productModel, setProductModel] = useState("Inverter Split 1.5 Ton Fairy Series");
+
+  // Customer Job History
+  const [customerJobHistory, setCustomerJobHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // SECTION 3: Line Items & Charges (Products from Inventory + Services)
   const [productLines, setProductLines] = useState<ProductLineItem[]>([]);
@@ -265,6 +276,50 @@ export default function NewJobIntakePage() {
     return list;
   }, [careOfParties, careOfPersonName]);
 
+  const [configuredEquipmentTypes, setConfiguredEquipmentTypes] = useState<string[]>(COMMON_EQUIPMENT_TYPES);
+  const [configuredBrands, setConfiguredBrands] = useState<string[]>(HVAC_BRANDS);
+  const [configuredJobTypes, setConfiguredJobTypes] = useState<string[]>(COMMON_JOB_TYPES);
+
+  useEffect(() => {
+    try {
+      const savedEquip = localStorage.getItem("custom_equipment_types");
+      if (savedEquip) setConfiguredEquipmentTypes(JSON.parse(savedEquip));
+      const savedBrands = localStorage.getItem("custom_hvac_brands");
+      if (savedBrands) setConfiguredBrands(JSON.parse(savedBrands));
+      const savedJobs = localStorage.getItem("custom_job_types");
+      if (savedJobs) setConfiguredJobTypes(JSON.parse(savedJobs));
+    } catch {}
+  }, []);
+
+  const equipmentTypeOptions = useMemo(() => {
+    const opts = configuredEquipmentTypes.map((t) => ({ value: t, label: t }));
+    return [...opts, { value: "CUSTOM", label: "+ Custom / Other Appliance Type..." }];
+  }, [configuredEquipmentTypes]);
+
+  const brandOptions = useMemo(() => {
+    const opts = configuredBrands.map((b) => ({ value: b, label: b }));
+    return [...opts, { value: "CUSTOM", label: "+ Custom / Other Brand..." }];
+  }, [configuredBrands]);
+
+  // Fetch recent job history when a customer is selected
+  useEffect(() => {
+    if (!selectedCustomerId) {
+      setCustomerJobHistory([]);
+      return;
+    }
+    setLoadingHistory(true);
+    fetch(`/api/jobs?customerId=${selectedCustomerId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setCustomerJobHistory(data.slice(0, 5));
+        } else if (Array.isArray(data?.jobs)) {
+          setCustomerJobHistory(data.jobs.slice(0, 5));
+        }
+      })
+      .catch((err) => console.error("Failed to load customer jobs", err))
+      .finally(() => setLoadingHistory(false));
+  }, [selectedCustomerId]);
 
   // Close customer dropdown when clicking outside
   useEffect(() => {
@@ -300,10 +355,10 @@ export default function NewJobIntakePage() {
 
   const jobTypeOptions: SelectOption[] = useMemo(() => {
     return [
-      ...COMMON_JOB_TYPES.map((t) => ({ value: t, label: t })),
+      ...configuredJobTypes.map((t) => ({ value: t, label: t })),
       { value: "CUSTOM", label: "+ Type Custom Job Type...", badge: "Custom", badgeTone: "blue" as const },
     ];
-  }, []);
+  }, [configuredJobTypes]);
 
   const technicianOptions: SelectOption[] = useMemo(() => {
     return technicians.map((t) => {
@@ -471,7 +526,6 @@ export default function NewJobIntakePage() {
     e.preventDefault();
     if (!selectedCustomerId) {
       setErrorMsg("Please select or add a customer.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     if (!effectiveJobType.trim()) {
@@ -483,9 +537,12 @@ export default function NewJobIntakePage() {
       setIsSubmitting(true);
       setErrorMsg("");
 
+      const effectiveProductType = isCustomProductType ? customProductType.trim() : productType;
+      const effectiveProductBrand = isCustomBrand ? customBrand.trim() : productBrand;
+
       // Consolidate remarks with Product (Product Type, Brand & Model)
-      const equipPrefix = `[Equipment: ${productType || "HVAC Unit"} | Brand: ${
-        productBrand || "Unspecified"
+      const equipPrefix = `[Equipment: ${effectiveProductType || "HVAC Unit"} | Brand: ${
+        effectiveProductBrand || "Unspecified"
       } | Model: ${productModel || "Standard"}] `;
       const fullRemarks = `${equipPrefix}${remarks.trim()}`;
 
@@ -637,39 +694,79 @@ export default function NewJobIntakePage() {
 
           {/* If a customer is already selected, display the Customer Card */}
           {selectedCustomer ? (
-            <div className="p-4 bg-[#F9FAFB] border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm text-[#18181B]">
-                    {selectedCustomer.name}
-                  </span>
-                  <span className="text-[10px] bg-emerald-100 text-[#065F46] font-semibold px-2 py-0.5 rounded-full">
-                    Selected Customer
-                  </span>
+            <div className="p-4 bg-[#F9FAFB] border border-emerald-200 rounded-xl space-y-3 animate-in fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-[#18181B]">
+                      {selectedCustomer.name}
+                    </span>
+                    <span className="text-[10px] bg-emerald-100 text-[#065F46] font-semibold px-2 py-0.5 rounded-full">
+                      Selected Customer
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-[#52525B]">
+                    <span className="flex items-center gap-1 font-mono">
+                      <Phone className="w-3 h-3 text-[#71717A]" />
+                      {selectedCustomer.phone}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-[#0D7A5F]" />
+                      {selectedCustomer.addressText}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 text-xs text-[#52525B]">
-                  <span className="flex items-center gap-1 font-mono">
-                    <Phone className="w-3 h-3 text-[#71717A]" />
-                    {selectedCustomer.phone}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-[#0D7A5F]" />
-                    {selectedCustomer.addressText}
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCustomerId("");
+                    setCustomerSearch("");
+                  }}
+                  className="text-xs font-semibold text-[#71717A] hover:text-[#18181B] px-3 py-1.5 rounded-lg border border-[#EDEDED] bg-white hover:bg-[#F4F4F5] transition self-start sm:self-center"
+                >
+                  Change Customer
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCustomerId("");
-                  setCustomerSearch("");
-                }}
-                className="text-xs font-semibold text-[#71717A] hover:text-[#18181B] px-3 py-1.5 rounded-lg border border-[#EDEDED] bg-white hover:bg-[#F4F4F5] transition self-start sm:self-center"
-              >
-                Change Customer
-              </button>
+              {/* Customer Past Job History */}
+              <div className="pt-2.5 border-t border-emerald-100/80">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold text-[#18181B] flex items-center gap-1.5 uppercase tracking-wider">
+                    <Clock className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                    Past Job History ({loadingHistory ? "Loading..." : `${customerJobHistory.length} previous jobs`})
+                  </span>
+                </div>
+                {loadingHistory ? (
+                  <p className="text-[11px] text-[#71717A] italic">Loading customer service records...</p>
+                ) : customerJobHistory.length === 0 ? (
+                  <p className="text-[11px] text-[#71717A]">First-time customer — no previous work orders recorded.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {customerJobHistory.map((pj: any) => (
+                      <div
+                        key={pj.id}
+                        className="p-2 rounded-lg bg-white border border-[#E4E4E7] text-[11px] space-y-1 shadow-2xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-[#0D7A5F]">{pj.jobNumber}</span>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-[#F4F4F5] text-[#52525B]">
+                            {pj.status}
+                          </span>
+                        </div>
+                        <p className="text-[#18181B] font-medium truncate">{pj.title || formatJobType(pj.jobType)}</p>
+                        <div className="flex items-center justify-between text-[10px] text-[#71717A]">
+                          <span>{pj.createdAt ? new Date(pj.createdAt).toLocaleDateString() : "—"}</span>
+                          {pj.assignedTechnician && (
+                            <span className="truncate max-w-[100px]">Tech: {pj.assignedTechnician.name}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             /* Customer Search Input with Interactive Dropdown */
@@ -846,21 +943,30 @@ export default function NewJobIntakePage() {
                   <label className="font-semibold text-[#18181B] block mb-1">
                     Product / Appliance Type *
                   </label>
-                  <div className="relative">
+                  <SearchableSelect
+                    options={equipmentTypeOptions}
+                    value={isCustomProductType ? "CUSTOM" : productType}
+                    onChange={(val: string) => {
+                      if (val === "CUSTOM") {
+                        setIsCustomProductType(true);
+                      } else {
+                        setIsCustomProductType(false);
+                        setProductType(val);
+                      }
+                    }}
+                    placeholder="Search or pick appliance type..."
+                    searchPlaceholder="Search appliance types (e.g. Inverter AC, Chiller)..."
+                    className="w-full"
+                  />
+                  {isCustomProductType && (
                     <input
                       type="text"
-                      list="hvac-equipment-products-list"
-                      placeholder="e.g. Inverter AC 1.5 Ton, Chiller..."
-                      value={productType}
-                      onChange={(e) => setProductType(e.target.value)}
-                      className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
+                      placeholder="Type custom appliance type..."
+                      value={customProductType}
+                      onChange={(e) => setCustomProductType(e.target.value)}
+                      className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
                     />
-                    <datalist id="hvac-equipment-products-list">
-                      {COMMON_EQUIPMENT_TYPES.map((item) => (
-                        <option key={item} value={item} />
-                      ))}
-                    </datalist>
-                  </div>
+                  )}
                   <span className="text-[10px] text-[#71717A] mt-1 block">
                     Type or pick from standard HVAC equipment types
                   </span>
@@ -871,21 +977,30 @@ export default function NewJobIntakePage() {
                   <label className="font-semibold text-[#18181B] block mb-1">
                     Equipment Brand (Type or Select)
                   </label>
-                  <div className="relative">
+                  <SearchableSelect
+                    options={brandOptions}
+                    value={isCustomBrand ? "CUSTOM" : productBrand}
+                    onChange={(val: string) => {
+                      if (val === "CUSTOM") {
+                        setIsCustomBrand(true);
+                      } else {
+                        setIsCustomBrand(false);
+                        setProductBrand(val);
+                      }
+                    }}
+                    placeholder="Search or pick brand..."
+                    searchPlaceholder="Search brands (e.g. Gree, Daikin, Haier)..."
+                    className="w-full"
+                  />
+                  {isCustomBrand && (
                     <input
                       type="text"
-                      list="hvac-brands-list"
-                      placeholder="e.g. Daikin, Gree, Haier, Carrier..."
-                      value={productBrand}
-                      onChange={(e) => setProductBrand(e.target.value)}
-                      className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+                      placeholder="Type brand manufacturer..."
+                      value={customBrand}
+                      onChange={(e) => setCustomBrand(e.target.value)}
+                      className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
                     />
-                    <datalist id="hvac-brands-list">
-                      {HVAC_BRANDS.map((b) => (
-                        <option key={b} value={b} />
-                      ))}
-                    </datalist>
-                  </div>
+                  )}
                   <span className="text-[10px] text-[#71717A] mt-1 block">
                     Brand manufacturer
                   </span>
@@ -1001,7 +1116,7 @@ export default function NewJobIntakePage() {
                               setSelectedCareOfPartyId(null);
                             }
                           }}
-                          className="w-full text-xs pl-8.5 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
+                          className="w-full text-xs pl-9 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
                         />
                         {careOfCompanyName && (
                           <button
@@ -1074,7 +1189,7 @@ export default function NewJobIntakePage() {
                           value={careOfPersonName}
                           onFocus={() => setIsPersonDropdownOpen(true)}
                           onChange={(e) => setCareOfPersonName(e.target.value)}
-                          className="w-full text-xs pl-8.5 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
+                          className="w-full text-xs pl-9 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
                         />
                         {careOfPersonName && (
                           <button

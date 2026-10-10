@@ -19,6 +19,12 @@ export class TaxService {
    * As confirmed by user: fully custom rate configured per vendor (e.g. 8%, 11%, 5%, 0% exempt).
    */
   static calculateWht(grossAmount: number, whtRate: number, isExempt: boolean = false) {
+    if (!Number.isFinite(grossAmount) || grossAmount <= 0) {
+      throw new Error("Gross payment amount must be a positive finite number.");
+    }
+    if (!Number.isFinite(whtRate) || whtRate < 0 || whtRate > 100) {
+      throw new Error("WHT rate must be a finite percentage between 0 and 100.");
+    }
     if (isExempt || whtRate <= 0) {
       return {
         grossAmount,
@@ -58,91 +64,63 @@ export class TaxService {
       postedBy = "Accountant",
     } = params;
 
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: vendorId },
-    });
-    if (!vendor) throw new Error("Vendor not found");
+    return prisma.$transaction(async (tx) => {
+      const vendor = await tx.vendor.findUnique({ where: { id: vendorId } });
+      if (!vendor) throw new Error("Vendor not found");
 
-    const taxCalc = this.calculateWht(grossAmount, vendor.whtRate, vendor.whtExempt);
-
-    // 1. Get Accounts via AccountMappingService
-    const apAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_payable" });
-    const whtAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_wht" });
-    let disbursingAccount = null;
-    if (disbursingAccountCode) {
-      disbursingAccount = await prisma.account.findFirst({
-        where: {
-          OR: [
-            { code: disbursingAccountCode },
-            { id: disbursingAccountCode },
-          ],
-          isActive: true,
-        },
+      const taxCalc = this.calculateWht(grossAmount, vendor.whtRate, vendor.whtExempt);
+      const apAccount = await AccountMappingService.resolveAccount({
+        transactionType: "vendor_payment_payable",
+        prismaClient: tx,
       });
-    }
-    if (!disbursingAccount) {
-      disbursingAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_disbursing" });
-    }
+      const whtAccount = taxCalc.whtAmount > 0
+        ? await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_wht", prismaClient: tx })
+        : null;
+      let disbursingAccount = disbursingAccountCode
+        ? await tx.account.findFirst({
+            where: { OR: [{ code: disbursingAccountCode }, { id: disbursingAccountCode }], isActive: true },
+          })
+        : null;
+      if (!disbursingAccount) {
+        disbursingAccount = await AccountMappingService.resolveAccount({
+          transactionType: "vendor_payment_disbursing",
+          prismaClient: tx,
+        });
+      }
 
-    // 2. Prepare Balanced Journal Lines
-    const lines = [];
+      const lines = [{ accountId: apAccount.id, debit: taxCalc.grossAmount, credit: 0 }];
+      if (taxCalc.whtAmount > 0 && whtAccount) {
+        lines.push({ accountId: whtAccount.id, debit: 0, credit: taxCalc.whtAmount });
+      }
+      if (taxCalc.netPayable > 0) {
+        lines.push({ accountId: disbursingAccount.id, debit: 0, credit: taxCalc.netPayable });
+      }
 
-    // Dr AP (Full gross amount)
-    lines.push({
-      accountId: apAccount.id,
-      debit: taxCalc.grossAmount,
-      credit: 0,
-    });
-
-    // Cr WHT Payable (if any withheld)
-    if (taxCalc.whtAmount > 0) {
-      lines.push({
-        accountId: whtAccount.id,
-        debit: 0,
-        credit: taxCalc.whtAmount,
+      const docNumber = `PAY-${Date.now().toString().slice(-6)}`;
+      const journal = await AccountsPostingService.post({
+        date: paymentDate,
+        memo: memo || `Payment to ${vendor.name}: Net PKR ${taxCalc.netPayable} (WHT PKR ${taxCalc.whtAmount} withheld @ ${vendor.whtRate}%)`,
+        refType: "vendor_payment_wht",
+        refId: vendor.id,
+        postedBy,
+        lines,
+        tx,
       });
-    }
-
-    // Cr Cash/Bank (Net amount paid to vendor)
-    if (taxCalc.netPayable > 0) {
-      lines.push({
-        accountId: disbursingAccount.id,
-        debit: 0,
-        credit: taxCalc.netPayable,
+      const subledger = await SubLedgerService.recordVendorEntry({
+        vendorId: vendor.id,
+        entryType: "payment",
+        documentNumber: docNumber,
+        journalEntryId: journal.id,
+        debit: taxCalc.grossAmount,
+        credit: 0,
+        whtWithheld: taxCalc.whtAmount,
+        cprNumber: cprNumber || undefined,
+        notes: `Disbursed via ${disbursingAccount.name}. WHT withheld: PKR ${taxCalc.whtAmount}`,
+        tx,
       });
-    }
 
-    const docNumber = `PAY-${Date.now().toString().slice(-6)}`;
-
-    // 3. Post to General Ledger Spine
-    const journal = await AccountsPostingService.post({
-      date: paymentDate,
-      memo: memo || `Payment to ${vendor.name}: Net PKR ${taxCalc.netPayable} (WHT PKR ${taxCalc.whtAmount} withheld @ ${vendor.whtRate}%)`,
-      refType: "vendor_payment_wht",
-      refId: vendor.id,
-      postedBy,
-      lines,
+      return { success: true, journal, subledger, taxCalculation: taxCalc };
     });
-
-    // 4. Record Vendor Sub-Ledger Entry
-    const subledger = await SubLedgerService.recordVendorEntry({
-      vendorId: vendor.id,
-      entryType: "payment",
-      documentNumber: docNumber,
-      journalEntryId: journal.id,
-      debit: taxCalc.grossAmount, // Reduces AP debt by full gross
-      credit: 0,
-      whtWithheld: taxCalc.whtAmount,
-      cprNumber: cprNumber || undefined,
-      notes: `Disbursed via ${disbursingAccount.name}. WHT withheld: PKR ${taxCalc.whtAmount}`,
-    });
-
-    return {
-      success: true,
-      journal,
-      subledger,
-      taxCalculation: taxCalc,
-    };
   }
 
   static recordVendorPaymentWithWht = this.postVendorPaymentWithWht;

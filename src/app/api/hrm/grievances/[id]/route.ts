@@ -4,9 +4,10 @@ import { HrmService } from "@/lib/services/HrmService";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const ticket = await HrmService.getGrievanceTicket(params.id);
     if (!ticket) {
       return NextResponse.json({ error: "Ticket not found" }, { status: 404 });

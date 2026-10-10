@@ -91,8 +91,23 @@ export class AuditService {
 
     const stateBefore = JSON.parse(log.stateBefore);
 
-    // Revert entity based on entityType
-    switch (log.entityType) {
+    return prisma.$transaction(async (tx) => {
+      // Claim first inside the same transaction so concurrent retries cannot apply the inverse twice.
+      const claimed = await tx.rollbackLog.updateMany({
+        where: { id: rollbackLogId, status: log.status },
+        data: {
+          status: "ROLLED_BACK",
+          rolledBackAt: new Date(),
+          rolledBackBy,
+          reason: reason || "Rolled back by administrator",
+        },
+      });
+      if (claimed.count === 0) {
+        throw new Error("This action has already been rolled back or changed. Refresh and retry.");
+      }
+
+      // Revert entity based on entityType
+      switch (log.entityType) {
       case "Job": {
         const updateData: any = {};
         if (stateBefore.status !== undefined) updateData.status = stateBefore.status;
@@ -102,7 +117,7 @@ export class AuditService {
         if (stateBefore.finalizedAt !== undefined) updateData.finalizedAt = stateBefore.finalizedAt ? new Date(stateBefore.finalizedAt) : null;
         if (stateBefore.qualityFlag !== undefined) updateData.qualityFlag = stateBefore.qualityFlag;
 
-        await prisma.job.update({
+        await tx.job.update({
           where: { id: log.entityId },
           data: updateData,
         });
@@ -110,7 +125,7 @@ export class AuditService {
         // If items had actual quantities changed, restore them
         if (stateBefore.items && Array.isArray(stateBefore.items)) {
           for (const it of stateBefore.items) {
-            await prisma.jobItem.update({
+            await tx.jobItem.update({
               where: { id: it.id },
               data: {
                 quantityActual: it.quantityActual ?? null,
@@ -124,20 +139,20 @@ export class AuditService {
       }
 
       case "InventoryRequest": {
-        const curReq = await prisma.inventoryRequest.findUnique({ where: { id: log.entityId } });
+        const curReq = await tx.inventoryRequest.findUnique({ where: { id: log.entityId } });
         if (curReq && curReq.status === "issued" && stateBefore.status === "pending") {
           // If stock was consumed, re-credit to warehouse
-          const matchedProd = await prisma.product.findFirst({
+          const matchedProd = await tx.product.findFirst({
             where: { name: { contains: curReq.item.split(" ")[0] } },
           });
           if (matchedProd) {
-            await prisma.product.update({
+            await tx.product.update({
               where: { id: matchedProd.id },
               data: { stockQuantity: { increment: curReq.qtyRequested } },
             });
           }
         }
-        await prisma.inventoryRequest.update({
+        await tx.inventoryRequest.update({
           where: { id: log.entityId },
           data: { status: stateBefore.status || "pending" },
         });
@@ -145,7 +160,7 @@ export class AuditService {
       }
 
       case "Discount": {
-        await prisma.job.update({
+        await tx.job.update({
           where: { id: log.entityId },
           data: {
             discountAmount: stateBefore.discountAmount || 0,
@@ -156,7 +171,7 @@ export class AuditService {
       }
 
       case "Expense": {
-        await prisma.jobExpenseClaim.update({
+        await tx.jobExpenseClaim.update({
           where: { id: log.entityId },
           data: {
             status: stateBefore.status || "pending",
@@ -167,7 +182,7 @@ export class AuditService {
 
       case "JournalEntry": {
         // Revert Journal Entry: post exact inverse double entry
-        const je = await prisma.journalEntry.findUnique({
+        const je = await tx.journalEntry.findUnique({
           where: { id: log.entityId },
           include: { lines: true },
         });
@@ -182,6 +197,7 @@ export class AuditService {
             refType: `rollback_${je.refType}`,
             refId: je.id,
             lines: inverseLines,
+            tx,
           });
         }
         break;
@@ -189,29 +205,21 @@ export class AuditService {
 
       default:
         throw new Error(`Unsupported rollback entity type: ${log.entityType}`);
-    }
+      }
 
-    // Mark the rollback log as ROLLED_BACK
-    const updated = await prisma.rollbackLog.update({
-      where: { id: rollbackLogId },
-      data: {
-        status: "ROLLED_BACK",
-        rolledBackAt: new Date(),
-        rolledBackBy,
-        reason: reason || "Rolled back by administrator",
-      },
-    });
+      await tx.activityLog.create({
+        data: {
+          actorName: rolledBackBy || "System",
+          actorRole: "admin",
+          category: "DATA_MUTATION",
+          action: `ROLLED BACK: ${log.entityType} ${log.entityNumber ? '#' + log.entityNumber : ''} (${log.action})`,
+          target: `${log.entityType}:${log.entityId}`,
+          metadata: JSON.stringify({ rollbackLogId, reason }),
+          ipAddress: "127.0.0.1 (Local Session)",
+        },
+      });
 
-    // Log this rollback in ActivityLog
-    await AuditService.logActivity({
-      actorName: rolledBackBy,
-      actorRole: "admin",
-      category: "DATA_MUTATION",
-      action: `ROLLED BACK: ${log.entityType} ${log.entityNumber ? '#' + log.entityNumber : ''} (${log.action})`,
-      target: `${log.entityType}:${log.entityId}`,
-      metadata: { rollbackLogId, reason },
-    });
-
-    return updated;
+      return tx.rollbackLog.findUniqueOrThrow({ where: { id: rollbackLogId } });
+    }, { maxWait: 10000, timeout: 30000 });
   }
 }

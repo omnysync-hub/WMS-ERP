@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { canAddServiceOrItem } from "@/lib/jobStatus";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Plus, Trash2, Wrench, Check, AlertCircle } from "lucide-react";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { formatCurrency } from "@/lib/utils";
 
 interface ServiceEntry {
@@ -270,18 +271,19 @@ export default function AddServiceDrawer({
                       </span>
                       <span className="text-[10px] text-purple-700 font-normal">Auto-fills description & rate</span>
                     </label>
-                    <select
+                    <SearchableSelect
+                      options={catalogServices.map((srv) => ({
+                        value: srv.id,
+                        label: `${srv.name} (${srv.sku || "SVC"})`,
+                        subLabel: `${formatCurrency(srv.unitPrice)} / ${srv.unit || "service"}`,
+                      }))}
                       value={row.catalogServiceId}
-                      onChange={(e) => handleSelectCatalog(row.id, e.target.value)}
-                      className="w-full bg-purple-50/70 p-2 rounded-lg border border-purple-200 font-medium text-xs focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none text-[#18181B]"
-                    >
-                      <option value="">-- Choose from Catalog or type custom below --</option>
-                      {catalogServices.map((srv) => (
-                        <option key={srv.id} value={srv.id}>
-                          {srv.name} ({srv.sku}) — {formatCurrency(srv.unitPrice)} / {srv.unit || "service"}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val: string) => handleSelectCatalog(row.id, val)}
+                      placeholder="-- Search Catalog or type custom below --"
+                      searchPlaceholder="Search catalog services (e.g. Chemical Wash, Installation)..."
+                      clearable
+                      className="w-full bg-purple-50/70 border-purple-200"
+                    />
                   </div>
                 )}
 

@@ -6,8 +6,9 @@ import { InventoryService } from "@/lib/services/InventoryService";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const gate = await requireJobsPermission(req, "jobs.stock_return_request");
   if (gate.error) return gate.error;
   try {

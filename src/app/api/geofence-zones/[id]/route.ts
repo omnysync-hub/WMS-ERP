@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 
-type Ctx = { params: { id: string } };
+type Ctx = { params: Promise<{ id: string }> };
 
 async function assertAdminIfAuthed(req: NextRequest) {
   const caller = await resolveCaller(req);
@@ -13,8 +13,9 @@ async function assertAdminIfAuthed(req: NextRequest) {
   return null;
 }
 
-export async function GET(req: NextRequest, { params }: Ctx) {
+export async function GET(req: NextRequest, context: Ctx) {
   try {
+    const params = await context.params;
     const zone = await prisma.geofenceZone.findUnique({
       where: { id: params.id },
       include: {
@@ -45,8 +46,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: Ctx) {
+export async function PATCH(req: NextRequest, context: Ctx) {
   try {
+    const params = await context.params;
     const denied = await assertAdminIfAuthed(req);
     if (denied) return denied;
 
@@ -87,8 +89,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: Ctx) {
+export async function DELETE(req: NextRequest, context: Ctx) {
   try {
+    const params = await context.params;
     const denied = await assertAdminIfAuthed(req);
     if (denied) return denied;
 

@@ -601,6 +601,7 @@ export default function DataTable<T extends Record<string, any>>({
                               {col.isPrimaryLink ? (
                                 <Link
                                   href={col.getHref ? col.getHref(row) : `#`}
+                                  scroll={false}
                                   className="font-semibold text-[#0D7A5F] hover:underline focus-visible:outline-none"
                                 >
                                   {col.cell ? col.cell(row) : value}

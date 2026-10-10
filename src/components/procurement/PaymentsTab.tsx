@@ -49,20 +49,6 @@ export default function PaymentsTab({
     if (queueFilter) setFilterPaymentStatus(queueFilter);
   }, [queueFilter]);
 
-  if (isStorekeeper) {
-    return (
-      <div className="p-8 text-center bg-white border border-[#EDEDED] rounded-xl space-y-3 shadow-2xs">
-        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
-          <CreditCard className="w-6 h-6" />
-        </div>
-        <h3 className="text-sm font-bold text-[#18181B]">Payment Disbursements Restricted</h3>
-        <p className="text-xs text-[#71717A] max-w-md mx-auto">
-          Supplier disbursements and bank payments are restricted to Finance & Accounts personnel. Storekeepers manage physical stock receiving (GRN) and material allocations.
-        </p>
-      </div>
-    );
-  }
-
   // Payment Modal State
   const [showPayModal, setShowPayModal] = useState(Boolean(presetInvoiceForPay));
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(presetInvoiceForPay || null);
@@ -80,6 +66,20 @@ export default function PaymentsTab({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+
+  if (isStorekeeper) {
+    return (
+      <div className="p-8 text-center bg-white border border-[#EDEDED] rounded-xl space-y-3 shadow-2xs">
+        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+          <CreditCard className="w-6 h-6" />
+        </div>
+        <h3 className="text-sm font-bold text-[#18181B]">Payment Disbursements Restricted</h3>
+        <p className="text-xs text-[#71717A] max-w-md mx-auto">
+          Supplier disbursements and bank payments are restricted to Finance & Accounts personnel. Storekeepers manage physical stock receiving (GRN) and material allocations.
+        </p>
+      </div>
+    );
+  }
 
   const payableInvoices = invoices.filter(
     (inv) => inv.matchStatus === "approved_for_payment" || inv.matchStatus === "paid"

@@ -24,9 +24,10 @@ import {
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const employeeId = params.id;
 
     // 1. Authenticate caller

@@ -159,92 +159,94 @@ export class PayrollService {
       lines.push({ accountId: advanceAccount.id, debit: 0, credit: run.totalDeductions });
     }
 
-    await AccountsPostingService.post({
-      memo: `Payroll disbursement for period ${run.period}`,
-      refType: "payroll",
-      refId: run.id,
-      lines,
-    });
-
-    // Mark payslips as paid
-    await prisma.payslip.updateMany({
-      where: { payrollRunId },
-      data: { status: "paid" },
-    });
-
-    // Settle expense_owed included in this run (expense_paid clears them per LOGICS section 4)
-    // and recover advances only for the amount actually deducted this run (partial-safe).
-    for (const slip of run.payslips) {
-      if (slip.expenseAdjustment > 0) {
-        await prisma.technicianLedgerEntry.create({
-          data: {
-            technicianId: slip.employeeId,
-            type: "expense_paid",
-            amount: slip.expenseAdjustment,
-            notes: `Settled via payroll run ${run.period} (${run.id})`,
-          },
-        });
+    return prisma.$transaction(async (tx) => {
+      // Conditional claim prevents a double-click/retry from creating a second payroll journal.
+      const claimed = await tx.payrollRun.updateMany({
+        where: { id: payrollRunId, status: "Approved" },
+        data: { status: "Disbursing" },
+      });
+      if (claimed.count === 0) {
+        throw new Error("Payroll run is no longer Approved (it may already be disbursed). Refresh and retry.");
       }
 
-      if (slip.advanceDeduction > 0) {
-        let remainingToRecover = slip.advanceDeduction;
-        const advances = await prisma.employeeAdvance.findMany({
-          where: { employeeId: slip.employeeId, status: "approved" },
-          orderBy: { createdAt: "asc" },
-        });
+      await AccountsPostingService.post({
+        memo: `Payroll disbursement for period ${run.period}`,
+        refType: "payroll",
+        refId: run.id,
+        lines,
+        tx,
+      });
 
-        for (const adv of advances) {
-          if (remainingToRecover <= 0) break;
+      await tx.payslip.updateMany({
+        where: { payrollRunId },
+        data: { status: "paid" },
+      });
 
-          if (remainingToRecover >= adv.amount) {
-            // Full recovery of this advance row
-            await prisma.employeeAdvance.update({
-              where: { id: adv.id },
-              data: { status: "recovered" },
-            });
-            remainingToRecover = Math.round((remainingToRecover - adv.amount) * 100) / 100;
-          } else {
-            // Partial recovery: mark deducted portion recovered, leave remainder approved
-            // (same split pattern as JobsService.clearExpense)
-            const recoveredAmount = remainingToRecover;
-            const remainderAmount = Math.round((adv.amount - recoveredAmount) * 100) / 100;
-
-            await prisma.employeeAdvance.update({
-              where: { id: adv.id },
-              data: {
-                amount: recoveredAmount,
-                status: "recovered",
-              },
-            });
-
-            await prisma.employeeAdvance.create({
-              data: {
-                employeeId: adv.employeeId,
-                amount: remainderAmount,
-                status: "approved",
-                approvedBy: adv.approvedBy,
-              },
-            });
-
-            remainingToRecover = 0;
-          }
+      // Settle expense_owed and recover only the advance amount deducted in this run.
+      for (const slip of run.payslips) {
+        if (slip.expenseAdjustment > 0) {
+          await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId: slip.employeeId,
+              type: "expense_paid",
+              amount: slip.expenseAdjustment,
+              notes: `Settled via payroll run ${run.period} (${run.id})`,
+            },
+          });
         }
 
-        await prisma.technicianLedgerEntry.create({
-          data: {
-            technicianId: slip.employeeId,
-            type: "advance_recovered",
-            amount: slip.advanceDeduction,
-            notes: `Advance recovered via payroll deduction for period ${run.period}`,
-          },
-        });
-      }
-    }
+        if (slip.advanceDeduction > 0) {
+          let remainingToRecover = slip.advanceDeduction;
+          const advances = await tx.employeeAdvance.findMany({
+            where: { employeeId: slip.employeeId, status: "approved" },
+            orderBy: { createdAt: "asc" },
+          });
 
-    return await prisma.payrollRun.update({
-      where: { id: payrollRunId },
-      data: { status: "Paid" },
-      include: { payslips: { include: { employee: true } } },
-    });
+          for (const adv of advances) {
+            if (remainingToRecover <= 0) break;
+
+            if (remainingToRecover >= adv.amount) {
+              await tx.employeeAdvance.update({
+                where: { id: adv.id },
+                data: { status: "recovered" },
+              });
+              remainingToRecover = Math.round((remainingToRecover - adv.amount) * 100) / 100;
+            } else {
+              const recoveredAmount = remainingToRecover;
+              const remainderAmount = Math.round((adv.amount - recoveredAmount) * 100) / 100;
+
+              await tx.employeeAdvance.update({
+                where: { id: adv.id },
+                data: { amount: recoveredAmount, status: "recovered" },
+              });
+              await tx.employeeAdvance.create({
+                data: {
+                  employeeId: adv.employeeId,
+                  amount: remainderAmount,
+                  status: "approved",
+                  approvedBy: adv.approvedBy,
+                },
+              });
+              remainingToRecover = 0;
+            }
+          }
+
+          await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId: slip.employeeId,
+              type: "advance_recovered",
+              amount: slip.advanceDeduction,
+              notes: `Advance recovered via payroll deduction for period ${run.period}`,
+            },
+          });
+        }
+      }
+
+      return tx.payrollRun.update({
+        where: { id: payrollRunId },
+        data: { status: "Paid" },
+        include: { payslips: { include: { employee: true } } },
+      });
+    }, { maxWait: 10000, timeout: 30000 });
   }
 }

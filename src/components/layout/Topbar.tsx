@@ -21,18 +21,21 @@ import {
   ExternalLink,
   RotateCcw,
   ShoppingBag,
+  Menu,
 } from "lucide-react";
 import { useRole, RoleType } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { formatJobType } from "@/lib/utils";
 
 interface TopbarProps {
+  onOpenNavigation?: () => void;
   onOpenCustomerDrawer?: () => void;
   onOpenTechnicianDrawer?: () => void;
   onOpenExpenseDrawer?: () => void;
 }
 
 export default function Topbar({
+  onOpenNavigation,
   onOpenCustomerDrawer,
   onOpenTechnicianDrawer,
   onOpenExpenseDrawer,
@@ -268,9 +271,17 @@ export default function Topbar({
   return (
     <>
       {/* Continuous Dark Top Bar matching Sidebar with no visible seam */}
-      <header className="h-14 bg-[#18181B] px-5 flex items-center justify-between z-20 shrink-0 select-none">
+      <header className="h-14 bg-[#18181B] px-2.5 sm:px-5 flex items-center justify-between z-20 shrink-0 select-none">
         {/* Left: Universal Search ("Find or Ask") & Global "+" Quick-Create */}
         <div className="flex items-center gap-2.5 flex-1 max-w-xl">
+          <button
+            type="button"
+            onClick={onOpenNavigation}
+            className="lg:hidden grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#D4D4D8] transition hover:bg-[#27272A] hover:text-white"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
           {/* Pill-Shaped Universal Search Field */}
           <div className="relative w-full max-w-md">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#A1A1AA] pointer-events-none" />
@@ -278,11 +289,11 @@ export default function Topbar({
               type="text"
               readOnly
               onClick={() => setIsSearchOpen(true)}
-              placeholder="Find or Ask... (Jobs, customers, techs, invoices)"
+              placeholder="Find jobs, customers, techs..."
               aria-label="Universal search"
               className="w-full bg-[#27272A] hover:bg-[#2E2E32] pl-8 pr-12 py-1.5 rounded-full text-xs text-[#E4E4E7] placeholder-[#A1A1AA] border border-[#3F3F46]/70 focus:border-[#0D7A5F] cursor-pointer transition focus:outline-none"
             />
-            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] bg-[#3F3F46] text-[#D4D4D8] px-1.5 py-0.5 rounded font-mono border border-[#52525B]">
+            <span className="hidden sm:inline absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] bg-[#3F3F46] text-[#D4D4D8] px-1.5 py-0.5 rounded font-mono border border-[#52525B]">
               ⌘K
             </span>
           </div>
@@ -510,20 +521,6 @@ export default function Topbar({
                     })}
 
                   <div className="border-t border-[#EDEDED] mt-1 pt-1.5 px-1.5 space-y-1">
-                    <Link
-                      href="/mobile"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setIsUserMenuOpen(false)}
-                      className="w-full text-left px-2.5 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] font-bold flex items-center justify-between transition"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Smartphone className="w-4 h-4" />
-                        <span>Field Companion (New Tab)</span>
-                      </span>
-                      <ExternalLink className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                    </Link>
-
                     <Link
                       href="/audit"
                       onClick={() => setIsUserMenuOpen(false)}

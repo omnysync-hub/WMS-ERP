@@ -74,18 +74,20 @@ async function main() {
 
   const valid512Vector = Array.from({ length: EXPECTED_EMBEDDING_DIMENSION }, (_, i) => Math.sin(i));
 
+  const wrapContext = (id: string) => ({ params: Promise.resolve({ id }) });
+
   // =========================================================================
   // TEST 1: Unauthenticated Requests (Missing credentials must return 401)
   // =========================================================================
   console.log("TEST 1: Testing Unauthenticated Access (POST & GET must return 401)...");
   const unauthPostReq = mockNextRequest({ embedding: valid512Vector });
-  const unauthPostRes = await enrollPost(unauthPostReq, { params: { id: empA.id } });
+  const unauthPostRes = await enrollPost(unauthPostReq, wrapContext(empA.id));
   if (unauthPostRes.status !== 401) {
     throw new Error(`Test 1 FAILED: Expected 401 for anonymous POST, got ${unauthPostRes.status}`);
   }
 
   const unauthGetReq = mockNextRequest({}, "GET");
-  const unauthGetRes = await enrollGet(unauthGetReq, { params: { id: empA.id } });
+  const unauthGetRes = await enrollGet(unauthGetReq, wrapContext(empA.id));
   if (unauthGetRes.status !== 401) {
     throw new Error(`Test 1 FAILED: Expected 401 for anonymous GET, got ${unauthGetRes.status}`);
   }
@@ -99,7 +101,7 @@ async function main() {
   const unsignedToken = `Bearer wms_mobile_${Buffer.from(`${empA.id}:${Date.now()}`).toString("base64")}`;
   const unsignedRes = await enrollPost(
     mockNextRequest({ embedding: valid512Vector }, "POST", { authorization: unsignedToken }),
-    { params: { id: empA.id } }
+    wrapContext(empA.id)
   );
   if (unsignedRes.status !== 401) {
     throw new Error(`Test 1B FAILED: Expected 401 for unsigned token, got ${unsignedRes.status}`);
@@ -110,7 +112,7 @@ async function main() {
   const forgedToken = `Bearer wms_mobile_${fakePayload}.badf00d1234567890badf00d1234567890badf00d1234567890badf00d12345678`;
   const forgedRes = await enrollPost(
     mockNextRequest({ embedding: valid512Vector }, "POST", { authorization: forgedToken }),
-    { params: { id: empA.id } }
+    wrapContext(empA.id)
   );
   if (forgedRes.status !== 401) {
     throw new Error(`Test 1B FAILED: Expected 401 for forged HMAC signature, got ${forgedRes.status}`);
@@ -126,7 +128,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(empA.id) }
   );
-  const crossPostRes = await enrollPost(crossPostReq, { params: { id: empB.id } });
+  const crossPostRes = await enrollPost(crossPostReq, wrapContext(empB.id));
   const crossPostData = await crossPostRes.json();
 
   console.log(`Cross-POST Status: ${crossPostRes.status}, Error: "${crossPostData.error}"`);
@@ -151,7 +153,7 @@ async function main() {
       "x-actor-role": "admin",  // Malicious header claim
     }
   );
-  const spoofRes = await enrollPost(spoofReq, { params: { id: empB.id } });
+  const spoofRes = await enrollPost(spoofReq, wrapContext(empB.id));
   const spoofData = await spoofRes.json();
 
   console.log(`Spoof Attempt Status: ${spoofRes.status}, Error: "${spoofData.error}"`);
@@ -169,7 +171,7 @@ async function main() {
     "GET",
     { authorization: mobileToken(empA.id) }
   );
-  const crossGetRes = await enrollGet(crossGetReq, { params: { id: empB.id } });
+  const crossGetRes = await enrollGet(crossGetReq, wrapContext(empB.id));
   const crossGetData = await crossGetRes.json();
 
   console.log(`Cross-GET Status: ${crossGetRes.status}, Error: "${crossGetData.error}"`);
@@ -187,7 +189,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(empA.id) }
   );
-  const selfPostRes = await enrollPost(selfPostReq, { params: { id: empA.id } });
+  const selfPostRes = await enrollPost(selfPostReq, wrapContext(empA.id));
   const selfPostData = await selfPostRes.json();
 
   if (selfPostRes.status !== 200 || !selfPostData.success || !selfPostData.faceEnrolled) {
@@ -196,7 +198,7 @@ async function main() {
 
   // Verify Self GET
   const selfGetReq = mockNextRequest({}, "GET", { authorization: mobileToken(empA.id) });
-  const selfGetRes = await enrollGet(selfGetReq, { params: { id: empA.id } });
+  const selfGetRes = await enrollGet(selfGetReq, wrapContext(empA.id));
   const selfGetData = await selfGetRes.json();
   if (selfGetRes.status !== 200 || !selfGetData.hasEmbedding || selfGetData.enrollmentCount !== 1) {
     throw new Error(`Test 4 FAILED: Expected 200 for self GET, got ${selfGetRes.status}`);
@@ -212,7 +214,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(empA.id) }
   );
-  const rapidPostRes = await enrollPost(rapidPostReq, { params: { id: empA.id } });
+  const rapidPostRes = await enrollPost(rapidPostReq, wrapContext(empA.id));
   const rapidPostData = await rapidPostRes.json();
 
   console.log(`Rapid re-enrollment status: ${rapidPostRes.status}, Error: "${rapidPostData.error}"`);
@@ -234,7 +236,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(adminEmp.id) }
   );
-  const adminPostRes = await enrollPost(adminPostReq, { params: { id: empB.id } });
+  const adminPostRes = await enrollPost(adminPostReq, wrapContext(empB.id));
   const adminPostData = await adminPostRes.json();
 
   if (adminPostRes.status !== 200 || !adminPostData.success || adminPostData.enrollmentCount !== 1) {
@@ -243,7 +245,7 @@ async function main() {
 
   // Admin GET on Employee B
   const adminGetReq = mockNextRequest({}, "GET", { authorization: mobileToken(adminEmp.id) });
-  const adminGetRes = await enrollGet(adminGetReq, { params: { id: empB.id } });
+  const adminGetRes = await enrollGet(adminGetReq, wrapContext(empB.id));
   const adminGetData = await adminGetRes.json();
   if (adminGetRes.status !== 200 || adminGetData.employeeId !== empB.id || !adminGetData.hasEmbedding) {
     throw new Error(`Test 6 FAILED: Admin GET on Employee B failed with status ${adminGetRes.status}`);
@@ -260,7 +262,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(adminEmp.id) }
   );
-  const invalidRes = await enrollPost(invalidReq, { params: { id: empB.id } });
+  const invalidRes = await enrollPost(invalidReq, wrapContext(empB.id));
   const invalidData = await invalidRes.json();
 
   if (invalidRes.status !== 400 || !invalidData.error?.includes("512")) {
@@ -278,7 +280,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(empA.id) }
   );
-  const malReenrollRes = await enrollPost(malReenrollReq, { params: { id: empB.id } });
+  const malReenrollRes = await enrollPost(malReenrollReq, wrapContext(empB.id));
   if (malReenrollRes.status !== 403) {
     throw new Error(`Test 8 FAILED: Expected 403 when non-admin attempts re-enrollment overwrite, got ${malReenrollRes.status}`);
   }
@@ -300,7 +302,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(empA.id) }
   );
-  const validReenrollRes = await enrollPost(validReenrollReq, { params: { id: empA.id } });
+  const validReenrollRes = await enrollPost(validReenrollReq, wrapContext(empA.id));
   const validReenrollData = await validReenrollRes.json();
 
   if (
@@ -327,7 +329,7 @@ async function main() {
     "POST",
     { authorization: mobileToken(adminEmp.id) }
   );
-  const deactPostRes = await enrollPost(deactPostReq, { params: { id: empB.id } });
+  const deactPostRes = await enrollPost(deactPostReq, wrapContext(empB.id));
   if (deactPostRes.status !== 403) {
     throw new Error(`Test 10 FAILED: Expected 403 when updating deactivated employee, got ${deactPostRes.status}`);
   }

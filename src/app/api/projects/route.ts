@@ -186,84 +186,83 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invoice amount must be greater than zero." }, { status: 400 });
       }
 
-      const invoiceCount = await prisma.invoice.count();
-      const invoiceNumber = `INV-PRJ-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
+      if (!project.customerId) {
+        return NextResponse.json(
+          { error: "Project billing requires a linked customer so AR and the customer sub-ledger remain synchronized." },
+          { status: 400 }
+        );
+      }
 
-      const invoice = await prisma.invoice.create({
-        data: {
-          invoiceNumber,
-          projectId,
-          customerId: project.customerId,
-          customerName: project.customer?.name || "Client",
-          amount: invoiceAmount,
-          status: "unpaid",
-        },
-      });
-
-      // Update project invoiced amount
-      await prisma.project.update({
-        where: { id: projectId },
-        data: { invoicedAmount: { increment: invoiceAmount } },
-      });
-
-      // If tied to milestone, mark milestone as billed
-      if (milestoneId) {
-        await prisma.projectMilestone.update({
-          where: { id: milestoneId },
+      const invoice = await prisma.$transaction(async (tx) => {
+        const [arAccount, revAccount] = await Promise.all([
+          AccountMappingService.resolveAccount({
+            transactionType: "job_revenue_receivable",
+            prismaClient: tx,
+          }),
+          AccountMappingService.resolveAccount({
+            transactionType: "job_revenue_sales",
+            prismaClient: tx,
+          }),
+        ]);
+        const invoiceCount = await tx.invoice.count();
+        const invoiceNumber = `INV-PRJ-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
+        const createdInvoice = await tx.invoice.create({
           data: {
-            status: "billed",
             invoiceNumber,
-            billedAt: new Date(),
-          },
-        });
-      } else if (milestoneTitle) {
-        await prisma.projectMilestone.create({
-          data: {
             projectId,
-            title: milestoneTitle,
-            percentage: Number(percentage) || 0,
+            customerId: project.customerId,
+            customerName: project.customer?.name || "Client",
             amount: invoiceAmount,
-            status: "billed",
-            invoiceNumber,
-            billedAt: new Date(),
+            status: "unpaid",
           },
         });
-      }
 
-      // Automatically post to General Ledger & Customer Subledger
-      let journalEntryId: string | undefined = undefined;
-      try {
-        const arAccount = await AccountMappingService.resolveAccountOptional("job_revenue_receivable");
-        const revAccount = await AccountMappingService.resolveAccountOptional("job_revenue_sales");
-
-        if (arAccount && revAccount) {
-          const entry = await AccountsPostingService.post({
-            memo: `Progress billing ${invoiceNumber} for Project: "${project.name}"`,
-            refType: "project_revenue",
-            refId: invoice.id,
-            postedBy: "Project Billing System",
-            lines: [
-              { accountId: arAccount.id, debit: invoiceAmount, credit: 0 },
-              { accountId: revAccount.id, debit: 0, credit: invoiceAmount },
-            ],
+        await tx.project.update({
+          where: { id: projectId },
+          data: { invoicedAmount: { increment: invoiceAmount } },
+        });
+        if (milestoneId) {
+          await tx.projectMilestone.update({
+            where: { id: milestoneId },
+            data: { status: "billed", invoiceNumber, billedAt: new Date() },
           });
-          journalEntryId = entry.id;
-        }
-
-        if (project.customerId) {
-          await SubLedgerService.recordCustomerEntry({
-            customerId: project.customerId,
-            entryType: "invoice",
-            documentNumber: invoiceNumber,
-            journalEntryId,
-            debit: invoiceAmount,
-            credit: 0,
-            notes: `Progress billing invoice for Project: ${project.name}`,
+        } else if (milestoneTitle) {
+          await tx.projectMilestone.create({
+            data: {
+              projectId,
+              title: milestoneTitle,
+              percentage: Number(percentage) || 0,
+              amount: invoiceAmount,
+              status: "billed",
+              invoiceNumber,
+              billedAt: new Date(),
+            },
           });
         }
-      } catch (accountingErr) {
-        console.warn("[Project Progress Billing] Warning: automatic GL/subledger posting skipped:", accountingErr);
-      }
+
+        const entry = await AccountsPostingService.post({
+          memo: `Progress billing ${invoiceNumber} for Project: "${project.name}"`,
+          refType: "project_revenue",
+          refId: createdInvoice.id,
+          postedBy: "Project Billing System",
+          lines: [
+            { accountId: arAccount.id, debit: invoiceAmount, credit: 0 },
+            { accountId: revAccount.id, debit: 0, credit: invoiceAmount },
+          ],
+          tx,
+        });
+        await SubLedgerService.recordCustomerEntry({
+          customerId: project.customerId!,
+          entryType: "invoice",
+          documentNumber: invoiceNumber,
+          journalEntryId: entry.id,
+          debit: invoiceAmount,
+          credit: 0,
+          notes: `Progress billing invoice for Project: ${project.name}`,
+          tx,
+        });
+        return createdInvoice;
+      });
 
       return NextResponse.json({ invoice, message: "Progress billing invoice generated successfully" }, { status: 201 });
     }

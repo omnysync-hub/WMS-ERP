@@ -335,6 +335,7 @@ export default function JobDetailPage() {
     }
 
     let label = st;
+    if (st === "Paused") label = "Partially Completed";
     if (st === "AwaitingFeedback") label = "Awaiting Feedback (call center)";
     if (st === "CompletedPendingVerification") label = "Completed (Pending Verification)";
 
@@ -802,6 +803,66 @@ export default function JobDetailPage() {
             </div>
           </div>
 
+          {/* Customer Past Service History Card */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-[#0D7A5F]" />
+                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  Customer Past Service History {job.customerJobHistory?.length ? `(${job.customerJobHistory.length} previous jobs)` : ""}
+                </h2>
+              </div>
+              <span className="text-[11px] text-[#71717A]">
+                Work Order Records
+              </span>
+            </div>
+            {job.customerJobHistory && job.customerJobHistory.length > 0 ? (
+              <div className="p-4 divide-y divide-[#F4F4F5]">
+                {job.customerJobHistory.map((pj: any) => (
+                  <div key={pj.id} className="py-2.5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/jobs/${pj.id}`}
+                          scroll={false}
+                          className="font-mono font-bold text-[#0D7A5F] hover:underline"
+                        >
+                          #{pj.jobNumber}
+                        </Link>
+                        <span className="text-[#18181B] font-semibold">
+                          {pj.title || formatJobType(pj.jobType)}
+                        </span>
+                        <StatusBadge status={pj.status} />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#71717A]">
+                        <span>{pj.createdAt ? new Date(pj.createdAt).toLocaleDateString() : "—"}</span>
+                        {pj.assignedTechnician && (
+                          <span>• Lead Tech: <strong className="text-[#18181B]">{pj.assignedTechnician.name}</strong></span>
+                        )}
+                        {pj.items && pj.items.length > 0 && (
+                          <span>• {pj.items.length} item(s)</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <Link
+                        href={`/jobs/${pj.id}`}
+                        scroll={false}
+                        className="text-[11px] font-semibold text-[#0D7A5F] hover:underline"
+                      >
+                        View Job &rarr;
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-5 text-center text-xs text-[#71717A] italic bg-[#FAFAFA]">
+                No previous work order history on file for this customer (First-time work order).
+              </div>
+            )}
+          </div>
+
           {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
           {(isAccountant || isAdmin) && (
             <div className="bg-white rounded-xl p-5 border border-[#E4E4E7] shadow-xs space-y-4">
@@ -918,13 +979,13 @@ export default function JobDetailPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                    <th className="py-2.5 px-4">Item Description</th>
+                    <th className="py-2.5 px-4">Item Description & Brand</th>
                     <th className="py-2.5 px-4 text-center">Planned Qty</th>
                     <th className="py-2.5 px-4 text-center">Actual Qty</th>
                     {canViewFinancials && !isRestrictedRole ? (
                       <>
-                        <th className="py-2.5 px-4 text-right">Unit Rate</th>
-                        <th className="py-2.5 px-4 text-right">Row Total</th>
+                        <th className="py-2.5 px-4 text-right">Unit Price (Rate)</th>
+                        <th className="py-2.5 px-4 text-right">Total Price</th>
                         <th className="py-2.5 px-4 text-right">Discount Action</th>
                       </>
                     ) : (
@@ -956,10 +1017,20 @@ export default function JobDetailPage() {
                         .replace(/\s*\[Discount.*?\]/gi, "")
                         .trim();
 
+                      const brandMatch = (job.remarks || "").match(/Brand:\s*([^|\]]+)/i);
+                      const extractedBrand = brandMatch ? brandMatch[1].trim() : null;
+
                       return (
                         <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
                           <td className="py-2.5 px-4 font-medium text-[#18181B]">
-                            <div>{cleanTitle}</div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{cleanTitle}</span>
+                              {extractedBrand && !isService && (
+                                <span className="text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">
+                                  Brand: {extractedBrand}
+                                </span>
+                              )}
+                            </div>
                             {isRequested && canViewFinancials && !isRestrictedRole && (
                               <div className="mt-1">
                                 <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
@@ -1436,10 +1507,46 @@ export default function JobDetailPage() {
                       .slice(0, 2)}
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-[#18181B]">{job.assignedTechnician.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-[#18181B]">{job.assignedTechnician.name}</p>
+                      <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-full inline-flex items-center gap-0.5">
+                        ★ Lead Tech
+                      </span>
+                    </div>
                     <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
                   </div>
                 </div>
+
+                {job.assignments && job.assignments.length > 1 && (
+                  <div className="pt-2 border-t border-[#F4F4F5] space-y-1.5">
+                    <p className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
+                      Crew Members ({job.assignments.length})
+                    </p>
+                    <div className="space-y-1">
+                      {job.assignments.map((asgn: any) => {
+                        const isLead = asgn.role === "primary" || asgn.technicianId === job.assignedTechnicianId;
+                        return (
+                          <div key={asgn.id} className="flex items-center justify-between text-xs py-0.5">
+                            <span className="font-medium text-[#18181B] flex items-center gap-1">
+                              {asgn.technician?.name || "Technician"}
+                              {isLead ? (
+                                <span className="text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1 rounded">
+                                  ★ Lead
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-[#71717A] bg-[#F4F4F5] px-1 rounded">
+                                  Crew
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[10px] text-[#71717A] font-mono">{asgn.technician?.phone}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {canReassignTech && canChangeTechnician(job) && (
                   <button
                     type="button"

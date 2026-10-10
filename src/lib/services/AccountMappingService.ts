@@ -487,6 +487,25 @@ export class AccountMappingService {
       );
     }
 
+    const definition = TRANSACTION_TYPE_DEFINITIONS.find(
+      (item) => item.transactionType === transactionType
+    );
+    if (!definition) {
+      throw new AccountMappingError(
+        `[AccountMappingError] Unknown transaction type "${transactionType}". Posting blocked.`
+      );
+    }
+    if (!definition.allowedAccountTypes.includes(mapping.account.type)) {
+      throw new AccountMappingError(
+        `[AccountMappingError] Account "${mapping.account.code} — ${mapping.account.name}" has type "${mapping.account.type}", but transaction type "${transactionType}" requires ${definition.allowedAccountTypes.join(" or ")}. Posting blocked.`
+      );
+    }
+    if (mapping.account.level < 4) {
+      throw new AccountMappingError(
+        `[AccountMappingError] Account "${mapping.account.code} — ${mapping.account.name}" is a summary/group account. Transaction mappings must point to a level-4 posting account.`
+      );
+    }
+
     return mapping.account;
   }
 
@@ -559,9 +578,11 @@ export class AccountMappingService {
     transactionType: string,
     accountId: string,
     categoryScope: string | null = null,
-    updatedBy: string = "Admin"
+    updatedBy: string = "Admin",
+    prismaClient: PrismaClient | Prisma.TransactionClient = prisma
   ) {
-    const targetAccount = await prisma.account.findUnique({
+    const db = prismaClient;
+    const targetAccount = await db.account.findUnique({
       where: { id: accountId },
     });
 
@@ -573,7 +594,24 @@ export class AccountMappingService {
       throw new AccountMappingError(`Cannot map to deactivated account "${targetAccount.code}".`);
     }
 
-    const existing = await prisma.accountMapping.findFirst({
+    const definition = TRANSACTION_TYPE_DEFINITIONS.find(
+      (item) => item.transactionType === transactionType
+    );
+    if (!definition) {
+      throw new AccountMappingError(`Unknown transaction type "${transactionType}".`);
+    }
+    if (!definition.allowedAccountTypes.includes(targetAccount.type)) {
+      throw new AccountMappingError(
+        `Cannot map "${transactionType}" to ${targetAccount.code}: expected ${definition.allowedAccountTypes.join(" or ")}, received ${targetAccount.type}.`
+      );
+    }
+    if (targetAccount.level < 4) {
+      throw new AccountMappingError(
+        `Cannot map "${transactionType}" to summary account "${targetAccount.code}". Select a level-4 posting account.`
+      );
+    }
+
+    const existing = await db.accountMapping.findFirst({
       where: {
         companyId,
         transactionType,
@@ -582,7 +620,7 @@ export class AccountMappingService {
     });
 
     if (existing) {
-      return await prisma.accountMapping.update({
+      return await db.accountMapping.update({
         where: { id: existing.id },
         data: {
           accountId,
@@ -591,7 +629,7 @@ export class AccountMappingService {
         include: { account: true },
       });
     } else {
-      return await prisma.accountMapping.create({
+      return await db.accountMapping.create({
         data: {
           companyId,
           transactionType,

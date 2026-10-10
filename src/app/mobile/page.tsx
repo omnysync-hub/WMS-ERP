@@ -228,6 +228,31 @@ export default function MobileCompanionPage() {
     loadMobileData();
   }, []);
 
+  // Real-time synchronization bus listener + zero-refresh polling for field updates
+  useEffect(() => {
+    const unsub = realtimeSync.subscribe((evt) => {
+      if (technician) {
+        fetchTechnicianDetails(technician);
+        if (evt?.message) {
+          setNotificationToast(`🔔 Live Update: ${evt.message}`);
+          setTimeout(() => setNotificationToast(null), 5000);
+        }
+      }
+    });
+
+    // Background interval every 6s ensures zero-refresh parity even across browsers/tabs
+    const pollInterval = setInterval(() => {
+      if (technician) {
+        fetchTechnicianDetails(technician);
+      }
+    }, 6000);
+
+    return () => {
+      unsub();
+      clearInterval(pollInterval);
+    };
+  }, [technician]);
+
   // Server-Sent Events (SSE) Live Push Stream from ERP
   useEffect(() => {
     if (!technician?.id || typeof window === "undefined" || !("EventSource" in window)) return;
@@ -738,17 +763,24 @@ export default function MobileCompanionPage() {
       return;
     }
 
-    const actualItems = selectedJob.items.map((it: any) => ({
-      id: it.id,
-      quantityActual: Number(actualQuantities[it.id]),
-    }));
+    const actualItems = selectedJob.items.map((it: any) => {
+      const parsed = actualQuantities[it.id] !== "" && actualQuantities[it.id] !== undefined
+        ? Number(actualQuantities[it.id])
+        : it.quantityPlanned;
+      // Strictly prevent consuming more than the quantity issued from store
+      const capped = Math.min(it.quantityPlanned, Math.max(0, parsed));
+      return {
+        id: it.id,
+        quantityActual: capped,
+      };
+    });
 
     try {
       // Step 1: Check for unused items (e.g. 10 planned/issued, only 8 used -> 2 unused)
       let hasUnusedItems = false;
       for (const it of selectedJob.items) {
-        const actual = Number(actualQuantities[it.id]);
-        const unused = Math.max(0, it.quantityPlanned - actual);
+        const itemActual = actualItems.find((a: any) => a.id === it.id)?.quantityActual ?? it.quantityPlanned;
+        const unused = Math.max(0, it.quantityPlanned - itemActual);
         if (unused > 0) {
           hasUnusedItems = true;
           if (unusedDisposition === "return") {
@@ -951,7 +983,7 @@ export default function MobileCompanionPage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xs font-bold text-white tracking-tight">Mobile Field Companion</h1>
+              <h1 className="text-xs font-bold text-white tracking-tight">Workman Field App</h1>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Field Simulator Active
@@ -1270,6 +1302,31 @@ export default function MobileCompanionPage() {
                     </a>
                   </div>
 
+                  {/* Job Total Value & Stock Pricing */}
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider block">
+                        Total Job Value
+                      </span>
+                      <span className="text-[11px] text-emerald-700">
+                        Total billable charges
+                      </span>
+                    </div>
+                    <span className="text-base font-black font-mono text-[#0D7A5F]">
+                      {formatCurrency(
+                        (selectedJob.items || []).reduce(
+                          (sum: number, it: any) =>
+                            sum +
+                            (it.quantityActual !== null && it.quantityActual !== undefined
+                              ? it.quantityActual
+                              : it.quantityPlanned) *
+                              it.unitRate,
+                          0
+                        ) - (selectedJob.discountAmount || 0)
+                      )}
+                    </span>
+                  </div>
+
                   {selectedJob.customer?.phone && (
                     <div className="flex items-center gap-2 pt-1 border-t border-[#EDEDED]">
                       <a
@@ -1294,14 +1351,20 @@ export default function MobileCompanionPage() {
 
                 {/* Assigned Job Items */}
                 <div className="bg-white rounded-xl p-4 space-y-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED]">
-                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    Assigned Job Items & Materials
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Assigned Job Items & Materials
+                    </h3>
+                    <span className="text-[10px] text-[#71717A] font-medium">
+                      Live Stock Rates
+                    </span>
+                  </div>
                   <div className="space-y-2">
                     {selectedJob.items?.map((it: any) => {
                       const isRequested = it.description?.includes("[Discount Requested:");
                       const isApproved = it.description?.includes("[Discount Approved:");
                       const cleanDesc = it.description?.replace(/\s*\[Discount.*?\]/gi, "");
+                      const lineTotal = (it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned) * it.unitRate;
 
                       return (
                         <div
@@ -1311,9 +1374,12 @@ export default function MobileCompanionPage() {
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-semibold text-[#18181B]">{cleanDesc}</p>
-                              <div className="flex items-center gap-2 mt-0.5">
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 <span className="text-[11px] text-[#71717A]">
-                                  Qty: {it.quantityPlanned} @ {formatCurrency(it.unitRate)}
+                                  Qty: <strong>{it.quantityPlanned}</strong> × Rate: <strong className="font-mono text-[#18181B]">{formatCurrency(it.unitRate)}</strong>
+                                </span>
+                                <span className="text-[11px] font-mono font-bold text-[#0D7A5F] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                  Total: {formatCurrency(lineTotal)}
                                 </span>
                                 {it.quantityActual !== null && it.quantityActual !== undefined && (
                                   <span className="font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded text-[10px]">
@@ -1490,7 +1556,7 @@ export default function MobileCompanionPage() {
                         className="w-full py-2.5 bg-white border border-[#EDEDED] hover:bg-[#F9FAFB] text-[#18181B] rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5"
                       >
                         <Pause className="w-3.5 h-3.5 text-amber-600" />
-                        Stop Job for Today (Pause & Return Tomorrow)
+                        Partially Complete (Stop for Today & Return Tomorrow)
                       </button>
                     </div>
                   )}
@@ -1501,7 +1567,7 @@ export default function MobileCompanionPage() {
                       <div className="flex items-center justify-between text-amber-950 text-xs font-bold">
                         <span className="flex items-center gap-1.5">
                           <Pause className="w-4 h-4 text-amber-600" />
-                          Job Paused for Today
+                          Partially Completed on Site
                         </span>
                         <span className="text-[10px] font-mono bg-amber-100 px-2 py-0.5 rounded">
                           GPS & Time Logged
@@ -1568,7 +1634,7 @@ export default function MobileCompanionPage() {
                     { id: "all", label: "All", count: jobs.length },
                     { id: "assigned", label: "Assigned", count: assignedJobs.length, alert: assignedJobs.length > 0 },
                     { id: "active", label: "Active", count: activeJobs.length, pulse: activeJobs.length > 0 },
-                    { id: "paused", label: "Paused", count: pausedJobs.length },
+                    { id: "paused", label: "Partially Completed", count: pausedJobs.length },
                     { id: "done", label: "Done", count: doneJobs.length },
                     { id: "expenses", label: "Expenses & Hisaab", count: techLedgerData?.detailedEntries?.length || 0 },
                   ];
@@ -1800,16 +1866,28 @@ export default function MobileCompanionPage() {
                             {/* If job is paused, show reason banner */}
                             {isPaused && (
                               <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
-                                <span className="font-bold">⏸ Paused: </span>
-                                <span>{job.remarks || "Work suspended overnight or awaiting materials"}</span>
+                                <span className="font-bold">⏸ Partially Completed: </span>
+                                <span>{job.remarks || "Work partially completed on site"}</span>
                               </div>
                             )}
 
                             {/* Card Footer & Contextual Action */}
-                            <div className="pt-2 border-t border-[#EDEDED] flex items-center justify-between text-xs">
-                              <span className="font-semibold text-[#71717A] text-[11px]">
-                                {formatJobType(job.jobType)} • {job.items?.length || 0} items
-                              </span>
+                            {(() => {
+                              const jobTotal = (job.items || []).reduce((sum: number, it: any) => {
+                                const q = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
+                                return sum + (q * (it.unitRate || 0));
+                              }, 0) - (job.discountAmount || 0);
+
+                              return (
+                                <div className="pt-2 border-t border-[#EDEDED] flex items-center justify-between text-xs gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-[#71717A] text-[11px]">
+                                      {formatJobType(job.jobType)} • {job.items?.length || 0} items
+                                    </span>
+                                    <span className="font-mono font-bold text-xs text-[#0D7A5F] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                                      Total: {formatCurrency(Math.max(0, jobTotal))}
+                                    </span>
+                                  </div>
 
                               {isAssigned ? (
                                 <button
@@ -1843,6 +1921,8 @@ export default function MobileCompanionPage() {
                                 </span>
                               )}
                             </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -2452,7 +2532,7 @@ export default function MobileCompanionPage() {
                   type="submit"
                   className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-900/10 transition"
                 >
-                  Confirm Stop (Pause Job)
+                  Confirm Partially Completed on Site
                 </button>
               </div>
             </form>
@@ -2497,15 +2577,25 @@ export default function MobileCompanionPage() {
                   <div key={it.id} className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200/80 space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="font-bold text-zinc-800 text-xs">{it.description}</p>
-                      <span className="text-[10px] bg-white px-2 py-0.5 rounded-md font-mono border border-zinc-200">
-                        Issued: {it.quantityPlanned}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] bg-white px-2 py-0.5 rounded-md font-mono border border-zinc-200 text-zinc-700">
+                          Issued: {it.quantityPlanned}
+                        </span>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-md font-mono border border-emerald-200">
+                          {formatCurrency(it.unitRate)} / unit
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-zinc-200/60">
-                      <label className="text-[11px] text-zinc-600 font-semibold">
-                        Actual Delivered / Used:
-                      </label>
+                      <div>
+                        <label className="text-[11px] text-zinc-600 font-semibold block">
+                          Actual Delivered / Used:
+                        </label>
+                        <span className="text-[10px] text-zinc-500">
+                          Max allowed: {it.quantityPlanned} units
+                        </span>
+                      </div>
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
@@ -2523,15 +2613,16 @@ export default function MobileCompanionPage() {
                         <input
                           type="number"
                           min="0"
-                          max={it.quantityPlanned * 2}
+                          max={it.quantityPlanned}
                           required
                           value={actualQuantities[it.id] ?? ""}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const val = e.target.value === "" ? "" : Math.min(it.quantityPlanned, Math.max(0, Number(e.target.value)));
                             setActualQuantities({
                               ...actualQuantities,
-                              [it.id]: e.target.value === "" ? "" : Number(e.target.value),
-                            })
-                          }
+                              [it.id]: val,
+                            });
+                          }}
                           className="w-14 bg-white p-1 rounded-lg border border-zinc-200 text-center font-mono font-bold text-xs focus:ring-1 focus:ring-[#0D7A5F]"
                         />
                         <button
@@ -2540,10 +2631,11 @@ export default function MobileCompanionPage() {
                             const cur = Number(actualQuantities[it.id] ?? it.quantityPlanned);
                             setActualQuantities({
                               ...actualQuantities,
-                              [it.id]: cur + 1,
+                              [it.id]: Math.min(it.quantityPlanned, cur + 1),
                             });
                           }}
-                          className="w-6 h-6 rounded bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold flex items-center justify-center"
+                          disabled={Number(actualQuantities[it.id] ?? it.quantityPlanned) >= it.quantityPlanned}
+                          className="w-6 h-6 rounded bg-zinc-200 hover:bg-zinc-300 disabled:opacity-40 text-zinc-700 font-bold flex items-center justify-center"
                         >
                           <Plus className="w-3 h-3" />
                         </button>

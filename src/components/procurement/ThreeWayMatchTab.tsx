@@ -72,20 +72,6 @@ export default function ThreeWayMatchTab({
     if (queueFilter) setStatusFilter(queueFilter);
   }, [queueFilter]);
 
-  if (isStorekeeper) {
-    return (
-      <div className="p-8 text-center bg-white border border-[#EDEDED] rounded-xl space-y-3 shadow-2xs">
-        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
-          <ShieldAlert className="w-6 h-6" />
-        </div>
-        <h3 className="text-sm font-bold text-[#18181B]">Vendor Invoicing & Rates Protected</h3>
-        <p className="text-xs text-[#71717A] max-w-md mx-auto">
-          In accordance with storekeeper role security protocols, vendor invoices, purchasing rates, and 3-way match financial reconciliations are restricted to Finance & Accounts personnel.
-        </p>
-      </div>
-    );
-  }
-
   // Create Supplier Invoice Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -122,6 +108,20 @@ export default function ThreeWayMatchTab({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+
+  if (isStorekeeper) {
+    return (
+      <div className="p-8 text-center bg-white border border-[#EDEDED] rounded-xl space-y-3 shadow-2xs">
+        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h3 className="text-sm font-bold text-[#18181B]">Vendor Invoicing & Rates Protected</h3>
+        <p className="text-xs text-[#71717A] max-w-md mx-auto">
+          In accordance with storekeeper role security protocols, vendor invoices, purchasing rates, and 3-way match financial reconciliations are restricted to Finance & Accounts personnel.
+        </p>
+      </div>
+    );
+  }
 
   const rebuildBilledItems = (poId: string, grnIds: string[]) => {
     const po = pos.find((p) => p.id === poId);

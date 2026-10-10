@@ -1117,26 +1117,8 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Bottom Section: Companion App + Collapse Toggle */}
+      {/* Bottom Section: Collapse Toggle */}
       <div className="p-2 space-y-1 border-t border-[#27272A]/40">
-        {/* Mobile Companion Trigger (OPENS IN A NEW TAB) */}
-        <Link
-          href="/mobile"
-          target="_blank"
-          rel="noopener noreferrer"
-          title={isCollapsed ? "Mobile Field App Simulator (Opens in New Tab)" : undefined}
-          aria-label="Mobile Field App Simulator"
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-[#A1A1AA] hover:text-white hover:bg-[#27272A]/40 transition group focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-        >
-          <Smartphone className="w-4 h-4 shrink-0 text-emerald-400 group-hover:scale-105 transition" />
-          {!isCollapsed && (
-            <div className="flex items-center justify-between flex-1">
-              <span>Field Companion</span>
-              <ExternalLink className="w-3 h-3 text-[#71717A] group-hover:text-white" />
-            </div>
-          )}
-        </Link>
-
         {/* Sidebar Collapse/Expand Toggle */}
         <button
           type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useId, useMemo } from "react";
 import { ChevronDown, Search, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +74,8 @@ export default function SearchableSelect({
   id,
   icon,
 }: SearchableSelectProps) {
+  const generatedId = useId();
+  const listboxId = `${id || generatedId}-listbox`;
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -284,6 +286,7 @@ export default function SearchableSelect({
       <div
         role="combobox"
         aria-expanded={isOpen}
+        aria-controls={listboxId}
         aria-haspopup="listbox"
         tabIndex={disabled ? -1 : 0}
         onClick={() => {
@@ -447,6 +450,7 @@ export default function SearchableSelect({
 
           {/* Options List */}
           <div
+            id={listboxId}
             ref={listRef}
             role="listbox"
             className="max-h-64 overflow-y-auto p-1.5 space-y-0.5"

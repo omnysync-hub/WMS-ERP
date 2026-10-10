@@ -976,8 +976,13 @@ export class ProcurementService {
     // Pre-validate all lines for over-receive before any mutations
     for (const item of data.items) {
       const poItem = po.items.find((pi) => pi.id === item.poItemId);
-      if (!poItem) continue;
-      const qtyRec = Number(item.quantityReceived) || 0;
+      if (!poItem) {
+        throw new Error(`GRN line '${item.poItemId || "(missing)"}' does not belong to PO ${po.poNumber}.`);
+      }
+      const qtyRec = Number(item.quantityReceived);
+      if (!Number.isFinite(qtyRec) || qtyRec <= 0) {
+        throw new Error(`Received quantity for '${poItem.description || poItem.itemCode}' must be a positive number.`);
+      }
       const alreadyReceived = Number(poItem.quantityReceived) || 0;
       const ordered = Number(poItem.quantity) || 0;
       const remaining = Math.max(0, ordered - alreadyReceived);
@@ -1011,9 +1016,12 @@ export class ProcurementService {
       const pId = item.productId || poItem?.productId;
       const unitCost = poItem?.unitCost || 0;
 
-      const qtyRec = Number(item.quantityReceived) || 0;
+      const qtyRec = Number(item.quantityReceived);
       const quality = item.qualityStatus || "Accepted";
-      const qtyAcc = quality === "Accepted" ? (item.quantityAccepted ?? qtyRec) : 0;
+      const qtyAcc = quality === "Accepted" ? Number(item.quantityAccepted ?? qtyRec) : 0;
+      if (!Number.isFinite(qtyAcc) || qtyAcc < 0 || qtyAcc > qtyRec) {
+        throw new Error(`Accepted quantity for '${poItem?.description || item.itemCode}' must be between 0 and the received quantity.`);
+      }
       const qtyRej = qtyRec - qtyAcc;
 
       totalAcceptedValue += qtyAcc * unitCost;
@@ -1411,37 +1419,12 @@ export class ProcurementService {
   // ==========================================
 
   static async recordSupplierPayment(data: RecordPaymentInput, actorName = "Fatima Noor") {
-    const invoice = await prisma.supplierInvoice.findUnique({
-      where: { id: data.supplierInvoiceId },
-      include: { vendor: true },
-    });
-    if (!invoice) throw new Error("Supplier invoice not found");
-
-    // Hard gate: payment only when invoice is approved_for_payment
-    if (invoice.matchStatus !== "approved_for_payment" && invoice.matchStatus !== "matched") {
-      throw new Error(
-        `Payment rejected: invoice matchStatus must be 'approved_for_payment' (current: '${invoice.matchStatus}')`
-      );
-    }
-
-    if (invoice.paymentStatus === "paid") {
-      throw new Error(`Invoice ${invoice.invoiceNumber} is already fully paid.`);
-    }
-
-    const amountPaid = Number(data.amount) || 0;
-    if (amountPaid <= 0) {
+    const amountPaid = Math.round(Number(data.amount) * 100) / 100;
+    if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
       throw new Error("Payment amount must be greater than zero.");
     }
-
-    const remainingBalance = Math.round((invoice.totalAmount - invoice.paidAmount) * 100) / 100;
-    if (amountPaid > remainingBalance + 0.01) {
-      throw new Error(
-        `Payment amount ($${amountPaid}) cannot exceed remaining balance of $${remainingBalance} on Invoice ${invoice.invoiceNumber}.`
-      );
-    }
-
-    const whtAmount = Number(data.whtAmount) || 0;
-    if (whtAmount < 0) {
+    const whtAmount = data.whtAmount == null ? 0 : Math.round(Number(data.whtAmount) * 100) / 100;
+    if (!Number.isFinite(whtAmount) || whtAmount < 0) {
       throw new Error("Withholding tax amount cannot be negative.");
     }
     if (whtAmount > amountPaid) {
@@ -1449,47 +1432,68 @@ export class ProcurementService {
     }
     const netDisbursed = Math.round((amountPaid - whtAmount) * 100) / 100;
 
-    const count = await prisma.supplierPayment.count();
-    const paymentNumber = `SPAY-2026-${String(count + 1).padStart(4, "0")}`;
+    const apAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_payable" });
+    let bankAccount = data.bankAccountId
+      ? await prisma.account.findFirst({
+          where: { OR: [{ code: data.bankAccountId }, { id: data.bankAccountId }], isActive: true },
+        })
+      : null;
+    if (!bankAccount) {
+      bankAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_disbursing" });
+    }
+    const whtAccount = whtAmount > 0
+      ? await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_wht" })
+      : null;
+    const fallbackBankCode = data.bankAccountId || await AccountMappingService.resolveAccountCode({
+      transactionType: "vendor_payment_disbursing",
+    });
 
-    const now = new Date();
-
-    // 1. Post to General Ledger
-    // Debit: 2000 Accounts Payable (amountPaid)
-    // Credit: Operating Bank / Cash (via vendor_payment_disbursing mapping)
-    // Credit: 2200 WHT Payable (whtAmount)
-    let journalEntryId: string | null = null;
-    try {
-      const apAccount = await AccountMappingService.resolveAccount({
-        transactionType: "vendor_payment_payable",
+    return prisma.$transaction(async (tx) => {
+      const invoice = await tx.supplierInvoice.findUnique({
+        where: { id: data.supplierInvoiceId },
+        include: { vendor: true },
       });
-      let bankAccount = null;
-      if (data.bankAccountId) {
-        bankAccount = await prisma.account.findFirst({
-          where: {
-            OR: [
-              { code: data.bankAccountId },
-              { id: data.bankAccountId },
-            ],
-            isActive: true,
-          },
-        });
+      if (!invoice) throw new Error("Supplier invoice not found");
+      if (invoice.matchStatus !== "approved_for_payment" && invoice.matchStatus !== "matched") {
+        throw new Error(
+          `Payment rejected: invoice matchStatus must be 'approved_for_payment' (current: '${invoice.matchStatus}')`
+        );
       }
-      if (!bankAccount) {
-        bankAccount = await AccountMappingService.resolveAccount({
-          transactionType: "vendor_payment_disbursing",
-        });
+      if (invoice.paymentStatus === "paid") {
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fully paid.`);
       }
-      const whtAccount = await AccountMappingService.resolveAccount({
-        transactionType: "vendor_payment_wht",
+
+      const remainingBalance = Math.round((invoice.totalAmount - invoice.paidAmount) * 100) / 100;
+      if (amountPaid > remainingBalance + 0.01) {
+        throw new Error(
+          `Payment amount ($${amountPaid}) cannot exceed remaining balance of $${remainingBalance} on Invoice ${invoice.invoiceNumber}.`
+        );
+      }
+
+      const newPaidAmount = Math.round((invoice.paidAmount + amountPaid) * 100) / 100;
+      const claimed = await tx.supplierInvoice.updateMany({
+        where: {
+          id: invoice.id,
+          paidAmount: invoice.paidAmount,
+          paymentStatus: invoice.paymentStatus,
+        },
+        data: {
+          paidAmount: newPaidAmount,
+          paymentStatus: newPaidAmount >= invoice.totalAmount - 0.01 ? "paid" : "partially_paid",
+        },
       });
+      if (claimed.count === 0) {
+        throw new Error("Invoice balance changed while this payment was being recorded. Refresh and retry.");
+      }
 
-      const lines: any[] = [
-        { accountId: apAccount.id, debit: amountPaid, credit: 0 },
-        { accountId: bankAccount.id, debit: 0, credit: netDisbursed },
-      ];
-
-      if (whtAmount > 0) {
+      const count = await tx.supplierPayment.count();
+      const paymentNumber = `SPAY-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
+      const now = new Date();
+      const lines = [{ accountId: apAccount.id, debit: amountPaid, credit: 0 }];
+      if (netDisbursed > 0) {
+        lines.push({ accountId: bankAccount.id, debit: 0, credit: netDisbursed });
+      }
+      if (whtAmount > 0 && whtAccount) {
         lines.push({ accountId: whtAccount.id, debit: 0, credit: whtAmount });
       }
 
@@ -1499,68 +1503,46 @@ export class ProcurementService {
         refId: paymentNumber,
         postedBy: actorName,
         lines,
+        tx,
       });
 
-      journalEntryId = journal.id;
-    } catch (err: any) {
-      throw new Error(
-        `Payment aborted: GL posting failed (${err.message || err}). No payment record created.`
-      );
-    }
+      const latestLedger = await tx.vendorLedgerEntry.findFirst({
+        where: { vendorId: invoice.vendorId },
+        orderBy: [{ postingDate: "desc" }, { id: "desc" }],
+      });
+      await tx.vendorLedgerEntry.create({
+        data: {
+          vendorId: invoice.vendorId,
+          postingDate: now,
+          entryType: "payment",
+          documentNumber: paymentNumber,
+          journalEntryId: journal.id,
+          debit: amountPaid,
+          credit: 0,
+          runningBalance: (latestLedger?.runningBalance || 0) - amountPaid,
+          whtWithheld: whtAmount,
+          notes: `Disbursement against Invoice ${invoice.invoiceNumber} (${data.paymentMethod || "bank_transfer"})`,
+        },
+      });
 
-    // 2. Post to Vendor Sub-Ledger (Debit entry)
-    const latestLedger = await prisma.vendorLedgerEntry.findFirst({
-      where: { vendorId: invoice.vendorId },
-      orderBy: { postingDate: "desc" },
-    });
-    const prevBalance = latestLedger?.runningBalance || 0;
-    const newBalance = prevBalance - amountPaid;
+      const payment = await tx.supplierPayment.create({
+        data: {
+          paymentNumber,
+          supplierInvoiceId: invoice.id,
+          vendorId: invoice.vendorId,
+          paymentDate: now,
+          amount: amountPaid,
+          paymentMethod: data.paymentMethod || "bank_transfer",
+          reference: data.reference || null,
+          bankAccountId: fallbackBankCode,
+          whtAmount,
+          journalEntryId: journal.id,
+          notes: data.notes || null,
+        },
+      });
 
-    await prisma.vendorLedgerEntry.create({
-      data: {
-        vendorId: invoice.vendorId,
-        postingDate: now,
-        entryType: "payment",
-        documentNumber: paymentNumber,
-        journalEntryId,
-        debit: amountPaid,
-        credit: 0,
-        runningBalance: newBalance,
-        whtWithheld: whtAmount,
-        notes: `Disbursement against Invoice ${invoice.invoiceNumber} (${data.paymentMethod || "bank_transfer"})`,
-      },
-    });
-
-    // 3. Create Payment Record
-    const payment = await prisma.supplierPayment.create({
-      data: {
-        paymentNumber,
-        supplierInvoiceId: invoice.id,
-        vendorId: invoice.vendorId,
-        paymentDate: now,
-        amount: amountPaid,
-        paymentMethod: data.paymentMethod || "bank_transfer",
-        reference: data.reference || null,
-        bankAccountId: data.bankAccountId || (await AccountMappingService.resolveAccountCode({ transactionType: "vendor_payment_disbursing" })),
-        whtAmount,
-        journalEntryId,
-        notes: data.notes || null,
-      },
-    });
-
-    // 4. Update Invoice Paid Status
-    const newPaidAmount = invoice.paidAmount + amountPaid;
-    const isFullyPaid = newPaidAmount >= invoice.totalAmount - 0.01;
-
-    await prisma.supplierInvoice.update({
-      where: { id: invoice.id },
-      data: {
-        paidAmount: newPaidAmount,
-        paymentStatus: isFullyPaid ? "paid" : "partially_paid",
-      },
-    });
-
-    return payment;
+      return payment;
+    }, { maxWait: 10000, timeout: 30000 });
   }
 
   static payVendorBill = this.recordSupplierPayment;

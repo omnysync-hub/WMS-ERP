@@ -13,7 +13,8 @@ import {
   SlidersHorizontal,
   Lock,
   FileCheck,
-  Building
+  Building,
+  Cpu,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
@@ -56,6 +57,18 @@ export default function SettingsHubPage() {
       badgeColor: "bg-purple-50 text-purple-800 border-purple-200",
       enabled: hasPermission("inventory.stock_units"),
       statText: "Inventory Scaling",
+    },
+    {
+      title: "Product & Equipment Dropdowns",
+      subtitle: "Appliance Types, Brands & Job Natures",
+      description:
+        "Customize options for equipment product types, manufacturer brands, and job natures used across search dropdowns in job booking and material requisition forms.",
+      href: "/settings/product-dropdowns",
+      icon: Cpu,
+      badge: "Equipment & Catalogs",
+      badgeColor: "bg-teal-50 text-teal-800 border-teal-200",
+      enabled: true,
+      statText: "Configurable Dropdowns",
     },
   ];
 

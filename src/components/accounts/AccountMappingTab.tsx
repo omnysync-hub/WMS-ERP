@@ -17,8 +17,10 @@ import {
   Lightbulb,
   History,
   TrendingUp,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import CoaAccountModal, { CoaModalAccount } from "./CoaAccountModal";
 
 interface AccountOption {
   id: string;
@@ -161,6 +163,7 @@ export default function AccountMappingTab({
   const [customOverrides, setCustomOverrides] = useState<Record<string, string>>({});
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [createFor, setCreateFor] = useState<MappingItem | null>(null);
 
   // Filters for standard mappings
   const [searchQuery, setSearchQuery] = useState(targetTransactionType);
@@ -280,6 +283,15 @@ export default function AccountMappingTab({
     } finally {
       setSavingKey(null);
     }
+  };
+
+  const handleInlineAccountCreated = async (account: CoaModalAccount) => {
+    setCreateFor(null);
+    await loadData();
+    setSuccessToast(
+      `Created ${account.code} — ${account.name} and mapped it to the selected software transaction.`
+    );
+    setTimeout(() => setSuccessToast(null), 4500);
   };
 
   const handleApplySameAs = async (groupId: string) => {
@@ -766,6 +778,13 @@ export default function AccountMappingTab({
 
           {/* Domain Groupings */}
           <div className="space-y-4">
+            {setupMode && (
+              <div className="hidden lg:grid grid-cols-[minmax(0,1fr)_190px_minmax(360px,0.9fr)] gap-4 px-5 py-2.5 rounded-xl bg-[#18181B] text-white text-[10px] font-bold uppercase tracking-wider">
+                <span>Software money transaction</span>
+                <span>Posting rule</span>
+                <span>Customer Chart of Accounts destination</span>
+              </div>
+            )}
             {domains
               .filter((domain) => selectedDomain === "ALL" || selectedDomain === domain)
               .map((domain) => {
@@ -809,7 +828,7 @@ export default function AccountMappingTab({
                           <div
                             key={item.transactionType}
                             className={cn(
-                              "p-4 transition flex flex-col lg:flex-row lg:items-center justify-between gap-4",
+                              "p-4 transition grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_190px_minmax(360px,0.9fr)] lg:items-center gap-4",
                               !item.isConfigured
                                 ? "bg-amber-50/30 hover:bg-amber-50/60 border-l-4 border-l-amber-500"
                                 : "hover:bg-[#FAFAFA]"
@@ -823,17 +842,6 @@ export default function AccountMappingTab({
                                 <span className="font-mono text-[10px] px-1.5 py-0.5 bg-[#F4F4F5] text-[#71717A] rounded border border-[#E4E4E7]">
                                   {item.transactionType}
                                 </span>
-                                <span
-                                  className={cn(
-                                    "text-[9px] font-bold uppercase px-1.5 py-0.2 rounded border font-mono",
-                                    item.defaultDebitOrCredit === "debit"
-                                      ? "bg-blue-50 text-blue-700 border-blue-200"
-                                      : "bg-purple-50 text-purple-700 border-purple-200"
-                                  )}
-                                >
-                                  Normal: {item.defaultDebitOrCredit.toUpperCase()}
-                                </span>
-
                                 {!item.isConfigured ? (
                                   <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1 font-mono">
                                     <AlertTriangle className="w-3 h-3 text-amber-600" />
@@ -856,29 +864,38 @@ export default function AccountMappingTab({
                               )}
                             </div>
 
-                            <div className="flex items-center gap-3 shrink-0">
-                              <div className="flex flex-col text-right">
-                                <span className="text-[10px] text-[#A1A1AA] uppercase font-mono">
-                                  Mapped GL Account
-                                </span>
-                                {item.accountCode ? (
-                                  <span className="text-xs font-bold font-mono text-[#0D7A5F]">
-                                    {item.accountCode}
-                                  </span>
-                                ) : (
-                                  <span className="text-xs font-bold text-amber-600 font-mono">
-                                    UNBOUND
-                                  </span>
+                            <div className="space-y-1">
+                              <span
+                                className={cn(
+                                  "inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded border font-mono",
+                                  item.defaultDebitOrCredit === "debit"
+                                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                                    : "bg-purple-50 text-purple-700 border-purple-200"
                                 )}
-                              </div>
+                              >
+                                {item.defaultDebitOrCredit.toUpperCase()} role
+                              </span>
+                              <p className="text-[10px] text-[#71717A] font-mono">
+                                Allowed: {item.allowedAccountTypes.join(", ") || "any posting account"}
+                              </p>
+                            </div>
 
-                              <div className="w-64 sm:w-80">
+                            <div className="flex items-end gap-2 min-w-0">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="text-[10px] text-[#71717A] uppercase font-mono">
+                                    Mapped GL account
+                                  </span>
+                                  {item.accountCode && (
+                                    <span className="text-[10px] font-bold font-mono text-[#0D7A5F]">
+                                      {item.accountCode}
+                                    </span>
+                                  )}
+                                </div>
                                 <select
                                   value={item.accountId || ""}
                                   disabled={isSaving}
-                                  onChange={(e) =>
-                                    handleUpdateMapping(item.transactionType, e.target.value)
-                                  }
+                                  onChange={(e) => handleUpdateMapping(item.transactionType, e.target.value)}
                                   className={cn(
                                     "w-full text-xs font-medium rounded-lg border px-2.5 py-2 transition focus:outline-none",
                                     item.isConfigured
@@ -886,9 +903,7 @@ export default function AccountMappingTab({
                                       : "bg-amber-50 border-amber-300 text-amber-950 focus:border-amber-500 font-semibold"
                                   )}
                                 >
-                                  <option value="" disabled>
-                                    -- Select Level-4 Account to Bind --
-                                  </option>
+                                  <option value="" disabled>-- Select an existing account --</option>
                                   {compatibleAccounts.map((acc) => (
                                     <option key={acc.id} value={acc.id}>
                                       {acc.code} — {acc.name} ({acc.type})
@@ -897,12 +912,26 @@ export default function AccountMappingTab({
                                 </select>
                               </div>
 
+                              {setupMode && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCreateFor(item)}
+                                  disabled={isSaving}
+                                  className="h-[34px] px-3 rounded-lg border border-[#0D7A5F] text-[#0D7A5F] hover:bg-emerald-50 text-[11px] font-bold inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+                                  title="Create a custom account and map it to this transaction"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  Create & map
+                                </button>
+                              )}
+
                               {isSaving && (
-                                <div className="w-5 h-5 flex items-center justify-center">
+                                <div className="w-5 h-9 flex items-center justify-center">
                                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#0D7A5F]" />
                                 </div>
                               )}
                             </div>
+
                           </div>
                         );
                       })}
@@ -1232,6 +1261,22 @@ export default function AccountMappingTab({
           )}
         </div>
       )}
+      <CoaAccountModal
+        isOpen={!!createFor}
+        mode="create"
+        allAccounts={accounts}
+        initialType={createFor?.allowedAccountTypes[0] || "expense"}
+        initialName={createFor ? `${createFor.name}` : ""}
+        initialDescription={createFor?.description || ""}
+        allowedTypes={createFor?.allowedAccountTypes || []}
+        mapToTransactionType={createFor?.transactionType}
+        onClose={() => setCreateFor(null)}
+        onSuccess={(message) => {
+          setSuccessToast(message);
+          setTimeout(() => setSuccessToast(null), 4500);
+        }}
+        onAccountCreated={handleInlineAccountCreated}
+      />
     </div>
   );
 }

@@ -667,17 +667,24 @@ export class JobsService {
           `Cannot complete: Missing actual quantity for item '${item.description}'. Actual quantities are strictly required.`
         );
       }
-      if (Number(match.quantityActual) < 0) {
+      const actualQuantity = Number(match.quantityActual);
+      if (!Number.isFinite(actualQuantity) || actualQuantity < 0) {
         throw new Error(
-          `Cannot complete: Actual quantity for item '${item.description}' cannot be negative.`
+          `Cannot complete: Actual quantity for item '${item.description}' must be a valid non-negative number.`
         );
       }
     }
 
     if (completionDetails?.paymentAmount !== undefined && completionDetails.paymentAmount !== null) {
-      if (Number(completionDetails.paymentAmount) < 0) {
-        throw new Error("Cannot complete: Collected payment amount cannot be negative.");
+      const paymentAmount = Number(completionDetails.paymentAmount);
+      if (!Number.isFinite(paymentAmount) || paymentAmount < 0) {
+        throw new Error("Cannot complete: Collected payment amount must be a valid non-negative number.");
       }
+    }
+
+    const allowedPaymentMeans = new Set(["cash", "online", "cheque", "unmarked"]);
+    if (completionDetails?.paymentMeans && !allowedPaymentMeans.has(completionDetails.paymentMeans)) {
+      throw new Error("Cannot complete: Payment means must be cash, online, cheque, or unmarked.");
     }
 
     // Proof-of-work photos are mandatory (server-side; mobile no longer offers "Finish without")
@@ -1197,13 +1204,27 @@ export class JobsService {
             debit: finalAmount,
             credit: 0,
             notes: `Invoice for finalized Job ${job.jobNumber}`,
+            tx,
           });
         }
       } else if (Math.abs((existingInvoice.amount || 0) - finalAmount) >= 0.005) {
+        const invoiceDelta = Math.round((finalAmount - (existingInvoice.amount || 0)) * 100) / 100;
         await tx.invoice.update({
           where: { id: existingInvoice.id },
           data: { amount: finalAmount },
         });
+        if (invoiceDelta !== 0) {
+          await SubLedgerService.recordCustomerEntry({
+            customerId: job.customerId,
+            entryType: invoiceDelta > 0 ? "invoice" : "credit_note",
+            documentNumber: `${existingInvoice.invoiceNumber}-ADJ`,
+            journalEntryId: revenueEntryId || undefined,
+            debit: invoiceDelta > 0 ? invoiceDelta : 0,
+            credit: invoiceDelta < 0 ? Math.abs(invoiceDelta) : 0,
+            notes: `Re-finalization adjustment for Job ${job.jobNumber}: ${existingInvoice.amount} -> ${finalAmount}`,
+            tx,
+          });
+        }
       }
 
       await tx.jobStatusHistory.create({
@@ -1712,6 +1733,11 @@ export class JobsService {
       if (invReq.status === "rejected") {
         throw new Error(`Cannot issue rejected inventory request.`);
       }
+      if (qty > invReq.qtyRequested) {
+        throw new Error(
+          `Cannot issue more than the requested stock quantity (${invReq.qtyRequested} units requested, attempted to issue ${qty}).`
+        );
+      }
     }
 
     // 1. Consume stock through InventoryService (handles ledger and COGS journal entry)
@@ -1956,24 +1982,51 @@ export class JobsService {
     item: string,
     qtyMisplaced: number,
     reportedBy: string,
-    reason?: string
+    reason?: string,
+    cashCollection?: {
+      amount: number;
+      notes?: string;
+    }
   ) {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
 
     const qty = Number(qtyMisplaced);
+    const techId = technicianId || job.assignedTechnicianId;
+
+    let cashRecoveryResult = null;
+    if (cashCollection && cashCollection.amount > 0 && techId) {
+      const recoveredAmt = Number(cashCollection.amount);
+      await prisma.technicianLedgerEntry.create({
+        data: {
+          technicianId: techId,
+          type: "hisaab_received",
+          amount: recoveredAmt,
+          refJobId: jobId,
+          notes: `On-the-spot cash collection for misplaced item (${qty}x ${item}). Received by ${reportedBy}. ${cashCollection.notes || ""}`,
+        },
+      }).catch(() => {});
+
+      cashRecoveryResult = {
+        amount: recoveredAmt,
+        receivedBy: reportedBy,
+        notes: cashCollection.notes,
+      };
+    }
 
     await this.logStatusChange(jobId, job.status, job.status, reportedBy, {
       action: "misplaced_item_by_technician",
-      technicianId: technicianId || job.assignedTechnicianId,
+      technicianId: techId,
       item,
       qtyMisplaced: qty,
       reason: reason || "Item misplaced/lost on site during execution",
+      cashRecovery: cashRecoveryResult,
     });
 
     return {
       success: true,
-      message: `Recorded ${qty}x ${item} as misplaced by technician. Logged in audit trail.`,
+      message: `Recorded ${qty}x ${item} as misplaced by technician.${cashRecoveryResult ? ` Recovered PKR ${cashRecoveryResult.amount.toLocaleString()} on the spot cash.` : ""} Logged in audit trail.`,
+      cashRecovery: cashRecoveryResult,
     };
   }
 

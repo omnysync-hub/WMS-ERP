@@ -5,8 +5,9 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const gate = await requireJobsPermission(req, "jobs.inventory_request");
   if (gate.error) return gate.error;
   try {

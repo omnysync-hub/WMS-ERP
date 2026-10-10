@@ -4,9 +4,10 @@ import { HrmService } from "@/lib/services/HrmService";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const employee = await HrmService.getEmployee(params.id);
     if (!employee) {
       return NextResponse.json({ error: "Employee not found" }, { status: 404 });
@@ -19,9 +20,10 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
     const body = await req.json();
     const updated = await HrmService.updateEmployee(params.id, body);
     return NextResponse.json({ employee: updated });
