@@ -23,7 +23,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export const DEFAULT_JOB_TYPES = [
+const DEFAULT_JOB_TYPES = [
   "Installation & Commissioning",
   "Emergency Repair & Breakdown",
   "Preventive Maintenance Service",

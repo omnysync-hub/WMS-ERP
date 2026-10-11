@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import SearchableCombobox from "@/components/ui/SearchableCombobox";
 
-export const DEFAULT_EQUIPMENT_TYPES = [
+const DEFAULT_EQUIPMENT_TYPES = [
   "Split Air Conditioner (Wall Mounted)",
   "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
   "Floor Standing / Tower AC",
@@ -36,7 +36,7 @@ export const DEFAULT_EQUIPMENT_TYPES = [
   "Cold Storage / Walk-in Freezer",
 ];
 
-export const DEFAULT_BRANDS = [
+const DEFAULT_BRANDS = [
   "Daikin",
   "O General",
   "Mitsubishi Electric",
@@ -55,7 +55,7 @@ export const DEFAULT_BRANDS = [
   "Voltas",
 ];
 
-export const DEFAULT_MODELS = [
+const DEFAULT_MODELS = [
   "Inverter Split 1.5 Ton Fairy Series",
   "Inverter Split 1.0 Ton Fairy Series",
   "Inverter Split 2.0 Ton Fairy Series",
@@ -70,7 +70,7 @@ export const DEFAULT_MODELS = [
   "Cold Storage Freezer Unit 3HP",
 ];
 
-export const DEFAULT_JOB_TYPES = [
+const DEFAULT_JOB_TYPES = [
   "Installation & Commissioning",
   "Emergency Repair & Breakdown",
   "Preventive Maintenance Service",
