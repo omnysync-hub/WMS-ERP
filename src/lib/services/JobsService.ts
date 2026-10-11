@@ -657,6 +657,50 @@ export class JobsService {
   }
 
   /**
+   * Save the quantity consumed on site while work is still in progress.
+   * Consumption may exceed the originally issued quantity: this is retained as
+   * an auditable over-consumption instead of silently capping the technician.
+   */
+  static async updateItemUsage(
+    jobId: string,
+    itemId: string,
+    quantityActual: number,
+    technicianName: string
+  ) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { items: true },
+    });
+    if (!job) throw new Error("Job not found");
+    if (job.status !== "InProgress") {
+      throw new Error("Used quantity can only be updated while the job is in progress.");
+    }
+
+    const item = job.items.find((row) => row.id === itemId);
+    if (!item) throw new Error("Item not found on this job.");
+
+    const quantity = Number(quantityActual);
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      throw new Error("Used quantity must be a valid non-negative number.");
+    }
+
+    const updated = await prisma.jobItem.update({
+      where: { id: itemId },
+      data: { quantityActual: quantity },
+    });
+
+    await this.logStatusChange(jobId, job.status, job.status, technicianName, {
+      action: "item_usage_updated",
+      itemId,
+      issuedQuantity: item.quantityPlanned,
+      usedQuantity: quantity,
+      overConsumedQuantity: Math.max(0, quantity - Number(item.quantityPlanned || 0)),
+    });
+
+    return updated;
+  }
+
+  /**
    * Technician stops job (Day not finished -> Paused)
    */
   static async pauseJob(jobId: string, technicianId: string, note?: string) {
@@ -727,12 +771,6 @@ export class JobsService {
       if (!Number.isFinite(actualQuantity) || actualQuantity < 0) {
         throw new Error(
           `Cannot complete: Actual quantity for item '${item.description}' must be a valid non-negative number.`
-        );
-      }
-      const isService = /^\[Service\]/i.test(item.description || "") || /\[Service Added by/i.test(item.description || "");
-      if (!isService && actualQuantity > Number(item.quantityPlanned || 0)) {
-        throw new Error(
-          `Cannot complete: Used quantity for '${item.description}' cannot exceed the issued quantity (${item.quantityPlanned || 0}).`
         );
       }
     }

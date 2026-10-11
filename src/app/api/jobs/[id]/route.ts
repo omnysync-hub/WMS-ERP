@@ -117,6 +117,7 @@ const ACTION_PERMISSION: Record<string, string> = {
   resume: "jobs.start",
   pause: "jobs.pause",
   complete: "jobs.complete",
+  update_item_usage: "jobs.complete",
   request_item_discount: "jobs.request_discount",
   give_item_discount: "jobs.discount",
   reject_item_discount: "jobs.discount",
@@ -145,6 +146,7 @@ const TECH_OWNED_ACTIONS = new Set([
   "resume",
   "pause",
   "complete",
+  "update_item_usage",
   "request_item_discount",
   "add_service",
 ]);
@@ -268,6 +270,15 @@ export async function PATCH(
               payload.technicianId ||
               payload.completionDetails?.technicianId,
           }
+        );
+        break;
+
+      case "update_item_usage":
+        result = await JobsService.updateItemUsage(
+          params.id,
+          payload.itemId,
+          Number(payload.quantityActual),
+          actor
         );
         break;
 

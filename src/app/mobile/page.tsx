@@ -34,13 +34,20 @@ import {
   Sliders,
   Minus,
   Layers,
+  LayoutDashboard,
+  CalendarDays,
+  WalletCards,
+  Wrench,
+  Save,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { logActivity } from "@/lib/telemetry";
 import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
 
 export default function MobileCompanionPage() {
-  const [activeTab, setActiveTab] = useState<"jobs" | "attendance" | "profile">("jobs");
+  const [activeTab, setActiveTab] = useState<
+    "dashboard" | "jobs" | "expenses" | "attendance" | "leaves" | "profile"
+  >("dashboard");
   const [technician, setTechnician] = useState<any>(null);
   const [allTechnicians, setAllTechnicians] = useState<any[]>([]);
   const [showTechSwitcherModal, setShowTechSwitcherModal] = useState(false);
@@ -50,7 +57,9 @@ export default function MobileCompanionPage() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [jobSection, setJobSection] = useState<"all" | "assigned" | "active" | "paused" | "done" | "expenses">("all");
+  const [jobSection, setJobSection] = useState<
+    "all" | "assigned" | "accepted" | "inventory" | "inprogress" | "paused" | "completed" | "expenses"
+  >("all");
 
   // Live Phone Clock
   useEffect(() => {
@@ -70,15 +79,35 @@ export default function MobileCompanionPage() {
 
   // Sub-action modals on selected job
   const [showRequestInventoryModal, setShowRequestInventoryModal] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [reqQty, setReqQty] = useState("1");
+  const [inventoryRequestRows, setInventoryRequestRows] = useState<Array<{ productId: string; quantity: string }>>([
+    { productId: "", quantity: "1" },
+  ]);
   const [reqNotes, setReqNotes] = useState("");
+  const selectedProductId = inventoryRequestRows[0]?.productId || "";
+  const reqQty = inventoryRequestRows[0]?.quantity || "1";
+  const setSelectedProductId = (productId: string) =>
+    setInventoryRequestRows((rows) => [
+      { productId, quantity: rows[0]?.quantity || "1" },
+      ...rows.slice(1),
+    ]);
+  const setReqQty = (quantity: string) =>
+    setInventoryRequestRows((rows) => [
+      { productId: rows[0]?.productId || warehouseProducts[0]?.id || "", quantity },
+      ...rows.slice(1),
+    ]);
+
+  const [showAddServiceModal, setShowAddServiceModal] = useState(false);
+  const [serviceRows, setServiceRows] = useState<Array<{ description: string; quantity: string; unitRate: string }>>([
+    { description: "", quantity: "1", unitRate: "" },
+  ]);
+  const [savingUsageItemId, setSavingUsageItemId] = useState<string | null>(null);
 
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseNote, setExpenseNote] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("");
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
+  const [expenseJobId, setExpenseJobId] = useState("general");
 
   // Item-level discount requests
   const [showItemDiscountModal, setShowItemDiscountModal] = useState(false);
@@ -217,7 +246,12 @@ export default function MobileCompanionPage() {
       const productsList = Array.isArray(invData) ? invData : (invData?.products || []);
       setWarehouseProducts(productsList);
       if (productsList.length > 0) {
-        setSelectedProductId((prev) => (prev ? prev : productsList[0].id));
+        setInventoryRequestRows((rows) =>
+          rows.map((row, index) => ({
+            ...row,
+            productId: row.productId || (index === 0 ? productsList[0].id : ""),
+          }))
+        );
       }
 
       if (data.technicians && data.technicians.length > 0) {
@@ -414,7 +448,7 @@ export default function MobileCompanionPage() {
     }
   };
 
-  // 1. TECHNICIAN ACCEPTS JOB -> NOTIFIES ADMIN & MOVES TO IN-PROGRESS
+  // 1. TECHNICIAN ACCEPTS JOB -> NOTIFIES ADMIN; work starts only from the explicit on-site button.
   const handleAcceptJob = async () => {
     if (!selectedJob || !technician) return;
     try {
@@ -432,27 +466,11 @@ export default function MobileCompanionPage() {
         throw new Error(err.error);
       }
 
-      // Step 2: Immediately transition to InProgress with GPS & timestamp
-      const startRes = await fetch(`/api/jobs/${selectedJob.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "start",
-          lat: 25.2048,
-          lng: 55.2708,
-          actor: technician.name,
-        }),
-      });
-      if (!startRes.ok) {
-        const err = await startRes.json();
-        throw new Error(err.error);
-      }
-
-      // Step 3: Broadcast Admin Notification
+      // Broadcast Admin Notification
       const adminNotice = {
         id: `notice-${Date.now()}`,
         title: "Work Order Accepted",
-        message: `Technician ${technician.name} accepted ${selectedJob.jobNumber}. Status moved to In-Progress.`,
+        message: `Technician ${technician.name} accepted ${selectedJob.jobNumber}. Waiting for on-site start.`,
         timestamp: new Date().toLocaleTimeString(),
         jobId: selectedJob.id,
       };
@@ -472,7 +490,7 @@ export default function MobileCompanionPage() {
         technicianId: technician.id,
         technicianName: technician.name,
         actor: technician.name,
-        message: `Technician ${technician.name} accepted Job #${selectedJob.jobNumber}. Status moved to In-Progress.`,
+        message: `Technician ${technician.name} accepted Job #${selectedJob.jobNumber}.`,
       });
 
       logActivity({
@@ -484,10 +502,45 @@ export default function MobileCompanionPage() {
         metadata: { jobId: selectedJob.id, jobNumber: selectedJob.jobNumber },
       });
 
-      setNotificationToast(`Job Accepted! Status moved to In-Progress. Operations Dispatch notified.`);
+      setNotificationToast(`Job accepted. Tap “I'm on site — start” when work begins.`);
       setTimeout(() => setNotificationToast(null), 5000);
 
       handleOpenJob(selectedJob.id);
+      loadMobileData();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const handleStartJob = async () => {
+    if (!selectedJob || !technician) return;
+    try {
+      const res = await fetch(`/api/jobs/${selectedJob.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          lat: 25.2048,
+          lng: 55.2708,
+          actor: technician.name,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Unable to start job");
+      }
+
+      realtimeSync.publish("JOB_UPDATED", {
+        jobId: selectedJob.id,
+        jobNumber: selectedJob.jobNumber,
+        technicianId: technician.id,
+        technicianName: technician.name,
+        actor: technician.name,
+        message: `Technician ${technician.name} started ${selectedJob.jobNumber} on site.`,
+      });
+      setNotificationToast("Job is now in progress.");
+      setTimeout(() => setNotificationToast(null), 4000);
+      await handleOpenJob(selectedJob.id);
       loadMobileData();
     } catch (e: any) {
       alert(e.message);
@@ -499,20 +552,31 @@ export default function MobileCompanionPage() {
     e.preventDefault();
     if (!selectedJob || !technician) return;
 
-    const prod = warehouseProducts.find((p) => p.id === selectedProductId) || warehouseProducts[0];
-    const itemDescription = prod ? `${prod.name} (${prod.sku})` : "General HVAC Materials";
+    const rows = inventoryRequestRows
+      .map((row) => ({
+        product: warehouseProducts.find((product) => product.id === row.productId),
+        quantity: Number(row.quantity),
+      }))
+      .filter((row) => row.product && Number.isFinite(row.quantity) && row.quantity > 0);
+    if (rows.length === 0) {
+      alert("Select at least one store item and quantity.");
+      return;
+    }
 
     try {
-      const res = await fetch(`/api/jobs/${selectedJob.id}/inventory-request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          technicianId: technician.id,
-          item: itemDescription,
-          qtyRequested: Number(reqQty) || 1,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed requesting materials");
+      for (const row of rows) {
+        const product = row.product!;
+        const res = await fetch(`/api/jobs/${selectedJob.id}/inventory-request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            technicianId: technician.id,
+            item: `${product.name} (${product.sku})${reqNotes.trim() ? ` — ${reqNotes.trim()}` : ""}`,
+            qtyRequested: row.quantity,
+          }),
+        });
+        if (!res.ok) throw new Error(`Failed requesting ${product.name}`);
+      }
 
       // Publish Real-time Sync Event
       realtimeSync.publish("INVENTORY_REQUESTED", {
@@ -521,27 +585,114 @@ export default function MobileCompanionPage() {
         technicianId: technician.id,
         technicianName: technician.name,
         actor: technician.name,
-        message: `Technician ${technician.name} requested ${reqQty}x ${prod?.name || "HVAC Materials"} from Central Store`,
-        payload: { productId: prod?.id, quantity: Number(reqQty) || 1 },
+        message: `Technician ${technician.name} requested ${rows.length} inventory line${rows.length === 1 ? "" : "s"} from Central Store`,
+        payload: { items: rows.map((row) => ({ productId: row.product!.id, quantity: row.quantity })) },
       });
 
       logActivity({
         action: "REQUEST_INVENTORY",
-        target: `Technician requested ${reqQty}x ${prod?.name || "HVAC Materials"} from Store on #${selectedJob.jobNumber}`,
+        target: `Technician requested ${rows.length} inventory line${rows.length === 1 ? "" : "s"} from Store on #${selectedJob.jobNumber}`,
         category: "MOBILE_APP",
         actorName: technician.name,
         actorRole: "TECHNICIAN",
-        metadata: { jobId: selectedJob.id, productId: prod?.id, qty: reqQty },
+        metadata: { jobId: selectedJob.id, items: rows.map((row) => ({ productId: row.product!.id, quantity: row.quantity })) },
       });
 
       setShowRequestInventoryModal(false);
-      setReqQty("1");
-      setNotificationToast(`Inventory request sent to Storekeeper Bilal Sheikh (+971 50 678 9012)`);
+      setInventoryRequestRows([{ productId: warehouseProducts[0]?.id || "", quantity: "1" }]);
+      setReqNotes("");
+      setNotificationToast(`${rows.length} inventory request line${rows.length === 1 ? "" : "s"} sent to the store.`);
       setTimeout(() => setNotificationToast(null), 4000);
 
       handleOpenJob(selectedJob.id);
     } catch (e: any) {
       alert(e.message);
+    }
+  };
+
+  const handleAddServices = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedJob || !technician) return;
+    const services = serviceRows
+      .map((row) => ({
+        description: row.description.trim(),
+        quantity: Number(row.quantity),
+        unitRate: Number(row.unitRate),
+      }))
+      .filter(
+        (row) =>
+          row.description &&
+          Number.isFinite(row.quantity) &&
+          row.quantity > 0 &&
+          Number.isFinite(row.unitRate) &&
+          row.unitRate >= 0
+      );
+    if (services.length === 0) {
+      alert("Add at least one service with a valid quantity and rate.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/jobs/${selectedJob.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add_service",
+          services: services.map((service) => ({
+            ...service,
+            description: `[Service] ${service.description}`,
+          })),
+          actor: technician.name,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Unable to add services");
+      }
+      setShowAddServiceModal(false);
+      setServiceRows([{ description: "", quantity: "1", unitRate: "" }]);
+      setNotificationToast(`${services.length} service${services.length === 1 ? "" : "s"} added to the job.`);
+      setTimeout(() => setNotificationToast(null), 4000);
+      await handleOpenJob(selectedJob.id);
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const handleSaveItemUsage = async (item: any) => {
+    if (!selectedJob || !technician) return;
+    const quantity = Number(actualQuantities[item.id]);
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      alert("Used quantity must be zero or more.");
+      return;
+    }
+    setSavingUsageItemId(item.id);
+    try {
+      const res = await fetch(`/api/jobs/${selectedJob.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_item_usage",
+          itemId: item.id,
+          quantityActual: quantity,
+          actor: technician.name,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Unable to save used quantity");
+      }
+      setNotificationToast(
+        quantity > Number(item.quantityPlanned || 0)
+          ? `Used quantity saved. Over-use of ${quantity - Number(item.quantityPlanned || 0)} recorded for review.`
+          : "Used quantity saved."
+      );
+      setTimeout(() => setNotificationToast(null), 4000);
+      await handleOpenJob(selectedJob.id);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSavingUsageItemId(null);
     }
   };
 
@@ -778,11 +929,9 @@ export default function MobileCompanionPage() {
       const parsed = actualQuantities[it.id] !== "" && actualQuantities[it.id] !== undefined
         ? Number(actualQuantities[it.id])
         : it.quantityPlanned;
-      // Strictly prevent consuming more than the quantity issued from store
-      const capped = Math.min(it.quantityPlanned, Math.max(0, parsed));
       return {
         id: it.id,
-        quantityActual: capped,
+        quantityActual: Math.max(0, parsed),
       };
     });
 
@@ -896,8 +1045,9 @@ export default function MobileCompanionPage() {
     e.preventDefault();
     if (!technician || !expenseAmount || !expenseCategory) return;
     try {
-      if (selectedJob) {
-        const res = await fetch(`/api/jobs/${selectedJob.id}/expense`, {
+      const expenseJob = expenseJobId === "general" ? null : jobs.find((job) => job.id === expenseJobId);
+      if (expenseJob) {
+        const res = await fetch(`/api/jobs/${expenseJob.id}/expense`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -910,15 +1060,15 @@ export default function MobileCompanionPage() {
         if (!res.ok) throw new Error("Failed logging expense");
 
         realtimeSync.publish("EXPENSE_LOGGED", {
-          jobId: selectedJob.id,
-          jobNumber: selectedJob.jobNumber,
+          jobId: expenseJob.id,
+          jobNumber: expenseJob.jobNumber,
           technicianId: technician.id,
           technicianName: technician.name,
           actor: technician.name,
           message: `Technician ${technician.name} logged $${expenseAmount} field expense (${expenseNote || "Field expense"})`,
           payload: { amount: Number(expenseAmount), note: expenseNote },
         });
-        handleOpenJob(selectedJob.id);
+        if (selectedJob?.id === expenseJob.id) handleOpenJob(expenseJob.id);
       } else {
         const res = await fetch("/api/accounts", {
           method: "POST",
@@ -949,6 +1099,7 @@ export default function MobileCompanionPage() {
       setShowExpenseModal(false);
       setExpenseAmount("");
       setExpenseNote("");
+      setExpenseJobId("general");
       setExpenseCategory(expenseCategories[0]?.code || "");
       loadMobileData();
       setNotificationToast(`Expense of $${expenseAmount} logged successfully.`);
@@ -1003,7 +1154,7 @@ export default function MobileCompanionPage() {
               </span>
             </div>
             <p className="text-[10px] text-[#A1A1AA]">
-              Device: Apple iPhone 15 Pro • GPS Lat: 25.2048, Lng: 55.2708 (Dubai Marina)
+              Device: Apple iPhone 15 Pro • Managed field session
             </p>
           </div>
         </div>
@@ -1144,7 +1295,7 @@ export default function MobileCompanionPage() {
                   </h1>
                   <p className="text-[10px] text-emerald-400 font-semibold mt-0.5 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                    <span className="truncate">GPS Lat: 25.2048, Lng: 55.2708</span>
+                    <span className="truncate">Field service · Online</span>
                   </p>
                 </div>
               </div>
@@ -1276,7 +1427,59 @@ export default function MobileCompanionPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-3.5 overflow-y-auto">
-        {/* TAB 1: JOBS VIEW */}
+        {/* TAB 1: TECHNICIAN DASHBOARD */}
+        {activeTab === "dashboard" && (
+          <div className="space-y-3.5">
+            <div>
+              <h2 className="text-base font-black text-[#18181B]">Good day, {technician?.name?.split(" ")[0] || "Technician"}</h2>
+              <p className="text-[11px] text-[#71717A]">Your field-work summary for today</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "Assigned", value: jobs.filter((job) => job.status === "Assigned").length, tone: "bg-blue-50 text-blue-800 border-blue-200" },
+                { label: "Accepted", value: jobs.filter((job) => job.status === "Accepted").length, tone: "bg-amber-50 text-amber-800 border-amber-200" },
+                { label: "In progress", value: jobs.filter((job) => job.status === "InProgress").length, tone: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+                { label: "Completed", value: jobs.filter((job) => ["CompletedPendingVerification", "AwaitingFeedback", "Finalized", "Verified"].includes(job.status)).length, tone: "bg-zinc-50 text-zinc-800 border-zinc-200" },
+              ].map((card) => (
+                <button
+                  key={card.label}
+                  onClick={() => setActiveTab("jobs")}
+                  className={`p-3 rounded-xl border text-left ${card.tone}`}
+                >
+                  <span className="text-2xl font-black font-mono block">{card.value}</span>
+                  <span className="text-[11px] font-bold">{card.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-xl border border-[#EDEDED] p-4 space-y-2.5 shadow-xs">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider">Next jobs</h3>
+                <button onClick={() => setActiveTab("jobs")} className="text-[11px] font-bold text-[#0D7A5F]">View all</button>
+              </div>
+              {jobs.filter((job) => ["Assigned", "Accepted", "InProgress"].includes(job.status)).slice(0, 3).map((job) => (
+                <button
+                  key={job.id}
+                  onClick={() => { setActiveTab("jobs"); handleOpenJob(job.id); }}
+                  className="w-full p-3 rounded-xl bg-[#F9FAFB] border border-[#EDEDED] text-left flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="font-mono font-black text-xs">{job.jobNumber}</p>
+                    <p className="text-[11px] font-semibold truncate">{job.customer?.name}</p>
+                    <p className="text-[10px] text-[#71717A] truncate">{formatJobType(job.jobType)}</p>
+                  </div>
+                  <StatusBadge status={job.status} />
+                </button>
+              ))}
+              {jobs.filter((job) => ["Assigned", "Accepted", "InProgress"].includes(job.status)).length === 0 && (
+                <p className="text-xs text-[#71717A]">No active work orders right now.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: JOBS VIEW */}
         {activeTab === "jobs" && (
           <div>
             {selectedJob ? (
@@ -1462,7 +1665,11 @@ export default function MobileCompanionPage() {
                       const isRequested = it.description?.includes("[Discount Requested:");
                       const isApproved = it.description?.includes("[Discount Approved:");
                       const cleanDesc = it.description?.replace(/\s*\[Discount.*?\]/gi, "");
-                      const lineTotal = (it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned) * it.unitRate;
+                      const isService = /^\[Service\]/i.test(cleanDesc || "");
+                      const displayedUsed = actualQuantities[it.id] === "" || actualQuantities[it.id] === undefined
+                        ? (it.quantityActual ?? it.quantityPlanned)
+                        : Number(actualQuantities[it.id]);
+                      const lineTotal = displayedUsed * it.unitRate;
 
                       return (
                         <div
@@ -1504,6 +1711,58 @@ export default function MobileCompanionPage() {
                               </button>
                             )}
                           </div>
+
+                          {!isService && selectedJob.status === "InProgress" && (
+                            <div className="p-2.5 bg-white border border-[#EDEDED] rounded-xl space-y-2">
+                              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                                <div><span className="text-[#71717A] block">Issued</span><strong className="font-mono">{it.quantityPlanned}</strong></div>
+                                <div><span className="text-[#71717A] block">Unit price</span><strong className="font-mono">{formatCurrency(it.unitRate)}</strong></div>
+                                <div><span className="text-[#71717A] block">Line total</span><strong className="font-mono text-[#0D7A5F]">{formatCurrency(lineTotal)}</strong></div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold mr-auto">Used qty</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setActualQuantities({ ...actualQuantities, [it.id]: Math.max(0, displayedUsed - 1) })}
+                                  className="w-7 h-7 rounded-lg bg-zinc-100 border border-zinc-200 flex items-center justify-center"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={actualQuantities[it.id] ?? displayedUsed}
+                                  onChange={(event) => setActualQuantities({
+                                    ...actualQuantities,
+                                    [it.id]: event.target.value === "" ? "" : Math.max(0, Number(event.target.value)),
+                                  })}
+                                  className="w-16 h-7 rounded-lg border border-zinc-200 text-center font-mono font-bold"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setActualQuantities({ ...actualQuantities, [it.id]: displayedUsed + 1 })}
+                                  className="w-7 h-7 rounded-lg bg-zinc-100 border border-zinc-200 flex items-center justify-center"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveItemUsage(it)}
+                                  disabled={savingUsageItemId === it.id}
+                                  className="h-7 px-2 rounded-lg bg-[#0D7A5F] text-white font-bold flex items-center gap-1 disabled:opacity-60"
+                                >
+                                  <Save className="w-3 h-3" />
+                                  {savingUsageItemId === it.id ? "Saving" : "Save"}
+                                </button>
+                              </div>
+                              {displayedUsed > Number(it.quantityPlanned || 0) && (
+                                <p className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                                  Over issued by {displayedUsed - Number(it.quantityPlanned || 0)} — this will be recorded for store review.
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           {/* Discount Status Badges */}
                           {isRequested && (
@@ -1565,15 +1824,8 @@ export default function MobileCompanionPage() {
                                       const matchingJobItem = selectedJob.items?.find((it: any) =>
                                         it.description.toLowerCase().includes(req.item.toLowerCase())
                                       );
-                                      if (matchingJobItem) {
-                                        setSelectedDiscountItem(matchingJobItem);
-                                      } else {
-                                        setSelectedDiscountItem({
-                                          id: selectedJob.items?.[0]?.id || "job-item",
-                                          description: `${req.item} [Issued by Storekeeper]`,
-                                          unitRate: 15000,
-                                        });
-                                      }
+                                      if (!matchingJobItem) return;
+                                      setSelectedDiscountItem(matchingJobItem);
                                       setItemDiscountRequested("");
                                       setItemDiscountReason("");
                                       setShowItemDiscountModal(true);
@@ -1603,23 +1855,55 @@ export default function MobileCompanionPage() {
                   </div>
                 )}
 
-                {/* Mid-Job Action Buttons: Request Inventory (Linked to Store) & Log Expense */}
-                {selectedJob.status === "InProgress" && (
-                  <div className="grid grid-cols-2 gap-2">
+                {/* Contextual quick actions */}
+                {["Accepted", "InProgress"].includes(selectedJob.status) && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">Quick actions</p>
+                    <div className="grid grid-cols-2 gap-2">
+                    <a
+                      href="tel:+923124443322"
+                      className="p-3 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs"
+                    >
+                      <Phone className="w-4 h-4" /> Call store
+                    </a>
+                    <a
+                      href="tel:+923124443322"
+                      className="p-3 bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs"
+                    >
+                      <Phone className="w-4 h-4" /> Call office
+                    </a>
                     <button
                       onClick={() => setShowRequestInventoryModal(true)}
-                      className="p-3 bg-white border border-[#EDEDED] rounded-xl text-xs font-semibold text-[#18181B] flex items-center justify-center gap-1.5 hover:bg-[#F9FAFB] shadow-2xs transition"
+                      className="p-3 bg-[#0D7A5F] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition"
                     >
-                      <Package className="w-4 h-4 text-[#0D7A5F]" />
-                      Request Inventory
+                      <Package className="w-4 h-4 text-white" />
+                      Need parts
                     </button>
-                    <button
-                      onClick={() => setShowExpenseModal(true)}
-                      className="p-3 bg-white border border-[#EDEDED] rounded-xl text-xs font-semibold text-[#18181B] flex items-center justify-center gap-1.5 hover:bg-[#F9FAFB] shadow-2xs transition"
-                    >
-                      <Receipt className="w-4 h-4 text-amber-600" />
-                      Log Field Expense
-                    </button>
+                    {selectedJob.status === "InProgress" && (
+                      <>
+                        <button
+                          onClick={() => setShowAddServiceModal(true)}
+                          className="p-3 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition"
+                        >
+                          <Wrench className="w-4 h-4" /> Add services
+                        </button>
+                        <button
+                          onClick={() => {
+                            const firstItem = selectedJob.items?.[0];
+                            if (!firstItem) return;
+                            setSelectedDiscountItem(firstItem);
+                            setItemDiscountRequested("");
+                            setItemDiscountReason("");
+                            setShowItemDiscountModal(true);
+                          }}
+                          disabled={!selectedJob.items?.length}
+                          className="col-span-2 p-3 bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50"
+                        >
+                          <Percent className="w-4 h-4" /> Ask discount
+                        </button>
+                      </>
+                    )}
+                    </div>
                   </div>
                 )}
 
@@ -1634,7 +1918,18 @@ export default function MobileCompanionPage() {
                       className="w-full py-3.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold shadow-md transition flex items-center justify-center gap-2"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      Accept Job Order & Start Work
+                      Accept Job Order
+                    </button>
+                  )}
+
+                  {/* STATUS: ACCEPTED -> START ON SITE (inventory remains available above) */}
+                  {selectedJob.status === "Accepted" && (
+                    <button
+                      onClick={handleStartJob}
+                      className="w-full py-3.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <Play className="w-4 h-4" />
+                      I&apos;m on site — start
                     </button>
                   )}
 
@@ -1724,17 +2019,20 @@ export default function MobileCompanionPage() {
                 {/* Section Filter Pills */}
                 {(() => {
                   const assignedJobs = jobs.filter((j) => j.status === "Assigned");
-                  const activeJobs = jobs.filter((j) => j.status === "InProgress" || j.status === "Accepted");
+                  const acceptedJobs = jobs.filter((j) => j.status === "Accepted");
+                  const inventoryJobs = jobs.filter((j) => j.inventoryRequests?.some((request: any) => request.status?.toLowerCase() !== "issued"));
+                  const inProgressJobs = jobs.filter((j) => j.status === "InProgress");
                   const pausedJobs = jobs.filter((j) => j.status === "Paused");
-                  const doneJobs = jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status));
+                  const doneJobs = jobs.filter((j) => ["CompletedPendingVerification", "AwaitingFeedback", "Finalized", "Verified"].includes(j.status));
 
                   const sections = [
                     { id: "all", label: "All", count: jobs.length },
                     { id: "assigned", label: "Assigned", count: assignedJobs.length, alert: assignedJobs.length > 0 },
-                    { id: "active", label: "Active", count: activeJobs.length, pulse: activeJobs.length > 0 },
+                    { id: "accepted", label: "Accepted", count: acceptedJobs.length },
+                    { id: "inventory", label: "Request Inventory", count: inventoryJobs.length },
+                    { id: "inprogress", label: "In Progress", count: inProgressJobs.length, pulse: inProgressJobs.length > 0 },
                     { id: "paused", label: "Partially Completed", count: pausedJobs.length },
-                    { id: "done", label: "Done", count: doneJobs.length },
-                    { id: "expenses", label: "Expenses & Hisaab", count: techLedgerData?.detailedEntries?.length || 0 },
+                    { id: "completed", label: "Completed", count: doneJobs.length },
                   ];
 
                   return (
@@ -1883,15 +2181,19 @@ export default function MobileCompanionPage() {
                 {/* WORK ORDERS LIST (Filtered by Section) */}
                 {jobSection !== "expenses" && (() => {
                   const assignedJobs = jobs.filter((j) => j.status === "Assigned");
-                  const activeJobs = jobs.filter((j) => j.status === "InProgress" || j.status === "Accepted");
+                  const acceptedJobs = jobs.filter((j) => j.status === "Accepted");
+                  const inventoryJobs = jobs.filter((j) => j.inventoryRequests?.some((request: any) => request.status?.toLowerCase() !== "issued"));
+                  const inProgressJobs = jobs.filter((j) => j.status === "InProgress");
                   const pausedJobs = jobs.filter((j) => j.status === "Paused");
-                  const doneJobs = jobs.filter((j) => ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status));
+                  const doneJobs = jobs.filter((j) => ["CompletedPendingVerification", "AwaitingFeedback", "Finalized", "Verified"].includes(j.status));
 
                   const displayList =
                     jobSection === "assigned" ? assignedJobs :
-                    jobSection === "active" ? activeJobs :
+                    jobSection === "accepted" ? acceptedJobs :
+                    jobSection === "inventory" ? inventoryJobs :
+                    jobSection === "inprogress" ? inProgressJobs :
                     jobSection === "paused" ? pausedJobs :
-                    jobSection === "done" ? doneJobs :
+                    jobSection === "completed" ? doneJobs :
                     jobs;
 
                   if (displayList.length === 0) {
@@ -1901,11 +2203,15 @@ export default function MobileCompanionPage() {
                         <p className="font-bold text-sm text-[#18181B]">
                           {jobSection === "assigned"
                             ? "No Pending Assignments"
-                            : jobSection === "active"
-                            ? "No Work Orders Currently Active"
+                            : jobSection === "accepted"
+                            ? "No Accepted Work Orders"
+                            : jobSection === "inventory"
+                            ? "No Pending Inventory Requests"
+                            : jobSection === "inprogress"
+                            ? "No Work Orders In Progress"
                             : jobSection === "paused"
                             ? "No Paused Work Orders"
-                            : jobSection === "done"
+                            : jobSection === "completed"
                             ? "No Completed Work Orders Yet"
                             : "No Work Orders Found"}
                         </p>
@@ -1951,14 +2257,35 @@ export default function MobileCompanionPage() {
                               <StatusBadge status={job.status} />
                             </div>
 
+                            <p className="text-[10px] font-mono text-[#71717A] border-t border-[#EDEDED] pt-2">
+                              {formatDateTime(job.scheduledDate || job.createdAt)}
+                            </p>
+
                             <div>
                               <p className="text-sm font-bold text-[#18181B]">
                                 {job.customer?.name}
                               </p>
-                              <p className="text-xs text-[#71717A] flex items-center gap-1 mt-0.5 truncate">
-                                <MapPin className="w-3 h-3 text-[#A1A1AA] shrink-0" />
-                                {job.customer?.addressText}
-                              </p>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {job.customer?.phone && (
+                                  <a
+                                    href={`tel:${job.customer.phone}`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 flex items-center gap-1"
+                                  >
+                                    <Phone className="w-3 h-3" /> {job.customer.phone}
+                                  </a>
+                                )}
+                                <a
+                                  href={`https://maps.google.com/?q=${encodeURIComponent(job.customer?.addressText || "")}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="min-w-0 text-[10px] font-bold text-[#0D7A5F] bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1 flex items-center gap-1"
+                                >
+                                  <MapPin className="w-3 h-3 shrink-0" />
+                                  <span className="truncate max-w-[190px]">{job.customer?.addressText}</span>
+                                </a>
+                              </div>
                             </div>
 
                             {/* If job is paused, show reason banner */}
@@ -2032,7 +2359,43 @@ export default function MobileCompanionPage() {
           </div>
         )}
 
-        {/* TAB 2: ATTENDANCE SCANNER */}
+        {/* TAB 3: EXPENSES — kept separate from job quick actions */}
+        {activeTab === "expenses" && (
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-[#18181B]">My Expenses</h2>
+                <p className="text-[11px] text-[#71717A]">Record job or general field expenses</p>
+              </div>
+              <button
+                onClick={() => { setExpenseJobId("general"); setShowExpenseModal(true); }}
+                className="px-3 py-2 bg-[#0D7A5F] text-white rounded-xl text-[11px] font-bold flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add expense
+              </button>
+            </div>
+
+            <div className="bg-[#18181B] text-white rounded-2xl p-4">
+              <span className="text-[10px] text-zinc-400 uppercase font-bold">Expense / cash running balance</span>
+              <strong className="text-2xl font-black font-mono block mt-1">{formatCurrency(techLedgerData?.netBalance || 0)}</strong>
+            </div>
+
+            <div className="bg-white rounded-xl border border-[#EDEDED] p-4 space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider">Recorded entries</h3>
+              {techLedgerData?.detailedEntries?.length ? techLedgerData.detailedEntries.map((entry: any) => (
+                <div key={entry.id} className="p-2.5 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold capitalize truncate">{String(entry.type || "expense").replaceAll("_", " ")}</p>
+                    <p className="text-[10px] text-[#71717A]">{formatDateTime(entry.createdAt)}</p>
+                  </div>
+                  <span className="font-mono font-bold text-xs">{formatCurrency(entry.amount || 0)}</span>
+                </div>
+              )) : <p className="text-xs text-[#71717A]">No expense entries yet.</p>}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: ATTENDANCE SCANNER */}
         {activeTab === "attendance" && (
           <div className="space-y-4">
             <div className="bg-white rounded-xl p-6 text-center space-y-4 border border-[#EDEDED] shadow-xs">
@@ -2084,8 +2447,68 @@ export default function MobileCompanionPage() {
           </div>
         )}
 
-        {/* TAB 3: EMPLOYEE SELF-SERVICE (ESS) & RUNNING LEDGER */}
+        {/* TAB 5: LEAVES */}
+        {activeTab === "leaves" && (
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-[#18181B]">My Leaves</h2>
+                <p className="text-[11px] text-[#71717A]">Balances and request status</p>
+              </div>
+              <button
+                onClick={() => setShowMobileLeaveModal(true)}
+                className="px-3 py-2 bg-[#0D7A5F] text-white rounded-xl text-[11px] font-bold"
+              >
+                + Request leave
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {techEssData?.leaveBalances?.map((balance: any) => (
+                <div key={balance.id} className="p-3 bg-white rounded-xl border border-[#EDEDED] text-center">
+                  <span className="text-[10px] text-[#71717A] font-bold block">{balance.leaveType?.name}</span>
+                  <span className="text-xl font-mono font-black text-[#0D7A5F]">{balance.balance}</span>
+                  <span className="text-[9px] text-[#71717A] block">days available</span>
+                </div>
+              ))}
+            </div>
+            <div className="bg-white rounded-xl border border-[#EDEDED] p-4 space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider">Recent requests</h3>
+              {techEssData?.leaveRequests?.length ? techEssData.leaveRequests.map((request: any) => (
+                <div key={request.id} className="p-2.5 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold">{request.leaveType?.name}</p>
+                    <p className="text-[10px] text-[#71717A]">{formatDateTime(request.startDate)} · {request.daysCount} days</p>
+                  </div>
+                  <StatusBadge status={request.status} />
+                </div>
+              )) : <p className="text-xs text-[#71717A]">No leave requests submitted yet.</p>}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: EMPLOYEE PROFILE */}
         {activeTab === "profile" && (
+          <div className="space-y-3.5">
+            <div className="bg-white rounded-2xl border border-[#EDEDED] p-5 text-center shadow-xs">
+              <div className="w-16 h-16 rounded-full bg-[#0D7A5F] text-white mx-auto flex items-center justify-center text-2xl font-black">
+                {technician?.name?.charAt(0) || "T"}
+              </div>
+              <h2 className="text-base font-black mt-3">{technician?.name}</h2>
+              <p className="text-xs text-[#71717A]">{techEssData?.designation || "HVAC Technician"}</p>
+              <span className="inline-block mt-2 text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-full">
+                {techEssData?.department || "Operations"}
+              </span>
+            </div>
+            <div className="bg-white rounded-xl border border-[#EDEDED] divide-y divide-[#EDEDED] text-xs">
+              <div className="p-3 flex justify-between gap-3"><span className="text-[#71717A]">Phone</span><strong>{technician?.phone || "—"}</strong></div>
+              <div className="p-3 flex justify-between gap-3"><span className="text-[#71717A]">Employee ID</span><strong className="font-mono">{technician?.employeeCode || technician?.id?.slice(0, 8) || "—"}</strong></div>
+              <div className="p-3 flex justify-between gap-3"><span className="text-[#71717A]">Status</span><strong className="text-[#0D7A5F]">Active</strong></div>
+            </div>
+            <p className="text-[10px] text-center text-[#A1A1AA]">This managed field account stays signed in on its authorized device.</p>
+          </div>
+        )}
+
+        {activeTab === "profile" && false && (
           <div className="space-y-4">
             {/* Staff Card */}
             <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
@@ -2303,36 +2726,29 @@ export default function MobileCompanionPage() {
       </main>
 
       {/* Docked In-App Bottom Navigation */}
-      <nav className="bg-white border-t border-[#EDEDED] px-4 py-2 flex items-center justify-around z-30 shadow-md shrink-0">
-        <button
-          onClick={() => setActiveTab("jobs")}
-          className={`flex flex-col items-center gap-1 text-xs font-semibold transition ${
-            activeTab === "jobs" ? "text-[#0D7A5F]" : "text-[#71717A] hover:text-[#18181B]"
-          }`}
-        >
-          <Briefcase className="w-5 h-5" />
-          Jobs
-        </button>
-
-        <button
-          onClick={() => setActiveTab("attendance")}
-          className={`flex flex-col items-center gap-1 text-xs font-semibold transition ${
-            activeTab === "attendance" ? "text-[#0D7A5F]" : "text-[#71717A] hover:text-[#18181B]"
-          }`}
-        >
-          <Camera className="w-5 h-5" />
-          Attendance
-        </button>
-
-        <button
-          onClick={() => setActiveTab("profile")}
-          className={`flex flex-col items-center gap-1 text-xs font-semibold transition ${
-            activeTab === "profile" ? "text-[#0D7A5F]" : "text-[#71717A] hover:text-[#18181B]"
-          }`}
-        >
-          <User className="w-5 h-5" />
-          Staff ESS
-        </button>
+      <nav className="bg-white border-t border-[#EDEDED] px-2 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar z-30 shadow-md shrink-0">
+        {[
+          { id: "dashboard", label: "Home", icon: LayoutDashboard },
+          { id: "jobs", label: "Jobs", icon: Briefcase },
+          { id: "expenses", label: "Expenses", icon: WalletCards },
+          { id: "attendance", label: "Attendance", icon: Camera },
+          { id: "leaves", label: "Leaves", icon: CalendarDays },
+          { id: "profile", label: "Profile", icon: User },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id as typeof activeTab)}
+              className={`min-w-[54px] flex-1 flex flex-col items-center gap-0.5 text-[9px] font-bold transition ${
+                activeTab === item.id ? "text-[#0D7A5F]" : "text-[#71717A] hover:text-[#18181B]"
+              }`}
+            >
+              <Icon className="w-4.5 h-4.5" />
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Smartphone Home Indicator Bar & In-App Brand Footprint */}
@@ -2491,6 +2907,58 @@ export default function MobileCompanionPage() {
                 </div>
               </div>
 
+              {inventoryRequestRows.slice(1).map((row, rowIndex) => {
+                const actualIndex = rowIndex + 1;
+                return (
+                  <div key={actualIndex} className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold">Additional item {actualIndex + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => setInventoryRequestRows((rows) => rows.filter((_, index) => index !== actualIndex))}
+                        className="text-rose-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <select
+                      value={row.productId}
+                      onChange={(event) => setInventoryRequestRows((rows) => rows.map((item, index) => index === actualIndex ? { ...item, productId: event.target.value } : item))}
+                      className="w-full bg-white p-2.5 rounded-xl border border-zinc-200 text-xs"
+                    >
+                      <option value="">Select item</option>
+                      {warehouseProducts.map((product) => (
+                        <option key={product.id} value={product.id}>{product.name} — {product.stockQuantity} in stock</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="1"
+                      value={row.quantity}
+                      onChange={(event) => setInventoryRequestRows((rows) => rows.map((item, index) => index === actualIndex ? { ...item, quantity: event.target.value } : item))}
+                      placeholder="Quantity"
+                      className="w-full bg-white p-2.5 rounded-xl border border-zinc-200 text-xs font-mono"
+                    />
+                  </div>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setInventoryRequestRows((rows) => [...rows, { productId: "", quantity: "1" }])}
+                className="w-full py-2.5 border border-dashed border-[#0D7A5F] text-[#0D7A5F] rounded-xl text-xs font-bold flex items-center justify-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add another item
+              </button>
+
+              <textarea
+                rows={2}
+                value={reqNotes}
+                onChange={(event) => setReqNotes(event.target.value)}
+                placeholder="Optional note for the store"
+                className="w-full bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 text-xs resize-none"
+              />
+
               <div className="flex items-center gap-2 pt-2 border-t border-zinc-100">
                 <button
                   type="button"
@@ -2507,6 +2975,74 @@ export default function MobileCompanionPage() {
                   Send Request to Store
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showAddServiceModal && (
+        <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-t-[32px] w-full p-5 pb-7 space-y-4 max-h-[88%] overflow-y-auto">
+            <div className="w-12 h-1 bg-zinc-300 rounded-full mx-auto" />
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+              <div>
+                <h3 className="text-sm font-bold">Add completed services</h3>
+                <p className="text-[10px] text-zinc-500">Add one or several services to the job bill</p>
+              </div>
+              <button type="button" onClick={() => setShowAddServiceModal(false)} className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleAddServices} className="space-y-3">
+              {serviceRows.map((row, index) => (
+                <div key={index} className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold">Service {index + 1}</span>
+                    {serviceRows.length > 1 && (
+                      <button type="button" onClick={() => setServiceRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} className="text-rose-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    required
+                    value={row.description}
+                    onChange={(event) => setServiceRows((rows) => rows.map((item, rowIndex) => rowIndex === index ? { ...item, description: event.target.value } : item))}
+                    placeholder="Service performed"
+                    className="w-full bg-white p-2.5 rounded-xl border border-zinc-200 text-xs"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={row.quantity}
+                      onChange={(event) => setServiceRows((rows) => rows.map((item, rowIndex) => rowIndex === index ? { ...item, quantity: event.target.value } : item))}
+                      placeholder="Quantity"
+                      className="bg-white p-2.5 rounded-xl border border-zinc-200 text-xs font-mono"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={row.unitRate}
+                      onChange={(event) => setServiceRows((rows) => rows.map((item, rowIndex) => rowIndex === index ? { ...item, unitRate: event.target.value } : item))}
+                      placeholder="Unit price PKR"
+                      className="bg-white p-2.5 rounded-xl border border-zinc-200 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setServiceRows((rows) => [...rows, { description: "", quantity: "1", unitRate: "" }])}
+                className="w-full py-2.5 border border-dashed border-blue-500 text-blue-700 rounded-xl text-xs font-bold"
+              >
+                + Add another service
+              </button>
+              <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5">
+                <Wrench className="w-4 h-4" /> Save services
+              </button>
             </form>
           </div>
         </div>
@@ -2702,7 +3238,7 @@ export default function MobileCompanionPage() {
                           Actual Delivered / Used:
                         </label>
                         <span className="text-[10px] text-zinc-500">
-                          Max allowed: {it.quantityPlanned} units
+                          Issued: {it.quantityPlanned}; extra use is allowed and audited
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -2722,11 +3258,10 @@ export default function MobileCompanionPage() {
                         <input
                           type="number"
                           min="0"
-                          max={it.quantityPlanned}
                           required
                           value={actualQuantities[it.id] ?? ""}
                           onChange={(e) => {
-                            const val = e.target.value === "" ? "" : Math.min(it.quantityPlanned, Math.max(0, Number(e.target.value)));
+                            const val = e.target.value === "" ? "" : Math.max(0, Number(e.target.value));
                             setActualQuantities({
                               ...actualQuantities,
                               [it.id]: val,
@@ -2740,11 +3275,10 @@ export default function MobileCompanionPage() {
                             const cur = Number(actualQuantities[it.id] ?? it.quantityPlanned);
                             setActualQuantities({
                               ...actualQuantities,
-                              [it.id]: Math.min(it.quantityPlanned, cur + 1),
+                              [it.id]: cur + 1,
                             });
                           }}
-                          disabled={Number(actualQuantities[it.id] ?? it.quantityPlanned) >= it.quantityPlanned}
-                          className="w-6 h-6 rounded bg-zinc-200 hover:bg-zinc-300 disabled:opacity-40 text-zinc-700 font-bold flex items-center justify-center"
+                          className="w-6 h-6 rounded bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold flex items-center justify-center"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -2757,6 +3291,12 @@ export default function MobileCompanionPage() {
                         <p className="text-[10px] text-amber-900 mt-0.5">
                           Compulsory store return to Storekeeper Bilal Sheikh before settlement.
                         </p>
+                      </div>
+                    )}
+                    {currentActual > Number(it.quantityPlanned || 0) && (
+                      <div className="p-2 bg-blue-50 rounded-xl border border-blue-200 text-[11px] text-blue-950">
+                        <span className="font-bold">Extra usage: {currentActual - Number(it.quantityPlanned || 0)} units</span>
+                        <p className="text-[10px] text-blue-800 mt-0.5">Saved as over-consumption for store and accounts review.</p>
                       </div>
                     )}
                   </div>
@@ -3079,6 +3619,19 @@ export default function MobileCompanionPage() {
             </div>
 
             <form onSubmit={handleLogExpense} className="space-y-3.5">
+              <div>
+                <label className="font-semibold text-zinc-800 text-xs block mb-1">Expense against</label>
+                <select
+                  value={expenseJobId}
+                  onChange={(event) => setExpenseJobId(event.target.value)}
+                  className="w-full bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 text-xs"
+                >
+                  <option value="general">General field expense</option>
+                  {jobs.filter((job) => !["Finalized", "Verified"].includes(job.status)).map((job) => (
+                    <option key={job.id} value={job.id}>{job.jobNumber} — {job.customer?.name}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="font-semibold text-zinc-800 text-xs block mb-1">Expense Category *</label>
                 <select required value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)} className="w-full bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:bg-white focus:border-amber-600 focus:outline-none">
