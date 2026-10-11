@@ -12,7 +12,7 @@ export async function POST(
   if (gate.error) return gate.error;
   try {
     const body = await req.json();
-    const { technicianId, amount, note, receiptUrl } = body;
+    const { technicianId, amount, note, receiptUrl, category } = body;
     // Verified mobile technician: file strictly as self
     const isMobileTechnician =
       (req.headers.get("authorization") || "").startsWith("Bearer ") &&
@@ -24,6 +24,7 @@ export async function POST(
     }
     const numericAmount = Number(amount);
     const cleanNote = typeof note === "string" ? note.trim() : "";
+    const cleanCategory = typeof category === "string" ? category.trim().toUpperCase() : "";
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       return NextResponse.json({ error: "Expense amount must be greater than zero" }, { status: 400 });
     }
@@ -36,6 +37,11 @@ export async function POST(
     }
     if (cleanNote.length > 200) {
       return NextResponse.json({ error: "Expense note cannot exceed 200 characters" }, { status: 400 });
+    }
+    const settings = await prisma.companySettings.findFirst({ select: { expenseCategories: true } });
+    const configuredCategories = Array.isArray(settings?.expenseCategories) ? settings.expenseCategories as Array<{ code?: string; active?: boolean }> : [];
+    if (!cleanCategory || !configuredCategories.some((item) => item.active !== false && String(item.code || "").toUpperCase() === cleanCategory)) {
+      return NextResponse.json({ error: "Select an active expense category configured in Accounting Onboarding." }, { status: 400 });
     }
 
     if (isMobileTechnician) {
@@ -67,6 +73,7 @@ export async function POST(
         technicianId: techId,
         amount: numericAmount,
         note: cleanNote || "Job expense",
+        category: cleanCategory,
         receiptUrl: receiptUrl || null,
         status: "pending",
       },

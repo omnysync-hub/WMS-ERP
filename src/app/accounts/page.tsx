@@ -255,6 +255,7 @@ export default function AccountsPage() {
 
   // Enterprise Features State
   const [companySettings, setCompanySettings] = useState<any>(null);
+  const [accountingConfig, setAccountingConfig] = useState<any>(null);
   const [reversingEntry, setReversingEntry] = useState<any>(null);
   const [vendorCprNumber, setVendorCprNumber] = useState("");
 
@@ -263,6 +264,24 @@ export default function AccountsPage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.settings) setCompanySettings(data.settings);
+      })
+      .catch(() => null);
+    fetch("/api/accounting-config")
+      .then((res) => res.json())
+      .then((data) => {
+        setAccountingConfig(data);
+        const configuredCash = (data.financialAccounts || []).map((item: any) => item.ledgerAccount).filter(Boolean);
+        if (configuredCash.length) {
+          setCashAccounts(configuredCash);
+          const defaultCode = (data.financialAccounts || []).find((item: any) => item.isDefault)?.ledgerAccount?.code || configuredCash[0].code;
+          setCashFormAccount(defaultCode);
+          setCashFormTransferTo(configuredCash.find((item: any) => item.code !== defaultCode)?.code || defaultCode);
+          setNewExpenseDisbursing(defaultCode);
+        }
+        const firstExpense = (data.expenseCategories || [])[0]?.account?.code;
+        if (firstExpense) setNewExpenseAccount(firstExpense);
+        const firstMethod = (data.paymentMethods || [])[0]?.code;
+        if (firstMethod) setPaymentMethod(firstMethod);
       })
       .catch(() => null);
   }, []);
@@ -2936,10 +2955,7 @@ export default function AccountsPage() {
                     onChange={(e) => setNewExpenseAccount(e.target.value)}
                     className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
                   >
-                    <option value="6100">6100 — Technician Travel & Field Expenses</option>
-                    <option value="5000">5000 — Parts & Materials Cost (COGS)</option>
-                    <option value="6200">6200 — Office & Utilities</option>
-                    <option value="6000">6000 — Salaries & Wages</option>
+                    {(accountingConfig?.expenseCategories || []).map((item: any) => item.account && <option key={item.id || item.code} value={item.account.code}>{item.account.code} — {item.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -2949,9 +2965,7 @@ export default function AccountsPage() {
                     onChange={(e) => setNewExpenseDisbursing(e.target.value)}
                     className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
                   >
-                    <option value="1000">1000 — Cash Drawer</option>
-                    <option value="1010">1010 — Operating Bank Account</option>
-                    <option value="1020">1020 — Petty Cash Float</option>
+                    {cashAccounts.map((account: any) => <option key={account.id || account.code} value={account.code}>{account.code} — {account.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -3051,9 +3065,7 @@ export default function AccountsPage() {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                   className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
                 >
-                  <option value="cash">Cash on Hand (Account 1000)</option>
-                  <option value="bank">Bank Transfer (Operating Bank Account)</option>
-                  <option value="cheque">Cheque Deposit</option>
+                  {(accountingConfig?.paymentMethods || []).map((item: any) => <option key={item.id || item.code} value={item.code}>{item.name}</option>)}
                 </select>
               </div>
 
@@ -3814,10 +3826,7 @@ export default function AccountsPage() {
                   onChange={(e) => setCashFormAccount(e.target.value)}
                   className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
                 >
-                  <option value="1000">1000 — Cash on Hand / Main Drawer</option>
-                  <option value="1010">1010 — Operating Bank Account (Meezan Bank)</option>
-                  <option value="1011">1011 — Secondary Bank Account (HBL)</option>
-                  <option value="1020">1020 — Petty Cash Float</option>
+                  {cashAccounts.map((account: any) => <option key={account.id || account.code} value={account.code}>{account.code} — {account.name}</option>)}
                 </select>
               </div>
 
@@ -3832,10 +3841,7 @@ export default function AccountsPage() {
                     onChange={(e) => setCashFormTransferTo(e.target.value)}
                     className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
                   >
-                    <option value="1010">1010 — Operating Bank Account (Meezan Bank)</option>
-                    <option value="1000">1000 — Cash on Hand / Main Drawer</option>
-                    <option value="1011">1011 — Secondary Bank Account (HBL)</option>
-                    <option value="1020">1020 — Petty Cash Float</option>
+                    {cashAccounts.map((account: any) => <option key={account.id || account.code} value={account.code}>{account.code} — {account.name}</option>)}
                   </select>
                   <p className="text-[10px] text-[#71717A] mt-1">
                     Contra entry: will debit destination account and credit source account.

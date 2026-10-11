@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
   }
 
   const readiness = accountingPolicyReadiness(settings);
+  const expenseAccountIds = [...new Set(readiness.expenseCategories.map((item) => item.accountId).filter(Boolean))];
+  const expenseAccounts = expenseAccountIds.length ? await prisma.account.findMany({ where: { id: { in: expenseAccountIds } }, select: { id: true, code: true, name: true } }) : [];
+  const expenseAccountMap = new Map(expenseAccounts.map((account) => [account.id, account]));
   return NextResponse.json({
     invoice: {
       prefix: settings.invoicePrefix,
@@ -43,7 +46,7 @@ export async function GET(req: NextRequest) {
     taxRules: readiness.taxRules,
     paymentMethods: readiness.paymentMethods,
     agingBuckets: readiness.agingBuckets,
-    expenseCategories: readiness.expenseCategories,
+    expenseCategories: readiness.expenseCategories.map((item) => ({ ...item, account: expenseAccountMap.get(item.accountId) || null })),
     financialAccounts,
     complete: readiness.complete && settings.financialAccountsCompleted,
   });

@@ -14,7 +14,7 @@ export type PaymentMethodConfig = {
   id: string;
   name: string;
   code: string;
-  kind: "cash" | "bank" | "card" | "cheque" | "digital" | "credit";
+  kind: "cash" | "bank" | "card" | "cheque" | "digital" | "credit" | "split";
   requiresReference: boolean;
   financialAccountId?: string;
   active: boolean;

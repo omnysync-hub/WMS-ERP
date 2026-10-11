@@ -58,14 +58,28 @@ export default function PaymentsTab({
     }
     return "";
   });
-  const [paymentMethod, setPaymentMethod] = useState<"bank_transfer" | "cheque" | "cash">("bank_transfer");
+  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [bankAccountId, setBankAccountId] = useState("1010");
+  const [accountingConfig, setAccountingConfig] = useState<any>(null);
   const [reference, setReference] = useState("");
   const [whtAmount, setWhtAmount] = useState("0");
   const [notes, setNotes] = useState("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    void fetch("/api/accounting-config")
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error("Could not load accounting configuration")))
+      .then((data) => {
+        setAccountingConfig(data);
+        const defaultAccount = (data.financialAccounts || []).find((item: any) => item.isDefault) || data.financialAccounts?.[0];
+        if (defaultAccount?.ledgerAccount?.code) setBankAccountId(defaultAccount.ledgerAccount.code);
+        const defaultMethod = (data.paymentMethods || []).find((item: any) => item.active && ["bank", "cheque", "cash", "digital"].includes(item.kind));
+        if (defaultMethod?.code) setPaymentMethod(defaultMethod.code);
+      })
+      .catch(() => null);
+  }, []);
 
   if (isStorekeeper) {
     return (
@@ -368,11 +382,7 @@ export default function PaymentsTab({
                   <SearchableSelect
                     value={bankAccountId}
                     onChange={(val) => setBankAccountId(val)}
-                    options={[
-                      { value: "1010", label: "1010 - Operating Bank Account (Meezan Bank)" },
-                      { value: "1011", label: "1011 - Commercial Account (HBL)" },
-                      { value: "1000", label: "1000 - Main Cash Drawer" },
-                    ]}
+                    options={(accountingConfig?.financialAccounts || []).filter((item: any) => item.isActive).map((item: any) => ({ value: item.ledgerAccount?.code, label: `${item.ledgerAccount?.code} - ${item.name}` })).filter((item: any) => item.value)}
                   />
                 </div>
 
@@ -382,12 +392,8 @@ export default function PaymentsTab({
                   </label>
                   <SearchableSelect
                     value={paymentMethod}
-                    onChange={(val) => setPaymentMethod(val as any)}
-                    options={[
-                      { value: "bank_transfer", label: "Online Bank Transfer / RTGS" },
-                      { value: "cheque", label: "Crossed Corporate Cheque" },
-                      { value: "cash", label: "Cash Voucher" },
-                    ]}
+                    onChange={(val) => setPaymentMethod(val)}
+                    options={(accountingConfig?.paymentMethods || []).filter((item: any) => item.active).map((item: any) => ({ value: item.code, label: item.name }))}
                   />
                 </div>
               </div>

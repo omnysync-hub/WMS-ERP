@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Receipt, Check, Upload } from "lucide-react";
 
@@ -21,13 +21,27 @@ export default function QuickExpenseDrawer({
 }: QuickExpenseDrawerProps) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [category, setCategory] = useState("");
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  useEffect(() => {
+    if (!isOpen) return;
+    void fetch("/api/accounting-config")
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error("Could not load expense categories")))
+      .then((data) => {
+        const active = (data.expenseCategories || []).filter((item: any) => item.active);
+        setExpenseCategories(active);
+        setCategory((current) => current || active[0]?.code || "");
+      })
+      .catch(() => setExpenseCategories([]));
+  }, [isOpen]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || Number(amount) <= 0 || !note.trim()) {
-      setErrorMsg("Amount and expense description are required.");
+    if (!amount || Number(amount) <= 0 || !note.trim() || !category) {
+      setErrorMsg("Expense category, amount, and description are required.");
       return;
     }
 
@@ -42,6 +56,7 @@ export default function QuickExpenseDrawer({
           technicianId,
           amount: Number(amount),
           note,
+          category,
         }),
       });
 
@@ -53,6 +68,7 @@ export default function QuickExpenseDrawer({
       onExpenseLogged?.();
       setAmount("");
       setNote("");
+      setCategory(expenseCategories[0]?.code || "");
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -100,11 +116,20 @@ export default function QuickExpenseDrawer({
         )}
 
         <div>
+          <label className="font-semibold text-[#1A1D1F] block mb-1">Expense Category *</label>
+          <select required value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-[#F4F4F5] px-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none">
+            <option value="">Select category…</option>
+            {expenseCategories.map((item) => <option key={item.id || item.code} value={item.code}>{item.name}</option>)}
+          </select>
+          {!expenseCategories.length && <p className="mt-1 text-[11px] text-amber-700">Configure expense categories in Accounting Onboarding before recording expenses.</p>}
+        </div>
+
+        <div>
           <label className="font-semibold text-[#1A1D1F] block mb-1">
             Expense Amount *
           </label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] font-mono">$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] font-mono">PKR</span>
             <input
               type="number"
               required
@@ -114,7 +139,7 @@ export default function QuickExpenseDrawer({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               aria-describedby={errorMsg ? "exp-error" : undefined}
-              className="w-full bg-[#F4F4F5] pl-8 pr-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-mono"
+              className="w-full bg-[#F4F4F5] pl-12 pr-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-mono"
             />
           </div>
         </div>

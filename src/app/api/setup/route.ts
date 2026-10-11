@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
       const invoiceNextNumber = Number(body.invoiceNextNumber);
       const invoiceNumberPadding = Number(body.invoiceNumberPadding);
       const agingBuckets = Array.isArray(body.agingBuckets) ? body.agingBuckets.map(Number) : [];
-      const taxRules = (Array.isArray(body.taxRules) ? body.taxRules : []).map((item: any, index: number): TaxRule => ({
+      const taxRules: TaxRule[] = (Array.isArray(body.taxRules) ? body.taxRules : []).map((item: any, index: number): TaxRule => ({
         id: clean(item.id) || `tax-${index + 1}`,
         name: clean(item.name),
         code: clean(item.code).toUpperCase(),
@@ -267,7 +267,7 @@ export async function POST(req: NextRequest) {
         isDefault: Boolean(item.isDefault),
         active: item.active !== false,
       }));
-      const paymentMethods = (Array.isArray(body.paymentMethods) ? body.paymentMethods : []).map((item: any, index: number): PaymentMethodConfig => ({
+      const paymentMethods: PaymentMethodConfig[] = (Array.isArray(body.paymentMethods) ? body.paymentMethods : []).map((item: any, index: number): PaymentMethodConfig => ({
         id: clean(item.id) || `payment-${index + 1}`,
         name: clean(item.name),
         code: clean(item.code).toLowerCase(),
@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
         financialAccountId: clean(item.financialAccountId) || undefined,
         active: item.active !== false,
       }));
-      const expenseCategories = (Array.isArray(body.expenseCategories) ? body.expenseCategories : []).map((item: any, index: number): ExpenseCategoryConfig => ({
+      const expenseCategories: ExpenseCategoryConfig[] = (Array.isArray(body.expenseCategories) ? body.expenseCategories : []).map((item: any, index: number): ExpenseCategoryConfig => ({
         id: clean(item.id) || `expense-${index + 1}`,
         name: clean(item.name),
         code: clean(item.code).toUpperCase(),
@@ -290,13 +290,17 @@ export async function POST(req: NextRequest) {
       if (!Number.isInteger(invoiceNextNumber) || invoiceNextNumber < 1 || !Number.isInteger(invoiceNumberPadding) || invoiceNumberPadding < 3 || invoiceNumberPadding > 10) {
         return NextResponse.json({ error: "Invoice next number and padding are invalid." }, { status: 400 });
       }
+      const nextInvoicePreview = `${invoicePrefix}-${new Date().getFullYear()}-${String(invoiceNextNumber).padStart(invoiceNumberPadding, "0")}`;
+      if (await prisma.invoice.findUnique({ where: { invoiceNumber: nextInvoicePreview } })) {
+        return NextResponse.json({ error: `Invoice number ${nextInvoicePreview} already exists. Increase the next invoice number.` }, { status: 400 });
+      }
       if (agingBuckets.length !== 3 || !agingBuckets.every((item: number) => Number.isInteger(item) && item > 0) || !(agingBuckets[0] < agingBuckets[1] && agingBuckets[1] < agingBuckets[2])) {
         return NextResponse.json({ error: "Enter exactly three increasing aging cutoffs, such as 30, 60, and 90 days." }, { status: 400 });
       }
       if (!taxRules.length || taxRules.some((item) => !item.name || !item.code || !["sales_tax", "withholding", "other"].includes(item.type) || !["sales", "purchases", "both"].includes(item.appliesTo) || !Number.isFinite(item.rate) || item.rate < 0 || item.rate > 100)) {
         return NextResponse.json({ error: "Add at least one complete tax rule with a rate from 0 to 100%." }, { status: 400 });
       }
-      if (!paymentMethods.length || paymentMethods.some((item) => !item.name || !item.code || !["cash", "bank", "card", "cheque", "digital", "credit"].includes(item.kind))) {
+      if (!paymentMethods.length || paymentMethods.some((item) => !item.name || !item.code || !["cash", "bank", "card", "cheque", "digital", "credit", "split"].includes(item.kind))) {
         return NextResponse.json({ error: "Add at least one complete payment method." }, { status: 400 });
       }
       if (!expenseCategories.length || expenseCategories.some((item) => !item.name || !item.code || !item.accountId)) {

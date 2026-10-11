@@ -75,6 +75,8 @@ export default function MobileCompanionPage() {
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseNote, setExpenseNote] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("");
+  const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
 
   // Item-level discount requests
   const [showItemDiscountModal, setShowItemDiscountModal] = useState(false);
@@ -196,12 +198,19 @@ export default function MobileCompanionPage() {
   async function loadMobileData() {
     try {
       setLoading(true);
-      const [techRes, invRes] = await Promise.all([
+      const [techRes, invRes, accountingRes] = await Promise.all([
         fetch("/api/technicians"),
         fetch("/api/inventory"),
+        fetch("/api/accounting-config"),
       ]);
       const data = await techRes.json();
       const invData = await invRes.json();
+      if (accountingRes.ok) {
+        const accountingData = await accountingRes.json();
+        const configured = (accountingData.expenseCategories || []).filter((item: any) => item.active);
+        setExpenseCategories(configured);
+        setExpenseCategory((current) => current || configured[0]?.code || "");
+      }
 
       const productsList = Array.isArray(invData) ? invData : (invData?.products || []);
       setWarehouseProducts(productsList);
@@ -883,7 +892,7 @@ export default function MobileCompanionPage() {
   // Log Expense Claim (Job-specific or General Field Hisaab)
   const handleLogExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!technician || !expenseAmount) return;
+    if (!technician || !expenseAmount || !expenseCategory) return;
     try {
       if (selectedJob) {
         const res = await fetch(`/api/jobs/${selectedJob.id}/expense`, {
@@ -893,6 +902,7 @@ export default function MobileCompanionPage() {
             technicianId: technician.id,
             amount: Number(expenseAmount),
             note: expenseNote || "Field expense",
+            category: expenseCategory,
           }),
         });
         if (!res.ok) throw new Error("Failed logging expense");
@@ -916,7 +926,7 @@ export default function MobileCompanionPage() {
             payeeType: "technician",
             payeeName: technician.name,
             technicianId: technician.id,
-            expenseAccountCode: "6100",
+            expenseAccountCode: expenseCategories.find((item) => item.code === expenseCategory)?.account?.code,
             disbursingAccountCode: "1000",
             amount: Number(expenseAmount),
             memo: expenseNote || "Field expense voucher",
@@ -937,6 +947,7 @@ export default function MobileCompanionPage() {
       setShowExpenseModal(false);
       setExpenseAmount("");
       setExpenseNote("");
+      setExpenseCategory(expenseCategories[0]?.code || "");
       loadMobileData();
       setNotificationToast(`Expense of $${expenseAmount} logged successfully.`);
       setTimeout(() => setNotificationToast(null), 4000);
@@ -2970,6 +2981,14 @@ export default function MobileCompanionPage() {
             </div>
 
             <form onSubmit={handleLogExpense} className="space-y-3.5">
+              <div>
+                <label className="font-semibold text-zinc-800 text-xs block mb-1">Expense Category *</label>
+                <select required value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)} className="w-full bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:bg-white focus:border-amber-600 focus:outline-none">
+                  <option value="">Select category…</option>
+                  {expenseCategories.map((item) => <option key={item.id || item.code} value={item.code}>{item.name}</option>)}
+                </select>
+                {!expenseCategories.length && <p className="text-[10px] text-amber-700 mt-1">Accounting must configure expense categories before expenses can be submitted.</p>}
+              </div>
               <div>
                 <label className="font-semibold text-zinc-800 text-xs block mb-1">
                   Expense Amount (PKR) *

@@ -330,6 +330,18 @@ export default function PosTerminalPage() {
     || (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo));
   const defaultBank = (accountingConfig?.financialAccounts || []).find((account: any) => account.isDefault && account.kind === "bank")
     || (accountingConfig?.financialAccounts || []).find((account: any) => account.kind === "bank");
+  const configuredPaymentTabs = (accountingConfig?.paymentMethods || [])
+    .filter((item: any) => item.active)
+    .map((item: any) => {
+      if (item.kind === "cash") return { id: "cash", label: item.name, icon: Banknote };
+      if (item.kind === "card") return { id: "card", label: item.name, icon: CreditCard };
+      if (["bank", "digital", "cheque"].includes(item.kind)) return { id: "transfer", label: item.name, icon: Building2 };
+      if (item.kind === "credit") return { id: "credit", label: item.name, icon: User };
+      if (item.kind === "split") return { id: "split", label: item.name, icon: SlidersHorizontal };
+      return null;
+    })
+    .filter(Boolean)
+    .filter((item: any, index: number, items: any[]) => items.findIndex((candidate) => candidate.id === item.id) === index);
 
   const grandTotal = useMemo(() => {
     const afterOrderDisc =
@@ -1324,14 +1336,14 @@ export default function PosTerminalPage() {
               </div>
 
               {/* Payment Method Selector Tabs */}
-              <div className="grid grid-cols-5 gap-1.5 p-1 bg-[#F4F4F5] rounded-xl">
-                {[
-                  { id: "cash", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && item.kind === "cash")?.name || "Cash", icon: Banknote },
-                  { id: "card", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && item.kind === "card")?.name || "Card", icon: CreditCard },
-                  { id: "transfer", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && ["bank", "digital", "cheque"].includes(item.kind))?.name || "Bank", icon: Building2 },
-                  { id: "credit", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && item.kind === "credit")?.name || "Credit", icon: User },
+              <div className="grid gap-1.5 p-1 bg-[#F4F4F5] rounded-xl" style={{ gridTemplateColumns: `repeat(${Math.max(1, configuredPaymentTabs.length || 5)}, minmax(0, 1fr))` }}>
+                {(configuredPaymentTabs.length ? configuredPaymentTabs : [
+                  { id: "cash", label: "Cash", icon: Banknote },
+                  { id: "card", label: "Card", icon: CreditCard },
+                  { id: "transfer", label: "Bank", icon: Building2 },
+                  { id: "credit", label: "Credit", icon: User },
                   { id: "split", label: "Split", icon: SlidersHorizontal },
-                ].map((tab) => {
+                ]).map((tab: any) => {
                   const Icon = tab.icon;
                   const isSel = paymentMethod === tab.id;
                   return (
