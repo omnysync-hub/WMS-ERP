@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { Eye, EyeOff, LockKeyhole, ShieldCheck, Wrench, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, ArrowRight } from "lucide-react";
 import { DEVELOPMENT_DEMO_PASSWORD, DEVELOPMENT_DEMO_USERS, ERP_ROLE_OPTIONS } from "@/lib/auth/erpRoles";
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 
@@ -63,47 +63,66 @@ export default function LoginPage() {
         <div className="absolute -right-24 top-28 h-72 w-72 rounded-full border border-emerald-300/10" />
         <div className="absolute -right-10 top-42 h-44 w-44 rounded-full border border-emerald-300/10" />
 
-        <div className="relative flex items-center gap-3">
-          <div className="h-12 w-12 rounded-2xl bg-white p-1.5 flex items-center justify-center shadow-lg border border-white/20 overflow-hidden shrink-0">
-            <img src="/logo.png" alt="Workman Services" className="h-full w-full object-contain" />
-          </div>
-          <div>
-            <p className="font-extrabold tracking-tight text-lg">Workman Services</p>
-            <p className="text-xs text-emerald-200/70">Operations command center</p>
-          </div>
-        </div>
-
-        <div className="relative max-w-xl">
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-200">
-            <ShieldCheck className="h-3.5 w-3.5" /> Secure role-based workspace
+        {/* Top Minimal Status Pill */}
+        <div className="relative">
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3.5 py-1.5 text-xs font-semibold text-emerald-300">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            Official Operations Portal
           </span>
-          <h1 className="mt-6 text-5xl font-black leading-[1.08] tracking-[-0.04em]">
-            Every team sees the work that matters to them.
-          </h1>
-          <p className="mt-5 max-w-lg text-base leading-7 text-slate-300">
-            Manage jobs, dispatch, stock, procurement, accounts, customer care, and approvals from one controlled workspace.
-          </p>
-          <div className="mt-8 grid grid-cols-2 gap-3 text-sm text-slate-200">
-            {["Protected user sessions", "Role-specific access", "Automatic login lockout", "Immediate access revocation"].map((item) => (
-              <div key={item} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400" /> {item}
-              </div>
-            ))}
-          </div>
         </div>
 
-        <p className="relative text-xs text-slate-500">Authorized staff only · Activity is recorded for operational security</p>
+        {/* Center: Big Prominent Logo & ERP Software Title */}
+        <div className="relative max-w-xl my-auto py-8">
+          {/* Big Prominent Logo Card */}
+          <div className="h-32 w-32 sm:h-36 sm:w-36 rounded-3xl bg-white p-3.5 flex items-center justify-center shadow-2xl shadow-emerald-950/60 border border-white/20 overflow-hidden mb-8 ring-8 ring-white/10">
+            <img
+              src="/logo.png"
+              alt="Workman Services Logo"
+              className="h-full w-full object-contain"
+            />
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl font-black leading-[1.08] tracking-[-0.03em] text-white">
+            {displayName || "Workman Services"}
+          </h1>
+
+          <div className="mt-3">
+            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-emerald-300 via-teal-200 to-emerald-400 bg-clip-text text-transparent tracking-tight">
+              Enterprise ERP Software
+            </span>
+          </div>
+
+          <p className="mt-4 max-w-md text-base leading-relaxed text-slate-300">
+            Centralized platform for field operations, jobs dispatch, inventory control, procurement, and financial accounting.
+          </p>
+        </div>
+
+        {/* Left Section Footer: Powered by OmnySync */}
+        <div className="relative pt-6 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
+          <span>Authorized staff only</span>
+          <span className="flex items-center gap-1.5">
+            <span>Powered by</span>
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition-colors"
+            >
+              OmnySync
+            </a>
+          </span>
+        </div>
       </section>
 
       <section className="flex min-h-screen items-center justify-center bg-[#f7f8f7] px-5 py-10 text-[#18181b] sm:px-10">
         <div className="w-full max-w-[460px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="h-12 w-12 rounded-xl bg-white p-1.5 flex items-center justify-center shadow-md border border-slate-200 overflow-hidden shrink-0">
+          <div className="mb-8 flex items-center gap-4 lg:hidden">
+            <div className="h-16 w-16 rounded-2xl bg-white p-2 flex items-center justify-center shadow-lg border border-slate-200 overflow-hidden shrink-0">
               <img src="/logo.png" alt="Workman Services" className="h-full w-full object-contain" />
             </div>
             <div>
-              <p className="font-extrabold">Workman Services</p>
-              <p className="text-xs text-slate-500">Operations command center</p>
+              <p className="font-extrabold text-lg text-slate-900 leading-tight">{displayName || "Workman Services"}</p>
+              <p className="text-xs font-semibold text-[#0D7A5F] mt-0.5">Enterprise ERP Software</p>
             </div>
           </div>
 
