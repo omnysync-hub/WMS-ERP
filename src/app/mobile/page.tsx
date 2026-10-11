@@ -111,10 +111,19 @@ export default function MobileCompanionPage() {
   const [expenseJobId, setExpenseJobId] = useState("general");
 
   // Item-level discount requests
+  const [showDiscountPicker, setShowDiscountPicker] = useState(false);
   const [showItemDiscountModal, setShowItemDiscountModal] = useState(false);
   const [selectedDiscountItem, setSelectedDiscountItem] = useState<any>(null);
   const [itemDiscountRequested, setItemDiscountRequested] = useState("");
   const [itemDiscountReason, setItemDiscountReason] = useState("");
+
+  const openDiscountRequest = (item: any) => {
+    setSelectedDiscountItem(item);
+    setItemDiscountRequested("");
+    setItemDiscountReason("");
+    setShowDiscountPicker(false);
+    setShowItemDiscountModal(true);
+  };
 
   // Stop / Pause Job Scenario (e.g. 5 ACs planned, 3 fitted today, 2 tomorrow)
   const [showStopModal, setShowStopModal] = useState(false);
@@ -1753,12 +1762,7 @@ export default function MobileCompanionPage() {
                             {!selectedJob.finalizedAt && selectedJob.status === "InProgress" && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSelectedDiscountItem(it);
-                                  setItemDiscountRequested("");
-                                  setItemDiscountReason("");
-                                  setShowItemDiscountModal(true);
-                                }}
+                                onClick={() => openDiscountRequest(it)}
                                 className="shrink-0 px-2 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold transition flex items-center gap-1 shadow-2xs"
                               >
                                 <Percent className="w-3 h-3 text-amber-600" />
@@ -1863,50 +1867,116 @@ export default function MobileCompanionPage() {
                   );
                 })()}
 
-                {/* Warehouse Inventory Requests & Store Status */}
-                {selectedJob.inventoryRequests && selectedJob.inventoryRequests.length > 0 && (
-                  <div className="bg-white rounded-xl p-4 space-y-2 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED]">
-                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center justify-between">
-                      <span>Warehouse Store Requests</span>
-                      <span className="text-[10px] font-mono text-[#71717A]">
-                        Storekeeper: Bilal Sheikh
-                      </span>
-                    </h3>
-                    <div className="space-y-1.5">
-                      {selectedJob.inventoryRequests.map((req: any) => (
-                        <div
-                          key={req.id}
-                          className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs"
-                        >
-                          <div>
-                            <p className="font-semibold text-[#18181B]">{req.item}</p>
-                            <p className="text-[11px] text-[#71717A]">Qty: {req.qtyRequested} units</p>
-                          </div>
-                          <div>
-                            {req.status?.toLowerCase() === "issued" ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  Issued by Storekeeper
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="text-right">
-                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-amber-600" />
-                                  Pending Storekeeper Dispatch
-                                </span>
-                                <span className="text-[9px] text-[#71717A] block mt-0.5">
-                                  Storekeeper must issue via software
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                {/* All stock and discount requests remain visible inside the job. */}
+                {(() => {
+                  const stockRequests = selectedJob.inventoryRequests || [];
+                  const discountRequests = (selectedJob.items || []).filter((item: any) =>
+                    item.description?.includes("[Discount Requested:") ||
+                    item.description?.includes("[Discount Approved:")
+                  );
+
+                  return (
+                    <section className="bg-white rounded-xl p-4 space-y-3 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED]">
+                      <div>
+                        <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                          Requests & approvals
+                        </h3>
+                        <p className="text-[10px] text-[#71717A] mt-0.5">
+                          Stock and discount request history for this job
+                        </p>
+                      </div>
+
+                      {!selectedJob.finalizedAt && ["Accepted", "InProgress"].includes(selectedJob.status) && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowRequestInventoryModal(true)}
+                            className="p-2.5 rounded-xl bg-[#0D7A5F] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-2xs"
+                          >
+                            <Package className="w-3.5 h-3.5" /> Request inventory
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowDiscountPicker(true)}
+                            disabled={selectedJob.status !== "InProgress" || !(selectedJob.items || []).length}
+                            className="p-2.5 rounded-xl bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-45"
+                          >
+                            <Percent className="w-3.5 h-3.5" /> Request discount
+                          </button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      )}
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black text-[#52525B] uppercase tracking-wider">Stock requests</p>
+                          <span className="text-[10px] font-mono font-bold text-[#71717A]">{stockRequests.length}</span>
+                        </div>
+                        {stockRequests.map((req: any) => {
+                          const issued = req.status?.toLowerCase() === "issued";
+                          return (
+                            <div key={req.id} className="p-2.5 bg-[#F9FAFB] rounded-xl border border-[#EDEDED] flex items-start justify-between gap-2 text-xs">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-[#18181B] truncate">{req.item}</p>
+                                <p className="text-[10px] text-[#71717A] mt-0.5">Requested qty: {req.qtyRequested}</p>
+                              </div>
+                              <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full border flex items-center gap-1 ${
+                                issued
+                                  ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                                  : "text-amber-800 bg-amber-50 border-amber-200"
+                              }`}>
+                                {issued ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                                {issued ? "Issued" : "Pending store"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {stockRequests.length === 0 && (
+                          <p className="p-2.5 rounded-xl bg-[#FAFAFA] border border-dashed border-[#D4D4D8] text-[10px] text-[#71717A] text-center">
+                            No stock requests for this job yet.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-[#EDEDED]">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black text-[#52525B] uppercase tracking-wider">Discount requests</p>
+                          <span className="text-[10px] font-mono font-bold text-[#71717A]">{discountRequests.length}</span>
+                        </div>
+                        {discountRequests.map((item: any) => {
+                          const approved = item.description?.includes("[Discount Approved:");
+                          const service = /^\[Service\]/i.test(item.description || "");
+                          const amount = item.description?.match(/\[Discount (?:Requested|Approved): ([^\]]+)\]/)?.[1] || "Submitted";
+                          const label = item.description
+                            ?.replace(/\s*\[Discount.*?\]/gi, "")
+                            .replace(/^\[Service\]\s*/i, "");
+
+                          return (
+                            <div key={item.id} className="p-2.5 bg-[#F9FAFB] rounded-xl border border-[#EDEDED] space-y-1.5 text-xs">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-[#18181B] truncate">{label}</p>
+                                  <p className="text-[10px] text-[#71717A]">{service ? "Service" : "Stock"} · {amount}</p>
+                                </div>
+                                <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full border ${
+                                  approved
+                                    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                                    : "text-amber-800 bg-amber-50 border-amber-200"
+                                }`}>
+                                  {approved ? "Approved" : "Awaiting approval"}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {discountRequests.length === 0 && (
+                          <p className="p-2.5 rounded-xl bg-[#FAFAFA] border border-dashed border-[#D4D4D8] text-[10px] text-[#71717A] text-center">
+                            No discount requests for this job yet.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })()}
 
                 {/* Contextual quick actions */}
                 {["Accepted", "InProgress"].includes(selectedJob.status) && (
@@ -3532,6 +3602,72 @@ export default function MobileCompanionPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Choose the stock or service line before opening its discount screen. */}
+      {showDiscountPicker && selectedJob && (
+        <div className="absolute inset-0 z-50 bg-[#F7F8F7] text-zinc-900 flex flex-col animate-in slide-in-from-right duration-200">
+          <header className="bg-[#18181B] text-white px-4 py-3 flex items-center gap-3 shrink-0 shadow-md">
+            <button
+              type="button"
+              onClick={() => setShowDiscountPicker(false)}
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+              aria-label="Back to job details"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <h3 className="text-sm font-bold leading-tight">Request discount</h3>
+              <p className="text-[10px] text-zinc-300">Choose stock or a service</p>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 text-xs">
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950">
+              <p className="font-bold">Select the charge to discount</p>
+              <p className="text-[10px] text-amber-800 mt-0.5">Each request is tracked separately in this job&apos;s request history.</p>
+            </div>
+
+            {(selectedJob.items || []).map((item: any) => {
+              const service = /^\[Service\]/i.test(item.description || "");
+              const requested = item.description?.includes("[Discount Requested:");
+              const approved = item.description?.includes("[Discount Approved:");
+              const unavailable = requested || approved;
+              const label = item.description
+                ?.replace(/\s*\[Discount.*?\]/gi, "")
+                .replace(/^\[Service\]\s*/i, "");
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => openDiscountRequest(item)}
+                  disabled={unavailable}
+                  className="w-full p-3 rounded-xl bg-white border border-[#EDEDED] shadow-2xs text-left flex items-center justify-between gap-3 disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center border ${
+                      service
+                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                        : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    }`}>
+                      {service ? <Wrench className="w-4 h-4" /> : <Package className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-[#18181B] truncate">{label}</p>
+                      <p className="text-[10px] text-[#71717A]">{service ? "Service" : "Stock"} · {formatCurrency(item.unitRate)} per unit</p>
+                    </div>
+                  </div>
+                  <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full ${
+                    unavailable ? "bg-zinc-100 text-zinc-600" : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {approved ? "Approved" : requested ? "Pending" : "Select"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
