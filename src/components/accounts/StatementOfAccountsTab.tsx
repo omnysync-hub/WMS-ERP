@@ -62,6 +62,7 @@ export default function StatementOfAccountsTab() {
   const [parties, setParties] = useState<Party[]>([]);
   const [company, setCompany] = useState({ name: "Company", currency: "PKR" });
   const [totals, setTotals] = useState<any>({});
+  const [agingBuckets, setAgingBuckets] = useState<[number, number, number]>([30, 60, 90]);
   const [partyType, setPartyType] = useState<PartyType>("customer");
   const [selected, setSelected] = useState<Party | null>(null);
   const [statement, setStatement] = useState<Statement | null>(null);
@@ -87,6 +88,7 @@ export default function StatementOfAccountsTab() {
       setParties(data.parties || []);
       setCompany(data.company || { name: "Company", currency: "PKR" });
       setTotals(data.totals || {});
+      if (Array.isArray(data.agingBuckets) && data.agingBuckets.length === 3) setAgingBuckets(data.agingBuckets);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not load ledgers");
     } finally {
@@ -203,7 +205,7 @@ export default function StatementOfAccountsTab() {
             <div className="relative"><Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, phone or details" className="w-full pl-8 pr-3 py-2 rounded-lg border border-[#D4D4D8] bg-white text-xs outline-none focus:ring-1 focus:ring-[#0D7A5F]" /></div>
             <div className="grid grid-cols-2 gap-2">
               <select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value as any)} className="py-2 px-2 rounded-lg border border-[#D4D4D8] bg-white text-xs"><option value="all">All balances</option><option value="open">Open only</option><option value="settled">Settled only</option></select>
-              <select value={agingFilter} onChange={(e) => setAgingFilter(e.target.value as any)} className="py-2 px-2 rounded-lg border border-[#D4D4D8] bg-white text-xs"><option value="all">All aging</option><option value="current">0–30 days</option><option value="days31To60">31–60 days</option><option value="days61To90">61–90 days</option><option value="days90Plus">90+ days</option></select>
+              <select value={agingFilter} onChange={(e) => setAgingFilter(e.target.value as any)} className="py-2 px-2 rounded-lg border border-[#D4D4D8] bg-white text-xs"><option value="all">All aging</option><option value="current">0–{agingBuckets[0]} days</option><option value="days31To60">{agingBuckets[0] + 1}–{agingBuckets[1]} days</option><option value="days61To90">{agingBuckets[1] + 1}–{agingBuckets[2]} days</option><option value="days90Plus">{agingBuckets[2]}+ days</option></select>
             </div>
           </div>
           <div className="max-h-[690px] overflow-y-auto divide-y divide-[#E4E4E7]">
@@ -240,7 +242,7 @@ export default function StatementOfAccountsTab() {
 
               <div className="p-4 border-b border-[#E4E4E7]">
                 <div className="flex items-center gap-1.5 mb-2"><Filter className="w-3.5 h-3.5 text-[#0D7A5F]" /><p className="text-[10px] uppercase tracking-wider font-bold text-[#71717A]">Aging analysis</p></div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><AgeCell label="Current (0–30)" value={statement.aging.current} /><AgeCell label="31–60 days" value={statement.aging.days31To60} /><AgeCell label="61–90 days" value={statement.aging.days61To90} /><AgeCell label="90+ days" value={statement.aging.days90Plus} danger /></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2"><AgeCell label={`Current (0–${agingBuckets[0]})`} value={statement.aging.current} /><AgeCell label={`${agingBuckets[0] + 1}–${agingBuckets[1]} days`} value={statement.aging.days31To60} /><AgeCell label={`${agingBuckets[1] + 1}–${agingBuckets[2]} days`} value={statement.aging.days61To90} /><AgeCell label={`${agingBuckets[2]}+ days`} value={statement.aging.days90Plus} danger /></div>
               </div>
 
               <div className="overflow-x-auto">

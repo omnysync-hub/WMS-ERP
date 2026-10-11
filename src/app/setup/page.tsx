@@ -18,9 +18,15 @@ import {
   FileSpreadsheet,
   Layers,
   ListChecks,
+  Landmark,
+  ReceiptText,
+  Scale,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import AccountMappingTab from "@/components/accounts/AccountMappingTab";
+import AccountingPoliciesStep from "@/components/setup/AccountingPoliciesStep";
+import TreasuryAndCareOfStep from "@/components/setup/TreasuryAndCareOfStep";
+import PartyOpeningBalancesStep from "@/components/setup/PartyOpeningBalancesStep";
 
 type MappingCompleteness = {
   total: number;
@@ -44,6 +50,7 @@ export default function SetupWizardPage() {
   const [tbStatus, setTbStatus] = useState<any>({ totalDebits: 0, totalCredits: 0, variance: 0, isInBalance: true });
   const [counts, setCounts] = useState<any>({ customers: 0, vendors: 0, products: 0 });
   const [mappingCompleteness, setMappingCompleteness] = useState<MappingCompleteness | null>(null);
+  const [accountingConfig, setAccountingConfig] = useState<any>(null);
 
   // Step 1
   const [legalName, setLegalName] = useState("");
@@ -79,6 +86,7 @@ export default function SetupWizardPage() {
         setTbStatus(data.trialBalanceStatus);
         setCounts(data.counts || {});
         setMappingCompleteness(data.mappingCompleteness || null);
+        setAccountingConfig(data.accountingConfig || null);
 
         if (data.settings) {
           setLegalName(data.settings.legalName || "");
@@ -298,7 +306,7 @@ export default function SetupWizardPage() {
       if (!res.ok) throw new Error(data.error || "Failed to post opening balances");
       setSuccessMsg(data.message);
       await loadSetupStatus();
-      setCurrentStep(5);
+      setCurrentStep(8);
     } catch (e: any) {
       setErrorMsg(e.message);
     } finally {
@@ -352,12 +360,15 @@ export default function SetupWizardPage() {
     { num: 1, label: "1. Company", icon: Building },
     { num: 2, label: "2. Chart of Accounts", icon: BookOpen },
     { num: 3, label: "3. Account Mapping", icon: Sliders },
-    { num: 4, label: "4. Opening Balances", icon: DollarSign },
-    { num: 5, label: "5. Go-Live", icon: ShieldCheck },
+    { num: 4, label: "4. Policies", icon: ReceiptText },
+    { num: 5, label: "5. Treasury", icon: Landmark },
+    { num: 6, label: "6. Party Balances", icon: Scale },
+    { num: 7, label: "7. GL Balances", icon: DollarSign },
+    { num: 8, label: "8. Go-Live", icon: ShieldCheck },
   ];
 
   const mappingOk = !!mappingCompleteness?.isComplete;
-  const canGoLive = mappingOk && !!tbStatus?.isInBalance;
+  const canGoLive = mappingOk && !!tbStatus?.isInBalance && !!accountingConfig?.complete;
 
   if (isLoading) {
     return (
@@ -385,7 +396,7 @@ export default function SetupWizardPage() {
                 )}
               </h1>
               <p className="text-xs text-[#71717A]">
-                Company → COA → Map transaction types → Opening balances → Sign off (100% mapping required).
+                Company → COA → mappings → policies → treasury → party ledgers → GL opening balances → sign off.
               </p>
             </div>
           </div>
@@ -400,7 +411,7 @@ export default function SetupWizardPage() {
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="bg-white rounded-2xl border border-[#E4E4E7] p-4 shadow-xs">
-          <div className="grid grid-cols-5 gap-2 text-center text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 text-center text-xs">
             {steps.map((s) => {
               const Icon = s.icon;
               const isActive = currentStep === s.num;
@@ -695,21 +706,57 @@ export default function SetupWizardPage() {
                 }}
                 className="px-5 py-2.5 bg-[#0D7A5F] hover:bg-[#0A634D] text-white font-bold text-xs rounded-xl flex items-center gap-2"
               >
-                {mappingOk ? "Continue to Opening Balances" : "Completeness gate — finish mappings"}
+                {mappingOk ? "Continue to Accounting Policies" : "Completeness gate — finish mappings"}
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 4 — Opening balances */}
         {currentStep === 4 && (
+          <AccountingPoliciesStep
+            config={accountingConfig}
+            accounts={accounts}
+            isSubmitting={isSubmitting}
+            setIsSubmitting={setIsSubmitting}
+            onBack={() => setCurrentStep(3)}
+            onError={setErrorMsg}
+            onSaved={async (message) => { setSuccessMsg(message); await loadSetupStatus(); setCurrentStep(5); }}
+          />
+        )}
+
+        {currentStep === 5 && (
+          <TreasuryAndCareOfStep
+            config={accountingConfig}
+            accounts={accounts}
+            isSubmitting={isSubmitting}
+            setIsSubmitting={setIsSubmitting}
+            onBack={() => setCurrentStep(4)}
+            onError={setErrorMsg}
+            onSaved={async (message) => { setSuccessMsg(message); await loadSetupStatus(); setCurrentStep(6); }}
+          />
+        )}
+
+        {currentStep === 6 && (
+          <PartyOpeningBalancesStep
+            config={accountingConfig}
+            postingDate={goLiveDate}
+            isSubmitting={isSubmitting}
+            setIsSubmitting={setIsSubmitting}
+            onBack={() => setCurrentStep(5)}
+            onError={setErrorMsg}
+            onSaved={async (message) => { setSuccessMsg(message); await loadSetupStatus(); setCurrentStep(7); }}
+          />
+        )}
+
+        {/* STEP 7 — General ledger opening balances */}
+        {currentStep === 7 && (
           <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-xs p-6 space-y-6">
             <div className="border-b border-[#E4E4E7] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
                   <DollarSign className="w-4 h-4 text-[#0D7A5F]" />
-                  Step 4: Opening Balances
+                  Step 7: General Ledger Opening Balances
                 </h2>
                 <p className="text-xs text-[#71717A] mt-1">
                   Enter trial-balance cutover amounts. Net difference offsets to the mapped opening_balance_equity account.
@@ -805,13 +852,13 @@ export default function SetupWizardPage() {
             </div>
 
             <div className="flex justify-between pt-2 border-t border-[#E4E4E7]">
-              <button type="button" onClick={() => setCurrentStep(3)} className="px-4 py-2 border border-[#E4E4E7] rounded-xl text-xs font-bold text-[#71717A]">
+              <button type="button" onClick={() => setCurrentStep(6)} className="px-4 py-2 border border-[#E4E4E7] rounded-xl text-xs font-bold text-[#71717A]">
                 Back
               </button>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setCurrentStep(5)}
+                  onClick={() => setCurrentStep(8)}
                   className="px-4 py-2 border border-[#E4E4E7] rounded-xl text-xs font-bold text-[#71717A]"
                 >
                   Skip for now
@@ -830,14 +877,14 @@ export default function SetupWizardPage() {
           </div>
         )}
 
-        {/* STEP 5 — Go-live */}
-        {currentStep === 5 && (
+        {/* STEP 8 — Go-live */}
+        {currentStep === 8 && (
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-xs p-6 space-y-5">
               <div className="border-b border-[#E4E4E7] pb-4">
                 <h2 className="text-sm font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-[#0D7A5F]" />
-                  Step 5: Completeness Gate & Go-Live
+                  Step 8: Completeness Gate & Go-Live
                 </h2>
                 <p className="text-xs text-[#71717A] mt-1">
                   Go-live is blocked until all required mappings point to active leaf accounts and the trial balance is in equilibrium.
@@ -867,6 +914,26 @@ export default function SetupWizardPage() {
                     detail: mappingCompleteness
                       ? `${mappingCompleteness.configured}/${mappingCompleteness.total} (${mappingCompleteness.percentage}%)`
                       : "Unknown",
+                  },
+                  {
+                    ok: !!accountingConfig?.readiness?.policies,
+                    title: "Accounting policies",
+                    detail: accountingConfig?.readiness?.policies ? "Taxes, numbering, payments, aging, and expenses configured" : "Incomplete",
+                  },
+                  {
+                    ok: !!accountingConfig?.readiness?.financialAccounts,
+                    title: "Cash and bank accounts",
+                    detail: `${accountingConfig?.financialAccounts?.filter((item: any) => item.isActive).length || 0} active account(s)`,
+                  },
+                  {
+                    ok: !!accountingConfig?.readiness?.careOf,
+                    title: "Care-of ledgers",
+                    detail: accountingConfig?.readiness?.careOf ? "Reviewed and linked" : "Review required",
+                  },
+                  {
+                    ok: !!accountingConfig?.readiness?.partyBalances,
+                    title: "Party opening balances",
+                    detail: accountingConfig?.readiness?.partyBalances ? `${accountingConfig?.partyOpeningBalances?.length || 0} balance(s), including confirmed zero` : "Not confirmed",
                   },
                   {
                     ok: !!tbStatus.isInBalance,
@@ -977,7 +1044,7 @@ export default function SetupWizardPage() {
                   <div className="space-y-2">
                     {!canGoLive && (
                       <p className="text-[11px] text-rose-700 font-semibold">
-                        Finish account mapping (100%) and balance the trial balance before signing off.
+                        Complete every accounting onboarding stage, finish account mapping, and reconcile the trial balance before signing off.
                       </p>
                     )}
                     <button
@@ -994,7 +1061,7 @@ export default function SetupWizardPage() {
               </div>
 
               <div className="flex justify-start">
-                <button type="button" onClick={() => setCurrentStep(4)} className="px-4 py-2 border border-[#E4E4E7] rounded-xl text-xs font-bold text-[#71717A]">
+                <button type="button" onClick={() => setCurrentStep(7)} className="px-4 py-2 border border-[#E4E4E7] rounded-xl text-xs font-bold text-[#71717A]">
                   Back
                 </button>
               </div>

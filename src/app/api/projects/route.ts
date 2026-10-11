@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
+import { DocumentSequenceService } from "@/lib/services/DocumentSequenceService";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -209,8 +210,7 @@ export async function POST(req: NextRequest) {
             prismaClient: tx,
           }),
         ]);
-        const invoiceCount = await tx.invoice.count();
-        const invoiceNumber = `INV-PRJ-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
+        const invoiceNumber = await DocumentSequenceService.nextInvoiceNumber(tx);
         const createdInvoice = await tx.invoice.create({
           data: {
             invoiceNumber,

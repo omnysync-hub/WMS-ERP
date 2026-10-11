@@ -5,8 +5,42 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { FinancialReportingService } from "@/lib/services/FinancialReportingService";
+import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { STANDARD_COA_DEFINITIONS } from "@/lib/constants/chartOfAccountsHierarchy";
 import { requirePermission } from "@/lib/auth/erpActor";
+import {
+  accountingPolicyReadiness,
+  ExpenseCategoryConfig,
+  PaymentMethodConfig,
+  TaxRule,
+} from "@/lib/accountingConfig";
+
+const clean = (value: unknown) => String(value ?? "").trim();
+const roundMoney = (value: unknown) => Math.round(Number(value) * 100) / 100;
+
+async function recalculateCustomerLedger(tx: any, customerId: string) {
+  const entries = await tx.customerLedgerEntry.findMany({
+    where: { customerId },
+    orderBy: [{ postingDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+  });
+  let runningBalance = 0;
+  for (const entry of entries) {
+    runningBalance = roundMoney(runningBalance + entry.debit - entry.credit);
+    await tx.customerLedgerEntry.update({ where: { id: entry.id }, data: { runningBalance } });
+  }
+}
+
+async function recalculateVendorLedger(tx: any, vendorId: string) {
+  const entries = await tx.vendorLedgerEntry.findMany({
+    where: { vendorId },
+    orderBy: [{ postingDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+  });
+  let runningBalance = 0;
+  for (const entry of entries) {
+    runningBalance = roundMoney(runningBalance + entry.credit - entry.debit);
+    await tx.vendorLedgerEntry.update({ where: { id: entry.id }, data: { runningBalance } });
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -57,10 +91,11 @@ export async function GET(req: NextRequest) {
     });
 
     // 5. Counts for master data
-    const [customerCount, vendorCount, productCount] = await Promise.all([
+    const [customerCount, vendorCount, productCount, employeeCount] = await Promise.all([
       prisma.customer.count(),
       prisma.vendor.count(),
       prisma.product.count(),
+      prisma.employee.count({ where: { active: true } }),
     ]);
 
     // 6. Trial Balance equilibrium check
@@ -68,6 +103,30 @@ export async function GET(req: NextRequest) {
 
     const mappingCompleteness = await AccountMappingService.getCompleteness("DEFAULT");
     const leafAccounts = accounts.filter((a) => a.level >= 4 && a.isActive);
+    const [financialAccounts, careOfParties, partyOpeningBalances, customers, vendors, employees] = await Promise.all([
+      prisma.financialAccount.findMany({ include: { ledgerAccount: true }, orderBy: [{ isActive: "desc" }, { isDefault: "desc" }, { name: "asc" }] }),
+      prisma.careOfParty.findMany({ include: { ledgerAccount: true }, orderBy: { companyName: "asc" } }),
+      prisma.partyOpeningBalance.findMany({ orderBy: [{ partyType: "asc" }, { partyName: "asc" }] }),
+      prisma.customer.findMany({ select: { id: true, name: true, phone: true }, orderBy: { name: "asc" } }),
+      prisma.vendor.findMany({ select: { id: true, name: true, vendorCode: true }, orderBy: { name: "asc" } }),
+      prisma.employee.findMany({ where: { active: true }, select: { id: true, name: true, phone: true, department: true }, orderBy: { name: "asc" } }),
+    ]);
+    const policyReadiness = accountingPolicyReadiness(settings);
+    const activeFinancialAccounts = financialAccounts.filter((item) => item.isActive);
+    const careOfReady = Boolean(settings.careOfSetupCompleted) && careOfParties.every((item) => Boolean(item.ledgerAccountId));
+    let subledgerReconciliation: any = null;
+    try {
+      subledgerReconciliation = await SubLedgerService.checkReconciliationDrift();
+    } catch {
+      // Account mappings may not exist until the mapping step is complete.
+    }
+    const accountingReadiness = {
+      policies: policyReadiness.complete,
+      financialAccounts: Boolean(settings.financialAccountsCompleted) && activeFinancialAccounts.length > 0 && activeFinancialAccounts.some((item) => item.isDefault),
+      careOf: careOfReady,
+      partyBalances: Boolean(settings.partyBalancesCompleted),
+    };
+    const accountingConfigurationComplete = Object.values(accountingReadiness).every(Boolean);
 
     return NextResponse.json({
       success: true,
@@ -88,13 +147,29 @@ export async function GET(req: NextRequest) {
         customers: customerCount,
         vendors: vendorCount,
         products: productCount,
+        employees: employeeCount,
+      },
+      accountingConfig: {
+        invoice: { prefix: settings.invoicePrefix, nextNumber: settings.invoiceNextNumber, padding: settings.invoiceNumberPadding },
+        taxRules: policyReadiness.taxRules,
+        paymentMethods: policyReadiness.paymentMethods,
+        agingBuckets: policyReadiness.agingBuckets,
+        expenseCategories: policyReadiness.expenseCategories,
+        financialAccounts,
+        careOfParties,
+        partyOpeningBalances,
+        parties: { customers, vendors, employees },
+        readiness: accountingReadiness,
+        complete: accountingConfigurationComplete,
+        subledgerReconciliation,
       },
       isReadyToGoLive:
         settings.isSetupCompleted ||
         (periods.length > 0 &&
           tb.isInBalance &&
           leafAccounts.length > 0 &&
-          mappingCompleteness.isComplete),
+          mappingCompleteness.isComplete &&
+          accountingConfigurationComplete),
     });
   } catch (err: any) {
     console.error("GET /api/setup error:", err);
@@ -174,6 +249,212 @@ export async function POST(req: NextRequest) {
         periodsCount: periods.length,
         message: "Company profile saved and fiscal periods initialized.",
       });
+    }
+
+    if (action === "save_accounting_policies") {
+      const invoicePrefix = clean(body.invoicePrefix).toUpperCase();
+      const invoiceNextNumber = Number(body.invoiceNextNumber);
+      const invoiceNumberPadding = Number(body.invoiceNumberPadding);
+      const agingBuckets = Array.isArray(body.agingBuckets) ? body.agingBuckets.map(Number) : [];
+      const taxRules = (Array.isArray(body.taxRules) ? body.taxRules : []).map((item: any, index: number): TaxRule => ({
+        id: clean(item.id) || `tax-${index + 1}`,
+        name: clean(item.name),
+        code: clean(item.code).toUpperCase(),
+        type: item.type,
+        rate: Number(item.rate),
+        appliesTo: item.appliesTo,
+        inclusive: Boolean(item.inclusive),
+        isDefault: Boolean(item.isDefault),
+        active: item.active !== false,
+      }));
+      const paymentMethods = (Array.isArray(body.paymentMethods) ? body.paymentMethods : []).map((item: any, index: number): PaymentMethodConfig => ({
+        id: clean(item.id) || `payment-${index + 1}`,
+        name: clean(item.name),
+        code: clean(item.code).toLowerCase(),
+        kind: item.kind,
+        requiresReference: Boolean(item.requiresReference),
+        financialAccountId: clean(item.financialAccountId) || undefined,
+        active: item.active !== false,
+      }));
+      const expenseCategories = (Array.isArray(body.expenseCategories) ? body.expenseCategories : []).map((item: any, index: number): ExpenseCategoryConfig => ({
+        id: clean(item.id) || `expense-${index + 1}`,
+        name: clean(item.name),
+        code: clean(item.code).toUpperCase(),
+        accountId: clean(item.accountId),
+        active: item.active !== false,
+      }));
+
+      if (!/^[A-Z0-9-]{2,12}$/.test(invoicePrefix)) {
+        return NextResponse.json({ error: "Invoice prefix must be 2–12 uppercase letters, numbers, or hyphens." }, { status: 400 });
+      }
+      if (!Number.isInteger(invoiceNextNumber) || invoiceNextNumber < 1 || !Number.isInteger(invoiceNumberPadding) || invoiceNumberPadding < 3 || invoiceNumberPadding > 10) {
+        return NextResponse.json({ error: "Invoice next number and padding are invalid." }, { status: 400 });
+      }
+      if (agingBuckets.length !== 3 || !agingBuckets.every((item: number) => Number.isInteger(item) && item > 0) || !(agingBuckets[0] < agingBuckets[1] && agingBuckets[1] < agingBuckets[2])) {
+        return NextResponse.json({ error: "Enter exactly three increasing aging cutoffs, such as 30, 60, and 90 days." }, { status: 400 });
+      }
+      if (!taxRules.length || taxRules.some((item) => !item.name || !item.code || !["sales_tax", "withholding", "other"].includes(item.type) || !["sales", "purchases", "both"].includes(item.appliesTo) || !Number.isFinite(item.rate) || item.rate < 0 || item.rate > 100)) {
+        return NextResponse.json({ error: "Add at least one complete tax rule with a rate from 0 to 100%." }, { status: 400 });
+      }
+      if (!paymentMethods.length || paymentMethods.some((item) => !item.name || !item.code || !["cash", "bank", "card", "cheque", "digital", "credit"].includes(item.kind))) {
+        return NextResponse.json({ error: "Add at least one complete payment method." }, { status: 400 });
+      }
+      if (!expenseCategories.length || expenseCategories.some((item) => !item.name || !item.code || !item.accountId)) {
+        return NextResponse.json({ error: "Add at least one expense category and map it to an expense account." }, { status: 400 });
+      }
+      const unique = (items: string[]) => new Set(items).size === items.length;
+      if (!unique(taxRules.map((item) => item.code)) || !unique(paymentMethods.map((item) => item.code)) || !unique(expenseCategories.map((item) => item.code))) {
+        return NextResponse.json({ error: "Tax, payment-method, and expense-category codes must be unique." }, { status: 400 });
+      }
+      const expenseAccountIds = [...new Set(expenseCategories.map((item) => item.accountId))];
+      const validExpenseAccounts = await prisma.account.count({ where: { id: { in: expenseAccountIds }, type: "expense", isActive: true, level: { gte: 4 } } });
+      if (validExpenseAccounts !== expenseAccountIds.length) {
+        return NextResponse.json({ error: "Every expense category must use an active leaf expense account." }, { status: 400 });
+      }
+
+      const existing = await prisma.companySettings.findFirst();
+      if (!existing) return NextResponse.json({ error: "Save the company profile first." }, { status: 400 });
+      const settings = await prisma.companySettings.update({
+        where: { id: existing.id },
+        data: { invoicePrefix, invoiceNextNumber, invoiceNumberPadding, agingBuckets, taxRules, paymentMethods, expenseCategories, accountingPoliciesCompleted: true },
+      });
+      return NextResponse.json({ success: true, settings, message: "Accounting policies, numbering, taxes, payment methods, aging, and expense categories saved." });
+    }
+
+    if (action === "save_financial_accounts") {
+      const rows = Array.isArray(body.accounts) ? body.accounts : [];
+      if (!rows.length) return NextResponse.json({ error: "Add at least one cash or bank account." }, { status: 400 });
+      const normalized = rows.map((item: any) => ({
+        id: clean(item.id),
+        name: clean(item.name),
+        kind: clean(item.kind).toLowerCase(),
+        accountCode: clean(item.accountCode),
+        bankName: clean(item.bankName) || null,
+        accountTitle: clean(item.accountTitle) || null,
+        accountNumberMasked: clean(item.accountNumberMasked) || null,
+        iban: clean(item.iban).toUpperCase() || null,
+        branchCode: clean(item.branchCode) || null,
+        isDefault: Boolean(item.isDefault),
+      }));
+      if (normalized.some((item: any) => !item.name || !item.accountCode || !["cash", "bank", "card_clearing", "digital_wallet"].includes(item.kind))) {
+        return NextResponse.json({ error: "Every financial account needs a name, ledger code, and valid account type." }, { status: 400 });
+      }
+      if (new Set(normalized.map((item: any) => item.accountCode)).size !== normalized.length || normalized.filter((item: any) => item.isDefault).length !== 1) {
+        return NextResponse.json({ error: "Ledger codes must be unique and exactly one financial account must be the default." }, { status: 400 });
+      }
+      const saved = await prisma.$transaction(async (tx) => {
+        const ledgerIds: string[] = [];
+        const result = [];
+        for (const item of normalized) {
+          const found = await tx.account.findUnique({ where: { code: item.accountCode } });
+          if (found && (found.type !== "asset" || found.level < 4)) {
+            throw new Error(`Account ${item.accountCode} must be an asset leaf account.`);
+          }
+          const ledgerAccount = found
+            ? await tx.account.update({ where: { id: found.id }, data: { name: item.name, isActive: true } })
+            : await tx.account.create({ data: { code: item.accountCode, name: item.name, type: "asset", level: 4, isActive: true, isSystem: false, currency: "PKR", companyId: "DEFAULT" } });
+          ledgerIds.push(ledgerAccount.id);
+          const financial = await tx.financialAccount.upsert({
+            where: { ledgerAccountId: ledgerAccount.id },
+            update: { name: item.name, kind: item.kind, bankName: item.bankName, accountTitle: item.accountTitle, accountNumberMasked: item.accountNumberMasked, iban: item.iban, branchCode: item.branchCode, isDefault: item.isDefault, isActive: true },
+            create: { name: item.name, kind: item.kind, ledgerAccountId: ledgerAccount.id, bankName: item.bankName, accountTitle: item.accountTitle, accountNumberMasked: item.accountNumberMasked, iban: item.iban, branchCode: item.branchCode, isDefault: item.isDefault, isActive: true },
+            include: { ledgerAccount: true },
+          });
+          result.push(financial);
+        }
+        await tx.financialAccount.updateMany({ where: { ledgerAccountId: { notIn: ledgerIds } }, data: { isActive: false, isDefault: false } });
+        const settings = await tx.companySettings.findFirst();
+        if (!settings) throw new Error("Save the company profile first.");
+        await tx.companySettings.update({ where: { id: settings.id }, data: { financialAccountsCompleted: true } });
+        const defaultAccount = result.find((item: any) => item.isDefault)!;
+        await AccountMappingService.setMapping("DEFAULT", "bank_operating", defaultAccount.ledgerAccountId, null, gate.actor.name, tx);
+        return result;
+      });
+      return NextResponse.json({ success: true, financialAccounts: saved, message: `${saved.length} cash/bank account(s) saved and linked to the chart of accounts.` });
+    }
+
+    if (action === "save_care_of_setup") {
+      const rows = Array.isArray(body.parties) ? body.parties : [];
+      for (const item of rows) {
+        if (!clean(item.companyName) || !clean(item.ledgerAccountId)) {
+          return NextResponse.json({ error: "Every care-of party needs a company name and ledger control account." }, { status: 400 });
+        }
+        const account = await prisma.account.findUnique({ where: { id: clean(item.ledgerAccountId) } });
+        if (!account || !account.isActive || account.level < 4 || account.type !== "asset") {
+          return NextResponse.json({ error: `Care-of party ${clean(item.companyName)} must use an active leaf asset account.` }, { status: 400 });
+        }
+      }
+      const saved = await prisma.$transaction(async (tx) => {
+        const result = [];
+        for (const item of rows) {
+          const data = { companyName: clean(item.companyName), personName: clean(item.personName), phone: clean(item.phone) || null, ledgerAccountId: clean(item.ledgerAccountId) };
+          const party = clean(item.id)
+            ? await tx.careOfParty.update({ where: { id: clean(item.id) }, data })
+            : await tx.careOfParty.create({ data });
+          result.push(party);
+        }
+        const settings = await tx.companySettings.findFirst();
+        if (!settings) throw new Error("Save the company profile first.");
+        await tx.companySettings.update({ where: { id: settings.id }, data: { careOfSetupCompleted: true } });
+        return result;
+      });
+      return NextResponse.json({ success: true, careOfParties: saved, message: rows.length ? `${rows.length} care-of ledger(s) configured.` : "Confirmed that no care-of ledgers are required at go-live." });
+    }
+
+    if (action === "save_party_opening_balances") {
+      const rows = Array.isArray(body.balances) ? body.balances : [];
+      const postingDate = body.postingDate ? new Date(body.postingDate) : new Date();
+      if (Number.isNaN(postingDate.getTime())) return NextResponse.json({ error: "Opening balance date is invalid." }, { status: 400 });
+      const normalized = rows.map((item: any) => ({ partyType: clean(item.partyType).toLowerCase(), partyId: clean(item.partyId), debit: roundMoney(item.debit || 0), credit: roundMoney(item.credit || 0), dueDate: item.dueDate ? new Date(item.dueDate) : null, notes: clean(item.notes) || null }));
+      for (const item of normalized) {
+        if (!['customer', 'vendor', 'employee'].includes(item.partyType) || !item.partyId || item.debit < 0 || item.credit < 0 || (item.debit > 0) === (item.credit > 0) || (item.dueDate && Number.isNaN(item.dueDate.getTime()))) {
+          return NextResponse.json({ error: "Each party balance needs a valid party, exactly one positive debit or credit, and valid dates." }, { status: 400 });
+        }
+      }
+      if (new Set(normalized.map((item: any) => `${item.partyType}:${item.partyId}`)).size !== normalized.length) {
+        return NextResponse.json({ error: "Each party can appear only once in opening balances." }, { status: 400 });
+      }
+      const saved = await prisma.$transaction(async (tx) => {
+        await tx.partyOpeningBalance.deleteMany();
+        await tx.customerLedgerEntry.deleteMany({ where: { entryType: "opening_balance" } });
+        await tx.vendorLedgerEntry.deleteMany({ where: { entryType: "opening_balance" } });
+        const affectedCustomers = new Set<string>();
+        const affectedVendors = new Set<string>();
+        const created = [];
+        for (const item of normalized) {
+          let partyName = "";
+          if (item.partyType === "customer") {
+            const party = await tx.customer.findUnique({ where: { id: item.partyId } });
+            if (!party) throw new Error("A selected customer no longer exists.");
+            partyName = party.name;
+          } else if (item.partyType === "vendor") {
+            const party = await tx.vendor.findUnique({ where: { id: item.partyId } });
+            if (!party) throw new Error("A selected vendor no longer exists.");
+            partyName = party.name;
+          } else {
+            const party = await tx.employee.findUnique({ where: { id: item.partyId } });
+            if (!party) throw new Error("A selected employee no longer exists.");
+            partyName = party.name;
+          }
+          const documentNumber = `OB-${item.partyType.slice(0, 3).toUpperCase()}-${item.partyId.slice(-8).toUpperCase()}`;
+          const opening = await tx.partyOpeningBalance.create({ data: { ...item, partyName, postingDate, documentNumber } });
+          created.push(opening);
+          if (item.partyType === "customer") {
+            affectedCustomers.add(item.partyId);
+            await tx.customerLedgerEntry.create({ data: { customerId: item.partyId, postingDate, entryType: "opening_balance", documentNumber, debit: item.debit, credit: item.credit, runningBalance: 0, dueDate: item.dueDate, notes: item.notes || "Opening balance imported during accounting onboarding" } });
+          } else if (item.partyType === "vendor") {
+            affectedVendors.add(item.partyId);
+            await tx.vendorLedgerEntry.create({ data: { vendorId: item.partyId, postingDate, entryType: "opening_balance", documentNumber, debit: item.debit, credit: item.credit, runningBalance: 0, dueDate: item.dueDate, notes: item.notes || "Opening balance imported during accounting onboarding" } });
+          }
+        }
+        for (const id of affectedCustomers) await recalculateCustomerLedger(tx, id);
+        for (const id of affectedVendors) await recalculateVendorLedger(tx, id);
+        const settings = await tx.companySettings.findFirst();
+        if (!settings) throw new Error("Save the company profile first.");
+        await tx.companySettings.update({ where: { id: settings.id }, data: { partyBalancesCompleted: true } });
+        return created;
+      });
+      return NextResponse.json({ success: true, partyOpeningBalances: saved, message: saved.length ? `${saved.length} party opening balance(s) saved to their sub-ledgers.` : "Confirmed that customer, vendor, and employee opening balances are zero." });
     }
 
     // STEP 2: POST OPENING BALANCES (OFFSET TO 3900 EQUITY)
@@ -368,6 +649,20 @@ export async function POST(req: NextRequest) {
           },
           { status: 400 }
         );
+      }
+
+      const accountingSettings = await prisma.companySettings.findFirst();
+      if (!accountingSettings) return NextResponse.json({ error: "Complete the company profile before go-live." }, { status: 400 });
+      const policyReadiness = accountingPolicyReadiness(accountingSettings);
+      const financialAccountCount = await prisma.financialAccount.count({ where: { isActive: true } });
+      const defaultFinancialAccountCount = await prisma.financialAccount.count({ where: { isActive: true, isDefault: true } });
+      const unlinkedCareOfCount = await prisma.careOfParty.count({ where: { ledgerAccountId: null } });
+      if (!policyReadiness.complete || !accountingSettings.financialAccountsCompleted || financialAccountCount === 0 || defaultFinancialAccountCount !== 1 || !accountingSettings.careOfSetupCompleted || unlinkedCareOfCount > 0 || !accountingSettings.partyBalancesCompleted) {
+        return NextResponse.json({ error: "Complete accounting policies, cash/bank accounts, care-of ledgers, and party opening balances before go-live." }, { status: 400 });
+      }
+      const reconciliation = await SubLedgerService.checkReconciliationDrift();
+      if (reconciliation.status !== "RECONCILED") {
+        return NextResponse.json({ error: `Cannot complete go-live: customer/vendor sub-ledgers do not match their GL control accounts (AR variance ${reconciliation.receivables.driftAmount}, AP variance ${reconciliation.payables.driftAmount}).`, reconciliation }, { status: 400 });
       }
 
       let settings = await prisma.companySettings.findFirst();

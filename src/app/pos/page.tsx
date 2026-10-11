@@ -73,6 +73,7 @@ export default function PosTerminalPage() {
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [accountingConfig, setAccountingConfig] = useState<any>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -125,13 +126,15 @@ export default function PosTerminalPage() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const [posRes, registerRes] = await Promise.all([
+      const [posRes, registerRes, configRes] = await Promise.all([
         fetch("/api/pos?action=catalog"),
         fetch("/api/pos/register"),
+        fetch("/api/accounting-config"),
       ]);
 
       const posData = await posRes.json();
       const regData = await registerRes.json();
+      const configData = await configRes.json();
 
       if (posData.success) {
         setProducts(posData.products || []);
@@ -143,6 +146,7 @@ export default function PosTerminalPage() {
         setActiveSession(regData.activeSession || null);
         setPastSessions(regData.pastSessions || []);
       }
+      if (configRes.ok) setAccountingConfig(configData);
     } catch (e) {
       console.error("Failed to load POS data:", e);
     } finally {
@@ -317,8 +321,15 @@ export default function PosTerminalPage() {
   const taxAmount = useMemo(() => {
     if (!applyGstTax) return 0;
     const taxableAmount = Math.max(0, cartSubtotal - (orderDiscountType === "percent" ? (cartSubtotal * orderDiscountValue) / 100 : orderDiscountValue));
-    return Math.round(taxableAmount * 0.16 * 100) / 100; // 16% GST
-  }, [applyGstTax, cartSubtotal, orderDiscountType, orderDiscountValue]);
+    const configured = (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo) && rule.isDefault)
+      || (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo));
+    return Math.round(taxableAmount * ((Number(configured?.rate) || 0) / 100) * 100) / 100;
+  }, [applyGstTax, cartSubtotal, orderDiscountType, orderDiscountValue, accountingConfig]);
+
+  const activeSalesTax = (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo) && rule.isDefault)
+    || (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo));
+  const defaultBank = (accountingConfig?.financialAccounts || []).find((account: any) => account.isDefault && account.kind === "bank")
+    || (accountingConfig?.financialAccounts || []).find((account: any) => account.kind === "bank");
 
   const grandTotal = useMemo(() => {
     const afterOrderDisc =
@@ -932,7 +943,7 @@ export default function PosTerminalPage() {
                   )}
                   {applyGstTax && (
                     <div className="flex justify-between text-emerald-700 font-medium">
-                      <span>Sales Tax (16%):</span>
+                      <span>{activeSalesTax?.name || "Sales Tax"} ({Number(activeSalesTax?.rate) || 0}%):</span>
                       <span className="font-mono">+{formatCurrency(taxAmount)}</span>
                     </div>
                   )}
@@ -1315,10 +1326,10 @@ export default function PosTerminalPage() {
               {/* Payment Method Selector Tabs */}
               <div className="grid grid-cols-5 gap-1.5 p-1 bg-[#F4F4F5] rounded-xl">
                 {[
-                  { id: "cash", label: "Cash", icon: Banknote },
-                  { id: "card", label: "Card", icon: CreditCard },
-                  { id: "transfer", label: "Bank", icon: Building2 },
-                  { id: "credit", label: "Khata", icon: User },
+                  { id: "cash", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && item.kind === "cash")?.name || "Cash", icon: Banknote },
+                  { id: "card", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && item.kind === "card")?.name || "Card", icon: CreditCard },
+                  { id: "transfer", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && ["bank", "digital", "cheque"].includes(item.kind))?.name || "Bank", icon: Building2 },
+                  { id: "credit", label: accountingConfig?.paymentMethods?.find((item: any) => item.active && item.kind === "credit")?.name || "Credit", icon: User },
                   { id: "split", label: "Split", icon: SlidersHorizontal },
                 ].map((tab) => {
                   const Icon = tab.icon;
@@ -1414,7 +1425,8 @@ export default function PosTerminalPage() {
               {paymentMethod === "transfer" && (
                 <div className="space-y-3 text-xs">
                   <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-purple-950">
-                    Direct transfer to <strong>Meezan Bank Corporate Account</strong>.
+                    Direct transfer to <strong>{defaultBank?.name || "the configured operating bank account"}</strong>
+                    {defaultBank?.accountNumberMasked ? ` · ${defaultBank.accountNumberMasked}` : ""}.
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-[#71717A] block mb-1">
@@ -1592,7 +1604,7 @@ export default function PosTerminalPage() {
                 )}
                 {completedSale.taxAmount > 0 && (
                   <div className="flex justify-between text-emerald-700">
-                    <span>Sales Tax (16% GST):</span>
+                    <span>{activeSalesTax?.name || "Sales Tax"} ({Number(activeSalesTax?.rate) || 0}%):</span>
                     <span>+{formatCurrency(completedSale.taxAmount)}</span>
                   </div>
                 )}

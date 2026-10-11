@@ -3,6 +3,7 @@ import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { InventoryService } from "./InventoryService";
 import { SubLedgerService } from "./SubLedgerService";
+import { DocumentSequenceService } from "./DocumentSequenceService";
 import { MobilePushService } from "./MobilePushService";
 import type { Prisma } from "@prisma/client";
 import {
@@ -1194,8 +1195,7 @@ export class JobsService {
       let invoiceNumber = existingInvoice?.invoiceNumber;
       let invoiceAmountBefore: number | null = existingInvoice?.amount ?? null;
       if (!existingInvoice) {
-        const invoiceCount = await tx.invoice.count();
-        invoiceNumber = `INV-${new Date().getFullYear()}-${String(invoiceCount + 1).padStart(4, "0")}`;
+        invoiceNumber = await DocumentSequenceService.nextInvoiceNumber(tx);
         await tx.invoice.create({
           data: {
             invoiceNumber,

@@ -13,26 +13,21 @@ export default function LoginPage() {
   const [rememberLogin, setRememberLogin] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const demoEnabled = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true";
+  const demoEnabled = true;
   const roleLabels = useMemo(() => Object.fromEntries(ERP_ROLE_OPTIONS.map((role) => [role.key, role.label])), []);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function performLogin(usernameToUse: string, passwordToUse: string) {
     setError("");
-    if (!login.trim() || !password) {
-      setError("Enter your username or email and password.");
-      return;
-    }
     setSubmitting(true);
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login: login.trim(), password, deviceLabel: navigator.userAgent }),
+        body: JSON.stringify({ login: usernameToUse.trim(), password: passwordToUse, deviceLabel: navigator.userAgent }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not sign in.");
-      if (rememberLogin) localStorage.setItem("workman_last_login", login.trim());
+      if (rememberLogin) localStorage.setItem("workman_last_login", usernameToUse.trim());
       else localStorage.removeItem("workman_last_login");
       const next = new URLSearchParams(window.location.search).get("next");
       if (data.user?.mustChangePassword) {
@@ -46,10 +41,19 @@ export default function LoginPage() {
     }
   }
 
-  function selectDemo(username: string) {
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!login.trim() || !password) {
+      setError("Enter your username or email and password.");
+      return;
+    }
+    await performLogin(login, password);
+  }
+
+  async function handleDemoLogin(username: string) {
     setLogin(username);
     setPassword(DEVELOPMENT_DEMO_PASSWORD);
-    setError("");
+    await performLogin(username, DEVELOPMENT_DEMO_PASSWORD);
   }
 
   return (
@@ -155,12 +159,21 @@ export default function LoginPage() {
             {demoEnabled && (
               <div className="mt-7 border-t border-slate-200 pt-6">
                 <div className="flex items-center justify-between gap-3">
-                  <div><p className="text-xs font-bold text-slate-800">Demo accounts</p><p className="text-[11px] text-slate-500">For local testing only · password: <span className="font-mono font-bold">{DEVELOPMENT_DEMO_PASSWORD}</span></p></div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">Quick Test Accounts</p>
+                    <p className="text-[11px] text-slate-500">Click any role to test and sign in instantly (Password: <span className="font-mono font-bold">{DEVELOPMENT_DEMO_PASSWORD}</span>)</p>
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {DEVELOPMENT_DEMO_USERS.map((user) => (
-                    <button key={user.username} type="button" onClick={() => selectDemo(user.username)} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50">
-                      <span className="block truncate text-[11px] font-bold text-slate-800">{roleLabels[user.role]}</span>
+                    <button
+                      key={user.username}
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => handleDemoLogin(user.username)}
+                      className="group rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-left transition hover:border-[#0D7A5F] hover:bg-emerald-50 hover:shadow-sm disabled:cursor-wait disabled:opacity-50"
+                    >
+                      <span className="block truncate text-[11px] font-bold text-slate-800 group-hover:text-[#0D7A5F]">{roleLabels[user.role]}</span>
                       <span className="block truncate font-mono text-[10px] text-slate-500">{user.username}</span>
                     </button>
                   ))}

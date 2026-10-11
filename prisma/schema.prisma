@@ -30,6 +30,8 @@ model Account {
   journalLines     JournalLine[]
   mappings         AccountMapping[]
   auditSuggestions AccountMappingAudit[]
+  financialAccount FinancialAccount?
+  careOfParties     CareOfParty[]         @relation("CareOfLedgerAccount")
 
   @@index([level])
   @@index([parentId])
@@ -142,12 +144,16 @@ model Customer {
 }
 
 model CareOfParty {
-  id          String   @id @default(uuid())
-  companyName String
-  personName  String
-  phone       String?
-  jobs        Job[]
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid())
+  companyName     String
+  personName      String
+  phone           String?
+  ledgerAccountId String?
+  ledgerAccount   Account? @relation("CareOfLedgerAccount", fields: [ledgerAccountId], references: [id], onDelete: Restrict)
+  jobs            Job[]
+  createdAt       DateTime @default(now())
+
+  @@index([ledgerAccountId])
 }
 
 // ==========================================
@@ -804,10 +810,58 @@ model CompanySettings {
   baseCurrency         String    @default("PKR")
   fiscalYearStartMonth Int       @default(7) // July in Pakistan (July-June)
   approvalThreshold    Float     @default(50000) // Vouchers above PKR 50,000 need approval
+  invoicePrefix        String    @default("INV")
+  invoiceNextNumber    Int       @default(1)
+  invoiceNumberPadding Int       @default(4)
+  taxRules             Json      @default("[]")
+  paymentMethods       Json      @default("[]")
+  agingBuckets         Json      @default("[30,60,90]")
+  expenseCategories    Json      @default("[]")
+  accountingPoliciesCompleted Boolean @default(false)
+  financialAccountsCompleted  Boolean @default(false)
+  careOfSetupCompleted         Boolean @default(false)
+  partyBalancesCompleted       Boolean @default(false)
   isSetupCompleted     Boolean   @default(false)
   goLiveDate           DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+}
+
+model FinancialAccount {
+  id                  String   @id @default(uuid())
+  name                String
+  kind                String // cash, bank, card_clearing, digital_wallet
+  ledgerAccountId     String   @unique
+  ledgerAccount       Account  @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
+  bankName            String?
+  accountTitle        String?
+  accountNumberMasked String?
+  iban                String?
+  branchCode          String?
+  isDefault           Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([kind, isActive])
+}
+
+model PartyOpeningBalance {
+  id             String   @id @default(uuid())
+  partyType      String // customer, vendor, employee
+  partyId        String
+  partyName      String
+  postingDate    DateTime
+  debit          Float    @default(0)
+  credit         Float    @default(0)
+  dueDate        DateTime?
+  documentNumber String
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([partyType, partyId])
+  @@index([partyType, postingDate])
 }
 
 // ==========================================

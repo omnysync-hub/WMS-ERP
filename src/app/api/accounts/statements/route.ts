@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { roleHasPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
+import { normalizeAgingBuckets } from "@/lib/accountingConfig";
 
 type PartyType = "customer" | "vendor" | "employee" | "care_of";
 type Aging = { current: number; days31To60: number; days61To90: number; days90Plus: number };
@@ -21,15 +22,15 @@ type LedgerLine = {
 const ZERO_AGING: Aging = { current: 0, days31To60: 0, days61To90: 0, days90Plus: 0 };
 const round = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
 
-function addToAging(aging: Aging, amount: number, date: Date | string | null | undefined, asOf: Date) {
+function addToAging(aging: Aging, amount: number, date: Date | string | null | undefined, asOf: Date, buckets: [number, number, number]) {
   const value = Math.max(0, Number(amount) || 0);
   if (!value) return;
   const sourceDate = date ? new Date(date) : asOf;
   if (sourceDate > asOf) return;
   const ageDays = Math.max(0, Math.floor((asOf.getTime() - sourceDate.getTime()) / 86_400_000));
-  if (ageDays <= 30) aging.current += value;
-  else if (ageDays <= 60) aging.days31To60 += value;
-  else if (ageDays <= 90) aging.days61To90 += value;
+  if (ageDays <= buckets[0]) aging.current += value;
+  else if (ageDays <= buckets[1]) aging.days31To60 += value;
+  else if (ageDays <= buckets[2]) aging.days61To90 += value;
   else aging.days90Plus += value;
 }
 
@@ -83,7 +84,7 @@ function makeStatement(lines: LedgerLine[], partyType: PartyType, fromText: stri
 }
 
 async function directory(asOf: Date) {
-  const [customers, vendors, employees, careOfParties, technicianEntries, settings] = await Promise.all([
+  const [customers, vendors, employees, careOfParties, technicianEntries, settings, employeeOpenings] = await Promise.all([
     prisma.customer.findMany({
       include: {
         customerLedgerEntries: { orderBy: { postingDate: "asc" } },
@@ -115,7 +116,9 @@ async function directory(asOf: Date) {
     }),
     prisma.technicianLedgerEntry.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.companySettings.findFirst(),
+    prisma.partyOpeningBalance.findMany({ where: { partyType: "employee", postingDate: { lte: asOf } } }),
   ]);
+  const agingBuckets = normalizeAgingBuckets(settings?.agingBuckets);
 
   const invoiceFallback = await prisma.invoice.findMany({ orderBy: { createdAt: "asc" } });
   const invoicesByCustomer = new Map<string, typeof invoiceFallback>();
@@ -140,12 +143,12 @@ async function directory(asOf: Date) {
       const entries = customer.customerLedgerEntries.filter((entry) => entry.postingDate <= asOf);
       balance = entries[entries.length - 1]?.runningBalance || 0;
       transactionCount = entries.length;
-      for (const entry of entries) addToAging(aging, Math.max(0, entry.debit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf);
+      for (const entry of entries) addToAging(aging, Math.max(0, entry.debit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
     } else {
       const invoices = (invoicesByCustomer.get(customer.id) || []).filter((invoice) => invoice.createdAt <= asOf);
       balance = invoices.filter((invoice) => invoice.status !== "paid" && invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.amount, 0);
       transactionCount = invoices.length;
-      for (const invoice of invoices) if (invoice.status !== "paid" && invoice.status !== "cancelled") addToAging(aging, invoice.amount, invoice.createdAt, asOf);
+      for (const invoice of invoices) if (invoice.status !== "paid" && invoice.status !== "cancelled") addToAging(aging, invoice.amount, invoice.createdAt, asOf, agingBuckets);
     }
     return {
       id: customer.id, type: "customer" as const, name: customer.name, secondary: customer.phone,
@@ -161,12 +164,12 @@ async function directory(asOf: Date) {
       const entries = vendor.vendorLedgerEntries.filter((entry) => entry.postingDate <= asOf);
       balance = entries[entries.length - 1]?.runningBalance || 0;
       transactionCount = entries.length;
-      for (const entry of entries) addToAging(aging, Math.max(0, entry.credit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf);
+      for (const entry of entries) addToAging(aging, Math.max(0, entry.credit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
     } else {
       const invoices = vendor.supplierInvoices.filter((invoice) => invoice.invoiceDate <= asOf);
       balance = invoices.reduce((sum, invoice) => sum + Math.max(0, invoice.totalAmount - invoice.paidAmount), 0);
       transactionCount = invoices.length;
-      for (const invoice of invoices) addToAging(aging, Math.max(0, invoice.totalAmount - invoice.paidAmount), invoice.dueDate || invoice.invoiceDate, asOf);
+      for (const invoice of invoices) addToAging(aging, Math.max(0, invoice.totalAmount - invoice.paidAmount), invoice.dueDate || invoice.invoiceDate, asOf, agingBuckets);
     }
     return {
       id: vendor.id, type: "vendor" as const, name: vendor.name, secondary: vendor.phone || vendor.contactPerson,
@@ -178,12 +181,18 @@ async function directory(asOf: Date) {
     const aging = { ...ZERO_AGING };
     let credits = 0;
     let debits = 0;
+    const opening = employeeOpenings.find((entry) => entry.partyId === employee.id);
+    if (opening) {
+      debits += opening.debit;
+      credits += opening.credit;
+      if (opening.credit > 0) addToAging(aging, opening.credit, opening.dueDate || opening.postingDate, asOf, agingBuckets);
+    }
     const payslips = employee.payslips.filter((payslip) => payslip.createdAt <= asOf);
     const advances = employee.advances.filter((advance) => advance.createdAt <= asOf);
     for (const payslip of payslips) {
       credits += payslip.netSalary;
       if (payslip.status === "paid" || payslip.payrollRun.status === "Paid") debits += payslip.netSalary;
-      else addToAging(aging, payslip.netSalary, payslip.createdAt, asOf);
+      else addToAging(aging, payslip.netSalary, payslip.createdAt, asOf, agingBuckets);
     }
     for (const advance of advances) if (advance.status !== "recovered") debits += advance.amount;
     const techEntries = (techByEmployee.get(employee.id) || []).filter((entry) => entry.createdAt <= asOf).filter((entry) =>
@@ -195,12 +204,12 @@ async function directory(asOf: Date) {
     for (const entry of techEntries) {
       if (entry.type === "expense_owed" || entry.type === "hisaab_received" || entry.type === "advance_recovered") credits += entry.amount;
       else debits += entry.amount;
-      if (entry.type === "expense_owed") addToAging(aging, entry.amount, entry.createdAt, asOf);
+      if (entry.type === "expense_owed") addToAging(aging, entry.amount, entry.createdAt, asOf, agingBuckets);
     }
     return {
       id: employee.id, type: "employee" as const, name: employee.name, secondary: employee.phone,
       detail: `${employee.department} · ${employee.designation || employee.role}`,
-      balance: round(credits - debits), transactionCount: payslips.length + advances.length + techEntries.length,
+      balance: round(credits - debits), transactionCount: payslips.length + advances.length + techEntries.length + (opening ? 1 : 0),
       aging: agingForBalance(aging, credits - debits),
     };
   });
@@ -220,7 +229,7 @@ async function directory(asOf: Date) {
       const collected = effective.reduce((sum, settlement) => sum + settlement.amountCollected, 0);
       collections += collected;
       transactionCount += 1 + effective.length;
-      addToAging(aging, Math.max(0, net - collected), job.finalizedAt || job.createdAt, asOf);
+      addToAging(aging, Math.max(0, net - collected), job.finalizedAt || job.createdAt, asOf, agingBuckets);
     }
     return {
       id: party.id, type: "care_of" as const, name: party.companyName,
@@ -232,6 +241,7 @@ async function directory(asOf: Date) {
   const parties = [...customerRows, ...vendorRows, ...employeeRows, ...careOfRows];
   return {
     company: { name: settings?.tradeName || settings?.legalName || "Company", currency: settings?.baseCurrency || "PKR" },
+    agingBuckets,
     asOfDate: asOf,
     parties,
     totals: {
@@ -249,6 +259,8 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
   const lines: LedgerLine[] = [];
   let party: Record<string, unknown> | null = null;
   const aging = { ...ZERO_AGING };
+  const settings = await prisma.companySettings.findFirst();
+  const agingBuckets = normalizeAgingBuckets(settings?.agingBuckets);
 
   if (type === "customer") {
     const customer = await prisma.customer.findUnique({ where: { id }, include: { customerLedgerEntries: { orderBy: { postingDate: "asc" } } } });
@@ -257,14 +269,14 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
     if (customer.customerLedgerEntries.length) {
       for (const entry of customer.customerLedgerEntries) {
         lines.push({ id: entry.id, date: entry.postingDate, reference: entry.documentNumber, type: entry.entryType, description: entry.notes || entry.entryType.replaceAll("_", " "), debit: entry.debit, credit: entry.credit, status: entry.isFullyCleared ? "cleared" : "open", source: "Customer sub-ledger" });
-        addToAging(aging, Math.max(0, entry.debit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf);
+        addToAging(aging, Math.max(0, entry.debit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
       }
     } else {
       const invoices = await prisma.invoice.findMany({ where: { customerId: id }, orderBy: { createdAt: "asc" } });
       for (const invoice of invoices) {
         lines.push({ id: `inv-${invoice.id}`, date: invoice.createdAt, reference: invoice.invoiceNumber, type: "invoice", description: invoice.jobId ? `Job invoice · ${invoice.jobId}` : "Direct invoice", debit: invoice.amount, credit: 0, status: invoice.status, source: "Invoices" });
         if (invoice.status === "paid") lines.push({ id: `pay-${invoice.id}`, date: invoice.createdAt, reference: `REC-${invoice.invoiceNumber}`, type: "payment", description: "Payment received", debit: 0, credit: invoice.amount, status: "cleared", source: "Invoices" });
-        else if (invoice.status !== "cancelled") addToAging(aging, invoice.amount, invoice.createdAt, asOf);
+        else if (invoice.status !== "cancelled") addToAging(aging, invoice.amount, invoice.createdAt, asOf, agingBuckets);
       }
     }
   } else if (type === "vendor") {
@@ -274,23 +286,28 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
     if (vendor.vendorLedgerEntries.length) {
       for (const entry of vendor.vendorLedgerEntries) {
         lines.push({ id: entry.id, date: entry.postingDate, reference: entry.documentNumber, type: entry.entryType, description: entry.notes || entry.entryType.replaceAll("_", " "), debit: entry.debit, credit: entry.credit, status: entry.isFullyCleared ? "cleared" : "open", source: "Vendor sub-ledger" });
-        addToAging(aging, Math.max(0, entry.credit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf);
+        addToAging(aging, Math.max(0, entry.credit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
       }
     } else {
       for (const invoice of vendor.supplierInvoices) {
         lines.push({ id: `bill-${invoice.id}`, date: invoice.invoiceDate, reference: invoice.referenceNumber, type: "supplier_bill", description: `Supplier invoice ${invoice.invoiceNumber}`, debit: 0, credit: invoice.totalAmount, status: invoice.paymentStatus, source: "Supplier invoices" });
         for (const payment of invoice.payments) lines.push({ id: `pay-${payment.id}`, date: payment.paymentDate, reference: payment.paymentNumber, type: "payment", description: payment.notes || `${payment.paymentMethod.replaceAll("_", " ")} payment`, debit: payment.amount + payment.whtAmount, credit: 0, status: "cleared", source: "Supplier payments" });
-        addToAging(aging, Math.max(0, invoice.totalAmount - invoice.paidAmount), invoice.dueDate || invoice.invoiceDate, asOf);
+        addToAging(aging, Math.max(0, invoice.totalAmount - invoice.paidAmount), invoice.dueDate || invoice.invoiceDate, asOf, agingBuckets);
       }
     }
   } else if (type === "employee") {
     const employee = await prisma.employee.findUnique({ where: { id }, include: { advances: { orderBy: { createdAt: "asc" } }, payslips: { include: { payrollRun: true }, orderBy: { createdAt: "asc" } } } });
     if (!employee) return null;
     party = { id, type, name: employee.name, phone: employee.phone, email: employee.email, department: employee.department, designation: employee.designation || employee.role };
+    const opening = await prisma.partyOpeningBalance.findUnique({ where: { partyType_partyId: { partyType: "employee", partyId: id } } });
+    if (opening) {
+      lines.push({ id: opening.id, date: opening.postingDate, reference: opening.documentNumber, type: "opening_balance", description: opening.notes || "Employee opening balance", debit: opening.debit, credit: opening.credit, status: "open", source: "Accounting onboarding" });
+      if (opening.credit > 0) addToAging(aging, opening.credit, opening.dueDate || opening.postingDate, asOf, agingBuckets);
+    }
     for (const payslip of employee.payslips) {
       lines.push({ id: `salary-${payslip.id}`, date: payslip.createdAt, reference: `PAYROLL-${payslip.payrollRun.period}`, type: "salary_accrual", description: `Net salary · ${payslip.payrollRun.period}`, debit: 0, credit: payslip.netSalary, status: payslip.status, source: "Payroll" });
       if (payslip.status === "paid" || payslip.payrollRun.status === "Paid") lines.push({ id: `salary-pay-${payslip.id}`, date: payslip.createdAt, reference: `SAL-${payslip.id.slice(-6).toUpperCase()}`, type: "salary_payment", description: `Salary paid · ${payslip.payrollRun.period}`, debit: payslip.netSalary, credit: 0, status: "cleared", source: "Payroll" });
-      else addToAging(aging, payslip.netSalary, payslip.createdAt, asOf);
+      else addToAging(aging, payslip.netSalary, payslip.createdAt, asOf, agingBuckets);
     }
     for (const advance of employee.advances) lines.push({ id: `advance-${advance.id}`, date: advance.createdAt, reference: `ADV-${advance.id.slice(-6).toUpperCase()}`, type: "employee_advance", description: `Employee advance · ${advance.status}`, debit: advance.amount, credit: 0, status: advance.status, source: "HR advances" });
     const rawTechEntries = await prisma.technicianLedgerEntry.findMany({ where: { technicianId: id }, orderBy: { createdAt: "asc" } });
@@ -303,7 +320,7 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
     for (const entry of techEntries) {
       const credit = ["expense_owed", "hisaab_received", "advance_recovered"].includes(entry.type);
       lines.push({ id: `tech-${entry.id}`, date: entry.createdAt, reference: entry.refJobId || `TECH-${entry.id.slice(-6).toUpperCase()}`, type: entry.type, description: entry.notes || entry.type.replaceAll("_", " "), debit: credit ? 0 : entry.amount, credit: credit ? entry.amount : 0, status: "posted", source: "Technician ledger" });
-      if (entry.type === "expense_owed") addToAging(aging, entry.amount, entry.createdAt, asOf);
+      if (entry.type === "expense_owed") addToAging(aging, entry.amount, entry.createdAt, asOf, agingBuckets);
     }
   } else {
     const careOf = await prisma.careOfParty.findUnique({ where: { id }, include: { jobs: { include: { items: true, hisaabSettlements: { where: { status: { not: "superseded" } }, orderBy: { settledAt: "asc" } } }, orderBy: { createdAt: "asc" } } } });
@@ -316,12 +333,12 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
       const posted = job.hisaabSettlements.filter((settlement) => settlement.status === "posted");
       const effective = posted.length ? posted : job.hisaabSettlements.slice(-1);
       for (const settlement of effective) lines.push({ id: `settlement-${settlement.id}`, date: settlement.settledAt, reference: `SET-${job.jobNumber}`, type: "collection", description: settlement.accountantNotes || `Collection against ${job.jobNumber}`, debit: 0, credit: settlement.amountCollected, status: settlement.status, source: "Job settlements" });
-      addToAging(aging, Math.max(0, net - effective.reduce((sum, settlement) => sum + settlement.amountCollected, 0)), job.finalizedAt || job.createdAt, asOf);
+      addToAging(aging, Math.max(0, net - effective.reduce((sum, settlement) => sum + settlement.amountCollected, 0)), job.finalizedAt || job.createdAt, asOf, agingBuckets);
     }
   }
 
   const prepared = makeStatement(lines.filter((line) => line.date <= asOf), type, from, to);
-  return { party, ...prepared, aging: agingForBalance(aging, prepared.summary.closingBalance), asOfDate: asOf };
+  return { party, ...prepared, aging: agingForBalance(aging, prepared.summary.closingBalance), agingBuckets, asOfDate: asOf };
 }
 
 export async function GET(req: NextRequest) {
