@@ -43,6 +43,7 @@ import {
   Building2,
   PackageCheck,
   ArrowLeftRight,
+  Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -417,6 +418,18 @@ export default function Sidebar({
   // Dedicated Settings Accordion Sub-Items
   const allSettingsSubItems = [
     {
+      label: "Product, Brand & Model",
+      href: "/settings/product-dropdowns",
+      icon: Cpu,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "storekeeper", "auditor", "manager"],
+    },
+    {
+      label: "Job Types Settings",
+      href: "/settings/job-types",
+      icon: Briefcase,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "storekeeper", "auditor", "manager"],
+    },
+    {
       label: "Accounting Settings",
       href: "/settings/accounting",
       icon: CreditCard,
@@ -446,6 +459,7 @@ export default function Sidebar({
   ];
 
   const settingsSubItems = allSettingsSubItems.filter((item) => {
+    if (activeRole === "admin") return true;
     const hasRole = item.roles.includes(activeRole);
     if (!hasRole && !item.perm) return false;
     if (item.perm) {
