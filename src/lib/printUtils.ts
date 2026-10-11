@@ -3,30 +3,34 @@
  * Prints targeted document HTML in a clean, isolated frame with active stylesheets loaded,
  * ensuring no background modals, parent drawer transforms, or app chrome leak into the printout.
  */
-export function printDocument(elementOrId: HTMLElement | string, docTitle = "Document") {
+export function printDocument(elementOrId: HTMLElement | string, docTitle = "Document", retryCount = 0) {
   if (typeof window === "undefined") return;
 
   const targetEl =
     typeof elementOrId === "string"
-      ? document.getElementById(elementOrId) || document.querySelector(elementOrId)
+      ? document.getElementById(elementOrId.replace(/^#/, "")) ||
+        document.querySelector(elementOrId)
       : elementOrId;
 
   if (!targetEl) {
-    window.print();
+    if (retryCount < 5) {
+      setTimeout(() => printDocument(elementOrId, docTitle, retryCount + 1), 100);
+      return;
+    }
+    console.warn("Print target element not found:", elementOrId);
     return;
   }
 
-  // Create a hidden iframe for isolated print rendering
+  // Create an offscreen, positively-dimensioned iframe for reliable Chromium print rendering
   const iframe = document.createElement("iframe");
   iframe.setAttribute(
     "style",
-    "position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; visibility: hidden; z-index: -1;"
+    "position: fixed; left: -9999px; top: 0; width: 850px; height: 1200px; border: 0; opacity: 0; pointer-events: none; z-index: -9999;"
   );
   document.body.appendChild(iframe);
 
   const doc = iframe.contentWindow?.document;
   if (!doc) {
-    window.print();
     return;
   }
 
@@ -39,7 +43,7 @@ export function printDocument(elementOrId: HTMLElement | string, docTitle = "Doc
 
   // Clone document element to clean up any unwanted interactive controls
   const clone = targetEl.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll(".no-print").forEach((el) => el.remove());
+  clone.querySelectorAll(".no-print, button").forEach((el) => el.remove());
 
   doc.open();
   doc.write(`
@@ -53,7 +57,7 @@ export function printDocument(elementOrId: HTMLElement | string, docTitle = "Doc
         <style>
           @page {
             size: A4 portrait;
-            margin: 10mm 12mm 10mm 12mm;
+            margin: 8mm 10mm 8mm 10mm;
           }
           *, *::before, *::after {
             box-sizing: border-box;
@@ -62,12 +66,13 @@ export function printDocument(elementOrId: HTMLElement | string, docTitle = "Doc
           }
           html, body {
             background: #ffffff !important;
+            background-color: #ffffff !important;
             color: #18181B !important;
             margin: 0 !important;
             padding: 0 !important;
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            font-size: 12px;
-            line-height: 1.5;
+            font-size: 11px;
+            line-height: 1.4;
           }
           .printable-document {
             border: none !important;
@@ -76,9 +81,11 @@ export function printDocument(elementOrId: HTMLElement | string, docTitle = "Doc
             margin: 0 !important;
             width: 100% !important;
             max-width: 100% !important;
+            background: #ffffff !important;
           }
-          .no-print {
+          .no-print, button {
             display: none !important;
+            visibility: hidden !important;
           }
           table {
             border-collapse: collapse !important;
@@ -87,10 +94,15 @@ export function printDocument(elementOrId: HTMLElement | string, docTitle = "Doc
           tr, td, th {
             page-break-inside: avoid !important;
           }
+          /* Ensure images and logos display clearly */
+          img {
+            max-width: 100% !important;
+            display: block !important;
+          }
         </style>
       </head>
       <body>
-        <div style="padding: 12px;">
+        <div style="padding: 10px; width: 100%; max-width: 100%; background: #ffffff;">
           ${clone.outerHTML}
         </div>
       </body>
@@ -98,20 +110,40 @@ export function printDocument(elementOrId: HTMLElement | string, docTitle = "Doc
   `);
   doc.close();
 
-  // Allow styles to compute and trigger print
-  setTimeout(() => {
+  // Wait for images inside iframe to complete loading before invoking print
+  const triggerPrint = () => {
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } catch (err) {
-      console.error("Print error:", err);
-      window.print();
+      console.error("Print trigger failed:", err);
     } finally {
       setTimeout(() => {
         if (document.body.contains(iframe)) {
           document.body.removeChild(iframe);
         }
-      }, 2000);
+      }, 3000);
     }
-  }, 300);
+  };
+
+  const images = Array.from(doc.images);
+  if (images.length === 0) {
+    setTimeout(triggerPrint, 250);
+  } else {
+    Promise.all(
+      images.map(
+        (img) =>
+          new Promise((resolve) => {
+            if (img.complete) {
+              resolve(true);
+            } else {
+              img.onload = () => resolve(true);
+              img.onerror = () => resolve(true);
+            }
+          })
+      )
+    ).then(() => {
+      setTimeout(triggerPrint, 250);
+    });
+  }
 }

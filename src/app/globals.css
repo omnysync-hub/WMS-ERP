@@ -97,24 +97,72 @@
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm 12mm 10mm 12mm;
+    margin: 8mm 10mm 8mm 10mm;
   }
 
   html, body {
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #18181B !important;
     font-size: 11pt !important;
     line-height: 1.4 !important;
     margin: 0 !important;
     padding: 0 !important;
     height: auto !important;
-    min-height: 100% !important;
+    width: 100% !important;
+    min-height: 0 !important;
     overflow: visible !important;
   }
 
-  /* Hide app chrome, sidebars, navigation, action buttons */
-  header, nav, aside, footer, button, .no-print, .drawer-header-actions {
+  /* Universal neutralization of AppShell dark wrappers & height caps */
+  .h-screen,
+  .min-h-screen,
+  .h-full,
+  .min-h-full,
+  .overflow-hidden,
+  .overflow-y-auto {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Completely strip dark layout background colors */
+  .bg-\[\#18181B\],
+  .bg-\[\#27272A\],
+  .bg-\[\#F7F7F8\],
+  .bg-\[\#0A0B0E\],
+  .bg-\[\#0b1714\],
+  .bg-black,
+  .bg-black\/60 {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  #main-content {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Hide app chrome, sidebars, navigation, action buttons, modals, toasts */
+  header,
+  nav,
+  aside,
+  footer,
+  button,
+  .no-print,
+  .drawer-header-actions,
+  .toast-viewport {
     display: none !important;
+    visibility: hidden !important;
   }
 
   /* Neutralize drawer backdrop when printing */

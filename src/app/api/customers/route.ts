@@ -23,6 +23,11 @@ export async function GET(req: NextRequest) {
 
     const customers = await prisma.customer.findMany({
       where,
+      include: {
+        _count: {
+          select: { jobs: true, projects: true, customerLedgerEntries: true },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 

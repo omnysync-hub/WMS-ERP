@@ -13,6 +13,7 @@ import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawe
 import ReportMisplacedItemDrawer from "@/components/drawers/ReportMisplacedItemDrawer";
 import AddServiceDrawer from "@/components/drawers/AddServiceDrawer";
 import TaxInvoiceDrawer from "@/components/drawers/TaxInvoiceDrawer";
+import WorkOrderDrawer from "@/components/drawers/WorkOrderDrawer";
 import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianCashDrawer";
 import JobRemarksCard from "@/components/jobs/JobRemarksCard";
 import { cn, formatCurrency, formatDateTime, formatJobType, isServiceItem } from "@/lib/utils";
@@ -41,7 +42,12 @@ import {
   Wrench,
   Banknote,
   Undo2,
+  Eye,
+  Download,
+  Maximize2,
+  Printer,
 } from "lucide-react";
+import ImageLightboxModal, { downloadImageFile } from "@/components/modals/ImageLightboxModal";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
@@ -109,8 +115,14 @@ export default function JobDetailPage() {
   const [misplacedDrawerOpen, setMisplacedDrawerOpen] = useState(false);
   const [addServiceDrawerOpen, setAddServiceDrawerOpen] = useState(false);
   const [taxInvoiceDrawerOpen, setTaxInvoiceDrawerOpen] = useState(false);
+  const [workOrderDrawerOpen, setWorkOrderDrawerOpen] = useState(false);
   const [receiveCashDrawerOpen, setReceiveCashDrawerOpen] = useState(false);
   const [selectedSettlementForHandover, setSelectedSettlementForHandover] = useState<any | null>(null);
+
+  // Fullscreen Photo Lightbox State
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
 
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -581,6 +593,15 @@ export default function JobDetailPage() {
                   </button>
                 )}
 
+                <button
+                  type="button"
+                  onClick={() => setWorkOrderDrawerOpen(true)}
+                  className="h-8 px-3 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 text-xs font-bold text-zinc-800 inline-flex items-center gap-1.5 transition shadow-xs"
+                >
+                  <Printer className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                  Print Work Order
+                </button>
+
                 {canViewFinancials && !job.finalizedAt && !isRestrictedRole && (
                   <button
                     type="button"
@@ -792,22 +813,80 @@ export default function JobDetailPage() {
                 if (photos.length === 0) return null;
                 return (
                   <div className="sm:col-span-2 pt-3 border-t border-[#E4E4E7]">
-                    <p className="text-[11px] font-semibold text-[#71717A] uppercase mb-2">
-                      Completion photos ({photos.length})
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <p className="text-[11px] font-semibold text-[#71717A] uppercase tracking-wider flex items-center gap-1.5">
+                        <span>Completion photos ({photos.length})</span>
+                      </p>
+                      {photos.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            photos.forEach((src, idx) => {
+                              setTimeout(() => {
+                                downloadImageFile(src, `job-${job.jobNumber}-photo-${idx + 1}.png`);
+                              }, idx * 250);
+                            });
+                          }}
+                          className="text-[11px] font-semibold text-[#0D7A5F] hover:text-[#0A624C] hover:underline inline-flex items-center gap-1 transition"
+                          title="Download all completion photos"
+                        >
+                          <Download className="w-3 h-3" />
+                          Download All ({photos.length})
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-3">
                       {photos.map((src, i) => (
-                        <a
+                        <div
                           key={i}
-                          href={src}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block w-20 h-20 rounded-lg overflow-hidden border border-[#E4E4E7] bg-zinc-100 hover:ring-2 hover:ring-[#0D7A5F]"
-                          title={`Proof photo ${i + 1}`}
+                          className="group relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border-2 border-[#E4E4E7] hover:border-[#0D7A5F] bg-zinc-100 shadow-xs hover:shadow-md transition cursor-pointer"
+                          onClick={() => {
+                            setLightboxImages(photos);
+                            setLightboxIndex(i);
+                            setLightboxOpen(true);
+                          }}
+                          title={`Click to view Photo ${i + 1}`}
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={src} alt={`Job completion ${i + 1}`} className="w-full h-full object-cover" />
-                        </a>
+                          <img
+                            src={src}
+                            alt={`Job completion ${i + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          />
+
+                          {/* Hover Action Overlay */}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLightboxImages(photos);
+                                setLightboxIndex(i);
+                                setLightboxOpen(true);
+                              }}
+                              className="p-1.5 rounded-lg bg-white/90 hover:bg-white text-zinc-900 shadow-md transition"
+                              title="Open full image viewer"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                downloadImageFile(src, `job-${job.jobNumber}-photo-${i + 1}.png`);
+                              }}
+                              className="p-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white shadow-md transition"
+                              title="Download photo"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Index Badge */}
+                          <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-mono font-bold text-white group-hover:opacity-0 transition-opacity">
+                            #{i + 1}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -911,6 +990,14 @@ export default function JobDetailPage() {
                   >
                     <Receipt className="w-3.5 h-3.5" />
                     <span>{job.invoice ? `Print Invoice (${job.invoice.invoiceNumber})` : "Tax Invoice"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkOrderDrawerOpen(true)}
+                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-900 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Print Work Order</span>
                   </button>
                 </div>
               </div>
@@ -2347,6 +2434,13 @@ export default function JobDetailPage() {
         }}
       />
 
+      {/* WORK ORDER TECHNICAL PRINT DRAWER */}
+      <WorkOrderDrawer
+        isOpen={workOrderDrawerOpen}
+        onClose={() => setWorkOrderDrawerOpen(false)}
+        job={job}
+      />
+
       {/* RECEIVE TECHNICIAN CASH HANDOVER DRAWER */}
       <ReceiveTechnicianCashDrawer
         isOpen={receiveCashDrawerOpen}
@@ -2361,6 +2455,16 @@ export default function JobDetailPage() {
           setSuccessMsg(`Technician cash handover recorded and reconciled successfully!`);
           fetchJob();
         }}
+      />
+
+      {/* FULLSCREEN IMAGE LIGHTBOX MODAL */}
+      <ImageLightboxModal
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        title={`Work Order #${job?.jobNumber || ""} — Completion Proof`}
+        filePrefix={`job-${job?.jobNumber || "job"}-proof`}
       />
     </div>
   );

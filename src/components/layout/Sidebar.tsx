@@ -252,6 +252,13 @@ export default function Sidebar({
       perm: "dispatch.view_map",
     },
     {
+      label: "Customer 360 Records",
+      href: "/customers",
+      icon: Users,
+      roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
+      perm: "jobs.view_directory",
+    },
+    {
       label: "Care-Of Parties",
       href: "/jobs/care-of",
       icon: Building,
@@ -361,6 +368,7 @@ export default function Sidebar({
     ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"].includes(activeRole);
 
   const allOperationsItems = [
+    { label: "Customer 360°", href: "/customers", icon: Users, roles: ["admin", "accountant", "dispatcher", "call_center", "cashier", "auditor", "manager", "purchasing"] },
     { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "hr", "purchasing"] },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
@@ -379,7 +387,7 @@ export default function Sidebar({
   });
 
   const preAccountsOperations = operationsItems.filter((item) =>
-    ["/projects", "/pos"].includes(item.href)
+    ["/customers", "/projects", "/pos"].includes(item.href)
   );
 
   const inventoryOperations = operationsItems.filter((item) =>
@@ -461,34 +469,53 @@ export default function Sidebar({
       )}
     >
       {/* Brand Header & Active Role Indicator */}
-      <div>
-        <div className="h-14 px-3 flex items-center justify-between border-b border-[#27272A]/40">
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="border-b border-[#27272A]/40 shrink-0">
           <Link
             href="/dashboards"
-            className="flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-lg p-1 w-full"
+            className={cn(
+              "group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-xl transition flex",
+              isCollapsed
+                ? "p-3 justify-center items-center"
+                : "flex-col items-center text-center px-4 py-4 hover:bg-white/[0.02]"
+            )}
+            title="Workman Services ERP v2.0.0"
           >
-            <div className="w-9 h-9 rounded-xl bg-white p-1 flex items-center justify-center shrink-0 shadow-md border border-white/20 overflow-hidden">
+            {/* Bigger Logo Container */}
+            <div
+              className={cn(
+                "rounded-2xl bg-white flex items-center justify-center shadow-lg border border-white/20 overflow-hidden transition-all shrink-0",
+                isCollapsed ? "w-10 h-10 p-1" : "w-20 h-20 p-2.5 ring-4 ring-white/10"
+              )}
+            >
               <img
                 src="/logo.png"
                 alt="Workman Services"
                 className="w-full h-full object-contain"
               />
             </div>
+
             {!isCollapsed && (
-              <div className="overflow-hidden min-w-0">
-                <span className="font-bold text-sm tracking-tight text-white block leading-none truncate">
-                  Workman Services
+              <div className="mt-3 w-full flex flex-col items-center">
+                <span className="font-extrabold text-sm sm:text-base tracking-tight text-white block leading-tight uppercase">
+                  WORKMAN SERVICES
                 </span>
-                <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-mono mt-0.5 leading-none">
-                  OPERATIONS v2
+                <span className="text-[10px] text-[#A1A1AA] font-medium tracking-tight mt-0.5 text-center leading-snug">
+                  Enterprise Resource Planning Software
                 </span>
+                <div className="mt-1.5 flex items-center justify-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    v2.0.0
+                  </span>
+                </div>
               </div>
             )}
           </Link>
         </div>
 
         {/* Navigation Sections */}
-        <div className="p-2 space-y-1 mt-1 overflow-y-auto max-h-[calc(100vh-140px)]">
+        <div className="p-2 space-y-1 overflow-y-auto flex-1">
           {/* ================================================================= */}
           {/* 1. DEDICATED DASHBOARDS SECTION                                    */}
           {/* ================================================================= */}

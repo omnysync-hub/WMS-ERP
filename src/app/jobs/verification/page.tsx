@@ -20,7 +20,11 @@ import {
   AlertTriangle,
   X,
   ChevronRight,
+  Eye,
+  Download,
+  Image as ImageIcon,
 } from "lucide-react";
+import ImageLightboxModal, { downloadImageFile } from "@/components/modals/ImageLightboxModal";
 
 type Checklist = {
   workConfirmed: boolean;
@@ -38,6 +42,12 @@ export default function AuditorVerificationPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [notification, setNotification] = useState("");
+
+  // Photo Lightbox State
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxTitle, setLightboxTitle] = useState("");
   const [error, setError] = useState("");
 
   const [selectedJob, setSelectedJob] = useState<any>(null);
@@ -424,6 +434,77 @@ export default function AuditorVerificationPage() {
               Verify that the call center feedback was satisfactory, photos are verified, and ledger items match.
               Upon approval, the work order is marked <strong>Verified</strong> with audit sign-off.
             </p>
+
+            {/* Completion Photos Inspection Card */}
+            {(() => {
+              let photos: string[] = [];
+              try {
+                if (typeof selectedJob.completionPhotos === "string" && selectedJob.completionPhotos.trim()) {
+                  const p = JSON.parse(selectedJob.completionPhotos);
+                  if (Array.isArray(p)) photos = p.filter((x) => typeof x === "string");
+                }
+              } catch {
+                photos = [];
+              }
+              if (photos.length === 0) return null;
+              return (
+                <div className="p-3 bg-[#FAFAFA] rounded-xl border border-[#E4E4E7] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                      Completion Photos ({photos.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        photos.forEach((src, idx) => {
+                          setTimeout(() => {
+                            downloadImageFile(src, `job-${selectedJob.jobNumber}-proof-${idx + 1}.png`);
+                          }, idx * 250);
+                        });
+                      }}
+                      className="text-[11px] font-semibold text-[#0D7A5F] hover:underline inline-flex items-center gap-1 transition"
+                      title="Download all proof photos"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download All
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {photos.map((src, i) => (
+                      <div
+                        key={i}
+                        className="group relative w-16 h-16 rounded-lg overflow-hidden border border-[#E4E4E7] hover:border-[#0D7A5F] cursor-pointer shadow-2xs"
+                        onClick={() => {
+                          setLightboxImages(photos);
+                          setLightboxIndex(i);
+                          setLightboxTitle(`Job #${selectedJob.jobNumber} — Inspection Photos`);
+                          setLightboxOpen(true);
+                        }}
+                        title={`Click to view Photo #${i + 1}`}
+                      >
+                        <img src={src} alt={`Proof ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1 transition">
+                          <Eye className="w-3.5 h-3.5 text-white" />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadImageFile(src, `job-${selectedJob.jobNumber}-proof-${i + 1}.png`);
+                            }}
+                            className="p-0.5 rounded bg-[#0D7A5F] text-white hover:bg-[#0A624C]"
+                            title="Download photo"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="space-y-3 bg-[#FAFAFA] p-4 rounded-lg border border-[#E4E4E7]">
               {(
                 [
@@ -565,6 +646,16 @@ export default function AuditorVerificationPage() {
           </div>
         </div>
       )}
+
+      {/* FULLSCREEN AUDITOR PHOTO LIGHTBOX */}
+      <ImageLightboxModal
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        title={lightboxTitle || "Job Inspection Photos"}
+        filePrefix="audit-proof"
+      />
     </div>
   );
 }

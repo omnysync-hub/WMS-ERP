@@ -74,7 +74,7 @@ export default function LoginPage() {
         {/* Center: Big Prominent Logo & ERP Software Title */}
         <div className="relative max-w-xl my-auto py-8">
           {/* Big Prominent Logo Card */}
-          <div className="h-32 w-32 sm:h-36 sm:w-36 rounded-3xl bg-white p-3.5 flex items-center justify-center shadow-2xl shadow-emerald-950/60 border border-white/20 overflow-hidden mb-8 ring-8 ring-white/10">
+          <div className="h-44 w-44 sm:h-52 sm:w-52 rounded-3xl bg-white p-4 flex items-center justify-center shadow-2xl shadow-emerald-950/60 border border-white/20 overflow-hidden mb-7 ring-8 ring-white/10 transition-transform duration-300 hover:scale-105">
             <img
               src="/logo.png"
               alt="Workman Services Logo"
@@ -82,13 +82,23 @@ export default function LoginPage() {
             />
           </div>
 
-          <h1 className="text-4xl sm:text-5xl font-black leading-[1.08] tracking-[-0.03em] text-white">
-            {displayName || "Workman Services"}
+          <h1 className="text-4xl sm:text-5xl font-black leading-[1.08] tracking-[-0.03em] text-white uppercase">
+            WORKMAN SERVICES
           </h1>
 
-          <div className="mt-3">
+          <div className="mt-2.5">
             <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-emerald-300 via-teal-200 to-emerald-400 bg-clip-text text-transparent tracking-tight">
-              Enterprise ERP Software
+              Enterprise Resource Planning Software
+            </span>
+          </div>
+
+          <div className="mt-3.5 flex items-center gap-2.5">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              v2.0.0
+            </span>
+            <span className="text-xs text-slate-400 font-medium">
+              Enterprise Release
             </span>
           </div>
 
@@ -117,12 +127,18 @@ export default function LoginPage() {
       <section className="flex min-h-screen items-center justify-center bg-[#f7f8f7] px-5 py-10 text-[#18181b] sm:px-10">
         <div className="w-full max-w-[460px]">
           <div className="mb-8 flex items-center gap-4 lg:hidden">
-            <div className="h-16 w-16 rounded-2xl bg-white p-2 flex items-center justify-center shadow-lg border border-slate-200 overflow-hidden shrink-0">
+            <div className="h-20 w-20 rounded-2xl bg-white p-2 flex items-center justify-center shadow-lg border border-slate-200 overflow-hidden shrink-0">
               <img src="/logo.png" alt="Workman Services" className="h-full w-full object-contain" />
             </div>
             <div>
-              <p className="font-extrabold text-lg text-slate-900 leading-tight">{displayName || "Workman Services"}</p>
-              <p className="text-xs font-semibold text-[#0D7A5F] mt-0.5">Enterprise ERP Software</p>
+              <p className="font-black text-xl text-slate-900 leading-tight uppercase">WORKMAN SERVICES</p>
+              <p className="text-xs font-semibold text-[#0D7A5F] mt-0.5">Enterprise Resource Planning Software</p>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                  v2.0.0
+                </span>
+              </div>
             </div>
           </div>
 
