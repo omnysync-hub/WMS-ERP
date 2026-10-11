@@ -112,8 +112,8 @@ export async function GET(req: NextRequest) {
       prisma.employee.findMany({ where: { active: true }, select: { id: true, name: true, phone: true, department: true }, orderBy: { name: "asc" } }),
     ]);
     const policyReadiness = accountingPolicyReadiness(settings);
-    const activeFinancialAccounts = financialAccounts.filter((item) => item.isActive);
-    const careOfReady = Boolean(settings.careOfSetupCompleted) && careOfParties.every((item) => Boolean(item.ledgerAccountId));
+    const activeFinancialAccounts = financialAccounts.filter((item: any) => item.isActive);
+    const careOfReady = Boolean(settings.careOfSetupCompleted) && careOfParties.every((item: any) => Boolean(item.ledgerAccountId));
     let subledgerReconciliation: any = null;
     try {
       subledgerReconciliation = await SubLedgerService.checkReconciliationDrift();
@@ -122,7 +122,7 @@ export async function GET(req: NextRequest) {
     }
     const accountingReadiness = {
       policies: policyReadiness.complete,
-      financialAccounts: Boolean(settings.financialAccountsCompleted) && activeFinancialAccounts.length > 0 && activeFinancialAccounts.some((item) => item.isDefault),
+      financialAccounts: Boolean(settings.financialAccountsCompleted) && activeFinancialAccounts.length > 0 && activeFinancialAccounts.some((item: any) => item.isDefault),
       careOf: careOfReady,
       partyBalances: Boolean(settings.partyBalancesCompleted),
     };
@@ -297,20 +297,20 @@ export async function POST(req: NextRequest) {
       if (agingBuckets.length !== 3 || !agingBuckets.every((item: number) => Number.isInteger(item) && item > 0) || !(agingBuckets[0] < agingBuckets[1] && agingBuckets[1] < agingBuckets[2])) {
         return NextResponse.json({ error: "Enter exactly three increasing aging cutoffs, such as 30, 60, and 90 days." }, { status: 400 });
       }
-      if (!taxRules.length || taxRules.some((item) => !item.name || !item.code || !["sales_tax", "withholding", "other"].includes(item.type) || !["sales", "purchases", "both"].includes(item.appliesTo) || !Number.isFinite(item.rate) || item.rate < 0 || item.rate > 100)) {
+      if (!taxRules.length || taxRules.some((item: any) => !item.name || !item.code || !["sales_tax", "withholding", "other"].includes(item.type) || !["sales", "purchases", "both"].includes(item.appliesTo) || !Number.isFinite(item.rate) || item.rate < 0 || item.rate > 100)) {
         return NextResponse.json({ error: "Add at least one complete tax rule with a rate from 0 to 100%." }, { status: 400 });
       }
-      if (!paymentMethods.length || paymentMethods.some((item) => !item.name || !item.code || !["cash", "bank", "card", "cheque", "digital", "credit", "split"].includes(item.kind))) {
+      if (!paymentMethods.length || paymentMethods.some((item: any) => !item.name || !item.code || !["cash", "bank", "card", "cheque", "digital", "credit", "split"].includes(item.kind))) {
         return NextResponse.json({ error: "Add at least one complete payment method." }, { status: 400 });
       }
-      if (!expenseCategories.length || expenseCategories.some((item) => !item.name || !item.code || !item.accountId)) {
+      if (!expenseCategories.length || expenseCategories.some((item: any) => !item.name || !item.code || !item.accountId)) {
         return NextResponse.json({ error: "Add at least one expense category and map it to an expense account." }, { status: 400 });
       }
       const unique = (items: string[]) => new Set(items).size === items.length;
-      if (!unique(taxRules.map((item) => item.code)) || !unique(paymentMethods.map((item) => item.code)) || !unique(expenseCategories.map((item) => item.code))) {
+      if (!unique(taxRules.map((item: any) => item.code)) || !unique(paymentMethods.map((item: any) => item.code)) || !unique(expenseCategories.map((item: any) => item.code))) {
         return NextResponse.json({ error: "Tax, payment-method, and expense-category codes must be unique." }, { status: 400 });
       }
-      const expenseAccountIds = [...new Set(expenseCategories.map((item) => item.accountId))];
+      const expenseAccountIds = [...new Set(expenseCategories.map((item: any) => item.accountId))];
       const validExpenseAccounts = await prisma.account.count({ where: { id: { in: expenseAccountIds }, type: "expense", isActive: true, level: { gte: 4 } } });
       if (validExpenseAccounts !== expenseAccountIds.length) {
         return NextResponse.json({ error: "Every expense category must use an active leaf expense account." }, { status: 400 });
