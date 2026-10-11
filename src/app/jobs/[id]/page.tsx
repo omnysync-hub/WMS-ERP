@@ -944,53 +944,7 @@ export default function JobDetailPage() {
                 </div>
               </div>
 
-              {(() => {
-                const stockItems = (job.items || []).filter((it: any) => !isServiceItem(it));
-                const stockPlanned = stockItems.reduce((s: number, it: any) => s + (it.quantityPlanned || 0), 0);
-                const stockActual = stockItems.reduce(
-                  (s: number, it: any) => s + (it.quantityActual ?? it.quantityPlanned ?? 0),
-                  0
-                );
-                const stockUnused = Math.max(0, stockPlanned - stockActual);
-                const stockReturned = job.stockReturns?.reduce((s: number, r: any) => s + (r.qtyReturned || 0), 0) || 0;
 
-                return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div className="p-3.5 bg-zinc-50/80 rounded-xl border border-zinc-200">
-                      <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider block">Total Planned</span>
-                      <span className="text-xl font-black font-mono text-[#18181B] mt-1 block">
-                        {stockPlanned} <span className="text-xs font-semibold text-zinc-500 font-sans">units</span>
-                      </span>
-                      <span className="text-[10px] text-zinc-500 mt-0.5 block">Stock Items</span>
-                    </div>
-                    <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200">
-                      <span className="text-[10px] text-emerald-800 uppercase font-bold tracking-wider block">Installed / Used</span>
-                      <span className="text-xl font-black font-mono text-[#0D7A5F] mt-1 block">
-                        {stockActual} <span className="text-xs font-semibold text-emerald-700 font-sans">units</span>
-                      </span>
-                      <span className="text-[10px] text-emerald-700 font-medium mt-0.5 block">Stock Consumed</span>
-                    </div>
-                    <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200">
-                      <span className="text-[10px] text-amber-800 uppercase font-bold tracking-wider block">Unused / Left</span>
-                      <span className="text-xl font-black font-mono text-amber-900 mt-1 block">
-                        {stockUnused} <span className="text-xs font-semibold text-amber-700 font-sans">units</span>
-                      </span>
-                      <span className="text-[10px] text-amber-700 font-medium mt-0.5 block">
-                        Returned: {stockReturned} units
-                      </span>
-                    </div>
-                    <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-200">
-                      <span className="text-[10px] text-purple-800 uppercase font-bold tracking-wider block">Net Invoice Total</span>
-                      <span className="text-xl font-black font-mono text-purple-950 mt-1 block">
-                        {formatCurrency(netPayable)}
-                      </span>
-                      <span className="text-[10px] text-purple-700 font-medium mt-0.5 block">
-                        Collected: {formatCurrency(job.hisaabSettlements?.filter((st: any) => st.status !== "superseded").reduce((s: number, st: any) => s + (st.amountCollected || 0), 0) || 0)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           )}
 
@@ -1072,23 +1026,14 @@ export default function JobDetailPage() {
                       </div>
                     )}
                   </td>
-                  <td className="py-2.5 px-4 text-center text-[#71717A] font-mono">
-                    {isService ? (
-                      <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
-                    ) : (
-                      item.quantityPlanned
-                    )}
-                  </td>
                   <td className="py-2.5 px-4 text-center">
                     {isService ? (
-                      <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
-                    ) : actualQty !== null && actualQty !== undefined ? (
                       <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-[11px]">
-                        {actualQty}
+                        {actualQty !== null && actualQty !== undefined ? actualQty : 1}
                       </span>
                     ) : (
-                      <span className="text-[#A1A1AA] italic text-[11px]">
-                        Pending Tech Completion
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-xs shadow-2xs">
+                        {actualQty !== null && actualQty !== undefined ? actualQty : item.quantityPlanned || 1}
                       </span>
                     )}
                   </td>
@@ -1247,8 +1192,7 @@ export default function JobDetailPage() {
                         <thead>
                           <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
                             <th className="py-2 px-4">Service Description</th>
-                            <th className="py-2 px-4 text-center">Planned Scope</th>
-                            <th className="py-2 px-4 text-center">Execution Status</th>
+                            <th className="py-2 px-4 text-center">Qty</th>
                             {canViewFinancials && !isRestrictedRole ? (
                               <>
                                 <th className="py-2 px-4 text-right">Service Rate</th>
@@ -1266,7 +1210,7 @@ export default function JobDetailPage() {
                           ) : (
                             <tr>
                               <td
-                                colSpan={canViewFinancials && !isRestrictedRole ? 6 : 4}
+                                colSpan={canViewFinancials && !isRestrictedRole ? 5 : 3}
                                 className="py-6 text-center text-[#71717A] text-xs italic bg-white"
                               >
                                 No technical service or labor items recorded. Use &quot;+ Add Service&quot; to log work scopes.
@@ -1304,8 +1248,7 @@ export default function JobDetailPage() {
                         <thead>
                           <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
                             <th className="py-2 px-4">Item Description & Brand</th>
-                            <th className="py-2 px-4 text-center">Planned Qty</th>
-                            <th className="py-2 px-4 text-center">Actual Qty</th>
+                            <th className="py-2 px-4 text-center">Qty (Used)</th>
                             {canViewFinancials && !isRestrictedRole ? (
                               <>
                                 <th className="py-2 px-4 text-right">Unit Price (Rate)</th>
@@ -1323,7 +1266,7 @@ export default function JobDetailPage() {
                           ) : (
                             <tr>
                               <td
-                                colSpan={canViewFinancials && !isRestrictedRole ? 6 : 4}
+                                colSpan={canViewFinancials && !isRestrictedRole ? 5 : 3}
                                 className="py-6 text-center text-[#71717A] text-xs italic bg-white"
                               >
                                 No physical spare parts or inventory items assigned to this work order.
@@ -1339,13 +1282,7 @@ export default function JobDetailPage() {
                 {/* Combined Financial Reconciliation Footer */}
                 {canViewFinancials && !isRestrictedRole ? (
                   <div className="p-5 bg-[#FAFAFA] border-t border-[#E4E4E7] space-y-2 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pb-3 border-b border-[#E4E4E7]/80">
-                      <div className="p-2.5 bg-white rounded-lg border border-[#E4E4E7]">
-                        <span className="text-[10px] text-[#71717A] uppercase font-bold block">Planned Estimated Total</span>
-                        <span className="font-mono font-bold text-[#18181B] text-sm mt-0.5 block">
-                          {formatCurrency(plannedTotal)}
-                        </span>
-                      </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pb-3 border-b border-[#E4E4E7]/80">
                       <div className="p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200">
                         <span className="text-[10px] text-emerald-800 uppercase font-bold block">Services Subtotal</span>
                         <span className="font-mono font-bold text-emerald-950 text-sm mt-0.5 block">
@@ -1359,7 +1296,7 @@ export default function JobDetailPage() {
                         </span>
                       </div>
                       <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-200">
-                        <span className="text-[10px] text-zinc-600 uppercase font-bold block">Combined Completed Subtotal</span>
+                        <span className="text-[10px] text-zinc-600 uppercase font-bold block">Gross Deliverables Subtotal</span>
                         <span className="font-mono font-bold text-zinc-900 text-sm mt-0.5 block">
                           {formatCurrency(effectiveBillAmount)}
                         </span>
@@ -1391,189 +1328,199 @@ export default function JobDetailPage() {
 
           {/* Settlements & Field Expenses (Masked if lacks financial permission or restricted role) */}
           {canViewFinancials && !isRestrictedRole && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Settlements & Technician Cash Handover */}
-              <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    <Receipt className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                    <span>Field Settlement & Customer Collections</span>
-                  </div>
-                  {(isAccountant || isAdmin || canViewFinancials) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedSettlementForHandover(null);
-                        setReceiveCashDrawerOpen(true);
-                      }}
-                      className="text-[11px] font-bold text-[#0D7A5F] hover:text-[#0A624C] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition shadow-2xs inline-flex items-center gap-1"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>Receive Cash</span>
-                    </button>
-                  )}
-                </div>
+            <div className="space-y-6">
+              {/* 3. SECTION: FIELD SETTLEMENT & CUSTOMER COLLECTIONS */}
+              {(() => {
+                const activeSettlements = (job.hisaabSettlements || []).filter((s: any) => s.status !== "superseded");
+                const totalSettled = activeSettlements.reduce((sum: number, s: any) => sum + (Number(s.amountCollected) || 0), 0);
 
-                {!job.hisaabSettlements || job.hisaabSettlements.length === 0 ? (
-                  <div className="p-4 bg-[#FAFAFA] rounded-xl border border-dashed border-[#E4E4E7] text-center space-y-1.5">
-                    <p className="text-xs text-[#71717A]">
-                      No customer cash settlement recorded yet.
-                    </p>
-                    {(isAccountant || isAdmin || canViewFinancials) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedSettlementForHandover(null);
-                          setReceiveCashDrawerOpen(true);
-                        }}
-                        className="text-xs font-semibold text-[#0D7A5F] hover:underline"
-                      >
-                        + Record Cash Received from Technician
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  job.hisaabSettlements.filter((s: any) => s.status !== "superseded").map((s: any) => {
-                    const isFieldReported = s.status === "field_reported";
-                    const hasHandover =
-                      s.amountReceivedByAccountant !== null &&
-                      s.amountReceivedByAccountant !== undefined;
-                    const isFullyHandedOver =
-                      hasHandover &&
-                      Number(s.amountReceivedByAccountant) >= Number(s.amountCollected);
-                    const pendingHandoverAmount = Math.max(
-                      0,
-                      Number(s.amountCollected) - (Number(s.amountReceivedByAccountant) || 0)
-                    );
+                return (
+                  <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+                    <div className="px-5 py-2.5 bg-emerald-50/50 border-b border-emerald-100/80 flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Receipt className="w-4 h-4 text-[#0D7A5F]" />
+                        <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
+                          3. Field Settlement & Customer Collections ({activeSettlements.length})
+                        </span>
+                        <span className="text-[10px] text-emerald-700 hidden sm:inline">
+                          • Customer cash handovers, digital payments & safe verification
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {totalSettled > 0 && (
+                          <span className="text-xs font-mono font-bold text-emerald-900 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded">
+                            Collected: {formatCurrency(totalSettled)}
+                          </span>
+                        )}
+                        {(isAccountant || isAdmin || canViewFinancials) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSettlementForHandover(null);
+                              setReceiveCashDrawerOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>+ Receive Cash</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                    return (
-                      <div
-                        key={s.id}
-                        className="p-3.5 bg-[#FAFAFA] rounded-xl border border-[#E4E4E7] text-xs space-y-2.5 transition hover:border-emerald-200 shadow-2xs"
-                      >
-                        {/* 1. Customer Collection Line */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-emerald-950 font-mono text-xs flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                              {formatCurrency(s.amountCollected)} Collected
-                            </span>
-                            <span className="text-[10px] text-[#71717A] font-mono">
-                              {formatDateTime(s.settledAt)}
-                            </span>
-                          </div>
-                          <p className="text-[#52525B] text-[11px]">
-                            Expected: {formatCurrency(s.amountExpected)} • Balance Due: {formatCurrency(s.balanceDue)}
-                          </p>
-                          {s.settledBy && (
-                            <p className="text-[#71717A] text-[10px]">
-                              {s.settledBy}
-                            </p>
-                          )}
-                          {isFieldReported && (
-                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
-                              Field-reported by technician · not yet posted to GL
-                            </span>
-                          )}
-                        </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                            <th className="py-2.5 px-4">Date & Time</th>
+                            <th className="py-2.5 px-4">Settled By</th>
+                            <th className="py-2.5 px-4 text-right">Expected Amount</th>
+                            <th className="py-2.5 px-4 text-right">Collected Amount</th>
+                            <th className="py-2.5 px-4">Accounts Handover & Safe Status</th>
+                            <th className="py-2.5 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E4E4E7]">
+                          {activeSettlements.length > 0 ? (
+                            activeSettlements.map((s: any) => {
+                              const isFieldReported = s.status === "field_reported";
+                              const hasHandover =
+                                s.amountReceivedByAccountant !== null &&
+                                s.amountReceivedByAccountant !== undefined;
+                              const isFullyHandedOver =
+                                hasHandover &&
+                                Number(s.amountReceivedByAccountant) >= Number(s.amountCollected);
+                              const pendingHandoverAmount = Math.max(
+                                0,
+                                Number(s.amountCollected) - (Number(s.amountReceivedByAccountant) || 0)
+                              );
 
-                        {/* 2. Accountant Cash Handover Verification Status */}
-                        <div className="pt-2 border-t border-[#EDEDED]">
-                          {hasHandover ? (
-                            <div
-                              className={`p-2.5 rounded-lg border text-xs space-y-1 ${
-                                isFullyHandedOver
-                                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-950"
-                                  : "bg-amber-50/80 border-amber-200 text-amber-950"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between flex-wrap gap-1">
-                                <span className="font-bold text-xs font-mono flex items-center gap-1.5">
-                                  {isFullyHandedOver ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  ) : (
-                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                  )}
-                                  Received by Accounts: {formatCurrency(s.amountReceivedByAccountant)}
-                                </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isFullyHandedOver
-                                      ? "bg-emerald-100 text-emerald-800"
-                                      : "bg-amber-100 text-amber-900"
-                                  }`}
-                                >
-                                  {isFullyHandedOver
-                                    ? "Fully Handed Over"
-                                    : `Partial (${formatCurrency(pendingHandoverAmount)} with Tech)`}
-                                </span>
-                              </div>
-
-                              <p className="text-[11px] opacity-90">
-                                Received by <strong>{s.accountantReceivedBy || "Accounts"}</strong>
-                                {s.accountantReceivedAt ? ` on ${formatDateTime(s.accountantReceivedAt)}` : ""}
-                              </p>
-                              {s.accountantDepositAccount && (
-                                <p className="text-[10px] opacity-75 font-mono">
-                                  Vault / Safe: {s.accountantDepositAccount}
-                                </p>
-                              )}
-                              {s.accountantNotes && (
-                                <p className="text-[11px] italic opacity-85 mt-0.5">
-                                  "{s.accountantNotes}"
-                                </p>
-                              )}
-
-                              {(isAccountant || isAdmin || canViewFinancials) && (
-                                <div className="pt-1 flex justify-end">
+                              return (
+                                <tr key={s.id} className="hover:bg-[#FAFAFA] transition">
+                                  <td className="py-3 px-4 whitespace-nowrap">
+                                    <div className="font-mono text-xs text-[#18181B]">
+                                      {formatDateTime(s.settledAt)}
+                                    </div>
+                                    {isFieldReported && (
+                                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                        Field-reported (Pending GL)
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-[#52525B]">
+                                    {s.settledBy || "Technician"}
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-mono text-[#52525B]">
+                                    <div>{formatCurrency(s.amountExpected)}</div>
+                                    {s.balanceDue ? (
+                                      <div className="text-[10px] text-[#A1A1AA]">
+                                        Bal Due: {formatCurrency(s.balanceDue)}
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-mono font-bold text-emerald-800 text-sm whitespace-nowrap">
+                                    {formatCurrency(s.amountCollected)}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {hasHandover ? (
+                                      <div className="space-y-1">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          {isFullyHandedOver ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                              Fully Handed Over ({formatCurrency(s.amountReceivedByAccountant)})
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                              Partial ({formatCurrency(s.amountReceivedByAccountant)}) • {formatCurrency(pendingHandoverAmount)} with Tech
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-[11px] text-[#71717A]">
+                                          Received by <strong>{s.accountantReceivedBy || "Accounts"}</strong>
+                                          {s.accountantReceivedAt && ` on ${formatDateTime(s.accountantReceivedAt)}`}
+                                          {s.accountantDepositAccount && (
+                                            <span className="font-mono ml-1.5">• Safe: {s.accountantDepositAccount}</span>
+                                          )}
+                                          {s.accountantNotes && (
+                                            <span className="italic block text-[10px] text-[#71717A] mt-0.5">
+                                              &ldquo;{s.accountantNotes}&rdquo;
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                          <Clock className="w-3 h-3 text-amber-600" />
+                                          Pending Handover to Safe ({formatCurrency(s.amountCollected)} with Tech)
+                                        </span>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                                    {(isAccountant || isAdmin || canViewFinancials) && (
+                                      hasHandover ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedSettlementForHandover(s);
+                                            setReceiveCashDrawerOpen(true);
+                                          }}
+                                          className="text-[11px] font-semibold text-[#0D7A5F] hover:underline"
+                                        >
+                                          Update Received →
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedSettlementForHandover(s);
+                                            setReceiveCashDrawerOpen(true);
+                                          }}
+                                          className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1"
+                                        >
+                                          <Banknote className="w-3 h-3" />
+                                          <span>Receive from Tech</span>
+                                        </button>
+                                      )
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="py-8 text-center text-[#71717A] text-xs bg-white space-y-2"
+                              >
+                                <p className="italic">No customer cash settlement recorded yet.</p>
+                                {(isAccountant || isAdmin || canViewFinancials) && (
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setSelectedSettlementForHandover(s);
+                                      setSelectedSettlementForHandover(null);
                                       setReceiveCashDrawerOpen(true);
                                     }}
-                                    className="text-[10px] font-semibold text-[#0D7A5F] hover:underline"
+                                    className="text-xs font-semibold text-[#0D7A5F] hover:underline inline-flex items-center gap-1"
                                   >
-                                    Update Received Amount →
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Record Cash Received from Technician</span>
                                   </button>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="p-2.5 rounded-lg bg-amber-50/70 border border-amber-200 text-amber-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                              <div className="space-y-0.5">
-                                <span className="font-bold flex items-center gap-1.5 text-amber-900">
-                                  <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                  Pending Handover to Accounts
-                                </span>
-                                <p className="text-[11px] text-amber-800">
-                                  {formatCurrency(s.amountCollected)} is currently with the technician.
-                                </p>
-                              </div>
-
-                              {(isAccountant || isAdmin || canViewFinancials) && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedSettlementForHandover(s);
-                                    setReceiveCashDrawerOpen(true);
-                                  }}
-                                  className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs whitespace-nowrap flex items-center justify-center gap-1.5"
-                                >
-                                  <Banknote className="w-3.5 h-3.5" />
-                                  <span>Receive from Tech</span>
-                                </button>
-                              )}
-                            </div>
+                                )}
+                              </td>
+                            </tr>
                           )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
 
-              {/* Field Expenses with Accountant Clearance */}
+              {/* 4. SECTION: TECHNICIAN FIELD EXPENSES */}
               {(() => {
                 const claims = job.expenseClaims || [];
                 const totalClaimed = claims.reduce((s: number, c: any) => s + c.amount, 0);
@@ -1591,18 +1538,32 @@ export default function JobDetailPage() {
                 };
 
                 return (
-                  <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                        <Receipt className="w-3.5 h-3.5 text-[#D97706]" />
-                        Technician Field Expenses
-                      </div>
+                  <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+                    <div className="px-5 py-2.5 bg-amber-50/50 border-b border-amber-100/80 flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
-                        {totalPending > 0 && (
-                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                            {pendingClaimsCount} Pending • {formatCurrency(totalPending)} Due
+                        <Receipt className="w-4 h-4 text-amber-700" />
+                        <span className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+                          4. Technician Field Expenses ({claims.length})
+                        </span>
+                        <span className="text-[10px] text-amber-700 hidden sm:inline">
+                          • Fuel, transit, diagnostic parts & field out-of-pocket claims
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 text-xs font-mono font-medium">
+                          <span className="bg-zinc-100 text-zinc-700 border border-zinc-200 px-2 py-0.5 rounded text-[11px]">
+                            Claimed: <strong>{formatCurrency(totalClaimed)}</strong>
                           </span>
-                        )}
+                          <span className="bg-emerald-100/70 text-emerald-900 border border-emerald-200 px-2 py-0.5 rounded text-[11px]">
+                            Cleared: <strong>{formatCurrency(totalPaid)}</strong>
+                          </span>
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[11px] font-bold border",
+                            totalPending > 0 ? "bg-amber-100 text-amber-900 border-amber-300" : "bg-zinc-100 text-zinc-500 border-zinc-200"
+                          )}>
+                            Pending Due: {formatCurrency(totalPending)}
+                          </span>
+                        </div>
                         {totalPending > 0 && (isAccountant || isAdmin) && (
                           <button
                             type="button"
@@ -1616,83 +1577,89 @@ export default function JobDetailPage() {
                       </div>
                     </div>
 
-                    {/* Financial Metrics Summary Banner */}
-                    {claims.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2 text-center pb-1">
-                        <div className="bg-[#F4F4F5] p-2.5 rounded-lg border border-[#E4E4E7]">
-                          <span className="text-[10px] text-[#71717A] uppercase font-bold block">Total Claimed</span>
-                          <span className="font-mono font-bold text-[#18181B] text-sm">
-                            {formatCurrency(totalClaimed)}
-                          </span>
-                        </div>
-                        <div className="bg-emerald-50 border border-emerald-200/60 p-2.5 rounded-lg">
-                          <span className="text-[10px] text-emerald-800 uppercase font-bold block">Cleared / Paid</span>
-                          <span className="font-mono font-bold text-emerald-900 text-sm">
-                            {formatCurrency(totalPaid)}
-                          </span>
-                        </div>
-                        <div className={cn(
-                          "p-2.5 rounded-lg border",
-                          totalPending > 0 ? "bg-amber-50 border-amber-300" : "bg-zinc-50 border-zinc-200"
-                        )}>
-                          <span className={cn(
-                            "text-[10px] uppercase font-bold block",
-                            totalPending > 0 ? "text-amber-800" : "text-[#71717A]"
-                          )}>
-                            Pending Due
-                          </span>
-                          <span className={cn(
-                            "font-mono font-bold text-sm",
-                            totalPending > 0 ? "text-amber-950" : "text-[#71717A]"
-                          )}>
-                            {formatCurrency(totalPending)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {claims.length === 0 ? (
-                      <p className="text-xs text-[#A1A1AA] py-3 text-center">
-                        No field expenses claimed.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {claims.map((c: any) => {
-                          const isPartialPending = c.status === "pending" && c.note?.includes("[Remaining Balance");
-                          return (
-                            <div
-                              key={c.id}
-                              className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs space-y-1.5 hover:border-[#D4D4D8] transition"
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-[#18181B] font-mono text-sm">
-                                  {formatCurrency(c.amount)}
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  {isPartialPending ? (
-                                    <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                                      Remaining Balance Pending
-                                    </span>
-                                  ) : (
-                                    <StatusBadge status={c.status} />
-                                  )}
-                                </div>
-                              </div>
-                              <p className="text-[#52525B] text-[11px] leading-relaxed">{c.note}</p>
-                              {c.status === "paid" && c.paidAt && (
-                                <p className="text-[10px] text-emerald-800 font-medium flex items-center gap-1">
-                                  ✓ Cleared & Disbursed: {formatDateTime(c.paidAt)}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                            <th className="py-2.5 px-4">Expense Description & Note</th>
+                            <th className="py-2.5 px-4">Claim Date</th>
+                            <th className="py-2.5 px-4 text-right">Claimed Amount</th>
+                            <th className="py-2.5 px-4 text-center">Status</th>
+                            <th className="py-2.5 px-4">Disbursement & Settlement Info</th>
+                            <th className="py-2.5 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E4E4E7]">
+                          {claims.length > 0 ? (
+                            claims.map((c: any) => {
+                              const isPartialPending = c.status === "pending" && c.note?.includes("[Remaining Balance");
+                              return (
+                                <tr key={c.id} className="hover:bg-[#FAFAFA] transition">
+                                  <td className="py-3 px-4 font-medium text-[#18181B]">
+                                    <div>{c.note || "Field Out-of-pocket Expense"}</div>
+                                  </td>
+                                  <td className="py-3 px-4 text-[#71717A] whitespace-nowrap">
+                                    {formatDateTime(c.createdAt)}
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B] whitespace-nowrap">
+                                    {formatCurrency(c.amount)}
+                                  </td>
+                                  <td className="py-3 px-4 text-center whitespace-nowrap">
+                                    {isPartialPending ? (
+                                      <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                                        Remaining Balance Pending
+                                      </span>
+                                    ) : (
+                                      <StatusBadge status={c.status} />
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-[11px] text-[#52525B]">
+                                    {c.status === "paid" && c.paidAt ? (
+                                      <span className="text-emerald-800 font-medium flex items-center gap-1">
+                                        ✓ Cleared &amp; Disbursed: {formatDateTime(c.paidAt)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-amber-800 italic">Pending Accounts Clearance</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                                    {c.status === "pending" && (isAccountant || isAdmin) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedClaimToClear(c);
+                                          setClearanceMode("full");
+                                          setPartialAmountToPay(String(c.amount));
+                                          setExpensePaymentNotes("");
+                                          setDisbursingAccountCode("1000");
+                                          setClearExpenseModalOpen(true);
+                                        }}
+                                        className="px-2.5 py-1 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-2xs inline-flex items-center gap-1"
+                                      >
+                                        <CheckCircle2 className="w-3 h-3" />
+                                        Clear Claim
+                                      </button>
+                                    ) : (
+                                      <span className="text-[#A1A1AA] text-[11px]">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="py-8 text-center text-[#71717A] text-xs italic bg-white">
+                                No field expenses claimed for this job.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
 
                     {/* Action Bar at bottom when expenses are pending */}
                     {totalPending > 0 && (isAccountant || isAdmin) && (
-                      <div className="pt-2 border-t border-[#E4E4E7] flex items-center justify-between bg-amber-50/50 p-2.5 rounded-lg border border-amber-200">
+                      <div className="px-5 py-3 border-t border-amber-200 bg-amber-50/60 flex items-center justify-between">
                         <div>
                           <p className="text-xs font-bold text-amber-950">
                             Outstanding Technician Expenses: {formatCurrency(totalPending)}
@@ -1704,10 +1671,10 @@ export default function JobDetailPage() {
                         <button
                           type="button"
                           onClick={openClearanceModalForJob}
-                          className="px-3 py-1.5 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-xs inline-flex items-center gap-1.5"
+                          className="px-3.5 py-1.5 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-xs inline-flex items-center gap-1.5"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Clear Expenses
+                          Clear Expenses ({formatCurrency(totalPending)})
                         </button>
                       </div>
                     )}

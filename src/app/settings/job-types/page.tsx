@@ -14,7 +14,6 @@ import {
   ArrowLeft,
   Info,
   Search,
-  ExternalLink,
   ChevronDown,
   ChevronUp,
   Cpu,
@@ -224,19 +223,6 @@ export default function JobTypesSettingsPage() {
           </Link>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Link
-            href="/jobs/new"
-            target="_blank"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 bg-white border border-[#EDEDED] text-[#18181B] hover:border-[#0D7A5F] hover:text-[#0D7A5F] rounded-lg shadow-2xs transition"
-          >
-            <span>Test on Job Intake</span>
-            <ExternalLink className="w-3 h-3" />
-          </Link>
-          <span className="text-xs font-mono bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1 rounded-full font-semibold">
-            ● Live Sync Active
-          </span>
-        </div>
       </div>
 
       {/* Notifications */}
@@ -260,18 +246,6 @@ export default function JobTypesSettingsPage() {
         </div>
       )}
 
-      {/* Top Info Banner */}
-      <div className="p-4 bg-gradient-to-r from-teal-50/80 via-emerald-50/60 to-white border border-emerald-200/80 rounded-xl flex items-start gap-3.5 text-xs text-[#18181B] shadow-2xs">
-        <Briefcase className="w-5 h-5 text-[#0D7A5F] shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-bold text-sm text-[#0D7A5F]">
-            Job Nature & Work Classification Dropdown Management
-          </p>
-          <p className="text-[#52525B] leading-relaxed">
-            Customize the options shown in the <strong>Job Nature / Type *</strong> searchable dropdown during new job booking (<code>/jobs/new</code>). You can <strong>add new options</strong>, <strong>edit or rename existing ones</strong>, and <strong>remove</strong> obsolete service types. Changes apply instantly across the system.
-          </p>
-        </div>
-      </div>
 
       {/* Main Content: Left Column (Management) & Right Column (Live Dropdown Preview) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

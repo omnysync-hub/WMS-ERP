@@ -98,6 +98,7 @@ export default function DataTable<T extends Record<string, any>>({
   const [visibleColumns, setVisibleColumns] = useState<string[]>(columns.map((c) => c.id));
   const [isColumnConfigOpen, setIsColumnConfigOpen] = useState(false);
   const [activeChipDropdown, setActiveChipDropdown] = useState<string | null>(null);
+  const [chipSearchQuery, setChipSearchQuery] = useState("");
   const [isViewSelectorOpen, setIsViewSelectorOpen] = useState(false);
   const [currentTableView, setCurrentTableView] = useState("Default Table View");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
@@ -249,61 +250,113 @@ export default function DataTable<T extends Record<string, any>>({
             const selectedMatch = normalizedOptions.find((o) => o.value === chip.selected);
             const displaySelectedLabel = selectedMatch ? selectedMatch.label : chip.selected;
 
+            const q = chipSearchQuery.toLowerCase().trim();
+            const filteredOptions = (q && isOpen)
+              ? normalizedOptions.filter((opt) => opt.label.toLowerCase().includes(q) || String(opt.value).toLowerCase().includes(q))
+              : normalizedOptions;
+
             return (
               <div key={chip.id} className="relative">
                 <button
                   type="button"
-                  onClick={() => setActiveChipDropdown(isOpen ? null : chip.id)}
+                  onClick={() => {
+                    setActiveChipDropdown(isOpen ? null : chip.id);
+                    setChipSearchQuery("");
+                  }}
                   aria-expanded={isOpen}
                   aria-label={`Filter by ${chip.label}`}
                   className={cn(
                     "h-7 px-2.5 rounded-md text-xs font-medium border transition inline-flex items-center gap-1.5 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]",
-                    chip.selected
+                    chip.selected && chip.selected !== "all"
                       ? "bg-emerald-50 border-emerald-300 text-[#0D7A5F] font-semibold"
                       : "bg-white border-[#EDEDED] text-[#71717A] hover:bg-[#F7F7F8] hover:text-[#18181B]"
                   )}
                 >
-                  <span>{chip.selected ? `${chip.label}: ${displaySelectedLabel}` : `${chip.label}`}</span>
-                  <ChevronDown className="w-3 h-3 text-[#71717A]" />
+                  <span className="truncate max-w-[200px]">{chip.selected && chip.selected !== "all" ? `${chip.label}: ${displaySelectedLabel}` : `${chip.label}`}</span>
+                  <ChevronDown className="w-3 h-3 text-[#71717A] shrink-0" />
                 </button>
 
                 {isOpen && (
                   <>
                     <div
                       className="fixed inset-0 z-30"
-                      onClick={() => setActiveChipDropdown(null)}
+                      onClick={() => {
+                        setActiveChipDropdown(null);
+                        setChipSearchQuery("");
+                      }}
                     />
-                    <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-52 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
-                      <div className="px-3 py-1 text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
-                        Filter: {chip.label}
+                    <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-60 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95 flex flex-col">
+                      <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold text-[#71717A] uppercase tracking-wider border-b border-[#F4F4F5] mb-1">
+                        <span>Filter: {chip.label}</span>
+                        {chip.selected && chip.selected !== "all" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              chip.onSelect?.("");
+                              setActiveChipDropdown(null);
+                              setChipSearchQuery("");
+                            }}
+                            className="text-[#0D7A5F] hover:underline normal-case text-[10px] font-semibold"
+                          >
+                            Reset
+                          </button>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          chip.onSelect?.("");
-                          setActiveChipDropdown(null);
-                        }}
-                        className="w-full text-left px-3 py-1.5 hover:bg-[#F4F4F5] text-[#71717A] italic"
-                      >
-                        All / Clear
-                      </button>
-                      {normalizedOptions.map((opt, i) => (
+
+                      {/* Search box inside filter dropdown if options > 5 */}
+                      {normalizedOptions.length > 5 && (
+                        <div className="px-2 pb-1.5 pt-0.5">
+                          <div className="relative">
+                            <Search className="w-3 h-3 text-[#A1A1AA] absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder={`Search ${chip.label}...`}
+                              value={chipSearchQuery}
+                              onChange={(e) => setChipSearchQuery(e.target.value)}
+                              autoFocus
+                              className="w-full pl-6 pr-2 py-1 bg-[#F9FAFB] hover:bg-white focus:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-md text-[11px] text-[#18181B] placeholder-[#A1A1AA] focus:outline-none transition shadow-2xs"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="max-h-60 overflow-y-auto divide-y divide-[#F4F4F5]">
                         <button
-                          key={i}
                           type="button"
                           onClick={() => {
-                            chip.onSelect?.(opt.value);
+                            chip.onSelect?.("");
                             setActiveChipDropdown(null);
+                            setChipSearchQuery("");
                           }}
-                          className={cn(
-                            "w-full text-left px-3 py-1.5 hover:bg-[#F4F4F5] flex items-center justify-between",
-                            chip.selected === opt.value && "font-bold text-[#0D7A5F] bg-emerald-50/50"
-                          )}
+                          className="w-full text-left px-3 py-1.5 hover:bg-[#F4F4F5] text-[#71717A] italic"
                         >
-                          <span className="truncate pr-2">{opt.label}</span>
-                          {chip.selected === opt.value && <Check className="w-3 h-3 text-[#0D7A5F] shrink-0" />}
+                          All / Clear
                         </button>
-                      ))}
+                        {filteredOptions.length === 0 ? (
+                          <div className="px-3 py-2 text-center text-[11px] text-[#A1A1AA]">
+                            No matches found
+                          </div>
+                        ) : (
+                          filteredOptions.map((opt, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => {
+                                chip.onSelect?.(opt.value);
+                                setActiveChipDropdown(null);
+                                setChipSearchQuery("");
+                              }}
+                              className={cn(
+                                "w-full text-left px-3 py-1.5 hover:bg-[#F4F4F5] flex items-center justify-between transition",
+                                chip.selected === opt.value && "font-bold text-[#0D7A5F] bg-emerald-50/50"
+                              )}
+                            >
+                              <span className="truncate pr-2">{opt.label}</span>
+                              {chip.selected === opt.value && <Check className="w-3 h-3 text-[#0D7A5F] shrink-0" />}
+                            </button>
+                          ))
+                        )}
+                      </div>
                     </div>
                   </>
                 )}
@@ -311,6 +364,20 @@ export default function DataTable<T extends Record<string, any>>({
             );
           })}
 
+          {/* Quick Clear All Filters button when any filter is active */}
+          {filterChips.some((c) => !!c.selected && c.selected !== "all") && (
+            <button
+              type="button"
+              onClick={() => {
+                filterChips.forEach((c) => c.onSelect?.(""));
+              }}
+              className="h-7 px-2.5 rounded-md text-xs text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5] border border-dashed border-[#D4D4D8] transition inline-flex items-center gap-1 font-semibold shadow-2xs"
+              title="Reset all active filters"
+            >
+              <X className="w-3 h-3" />
+              <span>Clear Filters</span>
+            </button>
+          )}
         </div>
 
         {/* Right: Table-Level Controls (View Selector, Grid/List Toggles, Column Gear) */}

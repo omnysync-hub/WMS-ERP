@@ -117,6 +117,39 @@ export default function JobsListPage() {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("");
   const [selectedTypeFilter, setSelectedTypeFilter] = useState("");
   const [selectedDateFilter, setSelectedDateFilter] = useState("all");
+  const [selectedCareOfFilter, setSelectedCareOfFilter] = useState("");
+  const [selectedPaymentFilter, setSelectedPaymentFilter] = useState("");
+  const [selectedMaterialFilter, setSelectedMaterialFilter] = useState("");
+  const [selectedQualityFilter, setSelectedQualityFilter] = useState("");
+  const [selectedDiscountFilter, setSelectedDiscountFilter] = useState("");
+  const [selectedEquipmentFilter, setSelectedEquipmentFilter] = useState("");
+
+  // Dynamically extracted options for advanced filters
+  const careOfOptions = React.useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach((j) => {
+      const name = j.careOfParty?.companyName || j.careOfParty?.personName;
+      if (name) set.add(name);
+    });
+    return Array.from(set).sort().map((n) => ({ label: n, value: n }));
+  }, [jobs]);
+
+  const equipmentOptions = React.useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach((j) => {
+      (j.items || []).forEach((it: any) => {
+        if (it.equipmentType) set.add(it.equipmentType);
+        const desc = it.description || "";
+        if (desc.includes("Split")) set.add("Split AC");
+        if (desc.includes("Inverter")) set.add("Inverter AC");
+        if (desc.includes("Cassette")) set.add("Cassette AC");
+        if (desc.includes("Floor") || desc.includes("Tower")) set.add("Tower / Floor Standing AC");
+        if (desc.includes("Duct")) set.add("Ducted AC");
+        if (desc.includes("Chiller")) set.add("Chiller System");
+      });
+    });
+    return Array.from(set).sort().map((e) => ({ label: e, value: e }));
+  }, [jobs]);
 
   // Filter based on active tab & role
   const filteredByTab = jobs.filter((j) => {
@@ -267,6 +300,8 @@ export default function JobsListPage() {
       const startOfQuarter = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).getTime();
       const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
 
+      const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
+      if (selectedDateFilter === "yesterday" && (jobTime < startOfYesterday || jobTime >= startOfToday)) return false;
       if (selectedDateFilter === "today" && jobTime < startOfToday) return false;
       if (selectedDateFilter === "this_week" && jobTime < startOfWeek) return false;
       if (selectedDateFilter === "last_week" && (jobTime < startOfLastWeek || jobTime > endOfLastWeek)) return false;
@@ -319,9 +354,99 @@ export default function JobsListPage() {
 
   // Filter based on search query and filter chips
   const filteredJobs = filteredByTab.filter((j) => {
-    if (selectedTechFilter && j.assignedTechnician?.name !== selectedTechFilter) return false;
+    // Technician Filter (including Unassigned)
+    if (selectedTechFilter) {
+      if (selectedTechFilter === "unassigned") {
+        const isUnassigned =
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0));
+        if (!isUnassigned) return false;
+      } else if (j.assignedTechnician?.name !== selectedTechFilter) {
+        return false;
+      }
+    }
     if (selectedStatusFilter && j.status !== selectedStatusFilter) return false;
     if (selectedTypeFilter && j.jobType !== selectedTypeFilter) return false;
+
+    // Care-Of / B2B Corporate Client Filter
+    if (selectedCareOfFilter) {
+      const party = j.careOfParty?.companyName || j.careOfParty?.personName;
+      if (party !== selectedCareOfFilter) return false;
+    }
+
+    // Payment & Cash Clearance Filter
+    if (selectedPaymentFilter) {
+      if (selectedPaymentFilter === "cash_collected") {
+        const hasHandover = j.hisaabSettlements?.some((s: any) => s.status === "verified" || s.accountantVerifiedAt);
+        if (!hasHandover) return false;
+      } else if (selectedPaymentFilter === "pending_cash") {
+        const hasPendingCash = j.hisaabSettlements?.some((s: any) => s.status === "pending_handover" || (!s.accountantVerifiedAt && s.amountCollected > 0));
+        if (!hasPendingCash) return false;
+      } else if (selectedPaymentFilter === "receivables") {
+        const isAr = j.hisaabSettlements?.some((s: any) => s.paymentMethod === "customer_receivable" || s.isReceivable);
+        if (!isAr) return false;
+      } else if (selectedPaymentFilter === "expenses_pending") {
+        const hasPendingExp = j.expenseClaims?.some((c: any) => c.status === "pending");
+        if (!hasPendingExp) return false;
+      } else if (selectedPaymentFilter === "expenses_cleared") {
+        const hasClearedExp = j.expenseClaims?.length > 0 && j.expenseClaims.every((c: any) => c.status === "approved" || c.status === "paid");
+        if (!hasClearedExp) return false;
+      } else if (selectedPaymentFilter === "has_expenses") {
+        if (!j.expenseClaims || j.expenseClaims.length === 0) return false;
+      }
+    }
+
+    // Materials & Stock Requisitions Filter
+    if (selectedMaterialFilter) {
+      if (selectedMaterialFilter === "has_requests") {
+        if (!j.inventoryRequests || j.inventoryRequests.length === 0) return false;
+      } else if (selectedMaterialFilter === "pending_approval") {
+        if (!j.inventoryRequests?.some((r: any) => r.status === "pending")) return false;
+      } else if (selectedMaterialFilter === "issued") {
+        if (!j.inventoryRequests?.some((r: any) => r.status === "issued" || r.status === "fulfilled")) return false;
+      } else if (selectedMaterialFilter === "returnable") {
+        const isReturnable = (j.stockReturns && j.stockReturns.length > 0) || j.inventoryRequests?.some((r: any) => r.requiresReturn);
+        if (!isReturnable) return false;
+      } else if (selectedMaterialFilter === "no_requests") {
+        if (j.inventoryRequests && j.inventoryRequests.length > 0) return false;
+      }
+    }
+
+    // Quality & Audit Review Filter
+    if (selectedQualityFilter) {
+      if (selectedQualityFilter === "clean") {
+        if (j.qualityFlag === "disputed") return false;
+      } else if (selectedQualityFilter === "disputed") {
+        if (j.qualityFlag !== "disputed") return false;
+      } else if (selectedQualityFilter === "verified") {
+        if (!j.verifiedAt && j.status !== "Verified") return false;
+      }
+    }
+
+    // Discount Filter
+    if (selectedDiscountFilter) {
+      if (selectedDiscountFilter === "approved") {
+        const hasApproved = (j.discountAmount && j.discountAmount > 0) || j.items?.some((it: any) => it.description?.includes("[Discount Approved:"));
+        if (!hasApproved) return false;
+      } else if (selectedDiscountFilter === "requested") {
+        const hasReq = j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
+        if (!hasReq) return false;
+      } else if (selectedDiscountFilter === "none") {
+        const hasAny = (j.discountAmount && j.discountAmount > 0) || j.items?.some((it: any) => it.description?.includes("Discount"));
+        if (hasAny) return false;
+      }
+    }
+
+    // Equipment / Appliance Type Filter
+    if (selectedEquipmentFilter) {
+      const matchEquip = (j.items || []).some((it: any) => {
+        const text = `${it.equipmentType || ""} ${it.description || ""}`.toLowerCase();
+        return text.includes(selectedEquipmentFilter.toLowerCase());
+      });
+      if (!matchEquip) return false;
+    }
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     const formattedType = formatJobType(j.jobType).toLowerCase();
@@ -1156,6 +1281,7 @@ export default function JobsListPage() {
                 options: [
                   { label: "All Time", value: "all" },
                   { label: "Today", value: "today" },
+                  { label: "Yesterday", value: "yesterday" },
                   { label: "This Week", value: "this_week" },
                   { label: "Last Week", value: "last_week" },
                   { label: "This Month", value: "this_month" },
@@ -1169,10 +1295,13 @@ export default function JobsListPage() {
               {
                 id: "technician",
                 label: "Technician",
-                options: technicians.map((t) => ({
-                  label: capitalizeWords(t.name),
-                  value: t.name,
-                })),
+                options: [
+                  { label: "Unassigned Jobs", value: "unassigned" },
+                  ...technicians.map((t) => ({
+                    label: capitalizeWords(t.name),
+                    value: t.name,
+                  })),
+                ],
                 selected: selectedTechFilter,
                 onSelect: setSelectedTechFilter,
               },
@@ -1184,7 +1313,8 @@ export default function JobsListPage() {
                   { label: "Assigned", value: "Assigned" },
                   { label: "Accepted", value: "Accepted" },
                   { label: "In Progress", value: "InProgress" },
-                  { label: "Partially Completed", value: "Paused" },
+                  { label: "Partially Completed (Paused)", value: "Paused" },
+                  { label: "Awaiting Feedback", value: "AwaitingFeedback" },
                   { label: "Pending Verification", value: "CompletedPendingVerification" },
                   { label: "Finalized", value: "Finalized" },
                   { label: "Verified", value: "Verified" },
@@ -1202,6 +1332,69 @@ export default function JobsListPage() {
                 selected: selectedTypeFilter,
                 onSelect: setSelectedTypeFilter,
               },
+              ...(careOfOptions.length > 0 ? [{
+                id: "careOfParty",
+                label: "Client / Care-Of",
+                options: careOfOptions,
+                selected: selectedCareOfFilter,
+                onSelect: setSelectedCareOfFilter,
+              }] : []),
+              {
+                id: "paymentClearance",
+                label: "Financial & Cash",
+                options: [
+                  { label: "Cash Collected / in Safe", value: "cash_collected" },
+                  { label: "Cash Pending with Tech", value: "pending_cash" },
+                  { label: "Receivables (AR / Credit)", value: "receivables" },
+                  { label: "Expenses Pending Approval", value: "expenses_pending" },
+                  { label: "Expenses Reimbursed / Cleared", value: "expenses_cleared" },
+                  { label: "Has Expense Claim Logged", value: "has_expenses" },
+                ],
+                selected: selectedPaymentFilter,
+                onSelect: setSelectedPaymentFilter,
+              },
+              {
+                id: "materialsStock",
+                label: "Materials & Stock",
+                options: [
+                  { label: "Has Stock Requisitions", value: "has_requests" },
+                  { label: "Pending Stock Approval", value: "pending_approval" },
+                  { label: "Stock Dispatched / Fulfilled", value: "issued" },
+                  { label: "Returnable Parts / Tools", value: "returnable" },
+                  { label: "No Materials Requested", value: "no_requests" },
+                ],
+                selected: selectedMaterialFilter,
+                onSelect: setSelectedMaterialFilter,
+              },
+              {
+                id: "qualityAudit",
+                label: "Quality & Audit",
+                options: [
+                  { label: "Clean / No Dispute", value: "clean" },
+                  { label: "Disputed / Review Needed", value: "disputed" },
+                  { label: "Verified & Audited", value: "verified" },
+                ],
+                selected: selectedQualityFilter,
+                onSelect: setSelectedQualityFilter,
+              },
+              {
+                id: "discountState",
+                label: "Discounts",
+                options: [
+                  { label: "Has Approved Discount", value: "approved" },
+                  { label: "Discount Requested (Pending)", value: "requested" },
+                  { label: "Standard Rate (No Discount)", value: "none" },
+                ],
+                selected: selectedDiscountFilter,
+                onSelect: setSelectedDiscountFilter,
+              },
+              ...(equipmentOptions.length > 0 ? [{
+                id: "equipmentType",
+                label: "Appliance / Equipment",
+                options: equipmentOptions,
+                selected: selectedEquipmentFilter,
+                onSelect: setSelectedEquipmentFilter,
+              }] : []),
             ]}
             renderExpandedRow={(row) => (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-[#52525B]">

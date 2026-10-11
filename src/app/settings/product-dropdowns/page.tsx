@@ -16,7 +16,6 @@ import {
   X,
   ArrowLeft,
   Settings2,
-  Info,
   ExternalLink,
   Sparkles,
   Search,
@@ -277,9 +276,6 @@ export default function ProductDropdownSettingsPage() {
             <Briefcase className="w-3.5 h-3.5" />
             <span>Job Nature / Types Manager</span>
           </Link>
-          <span className="text-xs text-[#71717A] bg-white border border-[#EDEDED] px-3 py-1 rounded-full shadow-2xs font-mono">
-            Searchable Textbox Engine Active
-          </span>
         </div>
       </div>
 
@@ -289,17 +285,6 @@ export default function ProductDropdownSettingsPage() {
           <span>{savedNotice}</span>
         </div>
       )}
-
-      {/* Info Notice */}
-      <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl flex items-start gap-3 text-xs text-sky-950">
-        <Info className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-bold">Configurable Searchable Textboxes & Autocomplete Dropdowns</p>
-          <p className="text-sky-800 leading-relaxed">
-            The options configured below empower the <strong>searchable textboxes</strong> across Job Creation (<code>/jobs/new</code>) and inventory requisition. Users can click to search presets, or type directly into the textboxes to use custom values.
-          </p>
-        </div>
-      </div>
 
       {/* Interactive Live Demo matching user screenshot */}
       <div className="bg-white rounded-xl border border-[#EDEDED] shadow-xs p-5 space-y-3">

@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Activity,
   X,
+  Search,
   Banknote,
   Receipt,
   ArrowDownLeft,
@@ -221,6 +222,7 @@ export default function JobsKpiDashboard({
 
   // Dropdown popover state for inspecting jobs inside any specific KPI card
   const [openKpiCardDropdown, setOpenKpiCardDropdown] = React.useState<string | null>(null);
+  const [kpiSearchQuery, setKpiSearchQuery] = React.useState<string>("");
 
   // Map each card key to its concrete list of matching jobs
   const getJobsForKpi = (key: string): any[] => {
@@ -483,11 +485,30 @@ export default function JobsKpiDashboard({
   ];
 
   // Helper renderer for a KPI card with an inline dropdown list of jobs
-  const renderKpiCard = (card: any) => {
+  const renderKpiCard = (card: any, index: number = 0) => {
     const Icon = card.icon;
     const isSelected = activeFilter === card.key;
     const isDropdownOpen = openKpiCardDropdown === card.key;
     const cardJobs = getJobsForKpi(card.key);
+
+    const q = kpiSearchQuery.toLowerCase().trim();
+    const filteredJobs = q
+      ? cardJobs.filter((j: any) => {
+          const jNum = (j.jobNumber || "").toLowerCase();
+          const cust = (j.customer?.name || "").toLowerCase();
+          const tech = (j.assignedTechnician?.name || "").toLowerCase();
+          const status = (j.status || "").toLowerCase();
+          const title = (j.title || "").toLowerCase();
+          const equip = (j.items || []).some((item: any) =>
+            (item.equipmentType || "").toLowerCase().includes(q) ||
+            (item.modelNumber || "").toLowerCase().includes(q)
+          );
+          return jNum.includes(q) || cust.includes(q) || tech.includes(q) || status.includes(q) || title.includes(q) || equip;
+        })
+      : cardJobs;
+
+    // Align dropdown to the right if in later columns to prevent overflow
+    const alignRight = index >= 3;
 
     return (
       <div key={card.key} className="relative group">
@@ -530,9 +551,15 @@ export default function JobsKpiDashboard({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setOpenKpiCardDropdown(isDropdownOpen ? null : card.key);
+                    if (isDropdownOpen) {
+                      setOpenKpiCardDropdown(null);
+                      setKpiSearchQuery("");
+                    } else {
+                      setOpenKpiCardDropdown(card.key);
+                      setKpiSearchQuery("");
+                    }
                   }}
-                  title={`View all ${card.count} jobs in dropdown`}
+                  title={`View all ${card.count} jobs in searchable dropdown`}
                   className="text-[10px] text-[#0D7A5F] hover:bg-emerald-50 px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5 transition"
                 >
                   <span>Jobs ▾</span>
@@ -545,61 +572,119 @@ export default function JobsKpiDashboard({
           </div>
         </div>
 
-        {/* Dropdown displaying all jobs matching this specific KPI */}
+        {/* Searchable Dropdown Popover displaying jobs matching this specific KPI */}
         {isDropdownOpen && (
           <>
             <div
               className="fixed inset-0 z-40"
-              onClick={() => setOpenKpiCardDropdown(null)}
+              onClick={() => {
+                setOpenKpiCardDropdown(null);
+                setKpiSearchQuery("");
+              }}
             />
-            <div className="absolute left-0 top-full mt-1.5 z-50 bg-white border border-[#EDEDED] rounded-xl shadow-2xl w-72 max-h-72 overflow-y-auto p-2 text-xs divide-y divide-[#F4F4F5] animate-in fade-in zoom-in-95">
-              <div className="px-2 py-1.5 flex items-center justify-between bg-[#FAFAFA] rounded-lg mb-1">
-                <span className="font-bold text-[10px] text-[#18181B] uppercase tracking-wider truncate">
-                  {card.label} ({cardJobs.length})
-                </span>
+            <div
+              className={cn(
+                "absolute top-full mt-1.5 z-50 bg-white border border-[#EDEDED] rounded-xl shadow-2xl w-80 sm:w-96 max-h-96 flex flex-col p-2.5 text-xs animate-in fade-in zoom-in-95",
+                alignRight ? "right-0" : "left-0"
+              )}
+            >
+              {/* Popover Header */}
+              <div className="px-2 py-1.5 flex items-center justify-between bg-[#FAFAFA] border border-[#F4F4F5] rounded-lg mb-2">
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className="font-bold text-[10px] text-[#18181B] uppercase tracking-wider truncate">
+                    {card.label}
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-white border border-[#EDEDED] px-1.5 py-0.2 rounded text-[#0D7A5F]">
+                    {filteredJobs.length}{q ? ` / ${cardJobs.length}` : ""}
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setOpenKpiCardDropdown(null)}
-                  className="text-[#71717A] hover:text-[#18181B] text-xs p-0.5"
+                  onClick={() => {
+                    setOpenKpiCardDropdown(null);
+                    setKpiSearchQuery("");
+                  }}
+                  className="text-[#71717A] hover:text-[#18181B] text-xs p-1 rounded hover:bg-[#EDEDED] transition leading-none"
+                  title="Close dropdown"
                 >
                   ✕
                 </button>
               </div>
 
-              {cardJobs.length === 0 ? (
-                <div className="p-4 text-center text-xs text-[#71717A]">
-                  No jobs currently in this state.
-                </div>
-              ) : (
-                cardJobs.slice(0, 30).map((j: any) => (
-                  <a
-                    key={j.id}
-                    href={`/jobs/${j.id}`}
-                    onClick={() => setOpenKpiCardDropdown(null)}
-                    className="p-2 hover:bg-[#F9FAFB] rounded-lg block transition space-y-0.5 group/item"
+              {/* Searchable Input Bar */}
+              <div className="relative mb-2">
+                <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={kpiSearchQuery}
+                  onChange={(e) => setKpiSearchQuery(e.target.value)}
+                  placeholder="Search by job #, customer, tech, status..."
+                  autoFocus
+                  className="w-full pl-8 pr-7 py-1.5 bg-[#F9FAFB] hover:bg-white focus:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-lg text-xs text-[#18181B] placeholder-[#A1A1AA] focus:outline-none transition shadow-2xs"
+                />
+                {kpiSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setKpiSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-[#18181B] p-0.5 rounded transition"
+                    title="Clear filter"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-xs text-[#0D7A5F] group-hover/item:underline">
-                        {j.jobNumber}
-                      </span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[#F4F4F5] text-[#52525B]">
-                        {j.status === "Paused" ? "Partially Completed" : j.status}
-                      </span>
-                    </div>
-                    <p className="font-semibold text-xs text-[#18181B] truncate">
-                      {j.customer?.name || "Customer"}
-                    </p>
-                    <div className="flex items-center justify-between text-[10px] text-[#71717A]">
-                      <span className="truncate max-w-[140px]">
-                        Tech: {j.assignedTechnician?.name || "Unassigned"}
-                      </span>
-                      {j.items && j.items.length > 0 && (
-                        <span>{j.items.length} items</span>
-                      )}
-                    </div>
-                  </a>
-                ))
-              )}
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Jobs List container with smooth scroll */}
+              <div className="overflow-y-auto max-h-72 space-y-1 divide-y divide-[#F4F4F5] pr-1">
+                {filteredJobs.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-[#71717A] space-y-1.5">
+                    <p>No jobs found{q ? ` matching "${kpiSearchQuery}"` : ""}.</p>
+                    {q && (
+                      <button
+                        type="button"
+                        onClick={() => setKpiSearchQuery("")}
+                        className="text-[11px] text-[#0D7A5F] font-semibold hover:underline"
+                      >
+                        Clear search filter
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  filteredJobs.map((j: any) => (
+                    <a
+                      key={j.id}
+                      href={`/jobs/${j.id}`}
+                      onClick={() => {
+                        setOpenKpiCardDropdown(null);
+                        setKpiSearchQuery("");
+                      }}
+                      className="p-2 hover:bg-[#F9FAFB] rounded-lg block transition space-y-0.5 group/item pt-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-xs text-[#0D7A5F] group-hover/item:underline">
+                          {j.jobNumber}
+                        </span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[#F4F4F5] text-[#52525B]">
+                          {j.status === "Paused" ? "Partially Completed" : j.status}
+                        </span>
+                      </div>
+                      <p className="font-semibold text-xs text-[#18181B] truncate">
+                        {j.customer?.name || "Customer"}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] text-[#71717A]">
+                        <span className="truncate max-w-[170px]">
+                          Tech: {j.assignedTechnician?.name || "Unassigned"}
+                        </span>
+                        {j.items && j.items.length > 0 && (
+                          <span className="bg-[#F4F4F5] px-1.5 py-0.2 rounded font-medium">
+                            {j.items.length} items
+                          </span>
+                        )}
+                      </div>
+                    </a>
+                  ))
+                )}
+              </div>
             </div>
           </>
         )}
@@ -726,7 +811,7 @@ export default function JobsKpiDashboard({
           Work Order Lifecycle Pipeline
         </span>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-          {lifecycleCards.map(renderKpiCard)}
+          {lifecycleCards.map((c, idx) => renderKpiCard(c, idx))}
         </div>
       </div>
 
@@ -743,7 +828,7 @@ export default function JobsKpiDashboard({
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            {financialCards.map(renderKpiCard)}
+            {financialCards.map((c, idx) => renderKpiCard(c, idx))}
           </div>
         </div>
       )}
@@ -755,7 +840,7 @@ export default function JobsKpiDashboard({
             Material Dispatches & Discount Authorizations
           </span>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            {requestCards.map(renderKpiCard)}
+            {requestCards.map((c, idx) => renderKpiCard(c, idx))}
           </div>
         </div>
       )}
