@@ -67,12 +67,7 @@ export default function ProcurementApprovalsTab({
   } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  const approverActorName =
-    currentRole === "admin"
-      ? "Haris Qureshi (Managing Director)"
-      : currentRole === "accountant"
-      ? "Fatima Noor (Chief Financial Accountant)"
-      : "Operations Approver";
+  const approverActorName = activeUser?.name || currentPersona?.name || currentRole;
 
   // Pending filter sets
   const pendingPrs = prs.filter((p) => p.status === "submitted");

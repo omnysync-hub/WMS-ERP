@@ -11,10 +11,14 @@ export async function POST(req: NextRequest) {
     if (gate.error) return gate.error;
     const body = await req.json();
     const { employeeId, amount } = body;
+    const reason = String(body.reason || "").trim();
 
     const advAmount = Math.round(Number(amount) * 100) / 100;
     if (!Number.isFinite(advAmount) || advAmount <= 0) {
       return NextResponse.json({ error: "Advance amount must be greater than 0" }, { status: 400 });
+    }
+    if (!reason) {
+      return NextResponse.json({ error: "A reason is required for the salary advance." }, { status: 400 });
     }
 
     const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
@@ -34,7 +38,7 @@ export async function POST(req: NextRequest) {
         }),
       ]);
       const created = await tx.employeeAdvance.create({
-        data: { employeeId, amount: advAmount, status: "approved", approvedBy: gate.actor.name },
+        data: { employeeId, amount: advAmount, status: "approved", approvedBy: gate.actor.name, notes: reason },
       });
       if (employee.role === "technician") {
         await tx.technicianLedgerEntry.create({
@@ -42,12 +46,12 @@ export async function POST(req: NextRequest) {
             technicianId: employee.id,
             type: "advance",
             amount: advAmount,
-            notes: `Advance granted by ${gate.actor.name}`,
+            notes: `${reason} — approved by ${gate.actor.name}`,
           },
         });
       }
       await AccountsPostingService.post({
-        memo: `Salary/Field Advance granted to ${employee.name} (${employee.role})`,
+        memo: `Salary/Field Advance granted to ${employee.name} (${employee.role}): ${reason}`,
         refType: "advance_granted",
         refId: created.id,
         lines: [

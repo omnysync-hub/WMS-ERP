@@ -12,6 +12,7 @@ import AddAssetDrawer from "@/components/drawers/AddAssetDrawer";
 import AssignAssetDrawer from "@/components/drawers/AssignAssetDrawer";
 import NewRequisitionDrawer from "@/components/drawers/NewRequisitionDrawer";
 import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
+import CompanyOnboardingTab from "@/components/hrm/CompanyOnboardingTab";
 import {
   Users,
   Clock,
@@ -51,6 +52,7 @@ function HrmPayrollContent() {
 
   const [activeTab, setActiveTab] = useState<
     | "analytics"
+    | "company-onboarding"
     | "employees"
     | "leave"
     | "assets"
@@ -64,6 +66,7 @@ function HrmPayrollContent() {
       tabParam &&
       [
         "analytics",
+        "company-onboarding",
         "employees",
         "leave",
         "assets",
@@ -84,6 +87,7 @@ function HrmPayrollContent() {
       tabParam &&
       [
         "analytics",
+        "company-onboarding",
         "employees",
         "leave",
         "assets",
@@ -135,7 +139,7 @@ function HrmPayrollContent() {
   const [grievances, setGrievances] = useState<any[]>([]);
   const [showRaiseGrievanceDrawer, setShowRaiseGrievanceDrawer] = useState(false);
 
-  // Tab: ESS (Logged-in employee simulation: Ali Hassan)
+  // Tab: ESS (uses the selected live employee record)
   const [essEmployeeId, setEssEmployeeId] = useState("");
   const [essEmployee, setEssEmployee] = useState<any>(null);
 
@@ -150,8 +154,8 @@ function HrmPayrollContent() {
   const [selectedEmpId, setSelectedEmpId] = useState("");
   const [selectedZoneId, setSelectedZoneId] = useState("");
   const [faceScore, setFaceScore] = useState(96.5);
-  const [checkInLat, setCheckInLat] = useState(25.2048);
-  const [checkInLng, setCheckInLng] = useState(55.2708);
+  const [checkInLat, setCheckInLat] = useState<number | "">("");
+  const [checkInLng, setCheckInLng] = useState<number | "">("");
   const [isSubmittingAttendance, setIsSubmittingAttendance] = useState(false);
   const [attendanceResult, setAttendanceResult] = useState<any>(null);
 
@@ -160,6 +164,7 @@ function HrmPayrollContent() {
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [advanceEmpId, setAdvanceEmpId] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
+  const [advanceReason, setAdvanceReason] = useState("");
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
 
   async function loadData() {
@@ -252,7 +257,6 @@ function HrmPayrollContent() {
         body: JSON.stringify({
           action: "approve",
           requestId,
-          approverName: "Haris Qureshi (Executive Director)",
         }),
       });
       if (res.ok) {
@@ -274,7 +278,6 @@ function HrmPayrollContent() {
         body: JSON.stringify({
           action: "reject",
           requestId,
-          approverName: "Haris Qureshi (Executive Director)",
           reason,
         }),
       });
@@ -318,7 +321,6 @@ function HrmPayrollContent() {
         body: JSON.stringify({
           action: "approve_requisition",
           requisitionId: reqId,
-          approverName: "Haris Qureshi (Managing Director)",
         }),
       });
       if (res.ok) {
@@ -333,6 +335,10 @@ function HrmPayrollContent() {
   // Handle Attendance Verification Check-in
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (checkInLat === "" || checkInLng === "") {
+      alert("Enter the attendance latitude and longitude or select a configured work site.");
+      return;
+    }
     try {
       setIsSubmittingAttendance(true);
       const res = await fetch("/api/attendance", {
@@ -345,7 +351,7 @@ function HrmPayrollContent() {
           lat: Number(checkInLat),
           lng: Number(checkInLng),
           timestamp: new Date().toISOString(),
-          deviceId: "admin-simulator-browser",
+          deviceId: navigator.userAgent,
         }),
       });
       const data = await res.json();
@@ -370,7 +376,6 @@ function HrmPayrollContent() {
           logId: resolveTargetLog.id,
           action,
           notes: resolutionNotes,
-          resolvedBy: "HR Administrator",
         }),
       });
       const data = await res.json();
@@ -397,7 +402,7 @@ function HrmPayrollContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "calculate_draft",
-          period: "September 2026",
+          period: new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date()),
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
@@ -417,7 +422,6 @@ function HrmPayrollContent() {
         body: JSON.stringify({
           action: "approve",
           runId,
-          approverName: "Haris Qureshi (Executive Director)",
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
@@ -438,10 +442,8 @@ function HrmPayrollContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "pay",
+          action: "disburse",
           runId,
-          paymentMethod: "WPS_BANK_TRANSFER",
-          disbursedBy: "Fatima Noor (Accountant)",
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
@@ -464,13 +466,13 @@ function HrmPayrollContent() {
         body: JSON.stringify({
           employeeId: advanceEmpId || employees[0]?.id,
           amount: Number(advanceAmount),
-          reason: "Emergency salary advance",
-          approvedBy: "Haris Qureshi (HR Director)",
+          reason: advanceReason.trim() || undefined,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setShowAdvanceModal(false);
       setAdvanceAmount("");
+      setAdvanceReason("");
       setNotification("Salary advance issued! Advance ledger debited.");
       loadData();
     } catch (e: any) {
@@ -485,6 +487,11 @@ function HrmPayrollContent() {
       label: "HR Dashboard",
       title: "Human Resources & Workforce Overview",
       subtitle: "Executive KPI widgets, department headcounts, live shifts, and workforce metrics",
+    },
+    "company-onboarding": {
+      label: "Company Onboarding",
+      title: "Company & HR Onboarding",
+      subtitle: "Configure company identity and the HR foundations used across every department",
     },
     employees: {
       label: "Employees",
@@ -607,6 +614,8 @@ function HrmPayrollContent() {
           </button>
         </div>
       )}
+
+      {activeTab === "company-onboarding" && <CompanyOnboardingTab />}
 
       {/* ========================================================================= */}
       {/* TAB 1: HR ANALYTICS DASHBOARD (ROLE-AWARE KPI WIDGETS)                     */}
@@ -935,7 +944,7 @@ function HrmPayrollContent() {
           {leaveSubTab === "holidays" ? (
             <div className="bg-white rounded-xl border border-[#E4E4E7] p-5 shadow-xs space-y-3">
               <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Annual Company Public & Islamic Holidays (2026)
+                Company Holiday Calendar
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {holidays.map((h) => (
@@ -1295,7 +1304,8 @@ function HrmPayrollContent() {
                       type="number"
                       step="0.0001"
                       value={checkInLat}
-                      onChange={(e) => setCheckInLat(Number(e.target.value))}
+                      onChange={(e) => setCheckInLat(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="Enter latitude"
                       className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
                     />
                   </div>
@@ -1305,7 +1315,8 @@ function HrmPayrollContent() {
                       type="number"
                       step="0.0001"
                       value={checkInLng}
-                      onChange={(e) => setCheckInLng(Number(e.target.value))}
+                      onChange={(e) => setCheckInLng(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="Enter longitude"
                       className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
                     />
                   </div>
@@ -1901,7 +1912,7 @@ function HrmPayrollContent() {
               </div>
 
               <div>
-                <label className="font-semibold text-[#18181B] block mb-1">Advance Amount ($)</label>
+                <label className="font-semibold text-[#18181B] block mb-1">Advance Amount</label>
                 <input
                   type="number"
                   required
@@ -1910,6 +1921,17 @@ function HrmPayrollContent() {
                   onChange={(e) => setAdvanceAmount(e.target.value)}
                   placeholder="e.g. 500"
                   className="w-full h-9 px-3 font-mono font-bold bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-[#18181B] block mb-1">Reason</label>
+                <input
+                  required
+                  value={advanceReason}
+                  onChange={(e) => setAdvanceReason(e.target.value)}
+                  placeholder="Purpose of the advance"
+                  className="w-full h-9 px-3 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
                 />
               </div>
 

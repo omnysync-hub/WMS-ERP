@@ -3,8 +3,10 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, ShieldCheck, Wrench, ArrowRight, CheckCircle2 } from "lucide-react";
 import { DEVELOPMENT_DEMO_PASSWORD, DEVELOPMENT_DEMO_USERS, ERP_ROLE_OPTIONS } from "@/lib/auth/erpRoles";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 
 export default function LoginPage() {
+  const { displayName } = useCompanyProfile();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -62,7 +64,7 @@ export default function LoginPage() {
             <Wrench className="h-5 w-5" />
           </div>
           <div>
-            <p className="font-extrabold tracking-tight text-lg">Workman Services</p>
+            <p className="font-extrabold tracking-tight text-lg">{displayName}</p>
             <p className="text-xs text-emerald-200/70">Operations command center</p>
           </div>
         </div>
@@ -93,7 +95,7 @@ export default function LoginPage() {
         <div className="w-full max-w-[460px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <div className="h-10 w-10 rounded-xl bg-[#0D7A5F] text-white flex items-center justify-center"><Wrench className="h-5 w-5" /></div>
-            <div><p className="font-extrabold">Workman Services</p><p className="text-xs text-slate-500">Operations command center</p></div>
+            <div><p className="font-extrabold">{displayName}</p><p className="text-xs text-slate-500">Operations command center</p></div>
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] sm:p-8">

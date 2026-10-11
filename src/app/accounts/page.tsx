@@ -2958,7 +2958,7 @@ export default function AccountsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount ($) *</label>
+                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount *</label>
                   <input
                     type="number"
                     min="1"
@@ -3032,7 +3032,7 @@ export default function AccountsPage() {
               </p>
 
               <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount ($) *</label>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount *</label>
                 <input
                   type="number"
                   min="1"
@@ -3103,7 +3103,7 @@ export default function AccountsPage() {
 
             <form onSubmit={handleGiveAdvance} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Advance Amount ($) *</label>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Advance Amount *</label>
                 <input
                   type="number"
                   min="1"
@@ -3288,7 +3288,7 @@ export default function AccountsPage() {
               </p>
               <div>
                 <label className="text-xs font-semibold text-[#71717A] block mb-1">
-                  Approved Discount Amount ($) *
+                  Approved Discount Amount *
                 </label>
                 <input
                   type="number"
@@ -3660,7 +3660,7 @@ export default function AccountsPage() {
                   <input
                     type="number"
                     min="1"
-                    placeholder="Amount ($)"
+                    placeholder="Amount"
                     value={newAdhocAmount}
                     onChange={(e) => setNewAdhocAmount(e.target.value)}
                     className="w-24 bg-white p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs"

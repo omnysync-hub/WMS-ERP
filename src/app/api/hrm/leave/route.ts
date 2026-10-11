@@ -60,7 +60,35 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = body.action || "request";
 
-    if (action === "request") {
+    if (action === "create_leave_type") {
+      if (!canManage) return NextResponse.json({ error: "Only HR managers can configure leave types." }, { status: 403 });
+      const name = String(body.name || "").trim();
+      const accrualRule = String(body.accrualRule || "").trim();
+      const maxDays = Number(body.maxDays);
+      if (!name || !accrualRule || !Number.isFinite(maxDays) || maxDays <= 0) {
+        return NextResponse.json({ error: "Name, accrual rule, and a positive annual allowance are required." }, { status: 400 });
+      }
+      const existing = await prisma.leaveType.findFirst({ where: { name } });
+      if (existing) return NextResponse.json({ error: "A leave type with this name already exists." }, { status: 409 });
+      const leaveType = await prisma.leaveType.create({ data: { name, accrualRule, maxDays } });
+      const employees = await prisma.employee.findMany({ where: { active: true }, select: { id: true } });
+      for (const employee of employees) {
+        await prisma.leaveBalance.create({
+          data: { employeeId: employee.id, leaveTypeId: leaveType.id, accrued: maxDays, taken: 0, balance: maxDays },
+        });
+      }
+      return NextResponse.json({ leaveType }, { status: 201 });
+    } else if (action === "create_holiday") {
+      if (!canManage) return NextResponse.json({ error: "Only HR managers can configure holidays." }, { status: 403 });
+      const name = String(body.name || "").trim();
+      const description = String(body.description || "").trim();
+      const date = new Date(`${String(body.date || "").slice(0, 10)}T00:00:00.000Z`);
+      if (!name || Number.isNaN(date.getTime())) {
+        return NextResponse.json({ error: "Holiday name and date are required." }, { status: 400 });
+      }
+      const holiday = await prisma.companyHoliday.create({ data: { name, date, description: description || null } });
+      return NextResponse.json({ holiday }, { status: 201 });
+    } else if (action === "request") {
       const result = await HrmService.requestLeave({
         employeeId: canManage && typeof body.employeeId === "string" ? body.employeeId : resolved.actor.id,
         leaveTypeId: body.leaveTypeId,

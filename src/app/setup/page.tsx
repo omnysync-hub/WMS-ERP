@@ -46,13 +46,13 @@ export default function SetupWizardPage() {
   const [mappingCompleteness, setMappingCompleteness] = useState<MappingCompleteness | null>(null);
 
   // Step 1
-  const [legalName, setLegalName] = useState("Enterprise Services (Pvt) Ltd");
-  const [tradeName, setTradeName] = useState("Enterprise Services");
-  const [ntnNumber, setNtnNumber] = useState("9482710-3");
-  const [strnNumber, setStrnNumber] = useState("3277876123456");
-  const [addressText, setAddressText] = useState("Main Boulevard, Gulberg III, Lahore, Pakistan");
-  const [phone, setPhone] = useState("042-111-0000");
-  const [email, setEmail] = useState("finance@company.com");
+  const [legalName, setLegalName] = useState("");
+  const [tradeName, setTradeName] = useState("");
+  const [ntnNumber, setNtnNumber] = useState("");
+  const [strnNumber, setStrnNumber] = useState("");
+  const [addressText, setAddressText] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [fiscalYearStartMonth, setFiscalYearStartMonth] = useState<number>(7);
 
   // Step 2 COA
@@ -81,8 +81,8 @@ export default function SetupWizardPage() {
         setMappingCompleteness(data.mappingCompleteness || null);
 
         if (data.settings) {
-          setLegalName(data.settings.legalName || "Enterprise Services (Pvt) Ltd");
-          setTradeName(data.settings.tradeName || "Enterprise Services");
+          setLegalName(data.settings.legalName || "");
+          setTradeName(data.settings.tradeName || "");
           setNtnNumber(data.settings.ntnNumber || "");
           setStrnNumber(data.settings.strnNumber || "");
           setAddressText(data.settings.addressText || "");

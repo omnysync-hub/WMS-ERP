@@ -165,7 +165,7 @@ export default function SettingsHubPage() {
           <span>Role-Based Access Control (RBAC) & Principle of Least Privilege</span>
         </div>
         <p className="leading-relaxed">
-          Workman Services implements granular sub-part permission gates. Administrators can toggle specific actions (such as viewing financials, reassigning technicians, adding services, or issuing warehouse inventory) independently for any system role or specific user account. Suspended user accounts are immediately denied all access across all endpoints and web views.
+          The system implements granular sub-part permission gates. Administrators can toggle specific actions (such as viewing financials, reassigning technicians, adding services, or issuing warehouse inventory) independently for any system role or specific user account. Suspended user accounts are immediately denied all access across all endpoints and web views.
         </p>
       </div>
     </div>

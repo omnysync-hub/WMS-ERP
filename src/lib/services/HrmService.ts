@@ -184,16 +184,7 @@ export class HrmService {
   // ==========================================
 
   static async initEmployeeLeaveBalances(employeeId: string) {
-    let leaveTypes = await prisma.leaveType.findMany();
-    if (leaveTypes.length === 0) {
-      // Seed default types
-      leaveTypes = await Promise.all([
-        prisma.leaveType.create({ data: { name: "Annual Leave", accrualRule: "22 days/year (prorated)", maxDays: 22 } }),
-        prisma.leaveType.create({ data: { name: "Sick Leave", accrualRule: "15 days/year (certified)", maxDays: 15 } }),
-        prisma.leaveType.create({ data: { name: "Casual Leave", accrualRule: "7 days/year", maxDays: 7 } }),
-        prisma.leaveType.create({ data: { name: "Emergency Leave", accrualRule: "5 days/year", maxDays: 5 } }),
-      ]);
-    }
+    const leaveTypes = await prisma.leaveType.findMany();
 
     for (const lt of leaveTypes) {
       const existing = await prisma.leaveBalance.findFirst({
@@ -337,24 +328,9 @@ export class HrmService {
   }
 
   static async getCompanyHolidays() {
-    let holidays = await prisma.companyHoliday.findMany({
+    return prisma.companyHoliday.findMany({
       orderBy: { date: "asc" },
     });
-
-    if (holidays.length === 0) {
-      holidays = await Promise.all([
-        prisma.companyHoliday.create({ data: { name: "New Year's Day", date: new Date("2026-01-01"), description: "Federal Holiday" } }),
-        prisma.companyHoliday.create({ data: { name: "Eid Al-Fitr Holiday 1", date: new Date("2026-03-20"), description: "National Public Holiday" } }),
-        prisma.companyHoliday.create({ data: { name: "Eid Al-Fitr Holiday 2", date: new Date("2026-03-21"), description: "National Public Holiday" } }),
-        prisma.companyHoliday.create({ data: { name: "Arafat Day", date: new Date("2026-05-26"), description: "Islamic Holiday" } }),
-        prisma.companyHoliday.create({ data: { name: "Eid Al-Adha Holiday", date: new Date("2026-05-27"), description: "National Public Holiday" } }),
-        prisma.companyHoliday.create({ data: { name: "Islamic New Year", date: new Date("2026-06-16"), description: "Federal Holiday" } }),
-        prisma.companyHoliday.create({ data: { name: "Commemoration Day", date: new Date("2026-11-30"), description: "Martyrs' Day" } }),
-        prisma.companyHoliday.create({ data: { name: "National Day", date: new Date("2026-12-02"), description: "National Holiday" } }),
-      ]);
-    }
-
-    return holidays;
   }
 
   // ==========================================
@@ -697,7 +673,7 @@ export class HrmService {
     reason: string;
   }) {
     const count = await prisma.jobRequisition.count();
-    const requisitionNumber = `REQ-2026-${String(count + 1).padStart(3, "0")}`;
+    const requisitionNumber = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
 
     return await prisma.jobRequisition.create({
       data: {
@@ -894,7 +870,7 @@ export class HrmService {
     description: string;
   }) {
     const count = await prisma.grievanceTicket.count();
-    const ticketNumber = `GRV-2026-${String(count + 1).padStart(3, "0")}`;
+    const ticketNumber = `GRV-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
 
     const ticket = await prisma.grievanceTicket.create({
       data: {

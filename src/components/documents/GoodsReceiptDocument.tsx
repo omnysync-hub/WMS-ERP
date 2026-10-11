@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useRef } from "react";
-import { Flame, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { printDocument } from "@/lib/printUtils";
+import CompanyLetterhead from "@/components/company/CompanyLetterhead";
 
 interface GoodsReceiptDocumentProps {
   grn: any;
@@ -77,25 +78,7 @@ export default function GoodsReceiptDocument({
       >
         {/* Letterhead Header */}
         <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#0D7A5F] text-white flex items-center justify-center shadow">
-              <Flame className="w-7 h-7" />
-            </div>
-            <div>
-              <h1 className="text-lg font-black tracking-tight text-zinc-900 leading-none">
-                WORKMAN SERVICES (PVT) LTD
-              </h1>
-              <p className="text-[11px] text-zinc-600 font-medium mt-0.5">
-                HVAC Engineering, Industrial Air-Conditioning & Facility Services
-              </p>
-              <div className="text-[10px] text-zinc-500 font-mono mt-1">
-                Main Boulevard, Gulberg III, Lahore • Phone: 042-111-WORKMAN
-              </div>
-              <div className="text-[10px] text-zinc-500 font-mono">
-                NTN: 9482710-3 • STRN: 3277876123456 • Central Stores QA
-              </div>
-            </div>
-          </div>
+          <CompanyLetterhead qualifier="Central Stores QA" />
 
           <div className="text-right">
             <div className="text-xl font-black font-mono text-zinc-900 tracking-wider">

@@ -6,6 +6,7 @@ import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 import {
   User,
   Phone,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 
 export default function CandidateDetailPage() {
+  const { profile } = useCompanyProfile();
   const params = useParams();
   const router = useRouter();
   const candidateId = params.id as string;
@@ -36,7 +38,7 @@ export default function CandidateDetailPage() {
   const [interviewDate, setInterviewDate] = useState(
     new Date(Date.now() + 86400000).toISOString().slice(0, 16)
   );
-  const [interviewer, setInterviewer] = useState("Haris Qureshi & Technical Lead");
+  const [interviewer, setInterviewer] = useState("");
   const [interviewNotes, setInterviewNotes] = useState("");
 
   // Offer modal
@@ -487,7 +489,7 @@ export default function CandidateDetailPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">Monthly Salary ($) *</label>
+                  <label className="font-semibold text-[#18181B] block mb-1">Monthly Salary ({profile.baseCurrency}) *</label>
                   <input
                     type="number"
                     min="1000"

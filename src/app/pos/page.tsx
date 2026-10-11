@@ -33,6 +33,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 
 interface ProductItem {
   id: string;
@@ -61,6 +62,7 @@ interface HeldCart {
 }
 
 export default function PosTerminalPage() {
+  const { profile, legalName } = useCompanyProfile();
   // Navigation & View Modes
   const [activeTab, setActiveTab] = useState<"terminal" | "history" | "shifts">("terminal");
 
@@ -1526,11 +1528,15 @@ export default function PosTerminalPage() {
               {/* Header */}
               <div className="text-center space-y-0.5 border-b border-dashed border-[#A1A1AA] pb-3">
                 <h2 className="text-sm font-black uppercase tracking-wider text-[#18181B]">
-                  HVAC ENTERPRISE SERVICES
+                  {legalName}
                 </h2>
-                <p className="text-[10px] text-[#71717A]">HVAC, Electrical & Counter Sales</p>
-                <p className="text-[10px] text-[#71717A]">UAN: 042-111-0000 | NTN: 9482710-3</p>
-                <p className="text-[10px] text-[#71717A]">Lahore, Pakistan</p>
+                {profile.email && <p className="text-[10px] text-[#71717A]">{profile.email}</p>}
+                {(profile.phone || profile.ntnNumber) && (
+                  <p className="text-[10px] text-[#71717A]">
+                    {[profile.phone ? `Phone: ${profile.phone}` : "", profile.ntnNumber ? `NTN: ${profile.ntnNumber}` : ""].filter(Boolean).join(" | ")}
+                  </p>
+                )}
+                {profile.addressText && <p className="text-[10px] text-[#71717A]">{profile.addressText}</p>}
               </div>
 
               {/* Receipt Meta */}

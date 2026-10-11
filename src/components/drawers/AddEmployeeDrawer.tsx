@@ -239,7 +239,7 @@ export default function AddEmployeeDrawer({
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#18181B] mb-1">
-              Monthly Base Salary ($)
+              Monthly Base Salary
             </label>
             <input
               type="number"

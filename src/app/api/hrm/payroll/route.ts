@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const gate = requirePermission(req, "hrm.payroll");
     if (gate.error) return gate.error;
     const body = await req.json();
-    const { action, period, runId, approverName = "HR Director" } = body;
+    const { action, period, runId } = body;
 
     switch (action) {
       case "calculate_draft": {
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       }
 
       case "approve": {
-        const run = await PayrollService.approveRun(runId, approverName);
+        const run = await PayrollService.approveRun(runId, gate.actor.name);
         return NextResponse.json(run);
       }
 

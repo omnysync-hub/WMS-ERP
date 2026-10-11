@@ -106,7 +106,7 @@ export default function DiscountDrawer({
 
         <div>
           <label className="font-semibold text-[#1A1D1F] block mb-1">
-            Discount Amount ($) *
+            Discount Amount *
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] font-mono">$</span>

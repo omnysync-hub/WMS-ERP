@@ -794,13 +794,13 @@ model FixedAsset {
 
 model CompanySettings {
   id                   String    @id @default(uuid())
-  legalName            String    @default("Workman Services (Pvt) Ltd")
-  tradeName            String?   @default("Workman Services")
-  addressText          String    @default("Main Boulevard, Gulberg III, Lahore, Pakistan")
-  phone                String    @default("042-111-WORKMAN")
-  email                String    @default("finance@workmanservices.pk")
-  ntnNumber            String?   @default("9482710-3")
-  strnNumber           String?   @default("3277876123456")
+  legalName            String    @default("")
+  tradeName            String?
+  addressText          String    @default("")
+  phone                String    @default("")
+  email                String    @default("")
+  ntnNumber            String?
+  strnNumber           String?
   baseCurrency         String    @default("PKR")
   fiscalYearStartMonth Int       @default(7) // July in Pakistan (July-June)
   approvalThreshold    Float     @default(50000) // Vouchers above PKR 50,000 need approval
@@ -993,6 +993,7 @@ model EmployeeAdvance {
   amount     Float
   status     String   @default("approved") // pending, approved, recovered
   approvedBy String
+  notes      String?
   createdAt  DateTime @default(now())
 }
 

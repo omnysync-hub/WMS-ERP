@@ -14,7 +14,6 @@ import {
   Eye,
   ArrowRight,
   ShieldCheck,
-  Flame,
   FileSpreadsheet,
   XCircle,
   AlertTriangle,
@@ -30,6 +29,7 @@ import {
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
+import CompanyLetterhead from "@/components/company/CompanyLetterhead";
 
 interface PurchaseOrdersTabProps {
   pos: any[];
@@ -362,7 +362,7 @@ export default function PurchaseOrdersTab({
         body: JSON.stringify({
           action: "approve_po",
           id,
-          actorName: currentRole === "admin" ? "Haris Qureshi (Managing Director)" : "Finance & Operations Manager",
+          actorName: activeUser?.name || currentPersona?.name || currentRole,
           notes,
         }),
       });
@@ -387,7 +387,7 @@ export default function PurchaseOrdersTab({
         body: JSON.stringify({
           action: "reject_po",
           id,
-          actorName: currentRole === "admin" ? "Haris Qureshi (Managing Director)" : "Finance & Operations Manager",
+          actorName: activeUser?.name || currentPersona?.name || currentRole,
           reason,
         }),
       });
@@ -1169,25 +1169,7 @@ export default function PurchaseOrdersTab({
           >
               {/* Header Letterhead */}
               <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-[#0D7A5F] text-white flex items-center justify-center shadow">
-                    <Flame className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h1 className="text-lg font-black tracking-tight text-zinc-900 leading-none">
-                      WORKMAN SERVICES (PVT) LTD
-                    </h1>
-                    <p className="text-[11px] text-zinc-600 font-medium mt-0.5">
-                      HVAC Engineering, Industrial Air-Conditioning & Facility Services
-                    </p>
-                    <div className="text-[10px] text-zinc-500 font-mono mt-1">
-                      Main Boulevard, Gulberg III, Lahore • Phone: 042-111-WORKMAN
-                    </div>
-                    <div className="text-[10px] text-zinc-500 font-mono">
-                      NTN: 9482710-3 • STRN: 3277876123456 • FBR Registered
-                    </div>
-                  </div>
-                </div>
+                <CompanyLetterhead qualifier="Purchase Order" />
 
                 <div className="text-right">
                   <div className="text-xl font-black font-mono text-zinc-900 tracking-wider">
@@ -1361,7 +1343,7 @@ export default function PurchaseOrdersTab({
 
                 <div>
                   <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-900 font-bold">
-                    Haris Qureshi
+                    {printablePo.approvedBy || printablePo.approverName || "Pending approval"}
                   </div>
                   <span className="text-[10px] font-bold text-zinc-700 uppercase">
                     Authorized Signatory (MD)

@@ -60,22 +60,7 @@ export default function Topbar({
   // Notifications Popover state
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [liveRealtimeToast, setLiveRealtimeToast] = useState<{ id: string; title: string; message: string } | null>(null);
-  const [notifications, setNotifications] = useState<any[]>([
-    {
-      id: "n1",
-      title: "Technician Accepted Job",
-      message: "Technician Ali Hassan accepted JOB-2026-0001. Status moved to In-Progress.",
-      timestamp: "Just now",
-      unread: true,
-    },
-    {
-      id: "n2",
-      title: "Storekeeper Return Required",
-      message: "Technician returned 2x unconsumed AC units to warehouse. Awaiting Bilal Sheikh sign-off.",
-      timestamp: "12m ago",
-      unread: true,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   useEffect(() => {
     const loadNotices = () => {

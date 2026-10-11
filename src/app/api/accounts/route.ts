@@ -48,7 +48,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         success: true,
         settings: settings || {
-          companyName: "Enterprise Services Private Limited",
+          legalName: "",
+          tradeName: "",
+          addressText: "",
+          phone: "",
+          email: "",
+          ntnNumber: "",
+          strnNumber: "",
           currency: "PKR",
           fiscalYearStartMonth: 7,
           isSetupCompleted: false,

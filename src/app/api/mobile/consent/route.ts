@@ -5,8 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 
 const LOCATION_SURVEILLANCE_POLICY_VERSION = "1.0";
-const LOCATION_SURVEILLANCE_DISCLOSURE_TEXT =
-  "Workman Services Field Operations collects background GPS location, speed, device movement, and battery telemetry while you are logged in and working on assigned jobs or company shifts. This data is used solely for proximity-based job dispatch, emergency field assistance, arrival verification, customer safety, and route optimization. Location data is retained for 90 days in accordance with company policy.";
+
+async function getLocationDisclosureText() {
+  const settings = await prisma.companySettings.findFirst({ select: { legalName: true, tradeName: true } });
+  const companyName = settings?.tradeName?.trim() || settings?.legalName?.trim() || "The company";
+  return `${companyName} Field Operations collects background GPS location, speed, device movement, and battery telemetry while you are logged in and working on assigned jobs or company shifts. This data is used solely for proximity-based job dispatch, emergency field assistance, arrival verification, customer safety, and route optimization. Location data is retained for 90 days in accordance with company policy.`;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,11 +44,12 @@ export async function GET(req: NextRequest) {
       latestConsent !== null &&
       latestConsent.isAcknowledged &&
       latestConsent.policyVersion === LOCATION_SURVEILLANCE_POLICY_VERSION;
+    const disclosureText = await getLocationDisclosureText();
 
     return NextResponse.json({
       hasConsent: Boolean(isUpToDate),
       policyVersion: LOCATION_SURVEILLANCE_POLICY_VERSION,
-      disclosureText: LOCATION_SURVEILLANCE_DISCLOSURE_TEXT,
+      disclosureText,
       latestRecord: latestConsent,
     });
   } catch (err: any) {
@@ -84,7 +89,7 @@ export async function POST(req: NextRequest) {
         employeeId: targetEmployeeId,
         consentType: "LOCATION_SURVEILLANCE",
         policyVersion,
-        disclosureText: LOCATION_SURVEILLANCE_DISCLOSURE_TEXT,
+        disclosureText: await getLocationDisclosureText(),
         isAcknowledged: true,
         acknowledgedAt: new Date(),
         ipAddress,

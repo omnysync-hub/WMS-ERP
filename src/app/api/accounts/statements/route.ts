@@ -231,7 +231,7 @@ async function directory(asOf: Date) {
 
   const parties = [...customerRows, ...vendorRows, ...employeeRows, ...careOfRows];
   return {
-    company: { name: settings?.legalName || settings?.tradeName || "Workman Services", currency: settings?.baseCurrency || "PKR" },
+    company: { name: settings?.tradeName || settings?.legalName || "Company", currency: settings?.baseCurrency || "PKR" },
     asOfDate: asOf,
     parties,
     totals: {

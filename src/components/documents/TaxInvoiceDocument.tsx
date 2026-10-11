@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useRef } from "react";
-import { Flame, Printer, X, CheckCircle2 } from "lucide-react";
+import { Printer, X, CheckCircle2 } from "lucide-react";
 import { formatCurrency, formatDate, formatJobType, numberToWords } from "@/lib/utils";
 import { printDocument } from "@/lib/printUtils";
 import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
+import CompanyLetterhead from "@/components/company/CompanyLetterhead";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 
 interface TaxInvoiceDocumentProps {
   job: any;
@@ -18,6 +20,7 @@ export default function TaxInvoiceDocument({
   onClose,
 }: TaxInvoiceDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null);
+  const { legalName, displayName } = useCompanyProfile();
   if (!job) return null;
 
   const invNum =
@@ -98,25 +101,7 @@ export default function TaxInvoiceDocument({
       >
         {/* Letterhead Header */}
         <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#0D7A5F] text-white flex items-center justify-center shadow">
-              <Flame className="w-7 h-7" />
-            </div>
-            <div>
-              <h1 className="text-lg font-black tracking-tight text-zinc-900 leading-none">
-                WORKMAN SERVICES (PVT) LTD
-              </h1>
-              <p className="text-[11px] text-zinc-600 font-medium mt-0.5">
-                HVAC Engineering, Industrial Air-Conditioning & Facility Services
-              </p>
-              <div className="text-[10px] text-zinc-500 font-mono mt-1">
-                Main Boulevard, Gulberg III, Lahore • Phone: 042-111-WORKMAN
-              </div>
-              <div className="text-[10px] text-zinc-500 font-mono">
-                NTN: 9482710-3 • STRN: 3277876123456 • PRA / FBR Registered
-              </div>
-            </div>
-          </div>
+          <CompanyLetterhead qualifier="PRA / FBR Registered" />
 
           <div className="text-right">
             <div className="text-xl font-black font-mono text-zinc-900 tracking-wider">
@@ -296,7 +281,7 @@ export default function TaxInvoiceDocument({
                 </div>
                 <div>
                   <span className="text-zinc-500">Title:</span>{" "}
-                  <strong className="text-zinc-900">Workman Services (Pvt) Ltd</strong>
+                  <strong className="text-zinc-900">{legalName}</strong>
                 </div>
                 <div className="col-span-2">
                   <span className="text-zinc-500">IBAN / Acc:</span>{" "}
@@ -335,13 +320,13 @@ export default function TaxInvoiceDocument({
             Warranty & Official Terms:
           </span>
           <p>
-            • All workmanship, installation, and repair services are backed by Workman Services 30-Day Quality Assurance Guarantee.
+            • All workmanship, installation, and repair services are backed by the {displayName} 30-Day Quality Assurance Guarantee.
           </p>
           <p>
             • Installed genuine HVAC spare parts carry standard manufacturer defect warranty from invoice date.
           </p>
           <p>
-            • This is an electronically generated official sales tax invoice issued by Workman Services ERP Core under FBR / PRA compliance rules.
+            • This is an electronically generated official sales tax invoice issued by {displayName} under applicable FBR / PRA compliance rules.
           </p>
         </div>
 
@@ -367,7 +352,7 @@ export default function TaxInvoiceDocument({
 
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-900 font-bold">
-              Haris Qureshi
+              {job.verifiedBy || job.finalizedBy || job.approvedBy || "Authorized signatory"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Authorized Signatory (MD)

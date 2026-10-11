@@ -101,7 +101,7 @@ export default function QuickExpenseDrawer({
 
         <div>
           <label className="font-semibold text-[#1A1D1F] block mb-1">
-            Expense Amount ($) *
+            Expense Amount *
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] font-mono">$</span>

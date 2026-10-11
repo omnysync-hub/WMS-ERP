@@ -17,13 +17,13 @@ export async function GET(req: NextRequest) {
     if (!settings) {
       settings = await prisma.companySettings.create({
         data: {
-          legalName: "Enterprise Services (Pvt) Ltd",
-          tradeName: "Enterprise Services",
-          addressText: "Main Boulevard, Gulberg III, Lahore, Pakistan",
-          phone: "042-111-0000",
-          email: "finance@company.com",
-          ntnNumber: "9482710-3",
-          strnNumber: "3277876123456",
+          legalName: "",
+          tradeName: null,
+          addressText: "",
+          phone: "",
+          email: "",
+          ntnNumber: null,
+          strnNumber: null,
           baseCurrency: "PKR",
           fiscalYearStartMonth: 7, // July
           isSetupCompleted: false,
@@ -122,31 +122,42 @@ export async function POST(req: NextRequest) {
         fiscalYearStartMonth = 7,
       } = body;
 
+      const normalizedLegalName = String(legalName || "").trim();
+      const normalizedAddress = String(addressText || "").trim();
+      const normalizedPhone = String(phone || "").trim();
+      const normalizedEmail = String(email || "").trim();
+      if (!normalizedLegalName || !normalizedAddress || !normalizedPhone || !normalizedEmail) {
+        return NextResponse.json(
+          { error: "Legal name, registered address, phone, and company email are required." },
+          { status: 400 }
+        );
+      }
+
       let settings = await prisma.companySettings.findFirst();
       if (settings) {
         settings = await prisma.companySettings.update({
           where: { id: settings.id },
           data: {
-            legalName: legalName || settings.legalName,
-            tradeName: tradeName || settings.tradeName,
-            addressText: addressText || settings.addressText,
-            phone: phone || settings.phone,
-            email: email || settings.email,
-            ntnNumber: ntnNumber || settings.ntnNumber,
-            strnNumber: strnNumber || settings.strnNumber,
+            legalName: normalizedLegalName,
+            tradeName: String(tradeName || "").trim() || null,
+            addressText: normalizedAddress,
+            phone: normalizedPhone,
+            email: normalizedEmail,
+            ntnNumber: String(ntnNumber || "").trim() || null,
+            strnNumber: String(strnNumber || "").trim() || null,
             fiscalYearStartMonth: Number(fiscalYearStartMonth) || 7,
           },
         });
       } else {
         settings = await prisma.companySettings.create({
           data: {
-            legalName,
-            tradeName,
-            addressText,
-            phone,
-            email,
-            ntnNumber,
-            strnNumber,
+            legalName: normalizedLegalName,
+            tradeName: String(tradeName || "").trim() || null,
+            addressText: normalizedAddress,
+            phone: normalizedPhone,
+            email: normalizedEmail,
+            ntnNumber: String(ntnNumber || "").trim() || null,
+            strnNumber: String(strnNumber || "").trim() || null,
             fiscalYearStartMonth: Number(fiscalYearStartMonth) || 7,
             baseCurrency: "PKR",
           },
@@ -361,14 +372,17 @@ export async function POST(req: NextRequest) {
 
       let settings = await prisma.companySettings.findFirst();
       if (!settings) {
-        settings = await prisma.companySettings.create({
-          data: {
-            legalName: "Enterprise Services (Pvt) Ltd",
-            isSetupCompleted: true,
-            goLiveDate: new Date(),
-          },
-        });
+        return NextResponse.json(
+          { error: "Complete the company profile before go-live." },
+          { status: 400 }
+        );
       } else {
+        if (!settings.legalName.trim() || !settings.addressText.trim() || !settings.phone.trim() || !settings.email.trim()) {
+          return NextResponse.json(
+            { error: "Complete the legal name, address, phone, and company email before go-live." },
+            { status: 400 }
+          );
+        }
         settings = await prisma.companySettings.update({
           where: { id: settings.id },
           data: {

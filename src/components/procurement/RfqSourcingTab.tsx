@@ -324,7 +324,7 @@ export default function RfqSourcingTab({
           action: "award_rfq",
           rfqId,
           winnerVendorId: vendorId,
-          actorName: "Haris Qureshi (Procurement Director)",
+          actorName: activeUser?.name || currentPersona?.name || currentRole,
         }),
       });
 

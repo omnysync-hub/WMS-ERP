@@ -274,6 +274,7 @@ export default function Sidebar({
   // Dedicated HRM Accordion Sub-Items
   const hrmSubItems = [
     { label: "HR Dashboard", tab: "analytics", icon: BarChart3 },
+    { label: "Company Onboarding", tab: "company-onboarding", icon: Building },
     { label: "Employees", tab: "employees", icon: Users },
     { label: "Leave Management", tab: "leave", icon: Calendar },
     { label: "Assets Register", tab: "assets", icon: Package },

@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 
 interface WarehouseBranch {
   id: string;
@@ -69,7 +70,7 @@ const DEFAULT_BRANCHES: WarehouseBranch[] = [
     city: "Lahore (HQ)",
     type: "Primary Distribution",
     badge: "Hub Central",
-    address: "Workman Services Central Complex, Gulberg III, Lahore",
+    address: "",
     incharge: "Tariq Mehmood (Lead Storekeeper)",
     contact: "+92 300 1234567",
     accent: "border-[#0D7A5F] bg-[#0D7A5F]/5",
@@ -161,6 +162,7 @@ function generateServiceSku(prods: any[] = []) {
 }
 
 export default function InventoryPurchasingPage() {
+  const { profile } = useCompanyProfile();
   const { currentRole } = useRole();
   const isStorekeeper = currentRole === "storekeeper";
 
@@ -1979,8 +1981,8 @@ export default function InventoryPurchasingPage() {
                   {currentBranch.contact && (
                     <span>📞 Contact: <strong className="text-[#18181B]">{currentBranch.contact}</strong></span>
                   )}
-                  {currentBranch.address && (
-                    <span>📍 Address: <span className="text-[#18181B]">{currentBranch.address}</span></span>
+                  {(currentBranch.isCentral ? profile.addressText || currentBranch.address : currentBranch.address) && (
+                    <span>📍 Address: <span className="text-[#18181B]">{currentBranch.isCentral ? profile.addressText || currentBranch.address : currentBranch.address}</span></span>
                   )}
                 </div>
               </div>

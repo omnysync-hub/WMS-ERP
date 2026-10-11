@@ -60,7 +60,7 @@ const safe = (value: unknown) => String(value ?? "").replaceAll('"', '""');
 
 export default function StatementOfAccountsTab() {
   const [parties, setParties] = useState<Party[]>([]);
-  const [company, setCompany] = useState({ name: "Workman Services", currency: "PKR" });
+  const [company, setCompany] = useState({ name: "Company", currency: "PKR" });
   const [totals, setTotals] = useState<any>({});
   const [partyType, setPartyType] = useState<PartyType>("customer");
   const [selected, setSelected] = useState<Party | null>(null);
@@ -85,7 +85,7 @@ export default function StatementOfAccountsTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not load ledgers");
       setParties(data.parties || []);
-      setCompany(data.company || { name: "Workman Services", currency: "PKR" });
+      setCompany(data.company || { name: "Company", currency: "PKR" });
       setTotals(data.totals || {});
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not load ledgers");

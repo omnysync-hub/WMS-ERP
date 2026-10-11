@@ -197,13 +197,13 @@ async function main() {
   if (!existingSettings) {
     await prisma.companySettings.create({
       data: {
-        legalName: "Enterprise Services (Pvt) Ltd",
-        tradeName: "Enterprise Services",
-        addressText: "Main Boulevard, Gulberg III, Lahore, Pakistan",
-        phone: "042-111-0000",
-        email: "finance@company.com",
-        ntnNumber: "9482710-3",
-        strnNumber: "3277876123456",
+        legalName: "",
+        tradeName: null,
+        addressText: "",
+        phone: "",
+        email: "",
+        ntnNumber: null,
+        strnNumber: null,
         baseCurrency: "PKR",
         fiscalYearStartMonth: 7, // July
         approvalThreshold: 50000,

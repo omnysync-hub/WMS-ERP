@@ -7,6 +7,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 import {
   User,
   Phone,
@@ -47,6 +48,7 @@ export default function EmployeeProfilePage() {
   const employeeId = params.id as string;
 
   const { activeRole, currentPersona } = useRole();
+  const { profile } = useCompanyProfile();
 
   const getAdminHeaders = () => ({
     "Content-Type": "application/json",
@@ -1347,7 +1349,7 @@ export default function EmployeeProfilePage() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
                         <label className="font-semibold text-[#18181B] block mb-1">
-                          Pro-Rated Salary ($)
+                          Pro-Rated Salary ({profile.baseCurrency})
                         </label>
                         <input
                           type="number"
@@ -1389,7 +1391,7 @@ export default function EmployeeProfilePage() {
 
                       <div>
                         <label className="font-semibold text-[#18181B] block mb-1">
-                          Advance Recovery ($)
+                          Advance Recovery ({profile.baseCurrency})
                         </label>
                         <input
                           type="number"

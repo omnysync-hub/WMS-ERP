@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     } else if (action === "approve_requisition") {
       const reqRecord = await HrmService.approveRequisition(
         body.requisitionId,
-        body.approverName || "Haris Qureshi (Executive Director)"
+        gate.actor.name
       );
       return NextResponse.json({ requisition: reqRecord });
     } else if (action === "create_candidate") {

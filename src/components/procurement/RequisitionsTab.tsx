@@ -87,17 +87,7 @@ export default function RequisitionsTab({
 
   const [priorityFilter, setPriorityFilter] = useState("all");
 
-  // Determine auto requisitioner name based on role
-  const autoRequisitionerName =
-    currentRole === "admin"
-      ? "Haris Qureshi (Admin User)"
-      : currentRole === "accountant"
-      ? "Fatima Noor (Accounts User)"
-      : currentRole === "storekeeper"
-      ? "Bilal Sheikh (Storekeeper)"
-      : currentRole === "dispatcher"
-      ? "Lead Dispatcher (Operations)"
-      : "Operations Lead";
+  const autoRequisitionerName = activeUser?.name || currentPersona?.name || currentRole;
 
   // Create PR Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
