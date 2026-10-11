@@ -101,7 +101,8 @@ export async function POST(req: NextRequest) {
       }
 
       case "rollback": {
-        const { rollbackLogId, reason } = payload;
+        const rollbackLogId = payload.rollbackLogId || payload.rollbackId;
+        const reason = payload.reason;
         if (!rollbackLogId) {
           return NextResponse.json({ error: "Missing rollbackLogId" }, { status: 400 });
         }

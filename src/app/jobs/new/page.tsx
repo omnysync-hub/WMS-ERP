@@ -95,6 +95,19 @@ const COMMON_SERVICE_PRESETS = [
   { name: "Diagnostic & Fault Troubleshooting Fee", rate: 1500 },
 ];
 
+interface EquipmentLineItem {
+  id: string;
+  productType: string;
+  isCustomProductType: boolean;
+  customProductType: string;
+  brand: string;
+  isCustomBrand: boolean;
+  customBrand: string;
+  model: string;
+  quantity: number;
+  unitPrice: number;
+}
+
 interface ProductLineItem {
   id: string;
   productId?: string;
@@ -151,16 +164,63 @@ export default function NewJobIntakePage() {
   const [customJobType, setCustomJobType] = useState("");
   const [isCustomJobType, setIsCustomJobType] = useState(false);
 
-  // Product, Brand & Model
-  const [productType, setProductType] = useState("Inverter AC (1.0 / 1.5 / 2.0 Ton)");
-  const [isCustomProductType, setIsCustomProductType] = useState(false);
-  const [customProductType, setCustomProductType] = useState("");
+  // Product, Brand, Model, Qty & Unit Rates (Multiple Equipment Specification Items)
+  const [equipmentLines, setEquipmentLines] = useState<EquipmentLineItem[]>([
+    {
+      id: "equip-1",
+      productType: "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
+      isCustomProductType: false,
+      customProductType: "",
+      brand: "Gree",
+      isCustomBrand: false,
+      customBrand: "",
+      model: "Inverter Split 1.5 Ton Fairy Series",
+      quantity: 1,
+      unitPrice: 0,
+    },
+  ]);
 
-  const [productBrand, setProductBrand] = useState("Gree");
-  const [isCustomBrand, setIsCustomBrand] = useState(false);
-  const [customBrand, setCustomBrand] = useState("");
+  const handleAddEquipmentLine = () => {
+    setEquipmentLines((prev) => [
+      ...prev,
+      {
+        id: `equip-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        productType: configuredEquipmentTypes[0] || "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
+        isCustomProductType: false,
+        customProductType: "",
+        brand: configuredBrands[0] || "Gree",
+        isCustomBrand: false,
+        customBrand: "",
+        model: "",
+        quantity: 1,
+        unitPrice: 0,
+      },
+    ]);
+  };
 
-  const [productModel, setProductModel] = useState("Inverter Split 1.5 Ton Fairy Series");
+  const handleRemoveEquipmentLine = (lineId: string) => {
+    if (equipmentLines.length <= 1) return;
+    setEquipmentLines((prev) => prev.filter((item) => item.id !== lineId));
+  };
+
+  const handleUpdateEquipmentLine = (
+    lineId: string,
+    field: keyof EquipmentLineItem,
+    value: any
+  ) => {
+    setEquipmentLines((prev) =>
+      prev.map((item) => {
+        if (item.id !== lineId) return item;
+        if (field === "quantity") {
+          return { ...item, quantity: Math.max(1, parseInt(value, 10) || 1) };
+        }
+        if (field === "unitPrice") {
+          return { ...item, unitPrice: Math.max(0, parseFloat(value) || 0) };
+        }
+        return { ...item, [field]: value };
+      })
+    );
+  };
 
   // Customer Job History
   const [customerJobHistory, setCustomerJobHistory] = useState<any[]>([]);
@@ -510,6 +570,16 @@ export default function NewJobIntakePage() {
     setServiceLines(serviceLines.filter((l) => l.id !== lineId));
   };
 
+  // EQUIPMENT FINANCIAL & QUANTITY SUMMARY
+  const equipmentSubtotal = equipmentLines.reduce(
+    (sum, l) => sum + (Number(l.quantity) || 1) * (Number(l.unitPrice) || 0),
+    0
+  );
+  const equipmentTotalQty = equipmentLines.reduce(
+    (sum, l) => sum + (Number(l.quantity) || 1),
+    0
+  );
+
   // CHARGES FINANCIAL SUMMARY
   const productsSubtotal = productLines.reduce(
     (sum, l) => sum + l.quantity * (l.unitRate || 0),
@@ -519,7 +589,9 @@ export default function NewJobIntakePage() {
     (sum, l) => sum + l.quantity * (l.unitRate || 0),
     0
   );
-  const totalEstimatedCharges = productsSubtotal + servicesSubtotal;
+  const totalEstimatedCharges = canManageLineItems
+    ? equipmentSubtotal + productsSubtotal + servicesSubtotal
+    : equipmentSubtotal;
 
   // Form Submission
   const handleSubmitJob = async (e: React.FormEvent) => {
@@ -537,18 +609,57 @@ export default function NewJobIntakePage() {
       setIsSubmitting(true);
       setErrorMsg("");
 
-      const effectiveProductType = isCustomProductType ? customProductType.trim() : productType;
-      const effectiveProductBrand = isCustomBrand ? customBrand.trim() : productBrand;
+      // Consolidate remarks with all Equipment items (Product Type, Brand, Model, Qty, UnitPrice, Total)
+      const equipSegments = equipmentLines
+        .filter((eq) => {
+          const t = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
+          return Boolean(t);
+        })
+        .map((eq) => {
+          const effectiveType = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
+          const effectiveBrand = eq.isCustomBrand ? eq.customBrand.trim() : eq.brand.trim();
+          const effectiveModel = eq.model.trim();
+          const qty = Math.max(1, Number(eq.quantity) || 1);
+          const price = Math.max(0, Number(eq.unitPrice) || 0);
+          const lineTot = qty * price;
+          return `[Equipment: ${effectiveType || "HVAC Unit"} | Brand: ${
+            effectiveBrand || "Unspecified"
+          } | Model: ${effectiveModel || "Standard"} | Qty: ${qty} | UnitPrice: ${price} | Total: ${lineTot}]`;
+        });
 
-      // Consolidate remarks with Product (Product Type, Brand & Model)
-      const equipPrefix = `[Equipment: ${effectiveProductType || "HVAC Unit"} | Brand: ${
-        effectiveProductBrand || "Unspecified"
-      } | Model: ${productModel || "Standard"}] `;
-      const fullRemarks = `${equipPrefix}${remarks.trim()}`;
+      const equipPrefix = equipSegments.join(" ");
+      const fullRemarks = `${equipPrefix ? `${equipPrefix} ` : ""}${remarks.trim()}`;
 
-      // Build consolidated items array for backend JobItem records (only if line items management is active)
+      // Convert equipment specifications to JobItem records
+      const equipmentItems = equipmentLines
+        .filter((eq) => {
+          const t = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
+          return Boolean(t);
+        })
+        .map((eq) => {
+          const effectiveType = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
+          const effectiveBrand = eq.isCustomBrand ? eq.customBrand.trim() : eq.brand.trim();
+          const effectiveModel = eq.model.trim();
+          let desc = `[Equipment] ${effectiveType || "HVAC Unit"}`;
+          if (effectiveBrand && effectiveBrand !== "Unspecified") {
+            desc += ` - ${effectiveBrand}`;
+          }
+          if (effectiveModel && effectiveModel !== "Standard") {
+            desc += ` (${effectiveModel})`;
+          }
+          return {
+            description: desc,
+            quantityPlanned: Math.max(1, Number(eq.quantity) || 1),
+            unitRate: Math.max(0, Number(eq.unitPrice) || 0),
+            productId: null,
+            isProduct: true,
+          };
+        });
+
+      // Build consolidated items array for backend JobItem records (equipment items always recorded)
       const combinedItems = canManageLineItems
         ? [
+            ...equipmentItems,
             ...productLines
               .filter((l) => l.name.trim())
               .map((l) => ({
@@ -568,7 +679,7 @@ export default function NewJobIntakePage() {
                 isProduct: false,
               })),
           ]
-        : [];
+        : equipmentItems;
 
       const effectivePrimaryId =
         primaryTechnicianId && assignedTechnicianIds.includes(primaryTechnicianId)
@@ -923,104 +1034,263 @@ export default function NewJobIntakePage() {
               </div>
             </div>
 
-            {/* 2. PRODUCT SPECIFICATION: PRODUCT TYPE (BEFORE BRAND) -> BRAND -> MODEL */}
-            <div className="pt-2 border-t border-[#EDEDED]">
-              <div className="flex items-center justify-between mb-3">
+            {/* 2. PRODUCT SPECIFICATION: PRODUCT TYPE (BEFORE BRAND) -> BRAND -> MODEL -> QTY -> UNIT PRICE -> TOTAL */}
+            <div className="pt-2 border-t border-[#EDEDED] space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <Cpu className="w-3.5 h-3.5 text-[#0D7A5F]" />
                   <span className="font-bold text-xs text-[#18181B] uppercase tracking-wider">
-                    Equipment Details (Product Type, Brand & Model)
+                    Equipment Details (Product Type, Brand, Model & Quantities)
+                  </span>
+                  <span className="text-[10px] bg-emerald-50 text-[#0D7A5F] border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
+                    {equipmentLines.length} {equipmentLines.length === 1 ? "unit item" : "unit items"} ({equipmentTotalQty} total units)
                   </span>
                 </div>
-                <span className="text-[11px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded font-mono">
-                  Product column placed before Brand
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded font-mono hidden sm:inline-block">
+                    Product column placed before Brand
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddEquipmentLine}
+                    className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    + Add Equipment
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {/* Product Column (Placed BEFORE Brand as requested) */}
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Product / Appliance Type *
-                  </label>
-                  <SearchableSelect
-                    options={equipmentTypeOptions}
-                    value={isCustomProductType ? "CUSTOM" : productType}
-                    onChange={(val: string) => {
-                      if (val === "CUSTOM") {
-                        setIsCustomProductType(true);
-                      } else {
-                        setIsCustomProductType(false);
-                        setProductType(val);
-                      }
-                    }}
-                    placeholder="Search or pick appliance type..."
-                    searchPlaceholder="Search appliance types (e.g. Inverter AC, Chiller)..."
-                    className="w-full"
-                  />
-                  {isCustomProductType && (
-                    <input
-                      type="text"
-                      placeholder="Type custom appliance type..."
-                      value={customProductType}
-                      onChange={(e) => setCustomProductType(e.target.value)}
-                      className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
-                    />
-                  )}
-                  <span className="text-[10px] text-[#71717A] mt-1 block">
-                    Type or pick from standard HVAC equipment types
-                  </span>
-                </div>
+              {/* Equipment Items List */}
+              <div className="space-y-3">
+                {equipmentLines.map((eq, idx) => {
+                  const lineTotal = (Number(eq.quantity) || 1) * (Number(eq.unitPrice) || 0);
 
-                {/* Brand */}
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Equipment Brand (Type or Select)
-                  </label>
-                  <SearchableSelect
-                    options={brandOptions}
-                    value={isCustomBrand ? "CUSTOM" : productBrand}
-                    onChange={(val: string) => {
-                      if (val === "CUSTOM") {
-                        setIsCustomBrand(true);
-                      } else {
-                        setIsCustomBrand(false);
-                        setProductBrand(val);
-                      }
-                    }}
-                    placeholder="Search or pick brand..."
-                    searchPlaceholder="Search brands (e.g. Gree, Daikin, Haier)..."
-                    className="w-full"
-                  />
-                  {isCustomBrand && (
-                    <input
-                      type="text"
-                      placeholder="Type brand manufacturer..."
-                      value={customBrand}
-                      onChange={(e) => setCustomBrand(e.target.value)}
-                      className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
-                    />
-                  )}
-                  <span className="text-[10px] text-[#71717A] mt-1 block">
-                    Brand manufacturer
-                  </span>
-                </div>
+                  return (
+                    <div
+                      key={eq.id}
+                      className="p-4 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl space-y-3 relative group animate-in fade-in"
+                    >
+                      {/* Item Sub-header */}
+                      <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-[#18181B] uppercase tracking-wider">
+                            Equipment #{idx + 1}
+                          </span>
+                          <span className="text-[10px] text-[#71717A]">
+                            Specification & Rates
+                          </span>
+                        </div>
 
-                {/* Model */}
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Model / Unit Specification
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Inverter Split 1.5 Ton / VRV IV Outdoor"
-                    value={productModel}
-                    onChange={(e) => setProductModel(e.target.value)}
-                    className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
-                  />
-                  <span className="text-[10px] text-[#71717A] mt-1 block">
-                    Serial or series specification
-                  </span>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <span className="text-[10px] text-[#71717A] mr-1.5">Line Total:</span>
+                            <span className="text-xs font-mono font-extrabold text-[#0D7A5F] bg-white px-2 py-0.5 rounded border border-[#EDEDED]">
+                              {formatCurrency(lineTotal)}
+                            </span>
+                          </div>
+
+                          {equipmentLines.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveEquipmentLine(eq.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title={`Remove equipment #${idx + 1}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Equipment Fields Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3">
+                        {/* 1. Product / Appliance Type (Col span 3) */}
+                        <div className="lg:col-span-3">
+                          <label className="font-semibold text-[#18181B] block mb-1">
+                            Product / Appliance Type *
+                          </label>
+                          <SearchableSelect
+                            options={equipmentTypeOptions}
+                            value={eq.isCustomProductType ? "CUSTOM" : eq.productType}
+                            onChange={(val: string) => {
+                              if (val === "CUSTOM") {
+                                handleUpdateEquipmentLine(eq.id, "isCustomProductType", true);
+                              } else {
+                                handleUpdateEquipmentLine(eq.id, "isCustomProductType", false);
+                                handleUpdateEquipmentLine(eq.id, "productType", val);
+                              }
+                            }}
+                            placeholder="Search or pick appliance type..."
+                            searchPlaceholder="Search appliance types..."
+                            className="w-full bg-white"
+                          />
+                          {eq.isCustomProductType && (
+                            <input
+                              type="text"
+                              placeholder="Type custom appliance type..."
+                              value={eq.customProductType}
+                              onChange={(e) =>
+                                handleUpdateEquipmentLine(eq.id, "customProductType", e.target.value)
+                              }
+                              className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
+                            />
+                          )}
+                          <span className="text-[10px] text-[#71717A] mt-1 block">
+                            Type or pick HVAC appliance
+                          </span>
+                        </div>
+
+                        {/* 2. Brand (Col span 3) */}
+                        <div className="lg:col-span-3">
+                          <label className="font-semibold text-[#18181B] block mb-1">
+                            Equipment Brand (Type or Select)
+                          </label>
+                          <SearchableSelect
+                            options={brandOptions}
+                            value={eq.isCustomBrand ? "CUSTOM" : eq.brand}
+                            onChange={(val: string) => {
+                              if (val === "CUSTOM") {
+                                handleUpdateEquipmentLine(eq.id, "isCustomBrand", true);
+                              } else {
+                                handleUpdateEquipmentLine(eq.id, "isCustomBrand", false);
+                                handleUpdateEquipmentLine(eq.id, "brand", val);
+                              }
+                            }}
+                            placeholder="Search or pick brand..."
+                            searchPlaceholder="Search brands (e.g. Gree, Daikin)..."
+                            className="w-full bg-white"
+                          />
+                          {eq.isCustomBrand && (
+                            <input
+                              type="text"
+                              placeholder="Type brand manufacturer..."
+                              value={eq.customBrand}
+                              onChange={(e) =>
+                                handleUpdateEquipmentLine(eq.id, "customBrand", e.target.value)
+                              }
+                              className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
+                            />
+                          )}
+                          <span className="text-[10px] text-[#71717A] mt-1 block">
+                            Brand manufacturer
+                          </span>
+                        </div>
+
+                        {/* 3. Model / Specification (Col span 2) */}
+                        <div className="lg:col-span-2">
+                          <label className="font-semibold text-[#18181B] block mb-1">
+                            Model / Specification
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Inverter Split 1.5 Ton"
+                            value={eq.model}
+                            onChange={(e) =>
+                              handleUpdateEquipmentLine(eq.id, "model", e.target.value)
+                            }
+                            className="w-full bg-white p-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+                          />
+                          <span className="text-[10px] text-[#71717A] mt-1 block">
+                            Series specification
+                          </span>
+                        </div>
+
+                        {/* 4. Quantity (Col span 1) */}
+                        <div className="lg:col-span-1">
+                          <label className="font-semibold text-[#18181B] block mb-1">
+                            Qty *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={eq.quantity}
+                            onChange={(e) =>
+                              handleUpdateEquipmentLine(eq.id, "quantity", e.target.value)
+                            }
+                            className="w-full bg-white p-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono text-center font-bold"
+                          />
+                          <span className="text-[10px] text-[#71717A] mt-1 block text-center">
+                            Units
+                          </span>
+                        </div>
+
+                        {/* 5. Per-Unit Price (Col span 2) */}
+                        <div className="lg:col-span-2">
+                          <label className="font-semibold text-[#18181B] block mb-1">
+                            Per-Unit Price (PKR)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-[#71717A]">
+                              Rs.
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              placeholder="0.00"
+                              value={eq.unitPrice === 0 ? "" : eq.unitPrice}
+                              onChange={(e) =>
+                                handleUpdateEquipmentLine(eq.id, "unitPrice", e.target.value)
+                              }
+                              className="w-full bg-white pl-8 pr-2.5 py-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono font-medium"
+                            />
+                          </div>
+                          <span className="text-[10px] text-[#71717A] mt-1 block">
+                            Unit rate (PKR)
+                          </span>
+                        </div>
+
+                        {/* 6. Total (Col span 1) */}
+                        <div className="lg:col-span-1">
+                          <label className="font-semibold text-[#18181B] block mb-1">
+                            Total
+                          </label>
+                          <div className="p-2.5 bg-emerald-50/60 rounded-lg border border-emerald-200/80 text-center">
+                            <span className="font-mono font-bold text-[#0D7A5F] text-xs block truncate" title={formatCurrency(lineTotal)}>
+                              {formatCurrency(lineTotal)}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-[#71717A] mt-1 block text-center">
+                            Qty × Rate
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Equipment Summary & Add Line Bar */}
+              <div className="p-3.5 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleAddEquipmentLine}
+                  className="text-xs font-bold text-[#0D7A5F] bg-white hover:bg-emerald-50 px-3.5 py-2 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  + Add Another Equipment / Appliance
+                </button>
+
+                <div className="flex items-center gap-4 text-xs">
+                  <div className="text-right">
+                    <span className="text-[10px] text-[#71717A] uppercase font-bold tracking-wider block">
+                      Total Units:
+                    </span>
+                    <span className="font-bold text-[#18181B] font-mono">
+                      {equipmentTotalQty} {equipmentTotalQty === 1 ? "unit" : "units"}
+                    </span>
+                  </div>
+
+                  <div className="text-right pl-4 border-l border-[#D4D4D8]">
+                    <span className="text-[10px] text-[#71717A] uppercase font-bold tracking-wider block">
+                      Equipment Subtotal:
+                    </span>
+                    <span className="text-sm font-black text-[#0D7A5F] font-mono">
+                      {formatCurrency(equipmentSubtotal)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1829,21 +2099,33 @@ export default function NewJobIntakePage() {
         </div>
 
         {/* Bottom Form Actions */}
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <Link
-            href="/jobs"
-            className="px-4 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B]"
-          >
-            Cancel
-          </Link>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-6 py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-          >
-            <Check className="w-4 h-4" />
-            {isSubmitting ? "Creating Work Order..." : "Create Work Order"}
-          </button>
+        <div className="flex items-center justify-between flex-wrap gap-3 pt-2 bg-white/60 backdrop-blur-xs p-4 rounded-xl border border-[#EDEDED]">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#71717A] font-medium">Estimated Job Total:</span>
+            <span className="text-base font-extrabold text-[#0D7A5F] font-mono">
+              {formatCurrency(totalEstimatedCharges)}
+            </span>
+            <span className="text-[11px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full font-medium ml-1">
+              {equipmentTotalQty} {equipmentTotalQty === 1 ? "unit" : "units"} planned
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/jobs"
+              className="px-4 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B]"
+            >
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-6 py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              {isSubmitting ? "Creating Work Order..." : "Create Work Order"}
+            </button>
+          </div>
         </div>
       </form>
 

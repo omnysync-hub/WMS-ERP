@@ -64,11 +64,11 @@ export default function LoginPage() {
         <div className="absolute -right-10 top-42 h-44 w-44 rounded-full border border-emerald-300/10" />
 
         <div className="relative flex items-center gap-3">
-          <div className="h-11 w-11 rounded-2xl bg-emerald-500 text-[#08211a] flex items-center justify-center shadow-lg shadow-emerald-950/30">
-            <Wrench className="h-5 w-5" />
+          <div className="h-12 w-12 rounded-2xl bg-white p-1.5 flex items-center justify-center shadow-lg border border-white/20 overflow-hidden shrink-0">
+            <img src="/logo.png" alt="Workman Services" className="h-full w-full object-contain" />
           </div>
           <div>
-            <p className="font-extrabold tracking-tight text-lg">{displayName}</p>
+            <p className="font-extrabold tracking-tight text-lg">Workman Services</p>
             <p className="text-xs text-emerald-200/70">Operations command center</p>
           </div>
         </div>
@@ -98,8 +98,13 @@ export default function LoginPage() {
       <section className="flex min-h-screen items-center justify-center bg-[#f7f8f7] px-5 py-10 text-[#18181b] sm:px-10">
         <div className="w-full max-w-[460px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="h-10 w-10 rounded-xl bg-[#0D7A5F] text-white flex items-center justify-center"><Wrench className="h-5 w-5" /></div>
-            <div><p className="font-extrabold">{displayName}</p><p className="text-xs text-slate-500">Operations command center</p></div>
+            <div className="h-12 w-12 rounded-xl bg-white p-1.5 flex items-center justify-center shadow-md border border-slate-200 overflow-hidden shrink-0">
+              <img src="/logo.png" alt="Workman Services" className="h-full w-full object-contain" />
+            </div>
+            <div>
+              <p className="font-extrabold">Workman Services</p>
+              <p className="text-xs text-slate-500">Operations command center</p>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] sm:p-8">
@@ -181,7 +186,20 @@ export default function LoginPage() {
               </div>
             )}
           </div>
-          <p className="mt-5 text-center text-[11px] text-slate-400">Your session is limited to one browser at a time and expires automatically.</p>
+          <p className="mt-5 text-center text-[11px] text-slate-400">
+            Your session is limited to one browser at a time and expires automatically.
+          </p>
+          <div className="mt-3 text-center text-xs text-slate-400">
+            Powered by{" "}
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-[#0D7A5F] hover:underline transition-colors"
+            >
+              OmnySync
+            </a>
+          </div>
         </div>
       </section>
     </main>

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { useRole } from "@/contexts/RoleContext";
+import { formatCurrency } from "@/lib/utils";
 
 interface JobRemarksCardProps {
   remarks?: string | null;
@@ -22,12 +23,18 @@ interface JobRemarksCardProps {
   showUnusedStockReason?: boolean;
 }
 
-interface ParsedRemarks {
-  equipment?: {
-    type: string;
-    brand?: string;
-    model?: string;
-  };
+export interface ParsedEquipment {
+  type: string;
+  brand?: string;
+  model?: string;
+  quantity?: number;
+  unitPrice?: number;
+  total?: number;
+}
+
+export interface ParsedRemarks {
+  equipment?: ParsedEquipment;
+  equipments?: ParsedEquipment[];
   primaryDiagnosis?: string;
   fieldExecution?: string;
   customerPayment?: string;
@@ -48,21 +55,41 @@ export function parseJobRemarks(rawRemarks?: string | null): ParsedRemarks {
     .trim();
 
   let remainder = clean;
-  let equipment: ParsedRemarks["equipment"] = undefined;
+  const equipments: ParsedEquipment[] = [];
 
-  // 2. Extract [Equipment: ... | Brand: ... | Model: ...]
-  const equipMatch = remainder.match(
-    /^\[Equipment:\s*([^|\]]+?)(?:\s*\|\s*Brand:\s*([^|\]]+?))?(?:\s*\|\s*Model:\s*([^|\]]+?))?\]\s*(.*)$/i
-  );
+  // 2. Extract [Equipment: ... | Brand: ... | Model: ... | Qty: ... | UnitPrice: ... | Total: ...]
+  const equipRegex =
+    /\[Equipment:\s*([^|\]]+?)(?:\s*\|\s*Brand:\s*([^|\]]+?))?(?:\s*\|\s*Model:\s*([^|\]]+?))?(?:\s*\|\s*Qty:\s*([0-9.]+))?(?:\s*\|\s*UnitPrice:\s*([0-9.]+))?(?:\s*\|\s*Total:\s*([0-9.]+))?\]/gi;
 
-  if (equipMatch) {
-    equipment = {
-      type: equipMatch[1]?.trim() || "HVAC Unit",
-      brand: equipMatch[2]?.trim(),
-      model: equipMatch[3]?.trim(),
-    };
-    remainder = equipMatch[4]?.trim() || "";
+  let match: RegExpExecArray | null;
+  while ((match = equipRegex.exec(remainder)) !== null) {
+    const rawType = match[1]?.trim() || "HVAC Unit";
+    const rawBrand = match[2]?.trim();
+    const rawModel = match[3]?.trim();
+    const rawQty = match[4] ? parseFloat(match[4]) : undefined;
+    const rawUnitPrice = match[5] ? parseFloat(match[5]) : undefined;
+    const rawTotal = match[6]
+      ? parseFloat(match[6])
+      : rawQty !== undefined && rawUnitPrice !== undefined
+      ? rawQty * rawUnitPrice
+      : undefined;
+
+    equipments.push({
+      type: rawType,
+      brand: rawBrand && rawBrand !== "Unspecified" ? rawBrand : undefined,
+      model: rawModel && rawModel !== "Standard" ? rawModel : undefined,
+      quantity: rawQty,
+      unitPrice: rawUnitPrice,
+      total: rawTotal,
+    });
   }
+
+  // Remove all equipment tags from remainder text
+  if (equipments.length > 0) {
+    remainder = remainder.replace(equipRegex, "").trim();
+  }
+
+  const equipment = equipments[0];
 
   // 3. Break remainder by standard delimiters: | or • or newlines
   const rawSegments = remainder
@@ -168,37 +195,90 @@ export default function JobRemarksCard({
 
       <div className="p-4 sm:p-5 space-y-4">
         {/* Equipment Specifications Bar */}
-        {parsed.equipment && (
-          <div className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-xl p-3.5">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#71717A] uppercase tracking-wider mb-2">
-              <Layers className="w-3.5 h-3.5 text-[#0D7A5F]" />
-              Target Equipment & Asset Profile
+        {parsed.equipments && parsed.equipments.length > 0 && (
+          <div className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                <Layers className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                Target Equipment & Asset Profile ({parsed.equipments.length}{" "}
+                {parsed.equipments.length === 1 ? "unit / item" : "units / items"})
+              </div>
+              {parsed.equipments.some((e) => (e.total && e.total > 0) || (e.unitPrice && e.unitPrice > 0)) && (
+                <span className="text-xs font-mono font-extrabold text-[#0D7A5F] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  Equipment Total: {formatCurrency(parsed.equipments.reduce((sum, e) => sum + (e.total ?? (e.quantity ?? 1) * (e.unitPrice ?? 0)), 0))}
+                </span>
+              )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-white p-2.5 rounded-lg border border-[#E4E4E7]">
-                <span className="text-[10px] uppercase font-bold text-[#71717A] block">
-                  Equipment Category
-                </span>
-                <span className="text-xs font-bold text-[#18181B] mt-0.5 block">
-                  {parsed.equipment.type}
-                </span>
-              </div>
-              <div className="bg-white p-2.5 rounded-lg border border-[#E4E4E7]">
-                <span className="text-[10px] uppercase font-bold text-[#71717A] block">
-                  Brand / Manufacturer
-                </span>
-                <span className="text-xs font-bold text-[#18181B] mt-0.5 block">
-                  {parsed.equipment.brand || "Standard"}
-                </span>
-              </div>
-              <div className="bg-white p-2.5 rounded-lg border border-[#E4E4E7]">
-                <span className="text-[10px] uppercase font-bold text-[#71717A] block">
-                  Model / Series
-                </span>
-                <span className="text-xs font-bold text-[#18181B] mt-0.5 block">
-                  {parsed.equipment.model || "Unspecified"}
-                </span>
-              </div>
+
+            <div className="space-y-2.5">
+              {parsed.equipments.map((eq, idx) => {
+                const lineQty = eq.quantity ?? 1;
+                const lineRate = eq.unitPrice;
+                const lineTotal =
+                  eq.total ?? (lineRate !== undefined ? lineQty * lineRate : undefined);
+
+                return (
+                  <div
+                    key={idx}
+                    className="bg-white p-3 rounded-lg border border-[#E4E4E7] space-y-2 shadow-2xs"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-[#71717A] block">
+                          Equipment Category {parsed.equipments!.length > 1 ? `#${idx + 1}` : ""}
+                        </span>
+                        <span className="text-xs font-bold text-[#18181B] mt-0.5 block">
+                          {eq.type}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-[#71717A] block">
+                          Brand / Manufacturer
+                        </span>
+                        <span className="text-xs font-bold text-[#18181B] mt-0.5 block">
+                          {eq.brand || "Standard"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-[#71717A] block">
+                          Model / Series
+                        </span>
+                        <span className="text-xs font-bold text-[#18181B] mt-0.5 block">
+                          {eq.model || "Unspecified"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {(lineQty > 1 || lineRate !== undefined || lineTotal !== undefined) && (
+                      <div className="flex items-center justify-between pt-2 border-t border-[#F4F4F5] text-xs">
+                        <div className="flex items-center gap-3 text-[#71717A]">
+                          <span>
+                            Qty: <strong className="text-[#18181B]">{lineQty}</strong> units
+                          </span>
+                          {lineRate !== undefined && lineRate > 0 && (
+                            <span>
+                              Rate:{" "}
+                              <strong className="font-mono text-[#18181B]">
+                                {formatCurrency(lineRate)}
+                              </strong>
+                            </span>
+                          )}
+                        </div>
+                        {lineTotal !== undefined && lineTotal > 0 && (
+                          <div className="text-right">
+                            <span className="text-[10px] text-[#71717A] mr-1.5 uppercase font-medium">
+                              Line Total:
+                            </span>
+                            <span className="font-mono font-bold text-[#0D7A5F]">
+                              {formatCurrency(lineTotal)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

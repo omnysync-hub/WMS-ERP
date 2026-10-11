@@ -159,14 +159,41 @@ export default function TaxInvoiceDocument({
               const parsed = parseJobRemarks(job.remarks);
               return (
                 <div className="text-zinc-600 mt-1 space-y-0.5 text-[11px]">
-                  {parsed.equipment && (
+                  {parsed.equipments && parsed.equipments.length > 0 ? (
+                    <div className="space-y-0.5">
+                      {parsed.equipments.map((eq: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between">
+                          <div>
+                            <span className="font-semibold text-zinc-700">
+                              {parsed.equipments!.length > 1 ? `Equipment #${i + 1}:` : "Equipment:"}
+                            </span>{" "}
+                            {eq.type}
+                            {eq.brand && ` (${eq.brand}`}
+                            {eq.model && ` - ${eq.model}`}
+                            {eq.brand && `)`}
+                            {eq.quantity && eq.quantity > 1 && (
+                              <span className="font-semibold text-zinc-800">
+                                {" "}
+                                × {eq.quantity} units
+                              </span>
+                            )}
+                          </div>
+                          {eq.total !== undefined && eq.total > 0 && (
+                            <span className="font-mono font-bold text-zinc-900 ml-2">
+                              {formatCurrency(eq.total)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : parsed.equipment ? (
                     <div>
                       <span className="font-semibold text-zinc-700">Equipment:</span> {parsed.equipment.type}
                       {parsed.equipment.brand && ` (${parsed.equipment.brand}`}
                       {parsed.equipment.model && ` - ${parsed.equipment.model}`}
                       {parsed.equipment.brand && `)`}
                     </div>
-                  )}
+                  ) : null}
                   {parsed.primaryDiagnosis && (
                     <div>
                       <span className="font-semibold text-zinc-700">Problem Diagnosis:</span> {parsed.primaryDiagnosis}
@@ -358,6 +385,22 @@ export default function TaxInvoiceDocument({
               Authorized Signatory (MD)
             </span>
           </div>
+        </div>
+
+        {/* Document Footer Digital Footprint */}
+        <div className="pt-4 border-t border-zinc-200 flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+          <span>Electronic Verification Code: WMS-{job.id?.slice(0, 8).toUpperCase() || "DOC"}</span>
+          <span>
+            Powered by{" "}
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zinc-600 hover:text-[#0D7A5F] underline font-semibold transition-colors"
+            >
+              OmnySync
+            </a>
+          </span>
         </div>
       </div>
     </div>

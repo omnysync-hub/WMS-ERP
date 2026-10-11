@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { AuditService } from "./AuditService";
 
 export interface FeedbackCallParams {
   jobId: string;
@@ -112,6 +113,26 @@ export class FeedbackService {
             callId: call.id,
           }),
         },
+      });
+
+      await AuditService.recordCrudAction({
+        actorName: calledBy,
+        actorRole: "call_center",
+        entityType: "FeedbackCall",
+        entityId: call.id,
+        entityNumber: job.jobNumber,
+        actionType: "CREATE",
+        description: `Logged call center quality feedback (${outcome}) for Job ${job.jobNumber}: "${remarks.slice(0, 80)}"`,
+        stateBefore: null,
+        stateAfter: {
+          callId: call.id,
+          jobId,
+          outcome,
+          remarks: combinedRemarks,
+          previousJobStatus: job.status,
+          newJobStatus: "CompletedPendingVerification",
+        },
+        canRollback: true,
       });
     }
 

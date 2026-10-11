@@ -462,18 +462,22 @@ export default function Sidebar({
     >
       {/* Brand Header & Active Role Indicator */}
       <div>
-        <div className="h-14 px-4 flex items-center justify-between border-b border-[#27272A]/40">
+        <div className="h-14 px-3 flex items-center justify-between border-b border-[#27272A]/40">
           <Link
             href="/dashboards"
-            className="flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-lg p-1"
+            className="flex items-center gap-2.5 group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-lg p-1 w-full"
           >
-            <div className="w-8 h-8 rounded-lg bg-[#0D7A5F] text-white flex items-center justify-center shrink-0 shadow-md">
-              <Flame className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-white p-1 flex items-center justify-center shrink-0 shadow-md border border-white/20 overflow-hidden">
+              <img
+                src="/logo.png"
+                alt="Workman Services"
+                className="w-full h-full object-contain"
+              />
             </div>
             {!isCollapsed && (
-              <div className="overflow-hidden">
-                <span className="font-bold text-sm tracking-tight text-white block leading-none">
-                  HVAC ERP
+              <div className="overflow-hidden min-w-0">
+                <span className="font-bold text-sm tracking-tight text-white block leading-none truncate">
+                  Workman Services
                 </span>
                 <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider block font-mono mt-0.5 leading-none">
                   OPERATIONS v2
@@ -1119,8 +1123,33 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Bottom Section: Collapse Toggle */}
-      <div className="p-2 space-y-1 border-t border-[#27272A]/40">
+      {/* Bottom Section: Collapse Toggle & Brand Footprint */}
+      <div className="p-2 space-y-1.5 border-t border-[#27272A]/40">
+        {/* Digital Footprint Link */}
+        <div className="px-2 pt-1 text-center">
+          {isCollapsed ? (
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Powered by OmnySync (omnysync.com)"
+              className="inline-block text-[11px] font-bold text-zinc-500 hover:text-emerald-400 transition"
+            >
+              ⚡
+            </a>
+          ) : (
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-emerald-400 transition"
+            >
+              <span>Powered by</span>
+              <span className="font-semibold text-zinc-300 hover:text-emerald-400">OmnySync</span>
+            </a>
+          )}
+        </div>
+
         {/* Sidebar Collapse/Expand Toggle */}
         <button
           type="button"

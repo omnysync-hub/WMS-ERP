@@ -33,9 +33,11 @@ import {
   ChevronDown,
   Sliders,
   Minus,
+  Layers,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { logActivity } from "@/lib/telemetry";
+import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
 
 export default function MobileCompanionPage() {
   const [activeTab, setActiveTab] = useState<"jobs" | "attendance" | "profile">("jobs");
@@ -989,12 +991,12 @@ export default function MobileCompanionPage() {
       {/* Studio Canvas Floating Header */}
       <header className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-3 mb-4 px-4 py-2.5 rounded-2xl bg-[#16181D] border border-white/10 shadow-xl z-20">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-[#0D7A5F] flex items-center justify-center shadow-md text-white font-black text-sm">
-            <Briefcase className="w-4 h-4" />
+          <div className="w-9 h-9 rounded-xl bg-white p-1 flex items-center justify-center shadow-md border border-white/20 shrink-0 overflow-hidden">
+            <img src="/logo.png" alt="Workman Services" className="w-full h-full object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xs font-bold text-white tracking-tight">Workman Field App</h1>
+              <h1 className="text-xs font-bold text-white tracking-tight">Workman Services Field App</h1>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Field Simulator Active
@@ -1350,14 +1352,99 @@ export default function MobileCompanionPage() {
                     </div>
                   )}
 
-                  {selectedJob.remarks && (
-                    <div className="p-2.5 bg-[#F9FAFB] rounded-lg text-xs text-[#52525B] border border-[#EDEDED]">
-                      <span className="font-bold text-[#18181B] block text-[10px] uppercase">
-                        Dispatcher / Equipment Notes:
-                      </span>
-                      {selectedJob.remarks}
-                    </div>
-                  )}
+                  {(() => {
+                    if (!selectedJob.remarks) return null;
+                    const parsed = parseJobRemarks(selectedJob.remarks);
+                    const hasEquip = parsed.equipments && parsed.equipments.length > 0;
+                    return (
+                      <div className="space-y-2">
+                        {hasEquip && (
+                          <div className="p-3 bg-white rounded-xl border border-[#EDEDED] shadow-2xs space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-[#18181B] text-[10px] uppercase flex items-center gap-1">
+                                <Layers className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                                Target Equipment Details ({parsed.equipments!.length})
+                              </span>
+                              {parsed.equipments!.some(
+                                (e) =>
+                                  (e.total && e.total > 0) ||
+                                  (e.unitPrice && e.unitPrice > 0)
+                              ) && (
+                                <span className="text-[10px] font-mono font-bold text-[#0D7A5F] bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                  {formatCurrency(
+                                    parsed.equipments!.reduce(
+                                      (sum, e) =>
+                                        sum +
+                                        (e.total ??
+                                          (e.quantity ?? 1) * (e.unitPrice ?? 0)),
+                                      0
+                                    )
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                            <div className="space-y-1.5">
+                              {parsed.equipments!.map((eq, i) => (
+                                <div
+                                  key={i}
+                                  className="p-2 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs"
+                                >
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div>
+                                      <p className="font-bold text-[#18181B]">{eq.type}</p>
+                                      <p className="text-[11px] text-[#71717A]">
+                                        Brand: <strong className="text-[#18181B]">{eq.brand || "Standard"}</strong>
+                                        {eq.model && ` | Model: ${eq.model}`}
+                                      </p>
+                                    </div>
+                                    {eq.total !== undefined && eq.total > 0 && (
+                                      <span className="font-mono font-bold text-[#0D7A5F] text-[11px] shrink-0">
+                                        {formatCurrency(eq.total)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {((eq.quantity && eq.quantity > 1) ||
+                                    (eq.unitPrice !== undefined && eq.unitPrice > 0)) && (
+                                    <div className="mt-1 pt-1 border-t border-[#EDEDED] flex items-center justify-between text-[10px] text-[#71717A]">
+                                      <span>
+                                        Qty: <strong>{eq.quantity || 1}</strong> units
+                                      </span>
+                                      {eq.unitPrice !== undefined && eq.unitPrice > 0 && (
+                                        <span>
+                                          Rate:{" "}
+                                          <strong className="font-mono text-[#18181B]">
+                                            {formatCurrency(eq.unitPrice)}
+                                          </strong>
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(parsed.primaryDiagnosis || parsed.otherLines.length > 0) && (
+                          <div className="p-2.5 bg-[#F9FAFB] rounded-lg text-xs text-[#52525B] border border-[#EDEDED]">
+                            <span className="font-bold text-[#18181B] block text-[10px] uppercase mb-0.5">
+                              Dispatcher / Problem Notes:
+                            </span>
+                            {parsed.primaryDiagnosis && (
+                              <p className="font-medium text-[#18181B]">
+                                {parsed.primaryDiagnosis}
+                              </p>
+                            )}
+                            {parsed.otherLines.map((l, i) => (
+                              <p key={i} className="mt-0.5">
+                                {l}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Assigned Job Items */}
@@ -2248,8 +2335,19 @@ export default function MobileCompanionPage() {
         </button>
       </nav>
 
-      {/* Smartphone Home Indicator Bar */}
-      <div className="w-32 h-1 bg-zinc-800/40 rounded-full mx-auto my-1.5 shrink-0" />
+      {/* Smartphone Home Indicator Bar & In-App Brand Footprint */}
+      <div className="w-32 h-1 bg-zinc-800/40 rounded-full mx-auto mt-1 mb-0.5 shrink-0" />
+      <div className="pb-1 text-center shrink-0">
+        <a
+          href="https://omnysync.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[9px] text-[#A1A1AA] hover:text-[#0D7A5F] transition inline-flex items-center gap-1"
+        >
+          <span>Powered by</span>
+          <span className="font-semibold text-zinc-600 hover:text-[#0D7A5F]">OmnySync</span>
+        </a>
+      </div>
 
       {/* ========================================================================= */}
       {/* MODAL 1: REQUEST INVENTORY (LINKED TO WAREHOUSE STORE + "CALL STORE" BTN) */}
@@ -3291,6 +3389,23 @@ export default function MobileCompanionPage() {
           </div>
         </div>
       </div>
+
+      {/* Studio Canvas Digital Footprint */}
+      <footer className="mt-4 mb-2 text-center text-xs text-[#71717A] flex items-center justify-center gap-1.5 z-10">
+        <span>Workman Services ERP Mobile Field Suite</span>
+        <span>•</span>
+        <span>
+          Powered by{" "}
+          <a
+            href="https://omnysync.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 transition"
+          >
+            OmnySync
+          </a>
+        </span>
+      </footer>
     </div>
   );
 }

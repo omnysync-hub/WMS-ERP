@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
+import { AuditService } from "@/lib/services/AuditService";
 
 export async function GET(req: NextRequest) {
   try {
@@ -194,9 +195,32 @@ export async function POST(req: NextRequest) {
       job.id,
       "None",
       job.status,
-      "Dispatcher",
+      createGate.actor.name || "Dispatcher",
       { initialItems: items }
     );
+
+    await AuditService.recordCrudAction({
+      actorName: createGate.actor.name || "Dispatcher",
+      actorRole: createGate.actor.role || "dispatcher",
+      actorId: createGate.actor.id,
+      entityType: "Job",
+      entityId: job.id,
+      entityNumber: job.jobNumber,
+      actionType: "CREATE",
+      description: `Created Work Order ${job.jobNumber} for ${job.customer?.name} (${job.jobType})`,
+      stateBefore: null,
+      stateAfter: {
+        id: job.id,
+        jobNumber: job.jobNumber,
+        customerId: job.customerId,
+        jobType: job.jobType,
+        status: job.status,
+        remarks: job.remarks,
+        assignedTechnicianId: job.assignedTechnicianId,
+        items: job.items,
+      },
+      canRollback: true,
+    });
 
     // If any items are linked to inventory products, register pending inventory requests for the warehouse
     if (items && items.length > 0) {

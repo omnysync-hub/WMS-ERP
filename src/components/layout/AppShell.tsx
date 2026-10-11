@@ -163,11 +163,27 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <main
               id="main-content"
               tabIndex={-1}
-              className="flex-1 bg-[#F7F7F8] lg:rounded-tl-2xl overflow-y-auto p-3.5 sm:p-5 shadow-[inset_0_2px_4px_rgba(0,0,0,0.06)] focus:outline-none"
+              className="flex-1 bg-[#F7F7F8] lg:rounded-tl-2xl overflow-y-auto p-3.5 sm:p-5 shadow-[inset_0_2px_4px_rgba(0,0,0,0.06)] focus:outline-none flex flex-col"
             >
-              <div className="w-full max-w-[1920px] mx-auto">
+              <div className="w-full max-w-[1920px] mx-auto flex-1">
                 {children}
               </div>
+              <footer className="w-full max-w-[1920px] mx-auto pt-6 pb-2 mt-auto flex items-center justify-between text-xs text-[#71717A] border-t border-[#E4E4E7]/60">
+                <span className="text-[11px] text-[#A1A1AA]">
+                  © {new Date().getFullYear()} Workman Services. All rights reserved.
+                </span>
+                <span className="text-[11px] font-medium text-[#71717A]">
+                  Powered by{" "}
+                  <a
+                    href="https://omnysync.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-[#0D7A5F] hover:underline transition-colors"
+                  >
+                    OmnySync
+                  </a>
+                </span>
+              </footer>
             </main>
           </div>
         </div>

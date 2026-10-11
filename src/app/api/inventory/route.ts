@@ -4,6 +4,7 @@ import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { InventoryService } from "@/lib/services/InventoryService";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
+import { AuditService } from "@/lib/services/AuditService";
 
 export async function GET(req: NextRequest) {
   try {
@@ -364,8 +365,9 @@ export async function POST(req: NextRequest) {
 
         // Automatically add the issued physical inventory item to the job's line items
         const product = await prisma.product.findUnique({ where: { id: productId } });
+        let createdJobItem = null;
         if (product && invReq.jobId) {
-          await prisma.jobItem.create({
+          createdJobItem = await prisma.jobItem.create({
             data: {
               jobId: invReq.jobId,
               description: `${product.name} (${product.sku}) [Issued by Storekeeper]`,
@@ -375,6 +377,19 @@ export async function POST(req: NextRequest) {
             },
           });
         }
+
+        await AuditService.recordCrudAction({
+          actorName: payload.storeKeeperName || "Storekeeper",
+          actorRole: "storekeeper",
+          entityType: "InventoryRequest",
+          entityId: requestId,
+          entityNumber: invReq.job?.jobNumber || `REQ-${requestId.slice(0, 8)}`,
+          actionType: "INVENTORY",
+          description: `Storekeeper issued ${quantity}x ${product?.name || "item"} for Job #${invReq.job?.jobNumber || ""}`,
+          stateBefore: { status: "pending", productId, quantity: Number(quantity) },
+          stateAfter: { status: "issued", productId, quantity: Number(quantity), jobItemId: createdJobItem?.id },
+          canRollback: true,
+        });
 
         return NextResponse.json({ success: true, request: invReq });
       }

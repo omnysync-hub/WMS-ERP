@@ -57,7 +57,7 @@ export default function FeedbackCallCenterPage() {
       <PageHeader
         breadcrumbs={[{ label: "Call Center Feedback" }]}
         title="Call Center & Quality Feedback"
-        subtitle="After job complete: call customer and technician, write remarks — then the job moves to accountant finalize and auditor verification"
+        subtitle="After job complete: call customer and technician, write remarks — then the job is sent directly to the Auditor to audit and approve or disapprove"
         badge={
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
             <Headphones className="w-3.5 h-3.5 text-[#0D7A5F]" />
@@ -74,7 +74,7 @@ export default function FeedbackCallCenterPage() {
           </span>
           <button
             onClick={() => setNotification("")}
-            className="text-emerald-700 hover:text-emerald-900 font-bold"
+            className="text-emerald-700 hover:text-emerald-900 font-bold cursor-pointer"
             aria-label="Dismiss message"
           >
             ✕
@@ -93,7 +93,7 @@ export default function FeedbackCallCenterPage() {
                   Outbound Quality Check Queue
                 </h3>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Completed jobs awaiting feedback populate here. After you log the calls, the job advances to accountant clearance, then auditor verification.
+                  Completed jobs awaiting feedback populate here. After you log the calls, the job is sent directly to the Auditor Verification Queue for audit and approval/disapproval.
                 </p>
               </div>
               <span className="text-xs font-bold text-[#0D7A5F] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-mono">

@@ -6,8 +6,13 @@ import AppShell from "@/components/layout/AppShell";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Enterprise ERP — HVAC Operations & Management",
-  description: "Enterprise HVAC Operations, Dispatch, Mobile Execution & Accounts",
+  title: "Workman Services ERP — Operations & Management",
+  description: "Workman Services Operations, Dispatch, Mobile Execution & Accounts",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

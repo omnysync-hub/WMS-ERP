@@ -40,6 +40,7 @@ import {
   RotateCcw,
   Wrench,
   Banknote,
+  Undo2,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
@@ -81,6 +82,9 @@ export default function JobDetailPage() {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showSendBackModal, setShowSendBackModal] = useState(false);
   const [sendBackNote, setSendBackNote] = useState("");
+  const [disapproveTarget, setDisapproveTarget] = useState<
+    "InProgress" | "AwaitingFeedback" | "CompletedPendingVerification"
+  >("InProgress");
   const [itemDiscountModalOpen, setItemDiscountModalOpen] = useState(false);
   const [selectedItemToDiscount, setSelectedItemToDiscount] = useState<any>(null);
   const [approvedDiscountAmount, setApprovedDiscountAmount] = useState("");
@@ -434,7 +438,7 @@ export default function JobDetailPage() {
 
   const handleSendBackFromVerification = async () => {
     if (!sendBackNote.trim()) {
-      alert("A send-back note is required.");
+      alert("A disapproval note / reason is required.");
       return;
     }
     try {
@@ -449,6 +453,7 @@ export default function JobDetailPage() {
         body: JSON.stringify({
           action: "send_back",
           note: sendBackNote.trim(),
+          targetStatus: disapproveTarget,
           actor: currentPersona?.name || "Auditor",
         }),
       });
@@ -459,7 +464,13 @@ export default function JobDetailPage() {
       setShowSendBackModal(false);
       setSendBackNote("");
       setSuccessMsg(
-        "Job sent back to accountant (CompletedPendingVerification). Re-finalize after corrections."
+        `Job disapproved by auditor and routed to ${
+          disapproveTarget === "InProgress"
+            ? "Technician (In Progress for Rework)"
+            : disapproveTarget === "AwaitingFeedback"
+            ? "Call Center (Awaiting Feedback Re-Check)"
+            : "Auditor / Accounting Hold (Disputed)"
+        }.`
       );
       fetchJob();
     } catch (e: any) {
@@ -593,7 +604,7 @@ export default function JobDetailPage() {
                   </button>
                 )}
 
-                {canVerify && job.status === "Finalized" && (
+                {canVerify && (job.status === "Finalized" || job.status === "CompletedPendingVerification") && (
                   <>
                     <button
                       type="button"
@@ -601,17 +612,19 @@ export default function JobDetailPage() {
                       className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
                     >
                       <CheckCircle className="w-3.5 h-3.5" />
-                      Auditor Verify
+                      Auditor Approve
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         setSendBackNote("");
+                        setDisapproveTarget("InProgress");
                         setShowSendBackModal(true);
                       }}
-                      className="h-8 px-3.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-semibold text-amber-950 inline-flex items-center gap-1.5 transition shadow-xs"
+                      className="h-8 px-3.5 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-semibold text-rose-950 inline-flex items-center gap-1.5 transition shadow-xs"
                     >
-                      Send Back
+                      <Undo2 className="w-3.5 h-3.5" />
+                      Auditor Disapprove
                     </button>
                   </>
                 )}
@@ -1803,7 +1816,7 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* AUDITOR SEND-BACK MODAL */}
+      {/* AUDITOR DISAPPROVE MODAL */}
       {showSendBackModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
@@ -1812,7 +1825,10 @@ export default function JobDetailPage() {
         >
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl border border-[#E4E4E7]">
             <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B]">Send Back Job</h3>
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <Undo2 className="w-4 h-4 text-rose-700" />
+                Disapprove Work Order #{job.jobNumber}
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowSendBackModal(false)}
@@ -1822,16 +1838,95 @@ export default function JobDetailPage() {
               </button>
             </div>
             <p className="text-xs text-[#52525B]">
-              Supervisor override unlocks this Finalized job back to CompletedPendingVerification.
-              Provide a clear note for the accountant. Ledger postings are not reversed.
+              Audit objection: Disapproving this job marks its quality flag as disputed and routes it back
+              for correction. Select the remediation destination:
             </p>
-            <textarea
-              value={sendBackNote}
-              onChange={(e) => setSendBackNote(e.target.value)}
-              rows={4}
-              placeholder="Reason for send-back…"
-              className="w-full p-2.5 rounded-lg border border-[#D4D4D8] bg-[#F4F4F5] text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-            />
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-[#18181B] block">
+                Routing Destination *
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                <label
+                  className={cn(
+                    "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition",
+                    disapproveTarget === "InProgress"
+                      ? "border-amber-500 bg-amber-50/60 font-semibold"
+                      : "border-[#E4E4E7] bg-white"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="jobDisapproveTarget"
+                    checked={disapproveTarget === "InProgress"}
+                    onChange={() => setDisapproveTarget("InProgress")}
+                    className="mt-0.5 accent-amber-600"
+                  />
+                  <div>
+                    <span className="text-[#18181B] block font-medium">Technician Rework (In Progress)</span>
+                    <span className="text-[11px] text-[#71717A]">
+                      Send back to assigned technician to re-do work or take required photos.
+                    </span>
+                  </div>
+                </label>
+                <label
+                  className={cn(
+                    "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition",
+                    disapproveTarget === "AwaitingFeedback"
+                      ? "border-amber-500 bg-amber-50/60 font-semibold"
+                      : "border-[#E4E4E7] bg-white"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="jobDisapproveTarget"
+                    checked={disapproveTarget === "AwaitingFeedback"}
+                    onChange={() => setDisapproveTarget("AwaitingFeedback")}
+                    className="mt-0.5 accent-amber-600"
+                  />
+                  <div>
+                    <span className="text-[#18181B] block font-medium">Call Center Re-Check (Awaiting Feedback)</span>
+                    <span className="text-[11px] text-[#71717A]">
+                      Return to call center queue for customer follow-up or re-clarification.
+                    </span>
+                  </div>
+                </label>
+                <label
+                  className={cn(
+                    "flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer text-xs transition",
+                    disapproveTarget === "CompletedPendingVerification"
+                      ? "border-amber-500 bg-amber-50/60 font-semibold"
+                      : "border-[#E4E4E7] bg-white"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="jobDisapproveTarget"
+                    checked={disapproveTarget === "CompletedPendingVerification"}
+                    onChange={() => setDisapproveTarget("CompletedPendingVerification")}
+                    className="mt-0.5 accent-amber-600"
+                  />
+                  <div>
+                    <span className="text-[#18181B] block font-medium">Accounting / Audit Hold (Disputed Flag)</span>
+                    <span className="text-[11px] text-[#71717A]">
+                      Hold in verification queue with Disputed flag for management review.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                Disapproval Reason / Auditor Notes *
+              </label>
+              <textarea
+                value={sendBackNote}
+                onChange={(e) => setSendBackNote(e.target.value)}
+                rows={3}
+                required
+                placeholder="Explain what failed audit check (e.g., photo mismatch, complaint unresolved, billing discrepancy)..."
+                className="w-full p-2.5 rounded-lg border border-[#D4D4D8] bg-[#F4F4F5] text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+              />
+            </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
               <button
                 type="button"
@@ -1844,9 +1939,9 @@ export default function JobDetailPage() {
                 type="button"
                 disabled={isProcessing}
                 onClick={handleSendBackFromVerification}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold"
               >
-                Confirm Send Back
+                Confirm Disapproval
               </button>
             </div>
           </div>

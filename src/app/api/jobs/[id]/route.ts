@@ -321,12 +321,14 @@ export async function PATCH(
 
       case "send_back":
       case "send_back_verification":
+      case "disapprove_verification":
       case "reject_verification": {
         const actorName = gate.actor.name || actor;
         result = await JobsService.sendBackFromVerification(
           params.id,
           actorName,
-          payload.note || payload.reason || ""
+          payload.note || payload.reason || "",
+          payload.targetStatus
         );
         break;
       }

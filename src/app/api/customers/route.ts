@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { AuditService } from "@/lib/services/AuditService";
 
 export async function GET(req: NextRequest) {
   try {
@@ -104,6 +105,20 @@ export async function POST(req: NextRequest) {
         lat: parsedLat,
         lng: parsedLng,
       },
+    });
+
+    await AuditService.recordCrudAction({
+      actorName: gate.actor.name || "User",
+      actorRole: gate.actor.role || "user",
+      actorId: gate.actor.id,
+      entityType: "Customer",
+      entityId: customer.id,
+      entityNumber: customer.name,
+      actionType: "CREATE",
+      description: `Created Customer record for ${customer.name} (${customer.phone})`,
+      stateBefore: null,
+      stateAfter: customer,
+      canRollback: true,
     });
 
     return NextResponse.json(customer, { status: 201 });

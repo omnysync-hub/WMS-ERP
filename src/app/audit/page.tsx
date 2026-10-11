@@ -166,6 +166,7 @@ export default function AuditHubPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "rollback",
+          rollbackLogId: selectedRollback.id,
           rollbackId: selectedRollback.id,
           reason: rollbackReason || "User executed manual rollback via Audit Hub",
           actorName: currentPersona.name,

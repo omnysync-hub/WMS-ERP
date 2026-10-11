@@ -95,10 +95,10 @@ export default function FeedbackCallDrawer({
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A634D] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+            className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A634D] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
             <Check className="w-3.5 h-3.5" />
-            {isSubmitting ? "Logging..." : "Log Outcome"}
+            {isSubmitting ? "Routing to Auditor..." : "Log Outcome & Send to Auditor"}
           </button>
         </>
       }

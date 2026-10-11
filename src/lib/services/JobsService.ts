@@ -5,6 +5,7 @@ import { InventoryService } from "./InventoryService";
 import { SubLedgerService } from "./SubLedgerService";
 import { DocumentSequenceService } from "./DocumentSequenceService";
 import { MobilePushService } from "./MobilePushService";
+import { AuditService } from "./AuditService";
 import type { Prisma } from "@prisma/client";
 import {
   JOB_REASSIGNABLE_STATUSES,
@@ -41,7 +42,7 @@ export function isFieldReportedSettlement(s: {
 
 export class JobsService {
   /**
-   * Log transition immutably to JobStatusHistory
+   * Log transition immutably to JobStatusHistory and persist an audit rollback snapshot.
    */
   static async logStatusChange(
     jobId: string,
@@ -50,7 +51,7 @@ export class JobsService {
     changedBy: string,
     meta?: Record<string, any>
   ) {
-    return await prisma.jobStatusHistory.create({
+    const history = await prisma.jobStatusHistory.create({
       data: {
         jobId,
         fromStatus,
@@ -59,6 +60,60 @@ export class JobsService {
         metaJson: meta ? JSON.stringify(meta) : null,
       },
     });
+
+    // Automatically record to Audit Trail & Reversible Rollback Engine
+    try {
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: {
+          id: true,
+          jobNumber: true,
+          assignedTechnicianId: true,
+          discountAmount: true,
+          discountReason: true,
+          finalizedAt: true,
+          verifiedAt: true,
+          qualityFlag: true,
+          remarks: true,
+        },
+      });
+
+      if (job) {
+        await AuditService.recordCrudAction({
+          actorName: changedBy || "System",
+          actorRole: "user",
+          entityType: "Job",
+          entityId: jobId,
+          entityNumber: job.jobNumber,
+          actionType: "STATUS_CHANGE",
+          description: `Work Order ${job.jobNumber} status transition: ${fromStatus} → ${toStatus}${
+            meta?.action ? ` (${meta.action})` : ""
+          }`,
+          stateBefore: {
+            status: fromStatus,
+            assignedTechnicianId: meta?.previousTechnicianId || job.assignedTechnicianId,
+            discountAmount: job.discountAmount,
+            discountReason: job.discountReason,
+            qualityFlag: job.qualityFlag,
+            meta,
+          },
+          stateAfter: {
+            status: toStatus,
+            assignedTechnicianId: meta?.assignedTechnicianId || job.assignedTechnicianId,
+            discountAmount: job.discountAmount,
+            discountReason: job.discountReason,
+            qualityFlag: job.qualityFlag,
+            meta,
+          },
+          metadata: meta,
+          canRollback: true,
+        });
+      }
+    } catch (err) {
+      console.error("[JobsService] Failed recording audit rollback for status change:", err);
+    }
+
+    return history;
   }
 
   /**
@@ -1259,16 +1314,16 @@ export class JobsService {
         },
       });
 
-      return tx.job.findUnique({ where: { id: jobId } });
-    }, TX_OPTS);
+      return await tx.job.findUnique({ where: { id: jobId } });
+    });
 
     return result!;
   }
 
   /**
-   * Admin verification:
+   * Admin / Auditor verification:
    * Checklist-gated approval (work confirmed / payment reconciled / inventory returned).
-   * Feedback (call center) already ran after complete; this is the auditor/admin checklist gate.
+   * Called after Call Center feedback is completed (or on Finalized jobs) to audit and approve.
    */
   static async verifyJob(
     jobId: string,
@@ -1278,10 +1333,9 @@ export class JobsService {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
 
-    // LOGICS section 1: Verified only follows Finalized (accountant lock). Require both status and finalizedAt.
-    if (job.status !== "Finalized" || !job.finalizedAt) {
+    if (job.status !== "Finalized" && job.status !== "CompletedPendingVerification") {
       throw new Error(
-        `Job must be Finalized before it can be verified. Current status: ${job.status}.`
+        `Job must be awaiting audit (CompletedPendingVerification or Finalized) before it can be verified. Current status: ${job.status}.`
       );
     }
 
@@ -1289,6 +1343,15 @@ export class JobsService {
       throw new Error(
         "All verification checklist items (Work Confirmed, Payment Reconciled, Inventory Returned) must be confirmed to verify the job."
       );
+    }
+
+    // If job was in CompletedPendingVerification without finalizedAt, auto-finalize to post revenue & invoice
+    if (job.status === "CompletedPendingVerification" && !job.finalizedAt) {
+      try {
+        await this.finalizeJob(jobId, adminName);
+      } catch (err: any) {
+        console.warn("[verifyJob] Auto-finalize warning:", err.message);
+      }
     }
 
     const updated = await prisma.job.update({
@@ -1301,43 +1364,51 @@ export class JobsService {
       },
     });
 
-    await this.logStatusChange(jobId, job.status, "Verified", adminName, { checklist });
+    await this.logStatusChange(jobId, job.status, "Verified", adminName, {
+      checklist,
+      action: "auditor_approved",
+    });
 
     return updated;
   }
 
   /**
-   * Auditor / supervisor send-back (LOGICS supervisor-override):
-   * Unlocks a Finalized job back to CompletedPendingVerification with a required note.
-   * GL is left as-is here; on re-finalize, finalizeJob recomputes the total and, if it changed,
-   * updates the invoice and reverses + re-posts the revenue JE in one transaction.
+   * Auditor / supervisor send-back & disapproval:
+   * Disapproves a job awaiting audit with a required note and targets rework or dispute.
    */
-  static async sendBackFromVerification(jobId: string, actorName: string, note: string) {
+  static async sendBackFromVerification(
+    jobId: string,
+    actorName: string,
+    note: string,
+    targetStatus?: "InProgress" | "AwaitingFeedback" | "CompletedPendingVerification"
+  ) {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
-    if (job.status !== "Finalized" || !job.finalizedAt) {
+    if (job.status !== "Finalized" && job.status !== "CompletedPendingVerification") {
       throw new Error(
-        `Only Finalized jobs can be sent back from verification. Current status: ${job.status}.`
+        `Only jobs in audit review (CompletedPendingVerification or Finalized) can be disapproved/sent back. Current status: ${job.status}.`
       );
     }
     const reason = (note || "").trim();
     if (!reason) {
-      throw new Error("A send-back note is required (supervisor override reason).");
+      throw new Error("A reason / note is required to disapprove or send back the job.");
     }
+
+    const nextStatus = targetStatus || (job.status === "Finalized" ? "CompletedPendingVerification" : "InProgress");
 
     const updated = await prisma.job.update({
       where: { id: jobId },
       data: {
-        status: "CompletedPendingVerification",
+        status: nextStatus,
         finalizedAt: null,
-        qualityFlag: "sent_back",
+        qualityFlag: "disputed",
         verifiedAt: null,
         verifiedChecklist: null,
       },
     });
 
-    await this.logStatusChange(jobId, "Finalized", "CompletedPendingVerification", actorName, {
-      action: "verification_send_back",
+    await this.logStatusChange(jobId, job.status, nextStatus, actorName, {
+      action: "auditor_disapproved",
       note: reason,
       supervisorOverride: true,
     });
@@ -1346,30 +1417,28 @@ export class JobsService {
   }
 
   /**
-   * Jobs awaiting auditor action: Finalized (post-accountant lock), not yet Verified.
-   * CompletedPendingVerification waits on accountant finalize â€” not in this queue.
+   * Jobs awaiting auditor action:
+   * Includes jobs where call-center feedback completed (CompletedPendingVerification)
+   * as well as accountant-locked (Finalized) jobs awaiting auditor sign-off.
    */
   static async getVerificationQueue(opts?: { search?: string; includeSentBack?: boolean }) {
     const where: any = {
-      status: "Finalized",
-      finalizedAt: { not: null },
+      OR: [
+        { status: "CompletedPendingVerification" },
+        { status: "Finalized" },
+      ],
     };
     if (!opts?.includeSentBack) {
-      where.OR = [{ qualityFlag: null }, { qualityFlag: { not: "sent_back" } }];
+      where.qualityFlag = { notIn: ["sent_back"] };
     }
     if (opts?.search) {
       const q = opts.search;
       const searchClause = [
-        { jobNumber: { contains: q } },
-        { remarks: { contains: q } },
-        { customer: { name: { contains: q } } },
+        { jobNumber: { contains: q, mode: "insensitive" } },
+        { remarks: { contains: q, mode: "insensitive" } },
+        { customer: { name: { contains: q, mode: "insensitive" } } },
       ];
-      const baseOr = where.OR;
-      delete where.OR;
-      const andParts: any[] = [];
-      if (baseOr) andParts.push({ OR: baseOr });
-      andParts.push({ OR: searchClause });
-      where.AND = andParts;
+      where.AND = [{ OR: searchClause }];
     }
 
     return prisma.job.findMany({
@@ -1383,18 +1452,23 @@ export class JobsService {
         inventoryRequests: true,
         stockReturns: true,
         hisaabSettlements: true,
+        feedbackCalls: {
+          orderBy: { calledAt: "desc" },
+        },
         statusHistory: { orderBy: { changedAt: "desc" }, take: 5 },
       },
-      orderBy: { finalizedAt: "asc" },
+      orderBy: { createdAt: "desc" },
     });
   }
 
   static async countPendingVerifications() {
     return prisma.job.count({
       where: {
-        status: "Finalized",
-        finalizedAt: { not: null },
-        OR: [{ qualityFlag: null }, { qualityFlag: { not: "sent_back" } }],
+        OR: [
+          { status: "CompletedPendingVerification" },
+          { status: "Finalized" },
+        ],
+        qualityFlag: { notIn: ["sent_back"] },
       },
     });
   }
