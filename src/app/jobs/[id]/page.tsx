@@ -118,6 +118,7 @@ export default function JobDetailPage() {
   const [workOrderDrawerOpen, setWorkOrderDrawerOpen] = useState(false);
   const [receiveCashDrawerOpen, setReceiveCashDrawerOpen] = useState(false);
   const [selectedSettlementForHandover, setSelectedSettlementForHandover] = useState<any | null>(null);
+  const [deliverableActiveTab, setDeliverableActiveTab] = useState<"all" | "services" | "inventory">("all");
 
   // Fullscreen Photo Lightbox State
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -895,65 +896,6 @@ export default function JobDetailPage() {
             </div>
           </div>
 
-          {/* Customer Past Service History Card */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-[#0D7A5F]" />
-                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Customer Past Service History {job.customerJobHistory?.length ? `(${job.customerJobHistory.length} previous jobs)` : ""}
-                </h2>
-              </div>
-              <span className="text-[11px] text-[#71717A]">
-                Work Order Records
-              </span>
-            </div>
-            {job.customerJobHistory && job.customerJobHistory.length > 0 ? (
-              <div className="p-4 divide-y divide-[#F4F4F5]">
-                {job.customerJobHistory.map((pj: any) => (
-                  <div key={pj.id} className="py-2.5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/jobs/${pj.id}`}
-                          scroll={false}
-                          className="font-mono font-bold text-[#0D7A5F] hover:underline"
-                        >
-                          #{pj.jobNumber}
-                        </Link>
-                        <span className="text-[#18181B] font-semibold">
-                          {pj.title || formatJobType(pj.jobType)}
-                        </span>
-                        <StatusBadge status={pj.status} />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#71717A]">
-                        <span>{pj.createdAt ? new Date(pj.createdAt).toLocaleDateString() : "—"}</span>
-                        {pj.assignedTechnician && (
-                          <span>• Lead Tech: <strong className="text-[#18181B]">{pj.assignedTechnician.name}</strong></span>
-                        )}
-                        {pj.items && pj.items.length > 0 && (
-                          <span>• {pj.items.length} item(s)</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <Link
-                        href={`/jobs/${pj.id}`}
-                        scroll={false}
-                        className="text-[11px] font-semibold text-[#0D7A5F] hover:underline"
-                      >
-                        View Job &rarr;
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-5 text-center text-xs text-[#71717A] italic bg-[#FAFAFA]">
-                No previous work order history on file for this customer (First-time work order).
-              </div>
-            )}
-          </div>
 
           {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
           {(isAccountant || isAdmin) && (
@@ -1052,211 +994,400 @@ export default function JobDetailPage() {
             </div>
           )}
 
-          {/* PLANNED VS ACTUAL LINE ITEMS TABLE (Invariable rule: billing driven strictly by quantity_actual) */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
-              <div>
-                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Planned vs Actual Line Items & Services
-                </h2>
-                <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Billing, invoices, and warehouse stock deductions are calculated strictly from actual completed quantities.
-                </p>
-              </div>
-              {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
-                <button
-                  type="button"
-                  onClick={() => setAddServiceDrawerOpen(true)}
-                  className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
-                >
-                  <Plus className="w-3 h-3" />
-                  + Add Line Item
-                </button>
-              )}
-            </div>
+          {/* SEPARATE SERVICES & INVENTORY DELIVERABLES SECTION */}
+          {(() => {
+            const allItems = job.items || [];
+            const serviceItems = allItems.filter((it: any) => isServiceItem(it));
+            const inventoryItems = allItems.filter((it: any) => !isServiceItem(it));
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                    <th className="py-2.5 px-4">Item Description & Brand</th>
-                    <th className="py-2.5 px-4 text-center">Planned Qty</th>
-                    <th className="py-2.5 px-4 text-center">Actual Qty</th>
-                    {canViewFinancials && !isRestrictedRole ? (
-                      <>
-                        <th className="py-2.5 px-4 text-right">Unit Price (Rate)</th>
-                        <th className="py-2.5 px-4 text-right">Total Price</th>
-                        <th className="py-2.5 px-4 text-right">Discount Action</th>
-                      </>
-                    ) : (
-                      <th className="py-2.5 px-4 text-center">Warehouse Status</th>
+            const servicesPlannedTotal = serviceItems.reduce((s: number, it: any) => s + (it.quantityPlanned || 0) * (it.unitRate || 0), 0);
+            const servicesActualTotal = serviceItems.reduce((s: number, it: any) => {
+              const qty = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
+              return s + (qty || 0) * (it.unitRate || 0);
+            }, 0);
+
+            const inventoryPlannedTotal = inventoryItems.reduce((s: number, it: any) => s + (it.quantityPlanned || 0) * (it.unitRate || 0), 0);
+            const inventoryActualTotal = inventoryItems.reduce((s: number, it: any) => {
+              const qty = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
+              return s + (qty || 0) * (it.unitRate || 0);
+            }, 0);
+
+            const renderItemRow = (item: any) => {
+              const actualQty = item.quantityActual;
+              const isService = isServiceItem(item);
+              const rowActualTotal =
+                actualQty !== null && actualQty !== undefined
+                  ? actualQty * item.unitRate
+                  : item.quantityPlanned * item.unitRate;
+
+              const isRequested = item.description?.includes("[Discount Requested:");
+              const isApproved = item.description?.includes("[Discount Approved:");
+              const isIssuedByStore = item.description?.includes("[Issued by Storekeeper]");
+              const cleanTitle = (item.description || "")
+                .replace(/^\s*\[Service\]\s*/gi, "")
+                .replace(/\s*\[Service\]/gi, "")
+                .replace(/^\s*\[Product\]\s*/gi, "")
+                .replace(/\s*\[Product\]/gi, "")
+                .replace(/\s*\[Service Added by.*?\]/gi, "")
+                .replace(/\s*\[Issued by Storekeeper\]/gi, "")
+                .replace(/\s*\[Issued by.*?\]/gi, "")
+                .replace(/\s*\[Discount.*?\]/gi, "")
+                .trim();
+
+              const brandMatch = (job.remarks || "").match(/Brand:\s*([^|\]]+)/i);
+              const extractedBrand = brandMatch ? brandMatch[1].trim() : null;
+
+              return (
+                <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
+                  <td className="py-2.5 px-4 font-medium text-[#18181B]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-zinc-900">{cleanTitle}</span>
+                      {isService ? (
+                        <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                          Service Task
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">
+                          Warehouse Stock
+                        </span>
+                      )}
+                      {extractedBrand && !isService && (
+                        <span className="text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">
+                          Brand: {extractedBrand}
+                        </span>
+                      )}
+                    </div>
+                    {isRequested && canViewFinancials && !isRestrictedRole && (
+                      <div className="mt-1">
+                        <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          ⏳ {item.description.match(/\[Discount Requested: ([^\]]+)\]/)?.[1] || "Discount Requested"}
+                        </span>
+                      </div>
                     )}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E4E4E7]">
-                  {job.items && job.items.length > 0 ? (
-                    job.items.map((item: any) => {
-                      const actualQty = item.quantityActual;
-                      const isService = isServiceItem(item);
-                      const rowActualTotal =
-                        actualQty !== null && actualQty !== undefined
-                          ? actualQty * item.unitRate
-                          : item.quantityPlanned * item.unitRate;
-
-                      const isRequested = item.description?.includes("[Discount Requested:");
-                      const isApproved = item.description?.includes("[Discount Approved:");
-                      const isIssuedByStore = item.description?.includes("[Issued by Storekeeper]");
-                      const cleanTitle = (item.description || "")
-                        .replace(/^\s*\[Service\]\s*/gi, "")
-                        .replace(/\s*\[Service\]/gi, "")
-                        .replace(/^\s*\[Product\]\s*/gi, "")
-                        .replace(/\s*\[Product\]/gi, "")
-                        .replace(/\s*\[Service Added by.*?\]/gi, "")
-                        .replace(/\s*\[Issued by Storekeeper\]/gi, "")
-                        .replace(/\s*\[Issued by.*?\]/gi, "")
-                        .replace(/\s*\[Discount.*?\]/gi, "")
-                        .trim();
-
-                      const brandMatch = (job.remarks || "").match(/Brand:\s*([^|\]]+)/i);
-                      const extractedBrand = brandMatch ? brandMatch[1].trim() : null;
-
-                      return (
-                        <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
-                          <td className="py-2.5 px-4 font-medium text-[#18181B]">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span>{cleanTitle}</span>
-                              {extractedBrand && !isService && (
-                                <span className="text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">
-                                  Brand: {extractedBrand}
-                                </span>
-                              )}
-                            </div>
-                            {isRequested && canViewFinancials && !isRestrictedRole && (
-                              <div className="mt-1">
-                                <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                  ⏳ {item.description.match(/\[Discount Requested: ([^\]]+)\]/)?.[1] || "Discount Requested"}
-                                </span>
-                              </div>
-                            )}
-                            {isApproved && canViewFinancials && !isRestrictedRole && (
-                              <div className="mt-1">
-                                <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                  ✓ {item.description.match(/\[Discount Approved: ([^\]]+)\]/)?.[1] || "Discount Approved"}
-                                </span>
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4 text-center text-[#71717A] font-mono">
-                            {isService ? (
-                              <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
-                            ) : (
-                              item.quantityPlanned
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4 text-center">
-                            {isService ? (
-                              <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
-                            ) : actualQty !== null && actualQty !== undefined ? (
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-[11px]">
-                                {actualQty}
-                              </span>
-                            ) : (
-                              <span className="text-[#A1A1AA] italic text-[11px]">
-                                Pending Tech Completion
-                              </span>
-                            )}
-                          </td>
-                          {canViewFinancials && !isRestrictedRole ? (
-                            <>
-                              <td className="py-2.5 px-4 text-right font-mono text-[#52525B]">
-                                {formatCurrency(item.unitRate)}
-                              </td>
-                              <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
-                                {formatCurrency(rowActualTotal)}
-                              </td>
-                              <td className="py-2.5 px-4 text-right">
-                                {!job.finalizedAt && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedItemToDiscount(item);
-                                      const match = item.description?.match(/\[Discount Requested: \$?([0-9.]+)/i);
-                                      setApprovedDiscountAmount(match ? match[1] : "");
-                                      setItemDiscountModalOpen(true);
-                                    }}
-                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition shadow-2xs ${
-                                      isRequested
-                                        ? "bg-amber-600 hover:bg-amber-700 text-white"
-                                        : "bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B]"
-                                    }`}
-                                  >
-                                    {isRequested ? "Authorize Discount" : "Give Discount"}
-                                  </button>
-                                )}
-                              </td>
-                            </>
-                          ) : (
-                            <td className="py-2.5 px-4 text-center">
-                              {isService ? (
-                                <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                                  Service Line
-                                </span>
-                              ) : isIssuedByStore ? (
-                                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                  ✓ Warehouse Issued
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-medium text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full">
-                                  Scope Item
-                                </span>
-                              )}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={canViewFinancials && !isRestrictedRole ? 6 : 4} className="py-8 text-center text-[#71717A] text-xs">
-                        No planned line items recorded during intake. Scope of work and materials will be recorded by the technician or accountant.
+                    {isApproved && canViewFinancials && !isRestrictedRole && (
+                      <div className="mt-1">
+                        <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          ✓ {item.description.match(/\[Discount Approved: ([^\]]+)\]/)?.[1] || "Discount Approved"}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-4 text-center text-[#71717A] font-mono">
+                    {isService ? (
+                      <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
+                    ) : (
+                      item.quantityPlanned
+                    )}
+                  </td>
+                  <td className="py-2.5 px-4 text-center">
+                    {isService ? (
+                      <span className="text-[#A1A1AA] font-mono select-none" title="Flat Service Rate (Quantity Not Applicable)">—</span>
+                    ) : actualQty !== null && actualQty !== undefined ? (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-[11px]">
+                        {actualQty}
+                      </span>
+                    ) : (
+                      <span className="text-[#A1A1AA] italic text-[11px]">
+                        Pending Tech Completion
+                      </span>
+                    )}
+                  </td>
+                  {canViewFinancials && !isRestrictedRole ? (
+                    <>
+                      <td className="py-2.5 px-4 text-right font-mono text-[#52525B]">
+                        {formatCurrency(item.unitRate)}
                       </td>
-                    </tr>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
+                        {formatCurrency(rowActualTotal)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right">
+                        {!job.finalizedAt && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedItemToDiscount(item);
+                              const match = item.description?.match(/\[Discount Requested: \$?([0-9.]+)/i);
+                              setApprovedDiscountAmount(match ? match[1] : "");
+                              setItemDiscountModalOpen(true);
+                            }}
+                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition shadow-2xs ${
+                              isRequested
+                                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                : "bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B]"
+                            }`}
+                          >
+                            {isRequested ? "Authorize Discount" : "Give Discount"}
+                          </button>
+                        )}
+                      </td>
+                    </>
+                  ) : (
+                    <td className="py-2.5 px-4 text-center">
+                      {isService ? (
+                        <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                          Service Line
+                        </span>
+                      ) : isIssuedByStore ? (
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                          ✓ Warehouse Issued
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full">
+                          Scope Item
+                        </span>
+                      )}
+                    </td>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </tr>
+              );
+            };
 
-            {/* Financial Summary vs Physical Scope Footer */}
-            {canViewFinancials && !isRestrictedRole ? (
-              <div className="p-5 bg-[#FAFAFA] border-t border-[#E4E4E7] space-y-1.5 text-xs">
-                <div className="flex items-center justify-between text-[#71717A]">
-                  <span>Planned Estimated Total:</span>
-                  <span className="font-mono">{formatCurrency(plannedTotal)}</span>
+            return (
+              <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden space-y-0">
+                {/* Master Header with Tab Navigation */}
+                <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Planned vs Actual Deliverables · Services & Inventory
+                    </h2>
+                    <p className="text-[11px] text-[#71717A] mt-0.5">
+                      Services and warehouse inventory are tracked separately with dedicated subtotals and verification.
+                    </p>
+                  </div>
+
+                  {/* Section View Tabs & Actions */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="inline-flex rounded-lg bg-[#E4E4E7]/70 p-0.5 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setDeliverableActiveTab("all")}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md transition text-[11px]",
+                          deliverableActiveTab === "all"
+                            ? "bg-white text-zinc-900 shadow-2xs font-bold"
+                            : "text-zinc-600 hover:text-zinc-900"
+                        )}
+                      >
+                        All ({allItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliverableActiveTab("services")}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md transition text-[11px] inline-flex items-center gap-1",
+                          deliverableActiveTab === "services"
+                            ? "bg-white text-emerald-800 shadow-2xs font-bold"
+                            : "text-zinc-600 hover:text-zinc-900"
+                        )}
+                      >
+                        <Wrench className="w-3 h-3 text-emerald-600" />
+                        Services ({serviceItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliverableActiveTab("inventory")}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md transition text-[11px] inline-flex items-center gap-1",
+                          deliverableActiveTab === "inventory"
+                            ? "bg-white text-blue-800 shadow-2xs font-bold"
+                            : "text-zinc-600 hover:text-zinc-900"
+                        )}
+                      >
+                        <Package className="w-3 h-3 text-blue-600" />
+                        Inventory ({inventoryItems.length})
+                      </button>
+                    </div>
+
+                    {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
+                      <button
+                        type="button"
+                        onClick={() => setAddServiceDrawerOpen(true)}
+                        className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
+                      >
+                        <Plus className="w-3 h-3" />
+                        + Add Service
+                      </button>
+                    )}
+
+                    {canIssueStock && (
+                      <button
+                        type="button"
+                        onClick={() => openIssueInventoryModal()}
+                        className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition flex items-center gap-1 shadow-2xs"
+                      >
+                        <Package className="w-3 h-3 text-amber-700" />
+                        + Issue Stock
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[#18181B] font-semibold">
-                  <span>Actual Completed Subtotal:</span>
-                  <span className="font-mono">{formatCurrency(effectiveBillAmount)}</span>
-                </div>
-                {job.discountAmount > 0 && (
-                  <div className="flex items-center justify-between text-[#D97706] font-medium">
-                    <span>
-                      Approved Mid-Job Discount
-                      {job.discountReason && ` (${job.discountReason})`}:
-                    </span>
-                    <span className="font-mono font-bold">
-                      -{formatCurrency(job.discountAmount)}
-                    </span>
+
+                {/* 1. SECTION: SERVICES & TECHNICAL LABOR */}
+                {(deliverableActiveTab === "all" || deliverableActiveTab === "services") && (
+                  <div className="border-b border-[#E4E4E7]">
+                    <div className="px-5 py-2.5 bg-emerald-50/50 border-b border-emerald-100/80 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wrench className="w-4 h-4 text-[#0D7A5F]" />
+                        <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
+                          1. Services & Technical Labor ({serviceItems.length})
+                        </span>
+                        <span className="text-[10px] text-emerald-700 hidden sm:inline">
+                          • Diagnostic inspections, maintenance tasks & service fees
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-emerald-900 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded">
+                          Subtotal: {formatCurrency(servicesActualTotal)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                            <th className="py-2 px-4">Service Description</th>
+                            <th className="py-2 px-4 text-center">Planned Scope</th>
+                            <th className="py-2 px-4 text-center">Execution Status</th>
+                            {canViewFinancials && !isRestrictedRole ? (
+                              <>
+                                <th className="py-2 px-4 text-right">Service Rate</th>
+                                <th className="py-2 px-4 text-right">Total Price</th>
+                                <th className="py-2 px-4 text-right">Discount Action</th>
+                              </>
+                            ) : (
+                              <th className="py-2 px-4 text-center">Service Status</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E4E4E7]">
+                          {serviceItems.length > 0 ? (
+                            serviceItems.map(renderItemRow)
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={canViewFinancials && !isRestrictedRole ? 6 : 4}
+                                className="py-6 text-center text-[#71717A] text-xs italic bg-white"
+                              >
+                                No technical service or labor items recorded. Use &quot;+ Add Service&quot; to log work scopes.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
-                <div className="flex items-center justify-between text-sm font-bold text-[#18181B] pt-2 border-t border-[#E4E4E7]">
-                  <span>Final Invoiced Amount:</span>
-                  <span className="font-mono text-[#0D7A5F] text-base font-black">
-                    {formatCurrency(netPayable)}
-                  </span>
-                </div>
+
+                {/* 2. SECTION: INVENTORY, SPARE PARTS & MATERIALS */}
+                {(deliverableActiveTab === "all" || deliverableActiveTab === "inventory") && (
+                  <div>
+                    <div className="px-5 py-2.5 bg-blue-50/50 border-b border-blue-100/80 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Package className="w-4 h-4 text-blue-700" />
+                        <span className="text-xs font-bold text-blue-950 uppercase tracking-wider">
+                          2. Inventory, Spare Parts & Warehouse Materials ({inventoryItems.length})
+                        </span>
+                        <span className="text-[10px] text-blue-700 hidden sm:inline">
+                          • Physical parts, consumables & appliances deducted from warehouse
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-blue-900 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded">
+                          Subtotal: {formatCurrency(inventoryActualTotal)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                            <th className="py-2 px-4">Item Description & Brand</th>
+                            <th className="py-2 px-4 text-center">Planned Qty</th>
+                            <th className="py-2 px-4 text-center">Actual Qty</th>
+                            {canViewFinancials && !isRestrictedRole ? (
+                              <>
+                                <th className="py-2 px-4 text-right">Unit Price (Rate)</th>
+                                <th className="py-2 px-4 text-right">Total Price</th>
+                                <th className="py-2 px-4 text-right">Discount Action</th>
+                              </>
+                            ) : (
+                              <th className="py-2 px-4 text-center">Warehouse Status</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E4E4E7]">
+                          {inventoryItems.length > 0 ? (
+                            inventoryItems.map(renderItemRow)
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={canViewFinancials && !isRestrictedRole ? 6 : 4}
+                                className="py-6 text-center text-[#71717A] text-xs italic bg-white"
+                              >
+                                No physical spare parts or inventory items assigned to this work order.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Combined Financial Reconciliation Footer */}
+                {canViewFinancials && !isRestrictedRole ? (
+                  <div className="p-5 bg-[#FAFAFA] border-t border-[#E4E4E7] space-y-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pb-3 border-b border-[#E4E4E7]/80">
+                      <div className="p-2.5 bg-white rounded-lg border border-[#E4E4E7]">
+                        <span className="text-[10px] text-[#71717A] uppercase font-bold block">Planned Estimated Total</span>
+                        <span className="font-mono font-bold text-[#18181B] text-sm mt-0.5 block">
+                          {formatCurrency(plannedTotal)}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200">
+                        <span className="text-[10px] text-emerald-800 uppercase font-bold block">Services Subtotal</span>
+                        <span className="font-mono font-bold text-emerald-950 text-sm mt-0.5 block">
+                          {formatCurrency(servicesActualTotal)}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-blue-50/70 rounded-lg border border-blue-200">
+                        <span className="text-[10px] text-blue-800 uppercase font-bold block">Inventory & Parts Subtotal</span>
+                        <span className="font-mono font-bold text-blue-950 text-sm mt-0.5 block">
+                          {formatCurrency(inventoryActualTotal)}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-200">
+                        <span className="text-[10px] text-zinc-600 uppercase font-bold block">Combined Completed Subtotal</span>
+                        <span className="font-mono font-bold text-zinc-900 text-sm mt-0.5 block">
+                          {formatCurrency(effectiveBillAmount)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {job.discountAmount > 0 && (
+                      <div className="flex items-center justify-between text-[#D97706] font-medium pt-1">
+                        <span>
+                          Approved Mid-Job Discount
+                          {job.discountReason && ` (${job.discountReason})`}:
+                        </span>
+                        <span className="font-mono font-bold">
+                          -{formatCurrency(job.discountAmount)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between text-sm font-bold text-[#18181B] pt-2 border-t border-[#E4E4E7]">
+                      <span>Final Invoiced Amount:</span>
+                      <span className="font-mono text-[#0D7A5F] text-base font-black">
+                        {formatCurrency(netPayable)}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+            );
+          })()}
 
           {/* Settlements & Field Expenses (Masked if lacks financial permission or restricted role) */}
           {canViewFinancials && !isRestrictedRole && (
@@ -1673,8 +1804,8 @@ export default function JobDetailPage() {
             )}
           </div>
 
-          {/* Central Warehouse Material & Inventory Issuance Card (Shown under Assigned Technician) */}
-          {(canIssueStock || canStockReturn || (job.inventoryRequests && job.inventoryRequests.length > 0) || (job.stockReturns && job.stockReturns.length > 0)) && (
+          {/* Central Warehouse Material & Inventory Issuance Card (Strictly visible only to Warehouse Storekeeper) */}
+          {isStorekeeper && (
             <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-amber-100">
                 <div className="flex items-center gap-2">

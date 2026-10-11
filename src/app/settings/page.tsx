@@ -15,6 +15,7 @@ import {
   FileCheck,
   Building,
   Cpu,
+  Briefcase,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 
@@ -22,6 +23,18 @@ export default function SettingsHubPage() {
   const { activeUser, currentPersona, hasPermission } = useRole();
 
   const settingsCards = [
+    {
+      title: "Job Nature / Type Dropdown",
+      subtitle: "Add, Edit & Remove Service Types",
+      description:
+        "Customize options for Job Nature / Type dropdowns (Installation & Commissioning, Emergency Repair, AC Gas Recharge, etc.) used across job creation and booking forms.",
+      href: "/settings/job-types",
+      icon: Briefcase,
+      badge: "Service Intake",
+      badgeColor: "bg-amber-50 text-amber-800 border-amber-200",
+      enabled: true,
+      statText: "Configurable Job Natures",
+    },
     {
       title: "User Accounts & Role Permissions",
       subtitle: "Granular Sub-Part Access Matrix",
@@ -59,16 +72,16 @@ export default function SettingsHubPage() {
       statText: "Inventory Scaling",
     },
     {
-      title: "Product & Equipment Dropdowns",
-      subtitle: "Appliance Types, Brands & Job Natures",
+      title: "Product, Brand & Model Dropdowns",
+      subtitle: "Searchable Textboxes & Catalog Presets",
       description:
-        "Customize options for equipment product types, manufacturer brands, and job natures used across search dropdowns in job booking and material requisition forms.",
+        "Customize options for equipment appliance types, manufacturer brands, and model/specification presets used across searchable combobox textboxes in job booking.",
       href: "/settings/product-dropdowns",
       icon: Cpu,
       badge: "Equipment & Catalogs",
       badgeColor: "bg-teal-50 text-teal-800 border-teal-200",
       enabled: true,
-      statText: "Configurable Dropdowns",
+      statText: "Searchable Textbox Engine",
     },
   ];
 

@@ -219,15 +219,24 @@ export async function GET(req: NextRequest) {
     let lowStockCount = 0;
 
     const inventoryList = products.map((p: any) => {
-      const currentStock = p.stockEntries?.reduce((sum: number, entry: any) => {
-        return entry.type === "in" ? sum + entry.qty : sum - entry.qty;
-      }, 0) || 0;
+      // Prioritize canonical stockQuantity on Product; if not set, derive from stockEntries using direction ('in' vs 'out')
+      let currentStock = typeof p.stockQuantity === "number" ? p.stockQuantity : 0;
+      if (currentStock === 0 && p.stockEntries && p.stockEntries.length > 0) {
+        currentStock = p.stockEntries.reduce((sum: number, entry: any) => {
+          const dir = entry.direction || entry.type;
+          return dir === "in" ? sum + entry.qty : sum - entry.qty;
+        }, 0);
+      }
 
-      const unitPrice = p.unitPrice || 0;
-      const value = currentStock * unitPrice;
+      // Warehouse physical stock cannot have negative asset value
+      const effectiveStock = Math.max(0, currentStock);
+      // Inventory asset valuation uses cost price (or unit price if cost is 0)
+      const valuationRate = p.costPrice > 0 ? p.costPrice : p.unitPrice || 0;
+      const value = effectiveStock * valuationRate;
       totalStockValuation += value;
 
-      if (currentStock <= (p.minStockLevel || 5)) {
+      const minLevel = p.reorderLevel ?? p.minStockLevel ?? 5;
+      if (effectiveStock <= minLevel) {
         lowStockCount++;
       }
 
@@ -236,10 +245,10 @@ export async function GET(req: NextRequest) {
         name: p.name,
         category: p.category || "HVAC Material",
         sku: p.sku || `SKU-${p.id.slice(0, 6).toUpperCase()}`,
-        currentStock,
-        unitPrice,
+        currentStock: effectiveStock,
+        unitPrice: p.unitPrice || valuationRate,
         value,
-        isLow: currentStock <= (p.minStockLevel || 5),
+        isLow: effectiveStock <= minLevel,
       };
     });
 

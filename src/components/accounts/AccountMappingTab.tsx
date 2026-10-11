@@ -9,14 +9,7 @@ import {
   Search,
   Check,
   Layers,
-  Sparkles,
-  ArrowRight,
   ShieldCheck,
-  CheckCheck,
-  XCircle,
-  Lightbulb,
-  History,
-  TrendingUp,
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,33 +50,8 @@ interface CompletenessSummary {
   missing: string[];
 }
 
-interface SuggestionItem {
-  id: string;
-  transactionType: string;
-  transactionTypeName: string;
-  domain: string;
-  currentAccountId: string | null;
-  currentAccountCode: string | null;
-  currentAccountName: string | null;
-  suggestedAccountId: string;
-  suggestedAccountCode: string;
-  suggestedAccountName: string;
-  suggestedAccountType: string;
-  confidenceScore: number;
-  confidencePercentage: number;
-  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
-  rationale: string;
-  sourceTransactionIds: string[];
-  sampleDescriptions: string[];
-  totalAmountSampled: number;
-  status: "pending" | "accepted" | "rejected" | "skipped";
-  reviewedBy: string | null;
-  reviewedAt: string | null;
-  createdAt: string;
-}
-
 interface AccountMappingTabProps {
-  initialSubTab?: "mappings" | "suggestions";
+  initialSubTab?: string;
   targetTransactionType?: string;
   /** Compact layout for embedding inside the /setup wizard */
   setupMode?: boolean;
@@ -149,18 +117,12 @@ export default function AccountMappingTab({
   setupMode = false,
   onCompletenessChange,
 }: AccountMappingTabProps = {}) {
-  const [activeSubTab, setActiveSubTab] = useState<"mappings" | "suggestions">(initialSubTab);
   const [mappings, setMappings] = useState<MappingItem[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [completeness, setCompleteness] = useState<CompletenessSummary | null>(null);
-  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isScanning, setIsScanning] = useState(false);
-  const [isAcceptingAll, setIsAcceptingAll] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [applyingSameAs, setApplyingSameAs] = useState<string | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-  const [customOverrides, setCustomOverrides] = useState<Record<string, string>>({});
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [createFor, setCreateFor] = useState<MappingItem | null>(null);
@@ -170,35 +132,26 @@ export default function AccountMappingTab({
   const [selectedDomain, setSelectedDomain] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "CONFIGURED" | "UNSET">("ALL");
 
-  // Filters for suggestions
-  const [suggestionStatusFilter, setSuggestionStatusFilter] = useState<"pending" | "accepted" | "skipped" | "ALL">("pending");
-
   const loadData = async () => {
     setLoading(true);
     try {
-      const [mappingRes, chartRes, suggestionsRes] = await Promise.all([
+      const [mappingRes, chartRes] = await Promise.all([
         fetch("/api/accounts?view=account_mappings"),
         fetch("/api/accounts?view=chart"),
-        fetch("/api/accounts?view=mapping_suggestions&status=ALL"),
       ]);
 
       const mappingData = await mappingRes.json();
       const chartData = await chartRes.json();
-      const suggestionsData = await suggestionsRes.json();
 
       if (mappingData.success) {
         setMappings(mappingData.mappings || []);
         const nextCompleteness = mappingData.completeness || null;
-      setCompleteness(nextCompleteness);
-      onCompletenessChange?.(nextCompleteness);
+        setCompleteness(nextCompleteness);
+        onCompletenessChange?.(nextCompleteness);
       }
 
       if (chartData.success) {
         setAccounts(chartData.rawAccounts || []);
-      }
-
-      if (suggestionsData.success) {
-        setSuggestions(suggestionsData.suggestions || []);
       }
     } catch (err: any) {
       setErrorToast(err.message || "Failed to load mapping data");
@@ -214,10 +167,6 @@ export default function AccountMappingTab({
   useEffect(() => {
     onCompletenessChange?.(completeness);
   }, [completeness]);
-
-  useEffect(() => {
-    if (setupMode) setActiveSubTab("mappings");
-  }, [setupMode]);
 
   const handleUpdateMapping = async (transactionType: string, newAccountId: string) => {
     if (!newAccountId) return;
@@ -326,124 +275,6 @@ export default function AccountMappingTab({
     }
   };
 
-  const handleScanTransactions = async () => {
-    setIsScanning(true);
-    setErrorToast(null);
-    try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "scan_suggestions",
-          companyId: "DEFAULT",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to scan transactions");
-      }
-
-      await loadData();
-      setSuccessToast(
-        `AI scan complete. Evaluated ${data.scannedCount} transactions. Found ${data.newSuggestionsCount} new proposals.`
-      );
-      setTimeout(() => setSuccessToast(null), 4000);
-    } catch (err: any) {
-      setErrorToast(err.message || "Failed to scan transactions");
-      setTimeout(() => setErrorToast(null), 5000);
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
-  const handleReviewSuggestion = async (
-    auditId: string,
-    action: "accept" | "skip" | "reject",
-    overrideAccountId?: string
-  ) => {
-    setReviewingId(auditId);
-    setErrorToast(null);
-    try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "review_suggestion",
-          auditId,
-          decision: action,
-          overrideAccountId,
-          companyId: "DEFAULT",
-          actorName: "Admin User",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to review suggestion");
-      }
-
-      // Update local suggestions
-      setSuggestions((prev) =>
-        prev.map((s) =>
-          s.id === auditId
-            ? {
-                ...s,
-                status: action === "accept" ? "accepted" : action === "skip" ? "skipped" : "rejected",
-                reviewedBy: "Admin User",
-                reviewedAt: new Date().toISOString(),
-              }
-            : s
-        )
-      );
-
-      // If accepted, reload mappings to update GL account code
-      if (action === "accept") {
-        await loadData();
-      }
-
-      setSuccessToast(
-        action === "accept"
-          ? "Suggestion accepted! Chart of Accounts mapping updated."
-          : `Suggestion marked as ${action}.`
-      );
-      setTimeout(() => setSuccessToast(null), 3500);
-    } catch (err: any) {
-      setErrorToast(err.message || "Failed to process review");
-      setTimeout(() => setErrorToast(null), 5000);
-    } finally {
-      setReviewingId(null);
-    }
-  };
-
-  const handleAcceptAllHighConfidence = async () => {
-    setIsAcceptingAll(true);
-    setErrorToast(null);
-    try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "accept_high_confidence",
-          companyId: "DEFAULT",
-          actorName: "Admin User",
-          threshold: 0.85,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to accept high confidence suggestions");
-      }
-
-      await loadData();
-      setSuccessToast(`Accepted ${data.acceptedCount} high-confidence suggestion(s) successfully.`);
-      setTimeout(() => setSuccessToast(null), 4000);
-    } catch (err: any) {
-      setErrorToast(err.message || "Failed to accept high confidence suggestions");
-      setTimeout(() => setErrorToast(null), 5000);
-    } finally {
-      setIsAcceptingAll(false);
-    }
-  };
-
   const domains = Array.from(new Set(mappings.map((m) => m.domain)));
 
   const filteredMappings = mappings.filter((m) => {
@@ -462,14 +293,6 @@ export default function AccountMappingTab({
       (statusFilter === "UNSET" && !m.isConfigured);
 
     return matchesSearch && matchesDomain && matchesStatus;
-  });
-
-  const pendingSuggestions = suggestions.filter((s) => s.status === "pending");
-  const highConfidencePending = pendingSuggestions.filter((s) => s.confidenceScore >= 0.85);
-
-  const filteredSuggestions = suggestions.filter((s) => {
-    if (suggestionStatusFilter === "ALL") return true;
-    return s.status === suggestionStatusFilter;
   });
 
   return (
@@ -501,23 +324,13 @@ export default function AccountMappingTab({
                   Settings · Enterprise Account Mapping Engine
                 </h3>
                 <p className="text-xs text-[#71717A]">
-                  Configurable dispatch layer connecting operational transactions to the Chart of Accounts, backed by an AI Suggestion Agent.
+                  Configurable dispatch layer connecting operational transactions to the Chart of Accounts.
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleScanTransactions}
-              disabled={isScanning || loading}
-              className="px-3.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] border border-emerald-200 text-xs font-bold inline-flex items-center gap-1.5 transition"
-            >
-              <Sparkles className={cn("w-3.5 h-3.5", isScanning && "animate-spin")} />
-              {isScanning ? "Scanning Transactions..." : "Scan Transactions"}
-            </button>
-
             <button
               type="button"
               onClick={loadData}
@@ -530,49 +343,12 @@ export default function AccountMappingTab({
           </div>
         </div>
 
-        {/* View Toggle Bar (Standard Mappings vs AI Review Queue) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-          <div className="inline-flex p-1 bg-[#F4F4F5] rounded-xl border border-[#EDEDED]">
-            <button
-              type="button"
-              onClick={() => setActiveSubTab("mappings")}
-              className={cn(
-                "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition",
-                activeSubTab === "mappings"
-                  ? "bg-white text-[#18181B] shadow-xs"
-                  : "text-[#71717A] hover:text-[#18181B]"
-              )}
-            >
-              <Layers className="w-3.5 h-3.5 text-[#0D7A5F]" />
-              Account Mappings
-              <span className="font-mono text-[10px] px-1.5 py-0.2 bg-[#F4F4F5] rounded text-[#71717A]">
-                {mappings.length}
-              </span>
-            </button>
-
-            {!setupMode && (<button
-              type="button"
-              onClick={() => setActiveSubTab("suggestions")}
-              className={cn(
-                "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition relative",
-                activeSubTab === "suggestions"
-                  ? "bg-white text-[#18181B] shadow-xs"
-                  : "text-[#71717A] hover:text-[#18181B]"
-              )}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              AI Review Queue
-              {pendingSuggestions.length > 0 && (
-                <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 bg-amber-500 text-white rounded-full">
-                  {pendingSuggestions.length}
-                </span>
-              )}
-            </button>)}
-          </div>
-
-          {/* Completeness Summary (Small Pill) */}
-          {completeness && (
-            <div className="flex items-center gap-2 text-xs">
+        {completeness && (
+          <div className="flex items-center justify-between gap-3 pt-1 text-xs">
+            <span className="font-semibold text-zinc-700">
+              Transaction Rules ({mappings.length})
+            </span>
+            <div className="flex items-center gap-2">
               <span className="text-[#71717A]">Completeness:</span>
               <span
                 className={cn(
@@ -585,15 +361,14 @@ export default function AccountMappingTab({
                 {completeness.configured} of {completeness.total} ({completeness.percentage}%)
               </span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* ========================================================================= */}
-      {/* SUB-VIEW 1: STANDARD MAPPINGS LIST                                        */}
+      {/* STANDARD MAPPINGS LIST                                                    */}
       {/* ========================================================================= */}
-      {activeSubTab === "mappings" && (
-        <div className="space-y-4">
+      <div className="space-y-4">
           {/* Same-as quick-fill for cash/bank/control groups */}
       <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -941,326 +716,7 @@ export default function AccountMappingTab({
               })}
           </div>
         </div>
-      )}
 
-      {/* ========================================================================= */}
-      {/* SUB-VIEW 2: AI SUGGESTION REVIEW QUEUE                                    */}
-      {/* ========================================================================= */}
-      {activeSubTab === "suggestions" && (
-        <div className="space-y-4 animate-in fade-in">
-          {/* Agent Banner & Batch Action Bar */}
-          <div className="p-5 rounded-xl bg-gradient-to-r from-emerald-900 via-[#0D7A5F] to-teal-800 text-white shadow-sm space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  <h4 className="text-sm font-bold uppercase tracking-wider">
-                    AI Transaction Suggestion Agent & Review Queue
-                  </h4>
-                </div>
-                <p className="text-xs text-emerald-100 max-w-2xl leading-relaxed">
-                  Automated scanner parses historical journal entries, field expense vouchers, and stock notes to detect broad account allocations (e.g. 6100, 6200, 5000) and propose targeted Chart of Accounts splits with confidence scores.
-                </p>
-              </div>
-
-              {/* Batch Action Button */}
-              {highConfidencePending.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleAcceptAllHighConfidence}
-                  disabled={isAcceptingAll}
-                  className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-amber-950 font-bold text-xs flex items-center gap-2 shadow-md transition shrink-0"
-                >
-                  <CheckCheck className={cn("w-4 h-4", isAcceptingAll && "animate-spin")} />
-                  {isAcceptingAll
-                    ? "Applying High Confidence Mappings..."
-                    : `Accept All High Confidence (${highConfidencePending.length})`}
-                </button>
-              )}
-            </div>
-
-            {/* Filter Toggle Pills */}
-            <div className="flex items-center gap-2 pt-2 border-t border-emerald-700/50">
-              <button
-                type="button"
-                onClick={() => setSuggestionStatusFilter("pending")}
-                className={cn(
-                  "px-3 py-1 rounded-lg text-xs font-bold transition",
-                  suggestionStatusFilter === "pending"
-                    ? "bg-white text-[#0D7A5F]"
-                    : "bg-emerald-800/60 text-emerald-100 hover:bg-emerald-800"
-                )}
-              >
-                Pending Review ({pendingSuggestions.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSuggestionStatusFilter("accepted")}
-                className={cn(
-                  "px-3 py-1 rounded-lg text-xs font-bold transition",
-                  suggestionStatusFilter === "accepted"
-                    ? "bg-white text-[#0D7A5F]"
-                    : "bg-emerald-800/60 text-emerald-100 hover:bg-emerald-800"
-                )}
-              >
-                Accepted History (
-                {suggestions.filter((s) => s.status === "accepted").length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSuggestionStatusFilter("skipped")}
-                className={cn(
-                  "px-3 py-1 rounded-lg text-xs font-bold transition",
-                  suggestionStatusFilter === "skipped"
-                    ? "bg-white text-[#0D7A5F]"
-                    : "bg-emerald-800/60 text-emerald-100 hover:bg-emerald-800"
-                )}
-              >
-                Skipped (
-                {suggestions.filter((s) => s.status === "skipped").length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSuggestionStatusFilter("ALL")}
-                className={cn(
-                  "px-3 py-1 rounded-lg text-xs font-bold transition",
-                  suggestionStatusFilter === "ALL"
-                    ? "bg-white text-[#0D7A5F]"
-                    : "bg-emerald-800/60 text-emerald-100 hover:bg-emerald-800"
-                )}
-              >
-                All Records ({suggestions.length})
-              </button>
-            </div>
-          </div>
-
-          {/* Suggestion Cards */}
-          {filteredSuggestions.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-              <div className="w-12 h-12 rounded-full bg-emerald-50 text-[#0D7A5F] flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <h4 className="text-sm font-bold text-[#18181B]">
-                Review Queue is Clear
-              </h4>
-              <p className="text-xs text-[#71717A] max-w-md mx-auto">
-                No suggestions matching the selected filter. Click &ldquo;Scan Transactions&rdquo; above to run the AI pattern detector across recent activity.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredSuggestions.map((item) => {
-                const isReviewing = reviewingId === item.id;
-                const selectedOverride = customOverrides[item.id] || item.suggestedAccountId;
-
-                // Compatible accounts if user wants to change
-                const compatibleAccounts = accounts.filter(
-                  (acc) => acc.level === 4 && acc.isActive
-                );
-
-                return (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      "bg-white rounded-xl border p-5 shadow-xs transition space-y-4",
-                      item.status === "pending"
-                        ? "border-[#E4E4E7] hover:border-emerald-300"
-                        : "border-[#EDEDED] bg-[#FAFAFA]"
-                    )}
-                  >
-                    {/* Top Row: Domain, Title, Confidence Badge */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#EDEDED]">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#F4F4F5] text-[#71717A] border border-[#E4E4E7]">
-                          {item.domain}
-                        </span>
-                        <h4 className="text-xs font-bold text-[#18181B]">
-                          {item.transactionTypeName}
-                        </h4>
-                        <span className="font-mono text-[10px] text-[#71717A]">
-                          ({item.transactionType})
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {/* Confidence Score Pill */}
-                        <span
-                          className={cn(
-                            "px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono inline-flex items-center gap-1",
-                            item.confidenceLevel === "HIGH"
-                              ? "bg-emerald-100 text-[#065F46] border border-emerald-200"
-                              : item.confidenceLevel === "MEDIUM"
-                              ? "bg-amber-100 text-amber-900 border border-amber-200"
-                              : "bg-zinc-100 text-zinc-700 border border-zinc-200"
-                          )}
-                        >
-                          <TrendingUp className="w-3 h-3" />
-                          {item.confidencePercentage}% Match · {item.confidenceLevel} Confidence
-                        </span>
-
-                        {/* Status Badge */}
-                        {item.status !== "pending" && (
-                          <span
-                            className={cn(
-                              "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
-                              item.status === "accepted"
-                                ? "bg-emerald-50 text-[#0D7A5F] border border-emerald-200"
-                                : item.status === "skipped"
-                                ? "bg-zinc-100 text-zinc-600"
-                                : "bg-rose-50 text-rose-600"
-                            )}
-                          >
-                            {item.status}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Middle Row: Comparison (Current -> Suggested) */}
-                    <div className="grid grid-cols-1 md:grid-cols-11 gap-3 items-center">
-                      {/* Current Account */}
-                      <div className="md:col-span-5 p-3 rounded-lg bg-[#F4F4F5] border border-[#EDEDED] space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-[#71717A] block font-mono">
-                          Current Mapping
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-[#18181B]">
-                            {item.currentAccountCode || "Unset"}
-                          </span>
-                          <span className="text-xs text-[#71717A] truncate">
-                            {item.currentAccountName || "No account assigned"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Transition Icon */}
-                      <div className="md:col-span-1 flex justify-center text-[#71717A]">
-                        <ArrowRight className="w-4 h-4" />
-                      </div>
-
-                      {/* Suggested Account */}
-                      <div className="md:col-span-5 p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-[#065F46] block font-mono">
-                          AI Suggested Target
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-[#0D7A5F]">
-                            {item.suggestedAccountCode}
-                          </span>
-                          <span className="text-xs font-bold text-[#18181B] truncate">
-                            {item.suggestedAccountName}
-                          </span>
-                          <span className="text-[10px] font-mono uppercase bg-white text-[#71717A] px-1.5 py-0.2 rounded border border-emerald-200">
-                            {item.suggestedAccountType}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Rationale & Keyword Evidence */}
-                    <div className="p-3 rounded-lg bg-[#FAFAFA] border border-[#EDEDED] text-xs text-[#3F3F46] space-y-2">
-                      <div className="flex items-start gap-2">
-                        <Lightbulb className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                        <p className="leading-relaxed font-medium">
-                          {item.rationale}
-                        </p>
-                      </div>
-
-                      {item.sampleDescriptions.length > 0 && (
-                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                          <span className="text-[10px] font-mono text-[#71717A]">
-                            Pattern triggers:
-                          </span>
-                          {item.sampleDescriptions.map((desc, idx) => (
-                            <span
-                              key={idx}
-                              className="text-[10px] bg-white border border-[#E4E4E7] px-1.5 py-0.2 rounded font-mono text-[#71717A]"
-                            >
-                              #{desc}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Review Action Controls (If Pending) */}
-                    {item.status === "pending" && (
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-[#EDEDED]">
-                        {/* Change Account Dropdown */}
-                        <div className="flex items-center gap-2 flex-1 max-w-sm">
-                          <span className="text-[11px] font-semibold text-[#71717A] shrink-0">
-                            Customize:
-                          </span>
-                          <select
-                            value={selectedOverride}
-                            disabled={isReviewing}
-                            onChange={(e) =>
-                              setCustomOverrides((prev) => ({
-                                ...prev,
-                                [item.id]: e.target.value,
-                              }))
-                            }
-                            className="w-full text-xs font-medium rounded-lg border border-[#EDEDED] px-2 py-1.5 bg-white text-[#18181B] focus:outline-none focus:border-[#0D7A5F]"
-                          >
-                            <option value={item.suggestedAccountId}>
-                              Use Suggested: {item.suggestedAccountCode} — {item.suggestedAccountName}
-                            </option>
-                            {compatibleAccounts
-                              .filter((acc) => acc.id !== item.suggestedAccountId)
-                              .map((acc) => (
-                                <option key={acc.id} value={acc.id}>
-                                  {acc.code} — {acc.name} ({acc.type})
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleReviewSuggestion(item.id, "skip")}
-                            disabled={isReviewing}
-                            className="px-3 py-1.5 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#71717A] transition"
-                          >
-                            Skip
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleReviewSuggestion(item.id, "accept", selectedOverride)
-                            }
-                            disabled={isReviewing}
-                            className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
-                          >
-                            <Check className={cn("w-3.5 h-3.5", isReviewing && "animate-spin")} />
-                            {isReviewing ? "Applying..." : "Accept Suggestion"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Review Metadata (If Reviewed) */}
-                    {item.status !== "pending" && item.reviewedBy && (
-                      <div className="flex items-center gap-2 text-[11px] text-[#A1A1AA] pt-1">
-                        <History className="w-3 h-3" />
-                        <span>
-                          Reviewed by {item.reviewedBy} on{" "}
-                          {item.reviewedAt ? new Date(item.reviewedAt).toLocaleDateString() : "recent"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
       <CoaAccountModal
         isOpen={!!createFor}
         mode="create"

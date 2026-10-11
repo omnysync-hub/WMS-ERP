@@ -32,6 +32,7 @@ import {
   Clock,
 } from "lucide-react";
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
+import SearchableCombobox from "@/components/ui/SearchableCombobox";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { cn, formatCurrency, formatJobType } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -80,6 +81,22 @@ const HVAC_BRANDS = [
   "Panasonic",
   "Midea",
   "Voltas",
+];
+
+// Common HVAC Equipment Models & Specifications
+const COMMON_MODELS = [
+  "Inverter Split 1.5 Ton Fairy Series",
+  "Inverter Split 1.0 Ton Fairy Series",
+  "Inverter Split 2.0 Ton Fairy Series",
+  "Floor Standing 2.0 Ton / 4.0 Ton",
+  "Cassette 2.0 Ton Inverter",
+  "Cassette 4.0 Ton Inverter",
+  "Ducted Split 3.0 Ton High Static",
+  "VRF Outdoor Condenser Unit 10 HP",
+  "AHU / FCU 600 CFM Ducted",
+  "Commercial Package Unit 5.0 Ton",
+  "Commercial Package Unit 10.0 Ton",
+  "Cold Storage Freezer Unit 3HP",
 ];
 
 // Quick HVAC Service Presets with Standard Market Rates (PKR)
@@ -338,17 +355,42 @@ export default function NewJobIntakePage() {
 
   const [configuredEquipmentTypes, setConfiguredEquipmentTypes] = useState<string[]>(COMMON_EQUIPMENT_TYPES);
   const [configuredBrands, setConfiguredBrands] = useState<string[]>(HVAC_BRANDS);
+  const [configuredModels, setConfiguredModels] = useState<string[]>(COMMON_MODELS);
   const [configuredJobTypes, setConfiguredJobTypes] = useState<string[]>(COMMON_JOB_TYPES);
 
   useEffect(() => {
-    try {
-      const savedEquip = localStorage.getItem("custom_equipment_types");
-      if (savedEquip) setConfiguredEquipmentTypes(JSON.parse(savedEquip));
-      const savedBrands = localStorage.getItem("custom_hvac_brands");
-      if (savedBrands) setConfiguredBrands(JSON.parse(savedBrands));
-      const savedJobs = localStorage.getItem("custom_job_types");
-      if (savedJobs) setConfiguredJobTypes(JSON.parse(savedJobs));
-    } catch {}
+    const syncDropdowns = () => {
+      try {
+        const savedEquip = localStorage.getItem("custom_equipment_types");
+        if (savedEquip) setConfiguredEquipmentTypes(JSON.parse(savedEquip));
+        const savedBrands = localStorage.getItem("custom_hvac_brands");
+        if (savedBrands) setConfiguredBrands(JSON.parse(savedBrands));
+        const savedModels = localStorage.getItem("custom_hvac_models");
+        if (savedModels) {
+          const parsed = JSON.parse(savedModels);
+          if (Array.isArray(parsed) && parsed.length > 0) setConfiguredModels(parsed);
+        }
+        const savedJobs = localStorage.getItem("custom_job_types");
+        if (savedJobs) {
+          const parsed = JSON.parse(savedJobs);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setConfiguredJobTypes(parsed);
+          }
+        }
+      } catch (err) {
+        console.error("Failed loading custom dropdown options", err);
+      }
+    };
+
+    syncDropdowns();
+    window.addEventListener("storage", syncDropdowns);
+    window.addEventListener("custom_job_types_updated", syncDropdowns as EventListener);
+    window.addEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
+    return () => {
+      window.removeEventListener("storage", syncDropdowns);
+      window.removeEventListener("custom_job_types_updated", syncDropdowns as EventListener);
+      window.removeEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
+    };
   }, []);
 
   const equipmentTypeOptions = useMemo(() => {
@@ -1110,68 +1152,34 @@ export default function NewJobIntakePage() {
                           <label className="font-semibold text-[#18181B] block mb-1">
                             Product / Appliance Type *
                           </label>
-                          <SearchableSelect
-                            options={equipmentTypeOptions}
-                            value={eq.isCustomProductType ? "CUSTOM" : eq.productType}
-                            onChange={(val: string) => {
-                              if (val === "CUSTOM") {
-                                handleUpdateEquipmentLine(eq.id, "isCustomProductType", true);
-                              } else {
-                                handleUpdateEquipmentLine(eq.id, "isCustomProductType", false);
-                                handleUpdateEquipmentLine(eq.id, "productType", val);
-                              }
-                            }}
-                            placeholder="Search or pick appliance type..."
-                            searchPlaceholder="Search appliance types..."
-                            className="w-full bg-white"
+                          <SearchableCombobox
+                            options={configuredEquipmentTypes}
+                            value={eq.productType}
+                            onChange={(val: string) =>
+                              handleUpdateEquipmentLine(eq.id, "productType", val)
+                            }
+                            placeholder="Type or pick appliance..."
+                            className="w-full"
                           />
-                          {eq.isCustomProductType && (
-                            <input
-                              type="text"
-                              placeholder="Type custom appliance type..."
-                              value={eq.customProductType}
-                              onChange={(e) =>
-                                handleUpdateEquipmentLine(eq.id, "customProductType", e.target.value)
-                              }
-                              className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
-                            />
-                          )}
                           <span className="text-[10px] text-[#71717A] mt-1 block">
                             Type or pick HVAC appliance
                           </span>
                         </div>
 
-                        {/* 2. Brand (Col span 3) */}
-                        <div className="lg:col-span-3">
+                        {/* 2. Brand (Col span 2) */}
+                        <div className="lg:col-span-2">
                           <label className="font-semibold text-[#18181B] block mb-1">
                             Equipment Brand (Type or Select)
                           </label>
-                          <SearchableSelect
-                            options={brandOptions}
-                            value={eq.isCustomBrand ? "CUSTOM" : eq.brand}
-                            onChange={(val: string) => {
-                              if (val === "CUSTOM") {
-                                handleUpdateEquipmentLine(eq.id, "isCustomBrand", true);
-                              } else {
-                                handleUpdateEquipmentLine(eq.id, "isCustomBrand", false);
-                                handleUpdateEquipmentLine(eq.id, "brand", val);
-                              }
-                            }}
-                            placeholder="Search or pick brand..."
-                            searchPlaceholder="Search brands (e.g. Gree, Daikin)..."
-                            className="w-full bg-white"
+                          <SearchableCombobox
+                            options={configuredBrands}
+                            value={eq.brand}
+                            onChange={(val: string) =>
+                              handleUpdateEquipmentLine(eq.id, "brand", val)
+                            }
+                            placeholder="Type or pick brand..."
+                            className="w-full"
                           />
-                          {eq.isCustomBrand && (
-                            <input
-                              type="text"
-                              placeholder="Type brand manufacturer..."
-                              value={eq.customBrand}
-                              onChange={(e) =>
-                                handleUpdateEquipmentLine(eq.id, "customBrand", e.target.value)
-                              }
-                              className="w-full mt-1.5 bg-white p-2 text-xs rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
-                            />
-                          )}
                           <span className="text-[10px] text-[#71717A] mt-1 block">
                             Brand manufacturer
                           </span>
@@ -1182,14 +1190,14 @@ export default function NewJobIntakePage() {
                           <label className="font-semibold text-[#18181B] block mb-1">
                             Model / Specification
                           </label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Inverter Split 1.5 Ton"
+                          <SearchableCombobox
+                            options={configuredModels}
                             value={eq.model}
-                            onChange={(e) =>
-                              handleUpdateEquipmentLine(eq.id, "model", e.target.value)
+                            onChange={(val: string) =>
+                              handleUpdateEquipmentLine(eq.id, "model", val)
                             }
-                            className="w-full bg-white p-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+                            placeholder="Type or pick model..."
+                            className="w-full"
                           />
                           <span className="text-[10px] text-[#71717A] mt-1 block">
                             Series specification
@@ -1242,13 +1250,21 @@ export default function NewJobIntakePage() {
                           </span>
                         </div>
 
-                        {/* 6. Total (Col span 1) */}
-                        <div className="lg:col-span-1">
+                        {/* 6. Total (Col span 2) */}
+                        <div className="lg:col-span-2">
                           <label className="font-semibold text-[#18181B] block mb-1">
                             Total
                           </label>
-                          <div className="p-2.5 bg-emerald-50/60 rounded-lg border border-emerald-200/80 text-center">
-                            <span className="font-mono font-bold text-[#0D7A5F] text-xs block truncate" title={formatCurrency(lineTotal)}>
+                          <div className="px-2 py-2.5 bg-emerald-50/80 rounded-lg border border-emerald-200/90 text-center flex items-center justify-center min-h-[42px] overflow-hidden">
+                            <span
+                              className={cn(
+                                "font-mono font-bold text-[#0D7A5F] block leading-tight whitespace-nowrap overflow-x-auto scrollbar-none",
+                                formatCurrency(lineTotal).length > 16
+                                  ? "text-[11px]"
+                                  : "text-xs sm:text-[13px]"
+                              )}
+                              title={formatCurrency(lineTotal)}
+                            >
                               {formatCurrency(lineTotal)}
                             </span>
                           </div>

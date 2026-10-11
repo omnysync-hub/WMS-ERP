@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   Building2,
   CheckCircle2,
@@ -12,11 +11,32 @@ import {
   FolderTree,
   CalendarDays,
   MapPin,
-  ArrowRight,
   ShieldCheck,
+  Pencil,
+  Trash2,
+  RotateCcw,
+  Plus,
+  X,
+  Sparkles,
+  Calendar,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { CompanyProfile, EMPTY_COMPANY_PROFILE, normalizeCompanyProfile } from "@/lib/companyProfile";
 import { invalidateCompanyProfile } from "@/hooks/useCompanyProfile";
+
+interface LeaveTypeItem {
+  id: string;
+  name: string;
+  accrualRule: string;
+  maxDays: number;
+}
+
+interface HolidayItem {
+  id: string;
+  name: string;
+  date: string;
+  description: string | null;
+}
 
 interface CompanyReadiness {
   profileComplete: boolean;
@@ -68,16 +88,32 @@ export default function CompanyOnboardingTab() {
   const [holidayDate, setHolidayDate] = useState("");
   const [holidayDescription, setHolidayDescription] = useState("");
 
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
+  const [holidays, setHolidays] = useState<HolidayItem[]>([]);
+  const [editingLeaveTypeId, setEditingLeaveTypeId] = useState<string | null>(null);
+  const [editingHolidayId, setEditingHolidayId] = useState<string | null>(null);
+  const [isSeedingDefaults, setIsSeedingDefaults] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/company-profile?includeReadiness=1", { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load company onboarding");
+      const [profileRes, leaveRes] = await Promise.all([
+        fetch("/api/company-profile?includeReadiness=1", { cache: "no-store" }),
+        fetch("/api/hrm/leave?foundations=true", { cache: "no-store" }),
+      ]);
+      const data = await profileRes.json();
+      if (!profileRes.ok) throw new Error(data.error || "Could not load company onboarding");
       setProfile(normalizeCompanyProfile(data.profile));
       setReadiness(data.readiness || null);
       setChecklist(data.checklist || []);
+
+      if (leaveRes.ok) {
+        const leaveData = await leaveRes.json();
+        if (leaveData.leaveTypes) setLeaveTypes(leaveData.leaveTypes);
+        if (leaveData.holidays) setHolidays(leaveData.holidays);
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load company onboarding");
     } finally {
@@ -99,13 +135,6 @@ export default function CompanyOnboardingTab() {
     { label: "Departments", value: readiness?.departmentCount || 0, icon: FolderTree },
     { label: "Leave types", value: readiness?.leaveTypeCount || 0, icon: CalendarDays },
     { label: "Work sites", value: readiness?.geofenceCount || 0, icon: MapPin },
-  ];
-
-  const nextSteps = [
-    { title: "Build workforce", description: "Add employees, departments, designations, and reporting lines.", href: "/hrm?tab=employees", icon: Users },
-    { title: "Configure leave", description: "Review leave types and maintain the company holiday calendar.", href: "/hrm?tab=leave", icon: CalendarDays },
-    { title: "Set attendance sites", description: "Create workplaces and assign staff to approved geofences.", href: "/hrm?tab=attendance", icon: MapPin },
-    { title: "Review payroll", description: "Confirm employee salary records before running payroll.", href: "/hrm?tab=payroll", icon: ShieldCheck },
   ];
 
   const updateField = (field: keyof CompanyProfile, value: string | number) => {
@@ -136,14 +165,147 @@ export default function CompanyOnboardingTab() {
     }
   };
 
+  const startEditLeaveType = (lt: LeaveTypeItem) => {
+    setEditingLeaveTypeId(lt.id);
+    setLeaveTypeName(lt.name);
+    setLeaveDays(String(lt.maxDays));
+    setLeaveRule(lt.accrualRule);
+  };
+
+  const cancelEditLeaveType = () => {
+    setEditingLeaveTypeId(null);
+    setLeaveTypeName("");
+    setLeaveDays("");
+    setLeaveRule("");
+  };
+
+  const deleteLeaveType = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete leave type "${name}"? This will also remove associated employee balances.`)) {
+      return;
+    }
+    setDeletingId(id);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/hrm/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_leave_type", id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not delete leave type");
+      setMessage(`Leave type "${name}" removed successfully.`);
+      if (editingLeaveTypeId === id) cancelEditLeaveType();
+      await load();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete leave type");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const startEditHoliday = (h: HolidayItem) => {
+    setEditingHolidayId(h.id);
+    setHolidayName(h.name);
+    setHolidayDate(h.date ? h.date.slice(0, 10) : "");
+    setHolidayDescription(h.description || "");
+  };
+
+  const cancelEditHoliday = () => {
+    setEditingHolidayId(null);
+    setHolidayName("");
+    setHolidayDate("");
+    setHolidayDescription("");
+  };
+
+  const deleteHoliday = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete holiday "${name}"?`)) {
+      return;
+    }
+    setDeletingId(id);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/hrm/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_holiday", id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not delete holiday");
+      setMessage(`Holiday "${name}" removed successfully.`);
+      if (editingHolidayId === id) cancelEditHoliday();
+      await load();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete holiday");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleSeedDefaults = async () => {
+    setIsSeedingDefaults(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/hrm/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "seed_defaults" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to restore default leave types");
+      setMessage("Default leave policies (Annual, Sick, Casual, Emergency) ensured successfully.");
+      await load();
+    } catch (err: any) {
+      setError(err.message || "Could not restore defaults");
+    } finally {
+      setIsSeedingDefaults(false);
+    }
+  };
+
   const saveFoundation = async (kind: "leave" | "holiday") => {
     setFoundationSaving(kind);
     setMessage("");
     setError("");
     try {
-      const payload = kind === "leave"
-        ? { action: "create_leave_type", name: leaveTypeName, maxDays: Number(leaveDays), accrualRule: leaveRule }
-        : { action: "create_holiday", name: holidayName, date: holidayDate, description: holidayDescription };
+      let payload: any;
+      if (kind === "leave") {
+        if (editingLeaveTypeId) {
+          payload = {
+            action: "update_leave_type",
+            id: editingLeaveTypeId,
+            name: leaveTypeName,
+            maxDays: Number(leaveDays),
+            accrualRule: leaveRule,
+          };
+        } else {
+          payload = {
+            action: "create_leave_type",
+            name: leaveTypeName,
+            maxDays: Number(leaveDays),
+            accrualRule: leaveRule,
+          };
+        }
+      } else {
+        if (editingHolidayId) {
+          payload = {
+            action: "update_holiday",
+            id: editingHolidayId,
+            name: holidayName,
+            date: holidayDate,
+            description: holidayDescription,
+          };
+        } else {
+          payload = {
+            action: "create_holiday",
+            name: holidayName,
+            date: holidayDate,
+            description: holidayDescription,
+          };
+        }
+      }
+
       const response = await fetch("/api/hrm/leave", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,15 +314,13 @@ export default function CompanyOnboardingTab() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not save HR foundation");
       if (kind === "leave") {
-        setLeaveTypeName("");
-        setLeaveDays("");
-        setLeaveRule("");
-        setMessage("Leave type created and balances initialized for active employees.");
+        const wasEditing = Boolean(editingLeaveTypeId);
+        cancelEditLeaveType();
+        setMessage(wasEditing ? "Leave policy updated successfully." : "Leave type created and balances initialized for active employees.");
       } else {
-        setHolidayName("");
-        setHolidayDate("");
-        setHolidayDescription("");
-        setMessage("Company holiday added to the calendar.");
+        const wasEditing = Boolean(editingHolidayId);
+        cancelEditHoliday();
+        setMessage(wasEditing ? "Company holiday updated successfully." : "Company holiday added to the calendar.");
       }
       await load();
     } catch (foundationError) {
@@ -284,70 +444,390 @@ export default function CompanyOnboardingTab() {
         </aside>
       </div>
 
-      <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h3 className="text-sm font-bold text-zinc-900">Continue HR setup</h3>
-          <p className="mt-1 text-xs text-zinc-500">Complete the remaining foundations using live master data, not fixed demo records.</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {nextSteps.map(({ title, description, href, icon: Icon }) => (
-            <Link key={title} href={href} className="group rounded-xl border border-zinc-200 p-4 transition hover:border-emerald-300 hover:bg-emerald-50/40">
-              <Icon className="h-5 w-5 text-emerald-700" />
-              <p className="mt-3 text-sm font-bold text-zinc-900">{title}</p>
-              <p className="mt-1 min-h-10 text-xs leading-5 text-zinc-500">{description}</p>
-              <span className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-emerald-700">Open setup <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" /></span>
-            </Link>
-          ))}
-        </div>
-      </section>
 
-      <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h3 className="text-sm font-bold text-zinc-900">Leave and holiday foundations</h3>
-          <p className="mt-1 text-xs text-zinc-500">Create policies for this company instead of loading fixed sample calendars or allowances.</p>
+      <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4">
+          <div>
+            <h3 className="text-sm font-bold text-zinc-900">Leave and holiday foundations</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              Configure company leave allowances (Annual, Sick, Casual, etc.) and official holidays. Add new types, edit allowances, or delete policies.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSeedDefaults}
+            disabled={isSeedingDefaults}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[#065F46] text-xs font-semibold transition shrink-0 shadow-2xs disabled:opacity-50"
+            title="Restore or ensure default statutory leave types (Annual 22d, Sick 15d, Casual 7d, Emergency 5d)"
+          >
+            {isSeedingDefaults ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="w-3.5 h-3.5 text-emerald-700" />
+            )}
+            <span>Ensure Default Leave Types</span>
+          </button>
         </div>
-        <div className="grid gap-5 lg:grid-cols-2">
-          <form onSubmit={(event) => { event.preventDefault(); void saveFoundation("leave"); }} className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-zinc-900">Add leave type</p>
-              <span className="text-[10px] font-semibold text-zinc-500">{readiness?.leaveTypeCount || 0} configured</span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
-              <label className="space-y-1 text-[11px] font-semibold text-zinc-600">Name
-                <input required className={fieldClass} value={leaveTypeName} onChange={(event) => setLeaveTypeName(event.target.value)} placeholder="Annual leave" />
-              </label>
-              <label className="space-y-1 text-[11px] font-semibold text-zinc-600">Days per year
-                <input required min="0.5" step="0.5" type="number" className={fieldClass} value={leaveDays} onChange={(event) => setLeaveDays(event.target.value)} placeholder="20" />
-              </label>
-            </div>
-            <label className="space-y-1 text-[11px] font-semibold text-zinc-600">Accrual / eligibility rule
-              <input required className={fieldClass} value={leaveRule} onChange={(event) => setLeaveRule(event.target.value)} placeholder="Describe how this leave is earned" />
-            </label>
-            <button disabled={foundationSaving === "leave"} className="inline-flex h-9 items-center gap-2 rounded-lg bg-zinc-900 px-3 text-xs font-bold text-white disabled:opacity-60">
-              {foundationSaving === "leave" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Add leave type
-            </button>
-          </form>
 
-          <form onSubmit={(event) => { event.preventDefault(); void saveFoundation("holiday"); }} className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-zinc-900">Add company holiday</p>
-              <span className="text-[10px] font-semibold text-zinc-500">{readiness?.holidayCount || 0} configured</span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
-              <label className="space-y-1 text-[11px] font-semibold text-zinc-600">Holiday name
-                <input required className={fieldClass} value={holidayName} onChange={(event) => setHolidayName(event.target.value)} placeholder="Company holiday" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* ================================================================= */}
+          {/* COLUMN 1: LEAVE TYPES & POLICIES                                  */}
+          {/* ================================================================= */}
+          <div className="space-y-4">
+            {/* Create / Edit Form */}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveFoundation("leave");
+              }}
+              className={cn(
+                "space-y-3 rounded-xl border p-4 transition",
+                editingLeaveTypeId
+                  ? "border-emerald-300 bg-emerald-50/40 ring-1 ring-emerald-300"
+                  : "border-zinc-200 bg-zinc-50/80"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-emerald-700" />
+                  <p className="text-xs font-bold text-zinc-900">
+                    {editingLeaveTypeId ? "Edit leave policy" : "Add leave type"}
+                  </p>
+                </div>
+                <span className="text-[10px] font-semibold text-zinc-500">
+                  {leaveTypes.length} configured
+                </span>
+              </div>
+
+              {editingLeaveTypeId && (
+                <div className="text-[11px] text-emerald-800 bg-emerald-100/70 px-2.5 py-1 rounded-lg flex items-center justify-between">
+                  <span>Modifying policy: <strong>{leaveTypeName || "Selected type"}</strong></span>
+                  <button
+                    type="button"
+                    onClick={cancelEditLeaveType}
+                    className="text-xs font-bold hover:underline inline-flex items-center gap-0.5"
+                  >
+                    <X className="w-3 h-3" /> Cancel
+                  </button>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
+                <label className="space-y-1 text-[11px] font-semibold text-zinc-600">
+                  Name (e.g. Annual, Sick, Casual)
+                  <input
+                    required
+                    className={fieldClass}
+                    value={leaveTypeName}
+                    onChange={(event) => setLeaveTypeName(event.target.value)}
+                    placeholder="Annual leave"
+                  />
+                </label>
+                <label className="space-y-1 text-[11px] font-semibold text-zinc-600">
+                  Days per year
+                  <input
+                    required
+                    min="0.5"
+                    step="0.5"
+                    type="number"
+                    className={fieldClass}
+                    value={leaveDays}
+                    onChange={(event) => setLeaveDays(event.target.value)}
+                    placeholder="22"
+                  />
+                </label>
+              </div>
+
+              <label className="space-y-1 text-[11px] font-semibold text-zinc-600">
+                Accrual / eligibility rule
+                <input
+                  required
+                  className={fieldClass}
+                  value={leaveRule}
+                  onChange={(event) => setLeaveRule(event.target.value)}
+                  placeholder="e.g. 22 days/year (prorated), Certified medical required"
+                />
               </label>
-              <label className="space-y-1 text-[11px] font-semibold text-zinc-600">Date
-                <input required type="date" className={fieldClass} value={holidayDate} onChange={(event) => setHolidayDate(event.target.value)} />
-              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={foundationSaving === "leave"}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-zinc-900 px-3.5 text-xs font-bold text-white transition hover:bg-zinc-800 disabled:opacity-60"
+                >
+                  {foundationSaving === "leave" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {editingLeaveTypeId ? "Update leave policy" : "Add leave type"}
+                </button>
+
+                {editingLeaveTypeId && (
+                  <button
+                    type="button"
+                    onClick={cancelEditLeaveType}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {/* List of Configured Leave Types */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-bold text-zinc-600 uppercase tracking-wider px-1">
+                <span>Configured Leave Types ({leaveTypes.length})</span>
+                <span className="text-[10px] text-zinc-400 font-normal">Actions: Edit · Delete</span>
+              </div>
+
+              {leaveTypes.length === 0 ? (
+                <div className="p-6 text-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/50 space-y-2">
+                  <p className="text-xs text-zinc-500">No leave types configured yet.</p>
+                  <button
+                    type="button"
+                    onClick={handleSeedDefaults}
+                    disabled={isSeedingDefaults}
+                    className="text-xs font-bold text-emerald-700 hover:underline"
+                  >
+                    Click to load standard defaults (Annual, Sick, Casual, Emergency)
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {leaveTypes.map((lt) => {
+                    const isEditing = editingLeaveTypeId === lt.id;
+                    const isDeleting = deletingId === lt.id;
+
+                    return (
+                      <div
+                        key={lt.id}
+                        className={cn(
+                          "rounded-xl border p-3.5 transition flex items-start justify-between gap-3 shadow-2xs",
+                          isEditing
+                            ? "border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500"
+                            : "border-zinc-200 bg-white hover:border-zinc-300"
+                        )}
+                      >
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-zinc-900">{lt.name}</span>
+                            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-[#065F46] border border-emerald-200">
+                              {lt.maxDays} days / yr
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-500 leading-snug">
+                            {lt.accrualRule}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => startEditLeaveType(lt)}
+                            className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition"
+                            title="Edit policy"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteLeaveType(lt.id, lt.name)}
+                            disabled={isDeleting}
+                            className="p-1.5 rounded-lg border border-zinc-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-zinc-400 transition disabled:opacity-50"
+                            title="Delete policy"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-            <label className="space-y-1 text-[11px] font-semibold text-zinc-600">Description
-              <input className={fieldClass} value={holidayDescription} onChange={(event) => setHolidayDescription(event.target.value)} placeholder="Optional policy note" />
-            </label>
-            <button disabled={foundationSaving === "holiday"} className="inline-flex h-9 items-center gap-2 rounded-lg bg-zinc-900 px-3 text-xs font-bold text-white disabled:opacity-60">
-              {foundationSaving === "holiday" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Add holiday
-            </button>
-          </form>
+          </div>
+
+          {/* ================================================================= */}
+          {/* COLUMN 2: COMPANY HOLIDAYS                                        */}
+          {/* ================================================================= */}
+          <div className="space-y-4">
+            {/* Create / Edit Form */}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveFoundation("holiday");
+              }}
+              className={cn(
+                "space-y-3 rounded-xl border p-4 transition",
+                editingHolidayId
+                  ? "border-emerald-300 bg-emerald-50/40 ring-1 ring-emerald-300"
+                  : "border-zinc-200 bg-zinc-50/80"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-emerald-700" />
+                  <p className="text-xs font-bold text-zinc-900">
+                    {editingHolidayId ? "Edit company holiday" : "Add company holiday"}
+                  </p>
+                </div>
+                <span className="text-[10px] font-semibold text-zinc-500">
+                  {holidays.length} configured
+                </span>
+              </div>
+
+              {editingHolidayId && (
+                <div className="text-[11px] text-emerald-800 bg-emerald-100/70 px-2.5 py-1 rounded-lg flex items-center justify-between">
+                  <span>Modifying holiday: <strong>{holidayName || "Selected holiday"}</strong></span>
+                  <button
+                    type="button"
+                    onClick={cancelEditHoliday}
+                    className="text-xs font-bold hover:underline inline-flex items-center gap-0.5"
+                  >
+                    <X className="w-3 h-3" /> Cancel
+                  </button>
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-[1.2fr_0.8fr]">
+                <label className="space-y-1 text-[11px] font-semibold text-zinc-600">
+                  Holiday name
+                  <input
+                    required
+                    className={fieldClass}
+                    value={holidayName}
+                    onChange={(event) => setHolidayName(event.target.value)}
+                    placeholder="Eid Al-Fitr / Independence Day"
+                  />
+                </label>
+                <label className="space-y-1 text-[11px] font-semibold text-zinc-600">
+                  Date
+                  <input
+                    required
+                    type="date"
+                    className={fieldClass}
+                    value={holidayDate}
+                    onChange={(event) => setHolidayDate(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="space-y-1 text-[11px] font-semibold text-zinc-600">
+                Description
+                <input
+                  className={fieldClass}
+                  value={holidayDescription}
+                  onChange={(event) => setHolidayDescription(event.target.value)}
+                  placeholder="National Public Holiday / Federal Holiday"
+                />
+              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={foundationSaving === "holiday"}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-zinc-900 px-3.5 text-xs font-bold text-white transition hover:bg-zinc-800 disabled:opacity-60"
+                >
+                  {foundationSaving === "holiday" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {editingHolidayId ? "Update holiday" : "Add holiday"}
+                </button>
+
+                {editingHolidayId && (
+                  <button
+                    type="button"
+                    onClick={cancelEditHoliday}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {/* List of Configured Holidays */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-bold text-zinc-600 uppercase tracking-wider px-1">
+                <span>Configured Holidays ({holidays.length})</span>
+                <span className="text-[10px] text-zinc-400 font-normal">Actions: Edit · Delete</span>
+              </div>
+
+              {holidays.length === 0 ? (
+                <div className="p-6 text-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/50 space-y-2">
+                  <p className="text-xs text-zinc-500">No company holidays scheduled yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+                  {holidays.map((h) => {
+                    const isEditing = editingHolidayId === h.id;
+                    const isDeleting = deletingId === h.id;
+                    const formattedDate = h.date
+                      ? new Date(h.date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "—";
+
+                    return (
+                      <div
+                        key={h.id}
+                        className={cn(
+                          "rounded-xl border p-3 transition flex items-center justify-between gap-3 shadow-2xs",
+                          isEditing
+                            ? "border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-500"
+                            : "border-zinc-200 bg-white hover:border-zinc-300"
+                        )}
+                      >
+                        <div className="space-y-0.5 min-w-0 flex-1">
+                          <p className="text-xs font-bold text-zinc-900 truncate">{h.name}</p>
+                          <p className="text-[10px] text-zinc-500 truncate">
+                            {h.description || "Public Holiday"}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            {formattedDate}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => startEditHoliday(h)}
+                            className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition"
+                            title="Edit holiday"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteHoliday(h.id, h.name)}
+                            disabled={isDeleting}
+                            className="p-1.5 rounded-lg border border-zinc-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-zinc-400 transition disabled:opacity-50"
+                            title="Delete holiday"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </section>
     </div>

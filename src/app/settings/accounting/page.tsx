@@ -26,7 +26,7 @@ import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 
 export default function AccountingSettingsPage() {
   const { activeRole, currentPersona, setRole } = useRole();
-  const [activeSection, setActiveSection] = useState<"coa" | "mappings" | "suggestions">("coa");
+  const [activeSection, setActiveSection] = useState<"coa" | "mappings">("coa");
   const [targetMappingType, setTargetMappingType] = useState<string>("");
 
   // COA Hierarchy Data
@@ -35,22 +35,19 @@ export default function AccountingSettingsPage() {
   const [rawAccounts, setRawAccounts] = useState<any[]>([]);
   const [coaLoading, setCoaLoading] = useState(true);
 
-  // Mappings & Suggestions Summary Badges
+  // Mappings Summary Badge
   const [completenessBadge, setCompletenessBadge] = useState<string>("");
-  const [pendingSuggestionsCount, setPendingSuggestionsCount] = useState<number>(0);
 
   const loadCoaData = useCallback(async () => {
     setCoaLoading(true);
     try {
-      const [chartRes, mappingRes, suggestionsRes] = await Promise.all([
+      const [chartRes, mappingRes] = await Promise.all([
         fetch("/api/accounts?view=chart"),
         fetch("/api/accounts?view=account_mappings"),
-        fetch("/api/accounts?view=mapping_suggestions&status=pending"),
       ]);
 
       const chartData = await chartRes.json();
       const mappingData = await mappingRes.json();
-      const suggestionsData = await suggestionsRes.json();
 
       if (chartData.success) {
         setCoaTree(chartData.tree || []);
@@ -61,10 +58,6 @@ export default function AccountingSettingsPage() {
       if (mappingData.success && mappingData.completeness) {
         const c = mappingData.completeness;
         setCompletenessBadge(`${c.configured}/${c.total} (${c.percentage}%)`);
-      }
-
-      if (suggestionsData.success && Array.isArray(suggestionsData.suggestions)) {
-        setPendingSuggestionsCount(suggestionsData.suggestions.length);
       }
     } catch (err) {
       console.error("Failed to load accounting settings data:", err);
@@ -93,7 +86,7 @@ export default function AccountingSettingsPage() {
       <div className="p-6 max-w-4xl mx-auto space-y-6 animate-in fade-in">
         <PageHeader
           title="Accounting Settings & System Controls"
-          subtitle="Chart of Accounts Hierarchy, Automated Posting Mappings, and AI Transaction Governance"
+          subtitle="Chart of Accounts Hierarchy and Automated Posting Mappings"
         />
 
         <div className="bg-white rounded-2xl border border-rose-200 p-8 shadow-sm text-center space-y-4">
@@ -155,7 +148,7 @@ export default function AccountingSettingsPage() {
               Accounting Settings & Governance
             </h1>
             <p className="text-xs text-zinc-500 mt-0.5">
-              Manage enterprise 4-level Chart of Accounts, strict double-entry transaction mappings, and AI review proposals.
+              Manage enterprise 4-level Chart of Accounts and strict double-entry transaction mappings.
             </p>
           </div>
 
@@ -225,30 +218,6 @@ export default function AccountingSettingsPage() {
             </span>
           )}
         </button>
-
-        {/* Tab 3: AI Suggestion Queue */}
-        <button
-          type="button"
-          onClick={() => setActiveSection("suggestions")}
-          className={cn(
-            "flex-1 min-w-[200px] flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl text-xs font-bold transition-all shadow-2xs",
-            activeSection === "suggestions"
-              ? "bg-white text-[#0D7A5F] shadow-sm ring-1 ring-black/5"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-white/60"
-          )}
-        >
-          <Sparkles className="w-4 h-4 text-purple-600" />
-          <span>AI Suggestion Queue</span>
-          {pendingSuggestionsCount > 0 ? (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-100 text-purple-900 font-bold animate-pulse">
-              {pendingSuggestionsCount} pending
-            </span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-zinc-100 text-zinc-600">
-              Clean
-            </span>
-          )}
-        </button>
       </div>
 
       {/* ========================================================================= */}
@@ -273,15 +242,6 @@ export default function AccountingSettingsPage() {
             initialSubTab="mappings"
             targetTransactionType={targetMappingType}
           />
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* SECTION 3: AI SUGGESTION REVIEW QUEUE                                     */}
-      {/* ========================================================================= */}
-      {activeSection === "suggestions" && (
-        <div className="space-y-4">
-          <AccountMappingTab initialSubTab="suggestions" />
         </div>
       )}
     </div>

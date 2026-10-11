@@ -1,0 +1,247 @@
+"use client";
+
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { ChevronDown, Check, X, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+export interface SearchableComboboxProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+  className?: string;
+  inputClassName?: string;
+  disabled?: boolean;
+  required?: boolean;
+  name?: string;
+  id?: string;
+  allowCustom?: boolean;
+}
+
+export default function SearchableCombobox({
+  value,
+  onChange,
+  options = [],
+  placeholder = "Type or select...",
+  className,
+  inputClassName,
+  disabled = false,
+  required = false,
+  name,
+  id,
+  allowCustom = true,
+}: SearchableComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Filter options based on current value
+  const filteredOptions = useMemo(() => {
+    if (!value || !value.trim()) return options;
+    const q = value.toLowerCase().trim();
+    return options.filter((opt) => opt.toLowerCase().includes(q));
+  }, [options, value]);
+
+  // Handle outside click to close
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (highlightedIndex >= 0 && listRef.current) {
+      const items = listRef.current.querySelectorAll("[data-combobox-item]");
+      const item = items[highlightedIndex] as HTMLElement;
+      if (item) {
+        item.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [highlightedIndex]);
+
+  const handleSelectOption = (opt: string) => {
+    onChange(opt);
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange("");
+    setIsOpen(false);
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+
+    if (!isOpen) {
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        e.preventDefault();
+        setIsOpen(true);
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setHighlightedIndex((prev) =>
+          prev < filteredOptions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setHighlightedIndex((prev) =>
+          prev > 0 ? prev - 1 : filteredOptions.length - 1
+        );
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
+          handleSelectOption(filteredOptions[highlightedIndex]);
+        } else {
+          setIsOpen(false);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        setIsOpen(false);
+        break;
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn("relative w-full text-xs", className)}
+    >
+      <div className="relative flex items-center">
+        <input
+          ref={inputRef}
+          type="text"
+          id={id}
+          name={name}
+          value={value}
+          required={required}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (!isOpen) setIsOpen(true);
+            setHighlightedIndex(-1);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+          }}
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+          className={cn(
+            "w-full bg-white px-3 py-2 pr-14 rounded-lg border border-[#EDEDED] text-[#18181B] font-medium placeholder-[#A1A1AA] transition",
+            "focus:outline-none focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F]",
+            disabled && "bg-[#F4F4F5] text-[#A1A1AA] cursor-not-allowed",
+            isOpen && "border-[#0D7A5F] ring-1 ring-[#0D7A5F]",
+            inputClassName
+          )}
+        />
+
+        <div className="absolute right-1.5 flex items-center gap-0.5">
+          {value && !disabled && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="p-1 text-[#A1A1AA] hover:text-[#18181B] rounded-md transition"
+              title="Clear input"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              setIsOpen((prev) => !prev);
+              if (!isOpen) inputRef.current?.focus();
+            }}
+            className="p-1 text-[#71717A] hover:text-[#18181B] rounded-md transition"
+            title="Toggle options"
+          >
+            <ChevronDown
+              className={cn(
+                "w-3.5 h-3.5 transition-transform duration-200",
+                isOpen && "rotate-180 text-[#0D7A5F]"
+              )}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Suggestions Dropdown */}
+      {isOpen && !disabled && (
+        <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-[#E4E4E7] rounded-xl shadow-lg animate-in fade-in-50 zoom-in-95">
+          <div ref={listRef} className="p-1 space-y-0.5">
+            {filteredOptions.length === 0 ? (
+              <div className="p-3 text-center text-[#71717A] text-[11px] space-y-1">
+                <p>No exact match in presets</p>
+                {allowCustom && value.trim() && (
+                  <p className="font-semibold text-[#0D7A5F]">
+                    Using custom value: &quot;{value}&quot;
+                  </p>
+                )}
+              </div>
+            ) : (
+              filteredOptions.map((opt, idx) => {
+                const isSelected = opt.toLowerCase() === value.toLowerCase();
+                const isHighlighted = idx === highlightedIndex;
+
+                return (
+                  <button
+                    key={`${opt}-${idx}`}
+                    type="button"
+                    data-combobox-item
+                    onClick={() => handleSelectOption(opt)}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    className={cn(
+                      "w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs transition",
+                      isSelected
+                        ? "bg-emerald-50 text-[#0D7A5F] font-semibold"
+                        : isHighlighted
+                        ? "bg-[#F4F4F5] text-[#18181B]"
+                        : "text-[#18181B] hover:bg-[#F9FAFB]"
+                    )}
+                  >
+                    <span className="truncate pr-2">{opt}</span>
+                    {isSelected && (
+                      <Check className="w-3.5 h-3.5 text-[#0D7A5F] shrink-0" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+
+            {allowCustom && value.trim() && !options.some((o) => o.toLowerCase() === value.toLowerCase().trim()) && (
+              <div className="pt-1 mt-1 border-t border-[#F4F4F5]">
+                <div className="px-2.5 py-1 text-[11px] text-emerald-800 bg-emerald-50/60 rounded-md flex items-center justify-between">
+                  <span>Custom Entry</span>
+                  <span className="font-mono text-[10px] bg-emerald-100 text-emerald-900 px-1.5 py-0.2 rounded">
+                    Active
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

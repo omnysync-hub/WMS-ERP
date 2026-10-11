@@ -26,6 +26,7 @@ import {
   Navigation,
   Sparkles,
   ArrowRight,
+  ArrowLeft,
   Percent,
   X,
   Wifi,
@@ -1650,22 +1651,76 @@ export default function MobileCompanionPage() {
                   })()}
                 </div>
 
-                {/* Assigned Job Items */}
-                <div className="bg-white rounded-xl p-4 space-y-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED]">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                      Assigned Job Items & Materials
-                    </h3>
-                    <span className="text-[10px] text-[#71717A] font-medium">
-                      Live Stock Rates
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {selectedJob.items?.map((it: any) => {
+                {/* Inventory and services stay separate for fast field entry. */}
+                {(() => {
+                  const jobItems = selectedJob.items || [];
+                  const sections = [
+                    {
+                      key: "inventory",
+                      title: "Inventory / Stock",
+                      subtitle: "Issued parts, usage and pricing",
+                      icon: Package,
+                      items: jobItems.filter((it: any) =>
+                        !/^\[Service\]/i.test(it.description?.replace(/\s*\[Discount.*?\]/gi, "") || "")
+                      ),
+                    },
+                    {
+                      key: "services",
+                      title: "Services",
+                      subtitle: "Work performed and service charges",
+                      icon: Wrench,
+                      items: jobItems.filter((it: any) =>
+                        /^\[Service\]/i.test(it.description?.replace(/\s*\[Discount.*?\]/gi, "") || "")
+                      ),
+                    },
+                  ];
+
+                  return (
+                    <>
+                      {sections.map((section) => {
+                        const SectionIcon = section.icon;
+                        const isServiceSection = section.key === "services";
+
+                        return (
+                          <section
+                            key={section.key}
+                            className="bg-white rounded-xl p-4 space-y-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED]"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                                  isServiceSection
+                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                    : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                }`}>
+                                  <SectionIcon className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                                    {section.title}
+                                  </h3>
+                                  <p className="text-[10px] text-[#71717A] truncate">{section.subtitle}</p>
+                                </div>
+                              </div>
+                              {isServiceSection && selectedJob.status === "InProgress" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAddServiceModal(true)}
+                                  className="shrink-0 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center gap-1"
+                                >
+                                  <Plus className="w-3 h-3" /> Add
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="space-y-2">
+                              {section.items.map((it: any) => {
                       const isRequested = it.description?.includes("[Discount Requested:");
                       const isApproved = it.description?.includes("[Discount Approved:");
-                      const cleanDesc = it.description?.replace(/\s*\[Discount.*?\]/gi, "");
-                      const isService = /^\[Service\]/i.test(cleanDesc || "");
+                      const cleanDesc = it.description
+                        ?.replace(/\s*\[Discount.*?\]/gi, "")
+                        .replace(/^\[Service\]\s*/i, "");
+                      const isService = isServiceSection;
                       const displayedUsed = actualQuantities[it.id] === "" || actualQuantities[it.id] === undefined
                         ? (it.quantityActual ?? it.quantityPlanned)
                         : Number(actualQuantities[it.id]);
@@ -1707,7 +1762,7 @@ export default function MobileCompanionPage() {
                                 className="shrink-0 px-2 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold transition flex items-center gap-1 shadow-2xs"
                               >
                                 <Percent className="w-3 h-3 text-amber-600" />
-                                Ask Discount
+                                Discount
                               </button>
                             )}
                           </div>
@@ -1787,9 +1842,26 @@ export default function MobileCompanionPage() {
                           )}
                         </div>
                       );
-                    })}
-                  </div>
-                </div>
+                              })}
+                              {section.items.length === 0 && (
+                                <div className="py-5 px-3 rounded-xl border border-dashed border-[#D4D4D8] bg-[#FAFAFA] text-center">
+                                  <p className="text-xs font-semibold text-[#52525B]">
+                                    {isServiceSection ? "No services added yet" : "No stock issued for this job"}
+                                  </p>
+                                  <p className="text-[10px] text-[#A1A1AA] mt-0.5">
+                                    {isServiceSection
+                                      ? "Use Add to record the work performed."
+                                      : "Requested and issued parts will appear here."}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </section>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
 
                 {/* Warehouse Inventory Requests & Store Status */}
                 {selectedJob.inventoryRequests && selectedJob.inventoryRequests.length > 0 && (
@@ -1817,25 +1889,6 @@ export default function MobileCompanionPage() {
                                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                   Issued by Storekeeper
                                 </span>
-                                {!selectedJob.finalizedAt && selectedJob.status === "InProgress" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const matchingJobItem = selectedJob.items?.find((it: any) =>
-                                        it.description.toLowerCase().includes(req.item.toLowerCase())
-                                      );
-                                      if (!matchingJobItem) return;
-                                      setSelectedDiscountItem(matchingJobItem);
-                                      setItemDiscountRequested("");
-                                      setItemDiscountReason("");
-                                      setShowItemDiscountModal(true);
-                                    }}
-                                    className="shrink-0 px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold transition flex items-center gap-1"
-                                  >
-                                    <Percent className="w-3 h-3 text-amber-600" />
-                                    Ask Discount
-                                  </button>
-                                )}
                               </div>
                             ) : (
                               <div className="text-right">
@@ -1886,20 +1939,6 @@ export default function MobileCompanionPage() {
                           className="p-3 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition"
                         >
                           <Wrench className="w-4 h-4" /> Add services
-                        </button>
-                        <button
-                          onClick={() => {
-                            const firstItem = selectedJob.items?.[0];
-                            if (!firstItem) return;
-                            setSelectedDiscountItem(firstItem);
-                            setItemDiscountRequested("");
-                            setItemDiscountReason("");
-                            setShowItemDiscountModal(true);
-                          }}
-                          disabled={!selectedJob.items?.length}
-                          className="col-span-2 p-3 bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50"
-                        >
-                          <Percent className="w-4 h-4" /> Ask discount
                         </button>
                       </>
                     )}
@@ -3497,37 +3536,46 @@ export default function MobileCompanionPage() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* MODAL 4: REQUEST ITEM DISCOUNT (TECHNICIAN ASKS ACCOUNTANT FOR DISCOUNT)  */}
-      {/* ========================================================================= */}
+      {/* Dedicated discount request screen for either stock or service lines. */}
       {showItemDiscountModal && selectedDiscountItem && (
-        <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-t-[32px] w-full p-5 pb-7 space-y-4 shadow-2xl border-t border-zinc-200/80 text-xs max-h-[88%] overflow-y-auto overscroll-contain animate-in slide-in-from-bottom duration-200">
-            {/* iOS Grab Handle */}
-            <div className="w-12 h-1 bg-zinc-300 rounded-full mx-auto -mt-1 mb-2 shrink-0" />
+        <div className="absolute inset-0 z-50 bg-[#F7F8F7] text-zinc-900 flex flex-col animate-in slide-in-from-right duration-200">
+          <header className="bg-[#18181B] text-white px-4 py-3 flex items-center gap-3 shrink-0 shadow-md">
+            <button
+              type="button"
+              onClick={() => setShowItemDiscountModal(false)}
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+              aria-label="Back to job details"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <h3 className="text-sm font-bold leading-tight">
+                {/^\[Service\]/i.test(selectedDiscountItem.description?.replace(/\s*\[Discount.*?\]/gi, "") || "")
+                  ? "Service Discount Request"
+                  : "Stock Discount Request"}
+              </h3>
+              <p className="text-[10px] text-zinc-300">Sent to accounts for approval</p>
+            </div>
+          </header>
 
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-4 text-xs">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
                   <Percent className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-900 leading-tight">Ask for Item Discount</h3>
-                  <p className="text-[10px] text-zinc-500">Live negotiation with Accountant Fatima Noor</p>
+                  <h4 className="text-sm font-bold text-zinc-900 leading-tight">Request a discount</h4>
+                  <p className="text-[10px] text-zinc-500">Enter the amount and reason below</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowItemDiscountModal(false)}
-                className="w-7 h-7 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 hover:text-zinc-900 flex items-center justify-center transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
             <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-2xl space-y-1">
               <p className="font-bold text-amber-950 text-xs">
-                {selectedDiscountItem.description.replace(/\s*\[Discount.*?\]/gi, "")}
+                {selectedDiscountItem.description
+                  .replace(/\s*\[Discount.*?\]/gi, "")
+                  .replace(/^\[Service\]\s*/i, "")}
               </p>
               <p className="text-[11px] text-amber-800">
                 Current Unit Rate: <span className="font-mono font-bold">{formatCurrency(selectedDiscountItem.unitRate)}</span>
@@ -3570,7 +3618,7 @@ export default function MobileCompanionPage() {
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-2 border-t border-zinc-100">
+              <div className="flex items-center gap-2 pt-2 border-t border-zinc-200">
                 <button
                   type="button"
                   onClick={() => setShowItemDiscountModal(false)}

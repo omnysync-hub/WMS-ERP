@@ -179,7 +179,7 @@ export default function AddServiceDrawer({
         <div className="flex items-center justify-between gap-3 w-full">
           <div>
             <span className="text-[11px] text-[#71717A] block">
-              {serviceRows.length} item{serviceRows.length === 1 ? "" : "s"} · Total:
+              Item Subtotal:
             </span>
             <strong className="font-mono text-sm font-bold text-emerald-800">
               {formatCurrency(grandTotal)}
@@ -201,11 +201,7 @@ export default function AddServiceDrawer({
               className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5" />
-              {isSubmitting
-                ? "Adding..."
-                : serviceRows.length > 1
-                ? `Add All (${serviceRows.length}) to Order`
-                : "Add to Job Order"}
+              {isSubmitting ? "Adding..." : "Add to Job Order"}
             </button>
           </div>
         </div>
@@ -219,21 +215,7 @@ export default function AddServiceDrawer({
           </div>
         )}
 
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] text-[#71717A]">
-            Add one or multiple billable services/materials to this job record at once:
-          </p>
-          <button
-            type="button"
-            onClick={addRow}
-            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] border border-emerald-200 font-bold rounded-lg text-xs inline-flex items-center gap-1 transition shadow-2xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Another Item
-          </button>
-        </div>
-
-        {/* Dynamic Multi-Service Line Items */}
+        {/* Service Line Item Details */}
         <div className="space-y-3.5">
           {serviceRows.map((row, idx) => {
             const rowSubtotal = (Number(row.quantity) || 0) * (Number(row.unitRate) || 0);
@@ -245,10 +227,8 @@ export default function AddServiceDrawer({
               >
                 <div className="flex items-center justify-between pb-1.5 border-b border-[#F4F4F5]">
                   <span className="font-bold text-[#18181B] text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-5 h-5 rounded-full bg-emerald-100 text-[#0D7A5F] flex items-center justify-center text-[10px] font-bold">
-                      {idx + 1}
-                    </span>
-                    Service / Line Item #{idx + 1}
+                    <Wrench className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                    Service / Line Item Details
                   </span>
                   {serviceRows.length > 1 && (
                     <button
@@ -342,19 +322,7 @@ export default function AddServiceDrawer({
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={addRow}
-          className="w-full py-2.5 bg-[#FAFAFA] hover:bg-emerald-50 text-[#0D7A5F] border border-dashed border-[#D4D4D8] hover:border-emerald-300 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
-        >
-          <Plus className="w-4 h-4" />
-          Add Another Service Line Item
-        </button>
 
-        <div className="p-3 bg-emerald-50 rounded-lg text-[11px] text-emerald-950 space-y-1 border border-emerald-200 leading-relaxed">
-          <p>• Added service items will be immediately incorporated into actual billing & revenue.</p>
-          <p>• Line items marked as added by {actor} in audit trail.</p>
-        </div>
       </form>
     </SideDrawer>
   );
