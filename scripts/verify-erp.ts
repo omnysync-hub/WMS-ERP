@@ -144,10 +144,13 @@ async function runVerification() {
     }
     assert(completeFailedWithoutActual, "Completion blocked if actual quantity is null");
 
-    // Complete with actual quantity
-    await JobsService.completeJob(job.id, tech.id, [
-      { id: items[0].id, quantityActual: 1 },
-    ]);
+    // Complete with actual quantity and mandatory proof photo
+    await JobsService.completeJob(
+      job.id,
+      tech.id,
+      [{ id: items[0].id, quantityActual: 1 }],
+      { photos: ["https://workman.services/proof/job-test.jpg"] }
+    );
     const completedJob = await prisma.job.findUnique({ where: { id: job.id } });
     assert(completedJob?.status === "CompletedPendingVerification", "Job moves to CompletedPendingVerification with actual quantities");
 
@@ -582,6 +585,7 @@ async function runVerification() {
     const po = await prisma.purchaseOrder.create({
       data: {
         poNumber: `PO-TEST-GRN-${Date.now()}`,
+        status: "approved",
         vendorId: testVendor.id,
         supplierName: testVendor.name,
         supplierEmail: testVendor.email || "vendor@test.pk",
@@ -632,6 +636,7 @@ async function runVerification() {
     const po = await prisma.purchaseOrder.create({
       data: {
         poNumber: `PO-PROC-GRN-${Date.now()}`,
+        status: "approved",
         vendorId: testVendor!.id,
         supplierName: testVendor!.name,
         supplierEmail: testVendor!.email || "vendor@test.pk",

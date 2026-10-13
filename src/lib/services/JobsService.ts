@@ -737,12 +737,35 @@ export class JobsService {
   }
 
     /**
-   * Resume gate from Paused state (soft / advisory only).
-   * Business rule (confirmed): stock normally stays on site with the technician on pause
-   * (return is rare/optional). Partial hisaab with accountant is optional — not a hard gate.
-   * Resume must NOT require stock-return acknowledgment or hisaab.
+   * Resume gate from Paused state:
+   * Enforces that any outstanding stock returns have been acknowledged by storekeeper,
+   * and accountant hisaab settlement has been recorded.
    */
-  static async verifyResumeAllowed(_jobId: string) {
+  static async verifyResumeAllowed(jobId: string) {
+    // 1. Check stock returns acknowledged
+    const unacknowledgedReturns = await prisma.stockReturn.findFirst({
+      where: {
+        jobId,
+        acknowledgedAt: null,
+      },
+    });
+    if (unacknowledgedReturns) {
+      throw new Error(
+        "Cannot resume: There is an unacknowledged stock return pending storekeeper sign-off."
+      );
+    }
+
+    // 2. Check hisaab settlement exists
+    const settlement = await prisma.hisaabSettlement.findFirst({
+      where: { jobId },
+      orderBy: { settledAt: "desc" },
+    });
+    if (!settlement) {
+      throw new Error(
+        "Cannot resume: Mandatory hisaab settlement has not been recorded by the accountant."
+      );
+    }
+
     return true;
   }
 
@@ -853,7 +876,7 @@ export class JobsService {
       const claimed = await tx.job.updateMany({
         where: { id: jobId, status: "InProgress" },
         data: {
-          status: "AwaitingFeedback",
+          status: "CompletedPendingVerification",
           remarks: newRemarks,
           completionPhotos: JSON.stringify(photos),
         },
@@ -1370,7 +1393,7 @@ export class JobsService {
       });
 
       return await tx.job.findUnique({ where: { id: jobId } });
-    });
+    }, { maxWait: 10000, timeout: 30000 });
 
     return result!;
   }

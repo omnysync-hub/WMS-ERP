@@ -111,6 +111,32 @@ export class InventoryService {
           where: { name: { equals: candidate, mode: "insensitive" } },
         });
         if (byName) return byName;
+        const byContains = await db.product.findFirst({
+          where: {
+            OR: [
+              { sku: { contains: candidate, mode: "insensitive" } },
+              { name: { contains: candidate, mode: "insensitive" } },
+            ],
+          },
+        });
+        if (byContains) return byContains;
+      }
+
+      // Check sub-tokens (e.g. "R410A" from "GAS-R410A")
+      const subTokens = text
+        .split(/[^a-zA-Z0-9]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 3 && !/^(gas|pipe|part|item|unit)$/i.test(s));
+      for (const tok of subTokens) {
+        const byTok = await db.product.findFirst({
+          where: {
+            OR: [
+              { sku: { contains: tok, mode: "insensitive" } },
+              { name: { contains: tok, mode: "insensitive" } },
+            ],
+          },
+        });
+        if (byTok) return byTok;
       }
     }
     return null;

@@ -84,18 +84,18 @@ export class AttendanceService {
         message: "Latitude or longitude is outside the valid geographic range.",
       };
     }
-    if (faceMatchScore !== undefined && (!Number.isFinite(faceMatchScore) || faceMatchScore < 0 || faceMatchScore > 1)) {
+    if (faceMatchScore !== undefined && (!Number.isFinite(faceMatchScore) || faceMatchScore < 0 || faceMatchScore > 100)) {
       return {
         status: "rejected",
         code: "INVALID_FACE_SCORE",
-        message: "Face match score must be between 0 and 1.",
+        message: "Face match score must be between 0 and 100.",
       };
     }
-    if (livenessScore !== undefined && (!Number.isFinite(livenessScore) || livenessScore < 0 || livenessScore > 1)) {
+    if (livenessScore !== undefined && (!Number.isFinite(livenessScore) || livenessScore < 0 || livenessScore > 100)) {
       return {
         status: "rejected",
         code: "INVALID_LIVENESS_SCORE",
-        message: "Liveness score must be between 0 and 1.",
+        message: "Liveness score must be between 0 and 100.",
       };
     }
     if (typeof deviceId !== "string" || !deviceId.trim() || deviceId.length > 160) {
@@ -250,10 +250,10 @@ export class AttendanceService {
       flagReasons.push(jumpReason);
     }
 
-    if (!scopedToAssignment) {
+    if (assignments.length > 0 && !scopedToAssignment) {
       flaggedForReview = true;
       flagReasons.push(
-        "Staff is not assigned to any attendance site — matched nearest active zone. Assign sites in HRM → Attendance."
+        "Staff is assigned to specific sites but matched non-assigned zone. Assign sites in HRM → Attendance."
       );
     }
 

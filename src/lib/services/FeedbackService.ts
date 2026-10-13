@@ -27,6 +27,10 @@ export class FeedbackService {
             feedbackCalls: { none: {} },
             finalizedAt: null,
           },
+          {
+            status: "Verified",
+            feedbackCalls: { none: {} },
+          },
         ],
       },
       include: {
@@ -48,7 +52,8 @@ export class FeedbackService {
 
   /**
    * Record quality feedback: staff calls customer and technician, writes remarks.
-   * On approved/disapproved, advances job to CompletedPendingVerification (accountant queue).
+   * On approved/disapproved, advances job to CompletedPendingVerification (accountant queue)
+   * or updates qualityFlag on verified jobs.
    */
   static async recordFeedback(params: FeedbackCallParams) {
     const { jobId, calledBy, outcome, remarks, technicianRemarks, followUpDate } = params;
@@ -58,10 +63,12 @@ export class FeedbackService {
 
     if (
       job.status !== "AwaitingFeedback" &&
-      job.status !== "CompletedPendingVerification"
+      job.status !== "CompletedPendingVerification" &&
+      job.status !== "Finalized" &&
+      job.status !== "Verified"
     ) {
       throw new Error(
-        `Feedback is recorded after job complete (AwaitingFeedback). Current status: ${job.status}.`
+        `Feedback is recorded after job complete (AwaitingFeedback, CompletedPendingVerification, Finalized, or Verified). Current status: ${job.status}.`
       );
     }
 
@@ -94,10 +101,15 @@ export class FeedbackService {
     });
 
     if (outcome === "approved" || outcome === "disapproved") {
+      const nextStatus =
+        job.status === "Verified" || job.status === "Finalized"
+          ? job.status
+          : "CompletedPendingVerification";
+
       await prisma.job.update({
         where: { id: jobId },
         data: {
-          status: "CompletedPendingVerification",
+          status: nextStatus,
           qualityFlag: outcome === "approved" ? "clean" : "disputed",
         },
       });
@@ -105,7 +117,7 @@ export class FeedbackService {
         data: {
           jobId,
           fromStatus: job.status,
-          toStatus: "CompletedPendingVerification",
+          toStatus: nextStatus,
           changedBy: calledBy,
           metaJson: JSON.stringify({
             action: "feedback_recorded",
