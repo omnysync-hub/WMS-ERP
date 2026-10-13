@@ -232,7 +232,9 @@ export async function POST(req: NextRequest) {
                 jobId: job.id,
                 technicianId: assignedTechnicianId || "warehouse_dispatch",
                 item: it.description,
+                productId: it.productId,
                 qtyRequested: Number(it.quantityPlanned) || 1,
+                qtyIssued: 0,
                 status: "pending",
               },
             });

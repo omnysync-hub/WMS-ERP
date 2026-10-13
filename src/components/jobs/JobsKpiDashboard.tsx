@@ -68,11 +68,13 @@ export default function JobsKpiDashboard({
 
   // 7. Pending Warehouse Stock Requests
   const pendingStockReqsCount = jobs.reduce(
-    (acc, j) => acc + (j.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0),
+    (acc, j) =>
+      acc +
+      (j.inventoryRequests?.filter((r: any) => r.status === "pending" || r.status === "partially_issued").length || 0),
     0
   );
   const jobsWithPendingStock = jobs.filter((j) =>
-    j.inventoryRequests?.some((r: any) => r.status === "pending")
+    j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")
   ).length;
 
   // 8. Approved / Issued Warehouse Stock Requests
@@ -260,7 +262,9 @@ export default function JobsKpiDashboard({
       case "pending_expenses":
         return jobsWithPendingExpenses;
       case "pending_stock":
-        return jobs.filter((j) => j.inventoryRequests?.some((r: any) => r.status === "pending"));
+        return jobs.filter((j) =>
+          j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")
+        );
       case "approved_stock":
         return jobs.filter((j) =>
           j.inventoryRequests?.some((r: any) => r.status === "issued" || r.status === "fulfilled")

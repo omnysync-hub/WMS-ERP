@@ -43,6 +43,7 @@ import {
   Send,
   RotateCcw,
   Sparkles,
+  Search,
 } from "lucide-react";
 
 function HrmPayrollContent() {
@@ -111,6 +112,7 @@ function HrmPayrollContent() {
 
   // Tab: Employees
   const [employeeSubTab, setEmployeeSubTab] = useState<"all" | "technicians" | "office" | "on_leave">("all");
+  const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
   const [isOrgChartOpen, setIsOrgChartOpen] = useState(false);
   const [orgTree, setOrgTree] = useState<any[]>([]);
   const [showAddEmployeeDrawer, setShowAddEmployeeDrawer] = useState(false);
@@ -535,6 +537,21 @@ function HrmPayrollContent() {
     },
   };
 
+  const filteredEmployees = employees.filter((emp) => {
+    if (!employeeSearchTerm.trim()) return true;
+    const q = employeeSearchTerm.toLowerCase().trim();
+    return (
+      (emp.name && emp.name.toLowerCase().includes(q)) ||
+      (emp.designation && emp.designation.toLowerCase().includes(q)) ||
+      (emp.role && emp.role.toLowerCase().includes(q)) ||
+      (emp.department && emp.department.toLowerCase().includes(q)) ||
+      (emp.phone && emp.phone.toLowerCase().includes(q)) ||
+      (emp.email && emp.email.toLowerCase().includes(q)) ||
+      (emp.reportingManager?.name && emp.reportingManager.name.toLowerCase().includes(q)) ||
+      (emp.status && emp.status.toLowerCase().includes(q))
+    );
+  });
+
   const currentTabInfo = tabTitles[activeTab] || tabTitles.analytics;
 
   return (
@@ -743,7 +760,7 @@ function HrmPayrollContent() {
       {/* ========================================================================= */}
       {activeTab === "employees" && (
         <div className="space-y-4">
-          {/* Sub-view switcher: Table vs Org Chart */}
+          {/* Sub-view switcher: Table vs Org Chart & Search Bar */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-1.5 bg-[#F4F4F5] p-1 rounded-lg">
               {(["all", "technicians", "office", "on_leave"] as const).map((st) => (
@@ -761,17 +778,41 @@ function HrmPayrollContent() {
               ))}
             </div>
 
-            <button
-              onClick={() => setIsOrgChartOpen(!isOrgChartOpen)}
-              className={`h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border transition ${
-                isOrgChartOpen
-                  ? "bg-[#18181B] text-white border-[#18181B]"
-                  : "bg-white text-[#18181B] border-[#E4E4E7] hover:bg-[#F4F4F5]"
-              }`}
-            >
-              <FolderTree className="w-3.5 h-3.5" />
-              {isOrgChartOpen ? "Show Dense Table" : "View Org Hierarchy"}
-            </button>
+            <div className="flex items-center gap-2.5 flex-1 max-w-lg justify-end">
+              {/* Search Bar for Searching Employees */}
+              <div className="relative w-full max-w-xs">
+                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search by name, role, dept, phone..."
+                  value={employeeSearchTerm}
+                  onChange={(e) => setEmployeeSearchTerm(e.target.value)}
+                  className="w-full pl-8.5 pr-7 py-1.5 rounded-xl border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] placeholder:text-zinc-400 transition"
+                />
+                {employeeSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setEmployeeSearchTerm("")}
+                    className="absolute right-2.5 top-2 text-zinc-400 hover:text-zinc-600 text-xs"
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => setIsOrgChartOpen(!isOrgChartOpen)}
+                className={`h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border transition shrink-0 ${
+                  isOrgChartOpen
+                    ? "bg-[#18181B] text-white border-[#18181B]"
+                    : "bg-white text-[#18181B] border-[#E4E4E7] hover:bg-[#F4F4F5]"
+                }`}
+              >
+                <FolderTree className="w-3.5 h-3.5" />
+                {isOrgChartOpen ? "Show Dense Table" : "View Org Hierarchy"}
+              </button>
+            </div>
           </div>
 
           {/* Org Chart Tree View */}
@@ -848,51 +889,76 @@ function HrmPayrollContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E4E4E7]">
-                    {employees.map((emp) => {
-                      const empInitials = emp.name
-                        .split(" ")
-                        .map((n: string) => n[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase();
-                      return (
-                        <tr key={emp.id} className="hover:bg-[#F9FAFB] transition">
-                          <td className="p-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-full bg-[#0D7A5F] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
-                                {empInitials}
-                              </div>
-                              <div>
-                                <Link
-                                  href={`/hrm/employees/${emp.id}`}
-                                  className="font-bold text-[#0D7A5F] hover:underline block"
-                                >
-                                  {emp.name}
-                                </Link>
-                                <span className="text-[10px] text-[#71717A]">{emp.phone}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-3 font-semibold text-[#18181B]">{emp.designation || emp.role}</td>
-                          <td className="p-3 text-[#71717A]">{emp.department}</td>
-                          <td className="p-3 font-medium text-[#18181B]">
-                            {emp.reportingManager ? emp.reportingManager.name : <span className="text-[#71717A]">—</span>}
-                          </td>
-                          <td className="p-3">
-                            <StatusBadge status={emp.status} />
-                          </td>
-                          <td className="p-3 text-right">
-                            <Link
-                              href={`/hrm/employees/${emp.id}`}
-                              className="px-2.5 py-1 text-xs font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition inline-flex items-center gap-1"
+                    {filteredEmployees.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 px-4 text-center">
+                          <div className="w-10 h-10 rounded-full bg-zinc-100 text-zinc-400 flex items-center justify-center mx-auto mb-2">
+                            <Users className="w-5 h-5" />
+                          </div>
+                          <p className="text-xs font-bold text-zinc-700">No employees found</p>
+                          <p className="text-[11px] text-zinc-400 mt-0.5">
+                            {employeeSearchTerm
+                              ? `No employee records match "${employeeSearchTerm}". Try checking your spelling or clear search.`
+                              : "No employees in this category."}
+                          </p>
+                          {employeeSearchTerm && (
+                            <button
+                              type="button"
+                              onClick={() => setEmployeeSearchTerm("")}
+                              className="mt-2.5 px-3 py-1 rounded-lg border border-zinc-300 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition"
                             >
-                              <Eye className="w-3 h-3" />
-                              Profile
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                              Clear Search
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredEmployees.map((emp) => {
+                        const empInitials = emp.name
+                          .split(" ")
+                          .map((n: string) => n[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase();
+                        return (
+                          <tr key={emp.id} className="hover:bg-[#F9FAFB] transition">
+                            <td className="p-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-full bg-[#0D7A5F] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                                  {empInitials}
+                                </div>
+                                <div>
+                                  <Link
+                                    href={`/hrm/employees/${emp.id}`}
+                                    className="font-bold text-[#0D7A5F] hover:underline block"
+                                  >
+                                    {emp.name}
+                                  </Link>
+                                  <span className="text-[10px] text-[#71717A]">{emp.phone}</span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3 font-semibold text-[#18181B]">{emp.designation || emp.role}</td>
+                            <td className="p-3 text-[#71717A]">{emp.department}</td>
+                            <td className="p-3 font-medium text-[#18181B]">
+                              {emp.reportingManager ? emp.reportingManager.name : <span className="text-[#71717A]">—</span>}
+                            </td>
+                            <td className="p-3">
+                              <StatusBadge status={emp.status} />
+                            </td>
+                            <td className="p-3 text-right">
+                              <Link
+                                href={`/hrm/employees/${emp.id}`}
+                                className="px-2.5 py-1 text-xs font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                Profile
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>

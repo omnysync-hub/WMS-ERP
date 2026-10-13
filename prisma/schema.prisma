@@ -243,8 +243,10 @@ model InventoryRequest {
   job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   technicianId String
   item         String
+  productId    String?
   qtyRequested Float
-  status       String   @default("pending") // pending, issued, rejected
+  qtyIssued    Float    @default(0)
+  status       String   @default("pending") // pending, partially_issued, issued, rejected
   createdAt    DateTime @default(now())
 }
 

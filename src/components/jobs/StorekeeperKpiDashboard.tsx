@@ -52,11 +52,11 @@ export default function StorekeeperKpiDashboard({
 
   // 1. Pending Stock Requests (Action Required)
   const jobsWithPendingStock = storekeeperJobs.filter((j) =>
-    j.inventoryRequests?.some((r: any) => r.status === "pending")
+    j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")
   );
   const pendingItemsCount = jobsWithPendingStock.reduce((acc, j) => {
     return (
-      acc + (j.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0)
+      acc + (j.inventoryRequests?.filter((r: any) => r.status === "pending" || r.status === "partially_issued").length || 0)
     );
   }, 0);
 

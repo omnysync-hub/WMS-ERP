@@ -100,8 +100,7 @@ export default function DataTable<T extends Record<string, any>>({
   const [activeChipDropdown, setActiveChipDropdown] = useState<string | null>(null);
   const [chipSearchQuery, setChipSearchQuery] = useState("");
   const [isViewSelectorOpen, setIsViewSelectorOpen] = useState(false);
-  const [currentTableView, setCurrentTableView] = useState("Default Table View");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [viewMode, setViewMode] = useState<"table" | "card">("table");
 
   // Pagination & Sorting State
   const [currentPage, setCurrentPage] = useState(1);
@@ -382,16 +381,23 @@ export default function DataTable<T extends Record<string, any>>({
 
         {/* Right: Table-Level Controls (View Selector, Grid/List Toggles, Column Gear) */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* View Selector Dropdown ("Pipeline Stage ▾" style) */}
+          {/* View Selector Dropdown: Table View & Card View */}
           <div className="relative">
             <button
               type="button"
               onClick={() => setIsViewSelectorOpen(!isViewSelectorOpen)}
               aria-expanded={isViewSelectorOpen}
-              aria-label="Select table configuration"
+              aria-label="Select view mode"
               className="h-7 px-2.5 rounded-md border border-[#EDEDED] bg-white text-xs font-medium text-[#71717A] hover:text-[#18181B] hover:bg-[#F7F7F8] inline-flex items-center gap-1.5 transition shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
             >
-              <span>{currentTableView}</span>
+              {viewMode === "table" ? (
+                <List className="w-3.5 h-3.5 text-[#0D7A5F]" />
+              ) : (
+                <LayoutGrid className="w-3.5 h-3.5 text-[#0D7A5F]" />
+              )}
+              <span className="font-semibold text-[#18181B]">
+                {viewMode === "table" ? "Table View" : "Card View"}
+              </span>
               <ChevronDown className="w-3 h-3 text-[#71717A]" />
             </button>
 
@@ -401,52 +407,71 @@ export default function DataTable<T extends Record<string, any>>({
                   className="fixed inset-0 z-30"
                   onClick={() => setIsViewSelectorOpen(false)}
                 />
-                <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-52 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
+                <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-48 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
                   <div className="px-3 py-1 text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
-                    Table Configurations
+                    View Modes
                   </div>
-                  {["Default Table View", "Compact Density", "Financial Reconciliation", "Field Operations"].map((v, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        setCurrentTableView(v);
-                        setIsViewSelectorOpen(false);
-                      }}
-                      className={cn(
-                        "w-full text-left px-3 py-1.5 hover:bg-[#F4F4F5] flex items-center justify-between",
-                        currentTableView === v && "font-bold text-[#0D7A5F]"
-                      )}
-                    >
-                      <span>{v}</span>
-                      {currentTableView === v && <Check className="w-3 h-3 text-[#0D7A5F]" />}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode("table");
+                      setIsViewSelectorOpen(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 hover:bg-[#F4F4F5] flex items-center justify-between transition",
+                      viewMode === "table" && "font-bold text-[#0D7A5F] bg-emerald-50/50"
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <List className="w-3.5 h-3.5 text-[#71717A]" />
+                      <span>Table View</span>
+                    </span>
+                    {viewMode === "table" && <Check className="w-3.5 h-3.5 text-[#0D7A5F]" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode("card");
+                      setIsViewSelectorOpen(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 hover:bg-[#F4F4F5] flex items-center justify-between transition",
+                      viewMode === "card" && "font-bold text-[#0D7A5F] bg-emerald-50/50"
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <LayoutGrid className="w-3.5 h-3.5 text-[#71717A]" />
+                      <span>Card View</span>
+                    </span>
+                    {viewMode === "card" && <Check className="w-3.5 h-3.5 text-[#0D7A5F]" />}
+                  </button>
                 </div>
               </>
             )}
           </div>
 
-          {/* Grid / List View Toggle Icon Buttons */}
+          {/* Table / Card View Toggle Icon Buttons */}
           <div className="flex items-center rounded-md border border-[#EDEDED] bg-white p-0.5 shadow-2xs">
             <button
               type="button"
-              onClick={() => setViewMode("list")}
-              aria-label="List view"
+              onClick={() => setViewMode("table")}
+              aria-label="Table view"
+              title="Table View"
               className={cn(
                 "p-1 rounded text-[#71717A] hover:text-[#18181B] transition focus-visible:outline-none",
-                viewMode === "list" ? "bg-[#F4F4F5] text-[#18181B]" : "hover:bg-[#F7F7F8]"
+                viewMode === "table" ? "bg-[#F4F4F5] text-[#0D7A5F] font-bold" : "hover:bg-[#F7F7F8]"
               )}
             >
               <List className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
-              onClick={() => setViewMode("grid")}
-              aria-label="Grid view"
+              onClick={() => setViewMode("card")}
+              aria-label="Card view"
+              title="Card View"
               className={cn(
                 "p-1 rounded text-[#71717A] hover:text-[#18181B] transition focus-visible:outline-none",
-                viewMode === "grid" ? "bg-[#F4F4F5] text-[#18181B]" : "hover:bg-[#F7F7F8]"
+                viewMode === "card" ? "bg-[#F4F4F5] text-[#0D7A5F] font-bold" : "hover:bg-[#F7F7F8]"
               )}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
@@ -546,209 +571,391 @@ export default function DataTable<T extends Record<string, any>>({
 
       {/* 3. Pure White Data Table with Hairline Dividers */}
       <div className="bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table
-            className={cn(
-              "w-full min-w-full text-left text-xs border-collapse",
-              tableClassName
-            )}
-          >
-            <thead>
-              <tr className="border-b border-[#EDEDED] text-xs font-semibold text-[#52525B] uppercase tracking-wider bg-[#FAFAFA]">
-                {/* Select All Checkbox */}
-                <th className="w-10 py-3 px-3.5 text-center">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={handleSelectAll}
-                    aria-label="Select all rows"
-                    className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
-                  />
-                </th>
+        {viewMode === "table" ? (
+          <div className="overflow-x-auto">
+            <table
+              className={cn(
+                "w-full min-w-full text-left text-xs border-collapse",
+                tableClassName
+              )}
+            >
+              <thead>
+                <tr className="border-b border-[#EDEDED] text-xs font-semibold text-[#52525B] uppercase tracking-wider bg-[#FAFAFA]">
+                  {/* Select All Checkbox */}
+                  <th className="w-10 py-3 px-3.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAll}
+                      aria-label="Select all rows"
+                      className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
+                    />
+                  </th>
 
-                {/* Expand Chevron Column */}
-                <th className="w-8 py-3 px-1 text-center" aria-label="Expand chevron column">
-                  <span className="sr-only">Expand</span>
-                </th>
+                  {/* Expand Chevron Column */}
+                  <th className="w-8 py-3 px-1 text-center" aria-label="Expand chevron column">
+                    <span className="sr-only">Expand</span>
+                  </th>
 
-                {displayedColumns.map((col) => {
-                  const isActionCol = col.id === "actions";
-                  return (
-                    <th
-                      key={col.id}
-                      style={{ width: col.width }}
-                      className={cn(
-                        "py-3.5 px-3.5 font-semibold text-xs text-[#52525B]",
-                        col.align === "center" && "text-center",
-                        col.align === "right" && "text-right",
-                        isActionCol && "sticky right-0 bg-[#FAFAFA] z-10 shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.06)]"
-                      )}
-                    >
-                      {col.header}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-[#EDEDED]">
-              {totalItems === 0 ? (
-                <tr>
-                  <td
-                    colSpan={displayedColumns.length + 2}
-                    className="py-16 text-center text-xs text-[#71717A]"
-                  >
-                    <p className="font-semibold text-sm text-[#18181B]">{emptyMessage}</p>
-                    <p className="text-xs text-[#A1A1AA] mt-1.5">
-                      No records match the current tab and filter criteria.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                paginatedRows.map((row) => {
-                  const rowId = getRowId(row);
-                  const isSelected = selectedRowIds.includes(rowId);
-                  const isExpanded = expandedRowIds.includes(rowId);
-
-                  return (
-                    <React.Fragment key={rowId}>
-                      <tr
+                  {displayedColumns.map((col) => {
+                    const isActionCol = col.id === "actions";
+                    return (
+                      <th
+                        key={col.id}
+                        style={{ width: col.width }}
                         className={cn(
-                          "hover:bg-[#F9FAFB] transition-colors group",
-                          isSelected && "bg-emerald-50/40 hover:bg-emerald-50/60"
+                          "py-3.5 px-3.5 font-semibold text-xs text-[#52525B]",
+                          col.align === "center" && "text-center",
+                          col.align === "right" && "text-right",
+                          isActionCol && "sticky right-0 bg-[#FAFAFA] z-10 shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.06)]"
                         )}
                       >
-                        {/* Row Checkbox */}
-                        <td className="w-10 py-3.5 px-3.5 text-center align-middle">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleSelectRow(rowId)}
-                            aria-label={`Select row ${rowId}`}
-                            className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
-                          />
-                        </td>
+                        {col.header}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
 
-                        {/* Expand Chevron Button */}
-                        <td className="w-8 py-3.5 px-1 text-center align-middle">
-                          <button
-                            type="button"
-                            onClick={() => toggleRowExpand(rowId)}
-                            aria-expanded={isExpanded}
-                            aria-label={`Toggle row details for ${rowId}`}
-                            className="p-1 rounded text-[#A1A1AA] hover:text-[#18181B] hover:bg-[#F4F4F5] transition focus-visible:outline-none"
-                          >
-                            <ChevronRight
-                              className={cn(
-                                "w-4 h-4 transition-transform duration-150",
-                                isExpanded && "rotate-90 text-[#0D7A5F]"
-                              )}
+              <tbody className="divide-y divide-[#EDEDED]">
+                {totalItems === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={displayedColumns.length + 2}
+                      className="py-16 text-center text-xs text-[#71717A]"
+                    >
+                      <p className="font-semibold text-sm text-[#18181B]">{emptyMessage}</p>
+                      <p className="text-xs text-[#A1A1AA] mt-1.5">
+                        No records match the current tab and filter criteria.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedRows.map((row) => {
+                    const rowId = getRowId(row);
+                    const isSelected = selectedRowIds.includes(rowId);
+                    const isExpanded = expandedRowIds.includes(rowId);
+
+                    return (
+                      <React.Fragment key={rowId}>
+                        <tr
+                          className={cn(
+                            "hover:bg-[#F9FAFB] transition-colors group",
+                            isSelected && "bg-emerald-50/40 hover:bg-emerald-50/60"
+                          )}
+                        >
+                          {/* Row Checkbox */}
+                          <td className="w-10 py-3.5 px-3.5 text-center align-middle">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleSelectRow(rowId)}
+                              aria-label={`Select row ${rowId}`}
+                              className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
                             />
-                          </button>
-                        </td>
+                          </td>
 
-                        {/* Data Columns */}
-                        {displayedColumns.map((col) => {
-                          const value = col.accessorKey ? row[col.accessorKey] : undefined;
-                          const isActionCol = col.id === "actions";
-
-                          return (
-                            <td
-                              key={col.id}
-                              className={cn(
-                                "py-3 px-3.5 align-middle",
-                                col.align === "center" && "text-center",
-                                col.align === "right" && "text-right",
-                                isActionCol && cn(
-                                  "sticky right-0 z-10 bg-white group-hover:bg-[#F9FAFB] shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.06)] transition-colors",
-                                  isSelected && "bg-[#F0FDF4] group-hover:bg-[#DCFCE7]"
-                                )
-                              )}
+                          {/* Expand Chevron Button */}
+                          <td className="w-8 py-3.5 px-1 text-center align-middle">
+                            <button
+                              type="button"
+                              onClick={() => toggleRowExpand(rowId)}
+                              aria-expanded={isExpanded}
+                              aria-label={`Toggle row details for ${rowId}`}
+                              className="p-1 rounded text-[#A1A1AA] hover:text-[#18181B] hover:bg-[#F4F4F5] transition focus-visible:outline-none"
                             >
-                              {col.isPrimaryLink ? (
-                                <Link
-                                  href={col.getHref ? col.getHref(row) : `#`}
-                                  scroll={false}
-                                  className="font-semibold text-[#0D7A5F] hover:underline focus-visible:outline-none"
-                                >
-                                  {col.cell ? col.cell(row) : value}
-                                </Link>
-                              ) : col.hasAvatar ? (
-                                <div className="flex items-center gap-2">
-                                  <span className="w-6 h-6 rounded-full bg-emerald-50 text-[#0D7A5F] text-[10px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
-                                    {col.avatarInitials
-                                      ? col.avatarInitials(row)
-                                      : String(value || "T")
-                                          .split(" ")
-                                          .map((n) => n[0])
-                                          .join("")
-                                          .slice(0, 2)}
-                                  </span>
-                                  <span className="font-medium text-[#18181B]">
+                              <ChevronRight
+                                className={cn(
+                                  "w-4 h-4 transition-transform duration-150",
+                                  isExpanded && "rotate-90 text-[#0D7A5F]"
+                                )}
+                              />
+                            </button>
+                          </td>
+
+                          {/* Data Columns */}
+                          {displayedColumns.map((col) => {
+                            const value = col.accessorKey ? row[col.accessorKey] : undefined;
+                            const isActionCol = col.id === "actions";
+
+                            return (
+                              <td
+                                key={col.id}
+                                className={cn(
+                                  "py-3 px-3.5 align-middle",
+                                  col.align === "center" && "text-center",
+                                  col.align === "right" && "text-right",
+                                  isActionCol && cn(
+                                    "sticky right-0 z-10 bg-white group-hover:bg-[#F9FAFB] shadow-[-3px_0_6px_-2px_rgba(0,0,0,0.06)] transition-colors",
+                                    isSelected && "bg-[#F0FDF4] group-hover:bg-[#DCFCE7]"
+                                  )
+                                )}
+                              >
+                                {col.isPrimaryLink ? (
+                                  <Link
+                                    href={col.getHref ? col.getHref(row) : `#`}
+                                    scroll={false}
+                                    className="font-semibold text-[#0D7A5F] hover:underline focus-visible:outline-none"
+                                  >
                                     {col.cell ? col.cell(row) : value}
-                                  </span>
-                                </div>
-                              ) : col.inlineAction ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    col.inlineAction?.onClick(row);
-                                  }}
-                                  aria-label={`Action: ${col.inlineAction.label(row)}`}
-                                  className="font-bold text-[11px] text-[#18181B] hover:text-[#0D7A5F] inline-flex items-center gap-1 py-0.5 px-1.5 rounded hover:bg-[#F4F4F5] transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0D7A5F]"
-                                >
-                                  <span>{col.inlineAction.label(row)}</span>
-                                  <ChevronDown className="w-3 h-3 text-[#71717A]" />
-                                </button>
-                              ) : col.cell ? (
-                                col.cell(row)
+                                  </Link>
+                                ) : col.hasAvatar ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-6 h-6 rounded-full bg-emerald-50 text-[#0D7A5F] text-[10px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
+                                      {col.avatarInitials
+                                        ? col.avatarInitials(row)
+                                        : String(value || "T")
+                                            .split(" ")
+                                            .map((n) => n[0])
+                                            .join("")
+                                            .slice(0, 2)}
+                                    </span>
+                                    <span className="font-medium text-[#18181B]">
+                                      {col.cell ? col.cell(row) : value}
+                                    </span>
+                                  </div>
+                                ) : col.inlineAction ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      col.inlineAction?.onClick(row);
+                                    }}
+                                    aria-label={`Action: ${col.inlineAction.label(row)}`}
+                                    className="font-bold text-[11px] text-[#18181B] hover:text-[#0D7A5F] inline-flex items-center gap-1 py-0.5 px-1.5 rounded hover:bg-[#F4F4F5] transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0D7A5F]"
+                                  >
+                                    <span>{col.inlineAction.label(row)}</span>
+                                    <ChevronDown className="w-3 h-3 text-[#71717A]" />
+                                  </button>
+                                ) : col.cell ? (
+                                  col.cell(row)
+                                ) : (
+                                  <span className="text-[#27272A]">{value ?? "—"}</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+
+                        {/* Expandable Sub-Details Inline Preview */}
+                        {isExpanded && (
+                          <tr className="bg-[#FAFAFA]">
+                            <td colSpan={displayedColumns.length + 2} className="px-10 py-3 border-b border-[#EDEDED]">
+                              {renderExpandedRow ? (
+                                renderExpandedRow(row)
                               ) : (
-                                <span className="text-[#27272A]">{value ?? "—"}</span>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-[#52525B]">
+                                  <div>
+                                    <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                                      Quick Address / Site
+                                    </span>
+                                    <span>{row.customer?.addressText || row.addressText || "Physical site address verified on GPS"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                                      Diagnostic Notes / Remarks
+                                    </span>
+                                    <span>{row.remarks || row.notes || "Standard preventive maintenance checklist"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                                      Assigned Field Technician
+                                    </span>
+                                    <span>{row.assignedTechnician?.name || row.technician?.name || "Unassigned"}</span>
+                                  </div>
+                                </div>
                               )}
                             </td>
-                          );
-                        })}
-                      </tr>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-3.5 sm:p-5 bg-[#F9FAFB]/70 min-h-[300px]">
+            {totalItems === 0 ? (
+              <div className="py-16 text-center text-xs text-[#71717A] bg-white rounded-xl border border-[#EDEDED]">
+                <p className="font-semibold text-sm text-[#18181B]">{emptyMessage}</p>
+                <p className="text-xs text-[#A1A1AA] mt-1.5">
+                  No records match the current tab and filter criteria.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Select All on Page Bar in Card View */}
+                <div className="flex items-center justify-between pb-3 px-1 text-xs text-[#71717A]">
+                  <label className="flex items-center gap-2 cursor-pointer font-medium hover:text-[#18181B] select-none">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={handleSelectAll}
+                      aria-label="Select all cards"
+                      className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F]"
+                    />
+                    <span>Select all on page</span>
+                  </label>
+                  <span className="text-[11px] text-[#A1A1AA] font-mono">
+                    Showing {totalItems === 0 ? 0 : startIndex + 1}–{endIndex} of {totalItems} {moduleName}
+                  </span>
+                </div>
 
-                      {/* Expandable Sub-Details Inline Preview */}
-                      {isExpanded && (
-                        <tr className="bg-[#FAFAFA]">
-                          <td colSpan={displayedColumns.length + 2} className="px-10 py-3 border-b border-[#EDEDED]">
-                            {renderExpandedRow ? (
-                              renderExpandedRow(row)
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-[#52525B]">
-                                <div>
-                                  <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
-                                    Quick Address / Site
-                                  </span>
-                                  <span>{row.customer?.addressText || row.addressText || "Physical site address verified on GPS"}</span>
-                                </div>
-                                <div>
-                                  <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
-                                    Diagnostic Notes / Remarks
-                                  </span>
-                                  <span>{row.remarks || row.notes || "Standard preventive maintenance checklist"}</span>
-                                </div>
-                                <div>
-                                  <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
-                                    Assigned Field Technician
-                                  </span>
-                                  <span>{row.assignedTechnician?.name || row.technician?.name || "Unassigned"}</span>
-                                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                  {paginatedRows.map((row) => {
+                    const rowId = getRowId(row);
+                    const isSelected = selectedRowIds.includes(rowId);
+                    const isExpanded = expandedRowIds.includes(rowId);
+
+                    const actionsCol = displayedColumns.find((c) => c.id === "actions");
+                    const primaryCol = displayedColumns.find((c) => c.isPrimaryLink) || displayedColumns[0];
+                    const statusCol = displayedColumns.find((c) => c.id === "status");
+                    const bodyCols = displayedColumns.filter(
+                      (c) => c.id !== "actions" && c.id !== primaryCol?.id && c.id !== statusCol?.id
+                    );
+
+                    return (
+                      <div
+                        key={rowId}
+                        className={cn(
+                          "bg-white rounded-xl border border-[#EDEDED] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.035)] hover:shadow-md transition-all flex flex-col justify-between group",
+                          isSelected && "border-[#0D7A5F] bg-emerald-50/15 ring-1 ring-[#0D7A5F]"
+                        )}
+                      >
+                        <div>
+                          {/* Card Header: Checkbox, Primary Link / ID, Status */}
+                          <div className="flex items-start justify-between gap-2 pb-3 border-b border-[#F4F4F5]">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleSelectRow(rowId)}
+                                aria-label={`Select record ${rowId}`}
+                                className="w-4 h-4 rounded border-[#D4D4D8] text-[#0D7A5F] focus:ring-[#0D7A5F] accent-[#0D7A5F] shrink-0"
+                              />
+                              <div className="min-w-0">
+                                {primaryCol && (
+                                  <div className="font-bold text-xs text-[#18181B] truncate">
+                                    {primaryCol.isPrimaryLink ? (
+                                      <Link
+                                        href={primaryCol.getHref ? primaryCol.getHref(row) : `#`}
+                                        scroll={false}
+                                        className="font-bold text-[#0D7A5F] hover:underline focus-visible:outline-none"
+                                      >
+                                        {primaryCol.cell ? primaryCol.cell(row) : (row as any)[primaryCol.id]}
+                                      </Link>
+                                    ) : primaryCol.cell ? (
+                                      primaryCol.cell(row)
+                                    ) : (
+                                      (row as any)[primaryCol.id]
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {statusCol && (
+                              <div className="shrink-0">
+                                {statusCol.cell ? statusCol.cell(row) : (row as any)[statusCol.id]}
                               </div>
                             )}
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                          </div>
+
+                          {/* Card Attributes / Columns */}
+                          <div className="py-3 space-y-2 text-xs">
+                            {bodyCols.map((col) => {
+                              const value = col.accessorKey ? (row as any)[col.accessorKey] : undefined;
+                              return (
+                                <div key={col.id} className="flex items-start justify-between gap-2">
+                                  <span className="text-[11px] font-medium text-[#71717A] shrink-0">
+                                    {col.header}:
+                                  </span>
+                                  <div className="text-right text-[11px] text-[#18181B] font-medium break-words max-w-[65%]">
+                                    {col.hasAvatar ? (
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        <span className="w-5 h-5 rounded-full bg-emerald-50 text-[#0D7A5F] text-[9px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
+                                          {col.avatarInitials
+                                            ? col.avatarInitials(row)
+                                            : String(value || "T")
+                                                .split(" ")
+                                                .map((n) => n[0])
+                                                .join("")
+                                                .slice(0, 2)}
+                                        </span>
+                                        <span>{col.cell ? col.cell(row) : value}</span>
+                                      </div>
+                                    ) : col.cell ? (
+                                      col.cell(row)
+                                    ) : (
+                                      <span>{value ?? "—"}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Expandable Preview inside Card */}
+                          <div className="pt-2 border-t border-[#F4F4F5]">
+                            <button
+                              type="button"
+                              onClick={() => toggleRowExpand(rowId)}
+                              className="text-[11px] font-semibold text-[#71717A] hover:text-[#0D7A5F] inline-flex items-center gap-1 transition"
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  "w-3.5 h-3.5 transition-transform duration-150",
+                                  isExpanded && "rotate-90 text-[#0D7A5F]"
+                                )}
+                              />
+                              <span>{isExpanded ? "Hide Details" : "View Details"}</span>
+                            </button>
+                            {isExpanded && (
+                              <div className="mt-2 p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-[11px] space-y-1">
+                                {renderExpandedRow ? (
+                                  renderExpandedRow(row)
+                                ) : (
+                                  <div className="space-y-1 text-xs text-[#52525B]">
+                                    <div>
+                                      <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                                        Quick Address / Site
+                                      </span>
+                                      <span>{row.customer?.addressText || row.addressText || "Physical site address verified on GPS"}</span>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                                        Diagnostic Notes / Remarks
+                                      </span>
+                                      <span>{row.remarks || row.notes || "Standard preventive maintenance checklist"}</span>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                                        Assigned Field Technician
+                                      </span>
+                                      <span>{row.assignedTechnician?.name || row.technician?.name || "Unassigned"}</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Card Actions Footer */}
+                        {actionsCol && (
+                          <div className="pt-3 border-t border-[#F4F4F5] flex items-center justify-end">
+                            {actionsCol.cell ? actionsCol.cell(row) : (row as any)[actionsCol.id]}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Table Footer with Pagination Controls */}
         <div className="px-4 py-3 bg-[#FAFAFA] border-t border-[#EDEDED] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#71717A]">

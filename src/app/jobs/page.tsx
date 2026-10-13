@@ -171,7 +171,7 @@ export default function JobsListPage() {
 
       if (kpiFilter) {
         if (kpiFilter === "pending_requests" || kpiFilter === "pending_stock") {
-          return j.inventoryRequests?.some((r: any) => r.status === "pending");
+          return j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued");
         }
         if (kpiFilter === "done_requests" || kpiFilter === "approved_stock") {
           return j.inventoryRequests?.some(
@@ -190,7 +190,7 @@ export default function JobsListPage() {
       }
 
       if (activeTab === "pending_materials") {
-        return j.inventoryRequests?.some((r: any) => r.status === "pending");
+        return j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued");
       }
       if (activeTab === "returnable") {
         return isReturnable;
@@ -225,7 +225,7 @@ export default function JobsListPage() {
         )
           return false;
       } else if (kpiFilter === "pending_stock") {
-        if (!j.inventoryRequests?.some((r: any) => r.status === "pending")) return false;
+        if (!j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")) return false;
       } else if (kpiFilter === "approved_stock") {
         if (
           !j.inventoryRequests?.some(
@@ -403,7 +403,7 @@ export default function JobsListPage() {
       if (selectedMaterialFilter === "has_requests") {
         if (!j.inventoryRequests || j.inventoryRequests.length === 0) return false;
       } else if (selectedMaterialFilter === "pending_approval") {
-        if (!j.inventoryRequests?.some((r: any) => r.status === "pending")) return false;
+        if (!j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")) return false;
       } else if (selectedMaterialFilter === "issued") {
         if (!j.inventoryRequests?.some((r: any) => r.status === "issued" || r.status === "fulfilled")) return false;
       } else if (selectedMaterialFilter === "returnable") {
@@ -694,7 +694,7 @@ export default function JobsListPage() {
       width: isStorekeeper ? "280px" : "180px",
       cell: (row) => {
         if (isStorekeeper) {
-          const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
+          const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending" || r.status === "partially_issued").length || 0;
           const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued" || r.status === "fulfilled").length || 0;
           const returns = row.stockReturns || [];
           const pendingAckCount = returns.filter((r: any) => !r.acknowledgedAt).length;

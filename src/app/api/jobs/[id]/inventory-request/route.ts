@@ -12,7 +12,7 @@ export async function POST(
   if (gate.error) return gate.error;
   try {
     const body = await req.json();
-    const { technicianId, item, qtyRequested } = body;
+    const { technicianId, item, qtyRequested, productId } = body;
     // Verified mobile technician: file strictly as self
     const techId =
       (req.headers.get("authorization") || "").startsWith("Bearer ") && gate.actor.role === "technician"
@@ -27,7 +27,9 @@ export async function POST(
         jobId: params.id,
         technicianId: techId,
         item,
+        productId: productId || null,
         qtyRequested: Number(qtyRequested) || 1,
+        qtyIssued: 0,
         status: "pending",
       },
     });

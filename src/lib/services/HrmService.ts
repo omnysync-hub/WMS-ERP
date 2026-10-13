@@ -220,7 +220,17 @@ export class HrmService {
       where,
       include: {
         employee: {
-          select: { id: true, name: true, designation: true, department: true, role: true },
+          select: {
+            id: true,
+            name: true,
+            designation: true,
+            department: true,
+            role: true,
+            reportingManagerId: true,
+            reportingManager: {
+              select: { id: true, name: true, designation: true, role: true, department: true },
+            },
+          },
         },
         leaveType: true,
       },

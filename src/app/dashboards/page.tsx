@@ -21,6 +21,7 @@ import {
   Clock,
   ArrowRight,
   ShieldCheck,
+  ShieldAlert,
   Building,
   Calendar,
   Layers,
@@ -32,6 +33,7 @@ import {
   RefreshCw,
   Percent,
 } from "lucide-react";
+import { useRole } from "@/contexts/RoleContext";
 
 type TabKey =
   | "overview"
@@ -45,12 +47,26 @@ type TabKey =
 function DashboardsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { activeRole } = useRole();
+  const isAdmin = activeRole === "admin";
   const tabParam = searchParams.get("tab") as TabKey | null;
 
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [timeRange, setTimeRange] = useState("this_month");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      if (activeRole === "hr") {
+        router.replace("/hrm");
+      } else if (activeRole === "storekeeper") {
+        router.replace("/inventory");
+      } else {
+        router.replace("/jobs");
+      }
+    }
+  }, [isAdmin, activeRole, router]);
 
   useEffect(() => {
     if (tabParam && ["overview", "technicians", "finance", "inventory", "hrm", "feedback", "projects"].includes(tabParam)) {
@@ -64,6 +80,7 @@ function DashboardsContent() {
   };
 
   async function loadStats(range: string) {
+    if (!isAdmin) return;
     try {
       setLoading(true);
       const res = await fetch(`/api/dashboards/stats?range=${range}`);
@@ -77,8 +94,49 @@ function DashboardsContent() {
   }
 
   useEffect(() => {
-    loadStats(timeRange);
-  }, [timeRange]);
+    if (isAdmin) {
+      loadStats(timeRange);
+    }
+  }, [timeRange, isAdmin]);
+
+  if (!isAdmin) {
+    return (
+      <div className="p-8 max-w-xl mx-auto text-center space-y-4 mt-16 animate-in fade-in">
+        <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto border border-rose-500/20">
+          <ShieldAlert className="w-7 h-7" />
+        </div>
+        <div className="space-y-1.5">
+          <h3 className="text-lg font-bold text-white">
+            Dashboards Hub Access Restricted
+          </h3>
+          <p className="text-xs text-zinc-400 max-w-md mx-auto">
+            The Dashboards Command Center is restricted strictly to Administrative personnel. Non-admin roles do not have permission to view executive analytics.
+          </p>
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                activeRole === "hr"
+                  ? "/hrm"
+                  : activeRole === "storekeeper"
+                  ? "/inventory"
+                  : "/jobs"
+              )
+            }
+            className="px-5 py-2.5 bg-[#0D7A5F] hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition shadow-sm"
+          >
+            {activeRole === "hr"
+              ? "Return to HRM & Workforce"
+              : activeRole === "storekeeper"
+              ? "Return to Warehouse & Stock"
+              : "Return to Work Orders"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const overview = stats?.overview || {};
   const technicians = stats?.technicians || {};

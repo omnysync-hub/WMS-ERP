@@ -4,14 +4,19 @@ import React, { useEffect, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Package, AlertTriangle, Check, AlertCircle } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
-import { useRole } from "@/contexts/RoleContext";
-import SearchableSelect from "@/components/ui/SearchableSelect";
 
 interface IssueWarehouseStockDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   job: any;
-  reqItem?: { id?: string; item?: string; qtyRequested?: number } | null;
+  reqItem?: {
+    id?: string;
+    item?: string;
+    productId?: string | null;
+    qtyRequested?: number;
+    qtyIssued?: number;
+    status?: string;
+  } | null;
   actor: string;
   onSuccess?: () => void;
   isStorekeeper?: boolean;
@@ -24,15 +29,8 @@ export default function IssueWarehouseStockDrawer({
   reqItem,
   actor,
   onSuccess,
-  isStorekeeper: propIsStorekeeper,
+  isStorekeeper: _propIsStorekeeper,
 }: IssueWarehouseStockDrawerProps) {
-  const { activeRole, currentRole, hasPermission } = useRole();
-  const isStorekeeper =
-    propIsStorekeeper !== undefined
-      ? propIsStorekeeper
-      : activeRole === "storekeeper" ||
-        currentRole === "storekeeper" ||
-        !hasPermission("inventory.view_costs");
   const [warehouseProducts, setWarehouseProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -40,15 +38,14 @@ export default function IssueWarehouseStockDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const totalRequested = Number(reqItem?.qtyRequested || 0);
+  const alreadyIssued = Number(reqItem?.qtyIssued || 0);
+  const remainingNeeded = Math.max(0, totalRequested - alreadyIssued);
+
   useEffect(() => {
     if (!isOpen) return;
 
     setErrorMsg("");
-    if (reqItem) {
-      setIssueQuantity(String(reqItem.qtyRequested || 1));
-    } else {
-      setIssueQuantity("1");
-    }
 
     async function loadProducts() {
       try {
@@ -57,21 +54,37 @@ export default function IssueWarehouseStockDrawer({
         const data = await res.json();
         if (Array.isArray(data)) {
           setWarehouseProducts(data);
-          if (reqItem?.item) {
+          let matched: any = null;
+
+          if (reqItem?.productId) {
+            matched = data.find((p: any) => p.id === reqItem.productId);
+          }
+
+          if (!matched && reqItem?.item) {
             const reqSearch = reqItem.item.toLowerCase();
-            const match = data.find(
-              (p: any) =>
-                p.name?.toLowerCase().includes(reqSearch) ||
-                reqSearch.includes(p.name?.toLowerCase() || "") ||
-                p.sku?.toLowerCase().includes(reqSearch)
-            );
-            if (match) {
-              setSelectedProductId(match.id);
-            } else if (data.length > 0) {
-              setSelectedProductId(data[0].id);
-            }
+            matched = data.find((p: any) => {
+              const sku = (p.sku || "").toLowerCase();
+              const name = (p.name || "").toLowerCase();
+              return (
+                (sku && reqSearch.includes(sku)) ||
+                (name && reqSearch.includes(name)) ||
+                (name && name.includes(reqSearch))
+              );
+            });
+          }
+
+          if (matched) {
+            setSelectedProductId(matched.id);
+            const canIssue = remainingNeeded > 0
+              ? Math.min(matched.stockQuantity || 0, remainingNeeded)
+              : matched.stockQuantity || 1;
+            setIssueQuantity(String(Math.max(1, canIssue || 1)));
           } else if (data.length > 0) {
             setSelectedProductId(data[0].id);
+            const canIssue = remainingNeeded > 0
+              ? Math.min(data[0].stockQuantity || 0, remainingNeeded)
+              : data[0].stockQuantity || 1;
+            setIssueQuantity(String(Math.max(1, canIssue || 1)));
           }
         }
       } catch (err: any) {
@@ -83,19 +96,32 @@ export default function IssueWarehouseStockDrawer({
     }
 
     loadProducts();
-  }, [isOpen, reqItem]);
+  }, [isOpen, reqItem, remainingNeeded]);
 
   const selectedProduct = warehouseProducts.find((p) => p.id === selectedProductId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProductId || !issueQuantity || Number(issueQuantity) <= 0) {
-      setErrorMsg("Please select a product and valid quantity.");
+    const qty = Number(issueQuantity);
+
+    if (!selectedProductId || isNaN(qty) || qty <= 0) {
+      setErrorMsg("Please select a valid product and enter a quantity greater than zero.");
       return;
     }
 
-    if (reqItem?.qtyRequested && Number(issueQuantity) > Number(reqItem.qtyRequested)) {
-      setErrorMsg(`Cannot issue more than the requested stock quantity (${reqItem.qtyRequested} units requested).`);
+    if (remainingNeeded > 0 && qty > remainingNeeded) {
+      setErrorMsg(
+        `Cannot issue more than the remaining requested amount (${remainingNeeded} unit${
+          remainingNeeded === 1 ? "" : "s"
+        } left out of ${totalRequested} requested).`
+      );
+      return;
+    }
+
+    if (selectedProduct && qty > selectedProduct.stockQuantity) {
+      setErrorMsg(
+        `Insufficient warehouse stock. '${selectedProduct.name}' only has ${selectedProduct.stockQuantity} unit(s) available in Central Warehouse.`
+      );
       return;
     }
 
@@ -109,7 +135,7 @@ export default function IssueWarehouseStockDrawer({
         body: JSON.stringify({
           action: "issue_inventory",
           productId: selectedProductId,
-          quantity: Number(issueQuantity),
+          quantity: qty,
           requestId: reqItem?.id,
           actor: actor,
         }),
@@ -162,7 +188,13 @@ export default function IssueWarehouseStockDrawer({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting || loadingProducts || warehouseProducts.length === 0}
+            disabled={
+              isSubmitting ||
+              loadingProducts ||
+              !selectedProduct ||
+              selectedProduct.stockQuantity <= 0 ||
+              (remainingNeeded > 0 && remainingNeeded <= 0)
+            }
             className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
           >
             <Check className="w-3.5 h-3.5" />
@@ -173,19 +205,36 @@ export default function IssueWarehouseStockDrawer({
     >
       <div className="space-y-4 text-xs">
         {reqItem && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 space-y-1">
+          <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-950 space-y-2.5">
             <div className="flex items-center justify-between font-bold">
               <span className="flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                 Fulfilling Material Request
               </span>
-              <span className="text-[10px] bg-amber-200/80 px-2 py-0.5 rounded-full font-mono">
-                Req Qty: {reqItem.qtyRequested}
+              <span className="text-[10px] bg-amber-200/80 px-2 py-0.5 rounded-full font-mono font-bold">
+                {alreadyIssued > 0
+                  ? `${alreadyIssued}/${totalRequested} Issued`
+                  : `Req Qty: ${totalRequested}`}
               </span>
             </div>
-            <p className="text-[11px] text-amber-900 mt-0.5">
-              Requested Item: <strong>{reqItem.item}</strong>
+            <p className="text-[11px] text-amber-900 mt-0.5 font-medium">
+              Requested Item: <strong className="text-amber-950">{reqItem.item}</strong>
             </p>
+
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-amber-200/60 text-center">
+              <div className="bg-white/80 p-2 rounded-lg border border-amber-200/60">
+                <span className="text-[10px] text-[#71717A] block font-medium">Requested</span>
+                <span className="text-xs font-mono font-bold text-[#18181B]">{totalRequested}</span>
+              </div>
+              <div className="bg-white/80 p-2 rounded-lg border border-amber-200/60">
+                <span className="text-[10px] text-emerald-700 block font-medium">Issued</span>
+                <span className="text-xs font-mono font-bold text-emerald-800">{alreadyIssued}</span>
+              </div>
+              <div className="bg-white/80 p-2 rounded-lg border border-amber-200/60">
+                <span className="text-[10px] text-amber-800 block font-medium">Left / Pending</span>
+                <span className="text-xs font-mono font-bold text-amber-900">{remainingNeeded}</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -203,57 +252,59 @@ export default function IssueWarehouseStockDrawer({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="font-semibold text-[#18181B] block mb-1">
-                Select Warehouse Product *
-              </label>
-              <SearchableSelect
-                options={warehouseProducts.map((p: any) => ({
-                  value: p.id,
-                  label: `${p.name} (${p.sku || "N/A"})`,
-                  subLabel: `Stock: ${p.stockQuantity} ${p.unitOfMeasure || "units"}`,
-                  badge: p.stockQuantity > 0 ? "In Stock" : "Out of Stock",
-                  badgeTone: p.stockQuantity > 0 ? "green" : "red",
-                }))}
-                value={selectedProductId}
-                onChange={(val: string) => setSelectedProductId(val)}
-                placeholder="-- Select or Search Warehouse Product --"
-                searchPlaceholder="Search products by name or SKU..."
-                required
-                className="w-full"
-              />
+            {/* Automatic Product Card - No dropdown, product comes auto and locked */}
+            <div className="p-3 bg-[#F4F4F5] border border-[#E4E4E7] rounded-xl space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider block">
+                  Warehouse Product
+                </label>
+                {selectedProduct && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      selectedProduct.stockQuantity > 0
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-rose-50 text-rose-700 border-rose-200"
+                    }`}
+                  >
+                    {selectedProduct.stockQuantity > 0 ? "In Stock" : "Out of Stock"}
+                  </span>
+                )}
+              </div>
+              <div className="text-sm font-bold text-[#18181B]">
+                {selectedProduct?.name || reqItem?.item || "Matching Warehouse Product..."}
+              </div>
+              {selectedProduct?.sku && (
+                <div className="text-[11px] text-[#71717A] font-mono">
+                  SKU: <span className="font-semibold text-[#18181B]">{selectedProduct.sku}</span>
+                </div>
+              )}
             </div>
 
+            {/* Warehouse Stock Display (No unit cost, no cost masked) */}
             {selectedProduct && (
-              <div className="p-3 bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg flex items-center justify-between text-[11px]">
-                <div>
-                  <span className="text-[#71717A] block">Available in Central Warehouse:</span>
-                  <span className="font-mono font-bold text-[#18181B] text-sm">
-                    {selectedProduct.stockQuantity} {selectedProduct.unitOfMeasure || "units"}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[#71717A] block">Unit Cost:</span>
-                  {isStorekeeper ? (
-                    <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-mono inline-block mt-0.5">
-                      Cost Masked
-                    </span>
-                  ) : (
-                    <span className="font-mono font-semibold text-[#18181B]">
-                      PKR {selectedProduct.costPrice || selectedProduct.unitPrice || 0}
-                    </span>
-                  )}
-                </div>
+              <div className="p-3 bg-[#FAFAFA] border border-[#E4E4E7] rounded-xl flex items-center justify-between text-xs">
+                <span className="text-[#71717A] font-medium">Available in Central Warehouse:</span>
+                <span className="font-mono font-bold text-[#18181B] text-sm">
+                  {selectedProduct.stockQuantity} {selectedProduct.unitOfMeasure || "units"}
+                </span>
               </div>
             )}
 
             <div>
-              <label className="font-semibold text-[#18181B] block mb-1">
-                Quantity to Issue *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-semibold text-[#18181B] block">
+                  Quantity to Issue *
+                </label>
+                {remainingNeeded > 0 && (
+                  <span className="text-[10px] text-[#71717A]">
+                    Max allowed: <strong className="text-[#18181B] font-mono">{remainingNeeded}</strong>
+                  </span>
+                )}
+              </div>
               <input
                 type="number"
                 min="1"
+                max={remainingNeeded > 0 ? remainingNeeded : undefined}
                 required
                 value={issueQuantity}
                 onChange={(e) => setIssueQuantity(e.target.value)}
@@ -261,15 +312,19 @@ export default function IssueWarehouseStockDrawer({
               />
             </div>
 
-            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-lg text-[11px] text-amber-950 space-y-1.5 leading-relaxed">
-              <p className="font-semibold flex items-center gap-1.5 text-amber-900">
-                <Package className="w-3.5 h-3.5 text-amber-700" />
-                Ledger & Inventory Action Summary:
-              </p>
-              <p>• Central warehouse physical balance will be immediately deducted.</p>
-              <p>• Stock ledger entry and automated COGS double-entry will be posted to GL.</p>
-              <p>• Material is allocated to Job #{job?.jobNumber} and marked fulfilled in dispatch queue.</p>
-            </div>
+            {/* If warehouse stock is less than remaining needed, show partial issuance advisory */}
+            {selectedProduct && selectedProduct.stockQuantity < remainingNeeded && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5 leading-relaxed">
+                  <p className="font-bold">Partial Stock Issuance</p>
+                  <p className="text-[11px]">
+                    Warehouse only has <strong>{selectedProduct.stockQuantity}</strong> units in stock out of <strong>{remainingNeeded}</strong> units needed.
+                    Issuing <strong>{issueQuantity || 0}</strong> unit(s) will leave the remaining units as <strong>pending</strong> for the technician until additional stock arrives.
+                  </p>
+                </div>
+              </div>
+            )}
           </form>
         )}
       </div>

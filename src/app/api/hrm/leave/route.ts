@@ -35,15 +35,22 @@ export async function GET(req: NextRequest) {
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
     const canManage = roleHasPermission(resolved.actor.role, "hrm.manage_employees");
-    if (!canManage) {
+
+    let reportingManagerId = searchParams.get("reportingManagerId") || undefined;
+    const managerScope = searchParams.get("managerOnly") === "true";
+    if (managerScope && !reportingManagerId) {
+      reportingManagerId = resolved.actor.id;
+    }
+
+    if (!canManage && !reportingManagerId) {
       if (employeeId && employeeId !== resolved.actor.id) {
-        return NextResponse.json({ error: "You can only view your own leave records." }, { status: 403 });
+        return NextResponse.json({ error: "You can only view your own leave records or your direct reports." }, { status: 403 });
       }
       employeeId = resolved.actor.id;
     }
 
     const [requests, leaveTypes, holidays] = await Promise.all([
-      HrmService.listLeaveRequests({ employeeId, status }),
+      HrmService.listLeaveRequests({ employeeId, status, reportingManagerId }),
       prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
       HrmService.getCompanyHolidays(),
     ]);
@@ -195,17 +202,45 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ leaveRequest: result }, { status: 201 });
     } else if (action === "approve") {
-      if (!canManage) return NextResponse.json({ error: "Only HR managers can approve leave." }, { status: 403 });
+      const reqRecord = await prisma.leaveRequest.findUnique({
+        where: { id: body.requestId },
+        include: { employee: true },
+      });
+      if (!reqRecord) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
+
+      const isReportingManager = reqRecord.employee?.reportingManagerId === resolved.actor.id;
+      if (!canManage && !isReportingManager) {
+        return NextResponse.json({ error: "Only the designated Reporting Manager or HR Administrator can approve this leave." }, { status: 403 });
+      }
+
+      const approverTitle = isReportingManager
+        ? `${resolved.actor.name} (Reporting Manager)`
+        : `${resolved.actor.name} (HR Admin)`;
+
       const result = await HrmService.approveLeave(
         body.requestId,
-        resolved.actor.name
+        approverTitle
       );
       return NextResponse.json({ leaveRequest: result });
     } else if (action === "reject") {
-      if (!canManage) return NextResponse.json({ error: "Only HR managers can reject leave." }, { status: 403 });
+      const reqRecord = await prisma.leaveRequest.findUnique({
+        where: { id: body.requestId },
+        include: { employee: true },
+      });
+      if (!reqRecord) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
+
+      const isReportingManager = reqRecord.employee?.reportingManagerId === resolved.actor.id;
+      if (!canManage && !isReportingManager) {
+        return NextResponse.json({ error: "Only the designated Reporting Manager or HR Administrator can reject this leave." }, { status: 403 });
+      }
+
+      const approverTitle = isReportingManager
+        ? `${resolved.actor.name} (Reporting Manager)`
+        : `${resolved.actor.name} (HR Admin)`;
+
       const result = await HrmService.rejectLeave(
         body.requestId,
-        resolved.actor.name,
+        approverTitle,
         body.reason
       );
       return NextResponse.json({ leaveRequest: result });

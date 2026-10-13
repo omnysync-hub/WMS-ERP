@@ -508,9 +508,9 @@ export default function PurchaseOrdersTab({
                 <th className="py-3 px-3">Order Date</th>
                 <th className="py-3 px-3">Delivery Date</th>
                 <th className="py-3 px-3">Fulfillment Progress</th>
-                <th className="py-3 px-3 text-right">
-                  {isStorekeeper ? "Valuation" : "Order Value"}
-                </th>
+                {!isStorekeeper && (
+                  <th className="py-3 px-3 text-right">Order Value</th>
+                )}
                 <th className="py-3 px-3 text-center">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -518,7 +518,7 @@ export default function PurchaseOrdersTab({
             <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
               {filteredPos.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-0">
+                  <td colSpan={isStorekeeper ? 7 : 8} className="p-0">
                     <ProcurementEmptyState
                       title="No purchase orders"
                       description="Convert an approved PR or create a PO to start a vendor order."
@@ -619,15 +619,11 @@ export default function PurchaseOrdersTab({
                         </div>
                       </td>
 
-                      <td className="py-3 px-3 text-right font-mono font-bold text-[#18181B] text-sm">
-                        {isStorekeeper ? (
-                          <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                            Cost Masked
-                          </span>
-                        ) : (
-                          formatCurrency(po.totalAmount || 0)
-                        )}
-                      </td>
+                      {!isStorekeeper && (
+                        <td className="py-3 px-3 text-right font-mono font-bold text-[#18181B] text-sm">
+                          {formatCurrency(po.totalAmount || 0)}
+                        </td>
+                      )}
 
                       <td className="py-2 px-3 text-center">
                         <ProcurementStatusBadge status={po.status} />

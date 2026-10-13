@@ -149,8 +149,8 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
     email: "sara@company.com",
     avatar: "SB",
     badgeColor: "bg-pink-600 text-white",
-    description: "Physical tool/vehicle asset management, employee onboarding, ATS pipeline, staff grievances, and post-job customer feedback.",
-    primaryModules: ["HRM & Payroll", "Feedback Queue", "Dashboard"],
+    description: "Employee onboarding, ATS pipeline, staff grievances, attendance, leaves, and HRM workforce administration.",
+    primaryModules: ["HRM & Payroll"],
   },
   technician: {
     id: "6efdefa8-1956-4ca1-83cb-0d12ec8179f2",

@@ -581,6 +581,7 @@ export default function MobileCompanionPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             technicianId: technician.id,
+            productId: product.id,
             item: `${product.name} (${product.sku})${reqNotes.trim() ? ` — ${reqNotes.trim()}` : ""}`,
             qtyRequested: row.quantity,
           }),
@@ -1912,20 +1913,50 @@ export default function MobileCompanionPage() {
                           <span className="text-[10px] font-mono font-bold text-[#71717A]">{stockRequests.length}</span>
                         </div>
                         {stockRequests.map((req: any) => {
-                          const issued = req.status?.toLowerCase() === "issued";
+                          const reqQty = Number(req.qtyRequested || 0);
+                          const issuedQty = Number(req.qtyIssued || 0);
+                          const pendingQty = Math.max(0, reqQty - issuedQty);
+                          const isFullyIssued =
+                            req.status?.toLowerCase() === "issued" || (reqQty > 0 && issuedQty >= reqQty);
+                          const isPartial = !isFullyIssued && issuedQty > 0;
+
                           return (
                             <div key={req.id} className="p-2.5 bg-[#F9FAFB] rounded-xl border border-[#EDEDED] flex items-start justify-between gap-2 text-xs">
-                              <div className="min-w-0">
+                              <div className="min-w-0 space-y-1">
                                 <p className="font-semibold text-[#18181B] truncate">{req.item}</p>
-                                <p className="text-[10px] text-[#71717A] mt-0.5">Requested qty: {req.qtyRequested}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-[#71717A]">
+                                  <span>Requested: <strong className="font-mono text-[#18181B]">{reqQty}</strong></span>
+                                  <span>•</span>
+                                  <span className={issuedQty > 0 ? "text-emerald-700 font-semibold" : ""}>
+                                    Got: <strong className="font-mono">{issuedQty}</strong>
+                                  </span>
+                                  {pendingQty > 0 && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-amber-800 font-semibold">
+                                        Pending: <strong className="font-mono">{pendingQty}</strong>
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
                               </div>
                               <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full border flex items-center gap-1 ${
-                                issued
+                                isFullyIssued
                                   ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                                  : isPartial
+                                  ? "text-blue-700 bg-blue-50 border-blue-200"
                                   : "text-amber-800 bg-amber-50 border-amber-200"
                               }`}>
-                                {issued ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                                {issued ? "Issued" : "Pending store"}
+                                {isFullyIssued ? (
+                                  <CheckCircle2 className="w-3 h-3" />
+                                ) : (
+                                  <Clock className="w-3 h-3" />
+                                )}
+                                {isFullyIssued
+                                  ? "Issued"
+                                  : isPartial
+                                  ? `Partial (${issuedQty}/${reqQty})`
+                                  : "Pending store"}
                               </span>
                             </div>
                           );
@@ -2129,7 +2160,14 @@ export default function MobileCompanionPage() {
                 {(() => {
                   const assignedJobs = jobs.filter((j) => j.status === "Assigned");
                   const acceptedJobs = jobs.filter((j) => j.status === "Accepted");
-                  const inventoryJobs = jobs.filter((j) => j.inventoryRequests?.some((request: any) => request.status?.toLowerCase() !== "issued"));
+                  const inventoryJobs = jobs.filter((j) =>
+                    j.inventoryRequests?.some(
+                      (request: any) =>
+                        request.status?.toLowerCase() !== "issued" &&
+                        (Number(request.qtyIssued || 0) < Number(request.qtyRequested || 0) ||
+                          Number(request.qtyRequested || 0) === 0)
+                    )
+                  );
                   const inProgressJobs = jobs.filter((j) => j.status === "InProgress");
                   const pausedJobs = jobs.filter((j) => j.status === "Paused");
                   const doneJobs = jobs.filter((j) => ["CompletedPendingVerification", "AwaitingFeedback", "Finalized", "Verified"].includes(j.status));
@@ -2291,7 +2329,14 @@ export default function MobileCompanionPage() {
                 {jobSection !== "expenses" && (() => {
                   const assignedJobs = jobs.filter((j) => j.status === "Assigned");
                   const acceptedJobs = jobs.filter((j) => j.status === "Accepted");
-                  const inventoryJobs = jobs.filter((j) => j.inventoryRequests?.some((request: any) => request.status?.toLowerCase() !== "issued"));
+                  const inventoryJobs = jobs.filter((j) =>
+                    j.inventoryRequests?.some(
+                      (request: any) =>
+                        request.status?.toLowerCase() !== "issued" &&
+                        (Number(request.qtyIssued || 0) < Number(request.qtyRequested || 0) ||
+                          Number(request.qtyRequested || 0) === 0)
+                    )
+                  );
                   const inProgressJobs = jobs.filter((j) => j.status === "InProgress");
                   const pausedJobs = jobs.filter((j) => j.status === "Paused");
                   const doneJobs = jobs.filter((j) => ["CompletedPendingVerification", "AwaitingFeedback", "Finalized", "Verified"].includes(j.status));

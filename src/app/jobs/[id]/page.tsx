@@ -201,7 +201,15 @@ export default function JobDetailPage() {
 
   // Open Issue Inventory drawer
   const openIssueInventoryModal = (reqItem?: any) => {
-    setSelectedReqItem(reqItem || null);
+    const target =
+      reqItem ||
+      job?.inventoryRequests?.find(
+        (r: any) =>
+          r.status !== "issued" &&
+          (Number(r.qtyIssued || 0) < Number(r.qtyRequested || 0))
+      ) ||
+      (job?.inventoryRequests && job.inventoryRequests.length > 0 ? job.inventoryRequests[0] : null);
+    setSelectedReqItem(target || null);
     setIssueStockDrawerOpen(true);
   };
 
@@ -663,33 +671,7 @@ export default function JobDetailPage() {
         }
       />
 
-      {/* Storekeeper Specific Queue & Fulfillment Banner */}
-      {isStorekeeper && (!job.inventoryRequests || job.inventoryRequests.length === 0) && (
-        <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-900 text-xs font-medium rounded-lg flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>
-            <strong>Storekeeper Notice:</strong> This work order currently has no material or inventory requests logged. Storekeeper actions are restricted solely to fulfilling warehouse stock requests.
-          </span>
-        </div>
-      )}
-      {isStorekeeper && job.inventoryRequests && job.inventoryRequests.length > 0 && (
-        <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-950 text-xs font-medium rounded-lg flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Package className="w-4 h-4 text-amber-700 shrink-0" />
-            <span>
-              <strong>Storekeeper Mode:</strong> Viewing material requests for Work Order #{job.jobNumber}. You have sole authorization to issue physical stock from warehouse inventory.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => openIssueInventoryModal()}
-            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md shadow-2xs transition shrink-0 inline-flex items-center gap-1"
-          >
-            <Package className="w-3.5 h-3.5" />
-            + Issue Stock Now
-          </button>
-        </div>
-      )}
+
 
       {/* Notifications */}
       {successMsg && (
@@ -1806,31 +1788,60 @@ export default function JobDetailPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {job.inventoryRequests.map((req: any) => (
-                      <div
-                        key={req.id}
-                        className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs flex items-center justify-between gap-3"
-                      >
-                        <div>
-                          <p className="font-bold text-[#18181B]">{req.item}</p>
-                          <p className="text-[11px] text-[#71717A]">
-                            Requested Qty: <span className="font-mono font-bold text-[#18181B]">{req.qtyRequested}</span> • {formatDateTime(req.createdAt)}
-                          </p>
+                    {job.inventoryRequests.map((req: any) => {
+                      const reqQty = Number(req.qtyRequested || 0);
+                      const issuedQty = Number(req.qtyIssued || 0);
+                      const pendingQty = Math.max(0, reqQty - issuedQty);
+                      const isFullyIssued =
+                        req.status === "issued" || (reqQty > 0 && issuedQty >= reqQty);
+                      const isPartial = !isFullyIssued && issuedQty > 0;
+
+                      return (
+                        <div
+                          key={req.id}
+                          className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs flex items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-bold text-[#18181B]">{req.item}</p>
+                            <div className="flex items-center gap-2 text-[11px] text-[#71717A] flex-wrap">
+                              <span>
+                                Req Qty: <strong className="font-mono text-[#18181B]">{reqQty}</strong>
+                              </span>
+                              <span>•</span>
+                              <span className={issuedQty > 0 ? "text-emerald-700 font-semibold" : ""}>
+                                Issued: <strong className="font-mono">{issuedQty}</strong>
+                              </span>
+                              <span>•</span>
+                              <span className={pendingQty > 0 ? "text-amber-800 font-semibold" : ""}>
+                                Pending / Left: <strong className="font-mono">{pendingQty}</strong>
+                              </span>
+                              <span>•</span>
+                              <span>{formatDateTime(req.createdAt)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <StatusBadge
+                              status={
+                                isFullyIssued
+                                  ? "issued"
+                                  : isPartial
+                                  ? "partially_issued"
+                                  : "pending"
+                              }
+                            />
+                            {!isFullyIssued && req.status !== "rejected" && canIssueStock && (
+                              <button
+                                type="button"
+                                onClick={() => openIssueInventoryModal(req)}
+                                className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-md shadow-2xs transition inline-flex items-center gap-1"
+                              >
+                                {isPartial ? "Issue Remaining Stock" : "Fulfill & Issue"}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={req.status} />
-                          {req.status === "pending" && canIssueStock && (
-                            <button
-                              type="button"
-                              onClick={() => openIssueInventoryModal(req)}
-                              className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-md shadow-2xs transition"
-                            >
-                              Fulfill & Issue
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

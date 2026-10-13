@@ -91,6 +91,7 @@ export default function StatusBadge({ status, className, size = "md" }: StatusBa
       "fulfilled",
       "received",
       "matched",
+      "issued",
     ].includes(normalized)
   ) {
     // Green (positive/complete/approved) - WCAG AA compliant text on background
@@ -128,7 +129,8 @@ export default function StatusBadge({ status, className, size = "md" }: StatusBa
       "completedpendingverification",
       "pendingverification",
       "pending",
-      "issued",
+      "partiallyissued",
+      "partially_issued",
       "rescheduled",
       "scheduled",
       "awaitingack",

@@ -163,8 +163,8 @@ function generateServiceSku(prods: any[] = []) {
 
 export default function InventoryPurchasingPage() {
   const { profile } = useCompanyProfile();
-  const { currentRole } = useRole();
-  const isStorekeeper = currentRole === "storekeeper";
+  const { currentRole, activeRole } = useRole();
+  const isStorekeeper = (activeRole || currentRole) === "storekeeper";
 
   const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "branches">("stock");
 
@@ -1339,9 +1339,9 @@ export default function InventoryPurchasingPage() {
                       <th className="py-3 px-4 text-center">Stock on Job</th>
                       <th className="py-3 px-4 text-center">Total Stock</th>
                       <th className="py-3 px-4 text-center">Reorder Point</th>
-                      <th className="py-3 px-4 text-right">
-                        {isStorekeeper ? "Valuation" : "Billable Rate"}
-                      </th>
+                      {!isStorekeeper && (
+                        <th className="py-3 px-4 text-right">Billable Rate</th>
+                      )}
                       <th className="py-3 px-4 text-center">Classification</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
@@ -1444,20 +1444,16 @@ export default function InventoryPurchasingPage() {
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right">
-                            {isStorekeeper && !isService ? (
-                              <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                Price Masked
-                              </span>
-                            ) : (
+                          {!isStorekeeper && (
+                            <td className="py-3 px-4 text-right">
                               <div className="font-mono text-xs font-bold text-[#18181B]">
                                 <span>{formatCurrency(p.unitPrice || p.costPrice || 0)}</span>
                                 {!isService && (
                                   <span className="text-[10px] font-normal text-zinc-500 ml-1">/{p.unit || "unit"}</span>
                                 )}
                               </div>
-                            )}
-                          </td>
+                            </td>
+                          )}
                           <td className="py-3 px-4 text-center">
                             {isService ? (
                               <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-200 whitespace-nowrap inline-flex items-center gap-1.5 shadow-2xs">
@@ -1485,19 +1481,21 @@ export default function InventoryPurchasingPage() {
                             <div className="flex items-center justify-end gap-1.5">
                               {isService ? (
                                 <>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingProduct(p);
-                                      setEditPrice(String(p.unitPrice || 0));
-                                      setEditCost(String(p.costPrice || 0));
-                                    }}
-                                    className="h-7 px-2.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-semibold inline-flex items-center gap-1 transition shadow-2xs cursor-pointer focus-visible:outline-none"
-                                    title="Edit service billing rate or technician cost"
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                    Edit Cost
-                                  </button>
+                                  {!isStorekeeper && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingProduct(p);
+                                        setEditPrice(String(p.unitPrice || 0));
+                                        setEditCost(String(p.costPrice || 0));
+                                      }}
+                                      className="h-7 px-2.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-semibold inline-flex items-center gap-1 transition shadow-2xs cursor-pointer focus-visible:outline-none"
+                                      title="Edit service billing rate or technician cost"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                      Edit Cost
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => handleViewTimeline(p.id)}

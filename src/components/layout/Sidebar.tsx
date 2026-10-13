@@ -62,6 +62,8 @@ export default function Sidebar({
   const pathname = usePathname();
   const { activeRole, isModulePrimary, hasPermission } = useRole();
   const isStorekeeper = activeRole === "storekeeper";
+  const isAdmin = activeRole === "admin";
+  const isHr = activeRole === "hr";
   const [internalCollapsed, setInternalCollapsed] = useState(false);
 
   const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
@@ -73,12 +75,12 @@ export default function Sidebar({
 
   // Single open menu state for strict accordion behavior (opening one collapses others)
   const [openMenu, setOpenMenu] = useState<string | null>(() => {
+    if (activeRole === "hr" || isHrmActive) return "hrm";
     if (isSettingsActive) return "settings";
     if (isAccountsActive) return "accounts";
     if (isProcurementActive) return "procurement";
-    if (isHrmActive) return "hrm";
     if (isJobsActive) return "jobs";
-    if (isDashboardsActive) return "dashboards";
+    if (isDashboardsActive && activeRole === "admin") return "dashboards";
     return null;
   });
 
@@ -159,6 +161,10 @@ export default function Sidebar({
 
   // Sync open menu when pathname changes
   useEffect(() => {
+    if (isHr) {
+      setOpenMenu("hrm");
+      return;
+    }
     if (isSettingsActive) {
       setOpenMenu("settings");
     } else if (isAccountsActive) {
@@ -169,10 +175,10 @@ export default function Sidebar({
       setOpenMenu("hrm");
     } else if (isJobsActive) {
       setOpenMenu("jobs");
-    } else if (isDashboardsActive) {
+    } else if (isDashboardsActive && isAdmin) {
       setOpenMenu("dashboards");
     }
-  }, [pathname, isJobsActive, isDashboardsActive, isProcurementActive, isHrmActive, isAccountsActive, isSettingsActive]);
+  }, [pathname, isJobsActive, isDashboardsActive, isProcurementActive, isHrmActive, isAccountsActive, isSettingsActive, isAdmin, isHr]);
 
   const toggleMenu = (menuId: string) => {
     setOpenMenu((prev) => (prev === menuId ? null : menuId));
@@ -257,20 +263,27 @@ export default function Sidebar({
       href: "/customers",
       icon: Users,
       roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
-      perm: "jobs.view_directory",
+      perm: "customers.view_directory",
     },
     {
       label: "Care-Of Parties",
       href: "/jobs/care-of",
       icon: Building,
       roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
-      perm: "jobs.view_directory",
+      perm: "care_of.view",
     },
   ];
 
   const jobSubItems = allJobSubItems.filter((item) => {
-    // Strictly block daily audit & reports for storekeeper
-    if (item.href.includes("reports") && isStorekeeper) return false;
+    // Strictly block daily audit & reports, customer records, and care-of parties for storekeeper
+    if (
+      isStorekeeper &&
+      (item.href.includes("reports") ||
+        item.href === "/customers" ||
+        item.href === "/jobs/care-of")
+    ) {
+      return false;
+    }
     const hasRole = item.roles.includes(activeRole);
     if (!hasRole && !item.perm) return false;
     if (item.perm) {
@@ -370,22 +383,25 @@ export default function Sidebar({
 
   const allOperationsItems = [
     { label: "Customer 360°", href: "/customers", icon: Users, roles: ["admin", "accountant", "dispatcher", "call_center", "cashier", "auditor", "manager", "purchasing"] },
-    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "hr", "purchasing"] },
+    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"] },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
-    { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "hr", "auditor"] },
+    { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "auditor"] },
     { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"], perm: "audit.view_logs" },
   ];
 
-  const operationsItems = allOperationsItems.filter((item) => {
-    // Check role inclusion or granular permission
-    const hasRole = item.roles.includes(activeRole);
-    if (!hasRole && !item.perm) return false;
-    if (item.perm) {
-      return hasRole || hasPermission(item.perm);
-    }
-    return hasRole;
-  });
+  const operationsItems = isHr
+    ? []
+    : allOperationsItems.filter((item) => {
+        if (isStorekeeper && item.href === "/customers") return false;
+        // Check role inclusion or granular permission
+        const hasRole = item.roles.includes(activeRole);
+        if (!hasRole && !item.perm) return false;
+        if (item.perm) {
+          return hasRole || hasPermission(item.perm);
+        }
+        return hasRole;
+      });
 
   const preAccountsOperations = operationsItems.filter((item) =>
     ["/customers", "/projects", "/pos"].includes(item.href)
@@ -486,7 +502,7 @@ export default function Sidebar({
       <div className="flex-1 flex flex-col min-h-0">
         <div className="border-b border-[#27272A]/40 shrink-0">
           <Link
-            href="/dashboards"
+            href={isAdmin ? "/dashboards" : isHr ? "/hrm" : "/jobs"}
             className={cn(
               "group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-xl transition flex",
               isCollapsed
@@ -533,73 +549,75 @@ export default function Sidebar({
           {/* ================================================================= */}
           {/* 1. DEDICATED DASHBOARDS SECTION                                    */}
           {/* ================================================================= */}
-          <div>
-            <div
-              onClick={() => {
-                if (isCollapsed) {
-                  window.location.href = "/dashboards";
-                } else {
-                  toggleMenu("dashboards");
-                }
-              }}
-              className={cn(
-                "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
-                isDashboardsActive
-                  ? "bg-[#27272A] text-white"
-                  : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <BarChart3
-                  className={cn(
-                    "w-4 h-4 shrink-0 transition",
-                    isDashboardsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
-                  )}
-                />
-                {!isCollapsed && <span>Dashboards Hub</span>}
+          {isAdmin && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/dashboards";
+                  } else {
+                    toggleMenu("dashboards");
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isDashboardsActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <BarChart3
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isDashboardsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && <span>Dashboards Hub</span>}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isDashboardsOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
               </div>
-              {!isCollapsed && (
-                <ChevronDown
-                  className={cn(
-                    "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
-                    isDashboardsOpen ? "rotate-0" : "-rotate-90"
-                  )}
-                />
+
+              {/* Sub-Dashboards List */}
+              {isDashboardsOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {dashboardSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      pathname === "/dashboards" &&
+                      (searchQuery.includes(`tab=${sub.tab}`) || (!searchQuery.includes("tab=") && sub.tab === "overview"));
+                    return (
+                      <Link
+                        key={sub.tab}
+                        href={`/dashboards?tab=${sub.tab}`}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
             </div>
-
-            {/* Sub-Dashboards List */}
-            {isDashboardsOpen && !isCollapsed && (
-              <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
-                {dashboardSubItems.map((sub) => {
-                  const SubIcon = sub.icon;
-                  const isSubActive =
-                    pathname === "/dashboards" &&
-                    (searchQuery.includes(`tab=${sub.tab}`) || (!searchQuery.includes("tab=") && sub.tab === "overview"));
-                  return (
-                    <Link
-                      key={sub.tab}
-                      href={`/dashboards?tab=${sub.tab}`}
-                      className={cn(
-                        "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
-                        isSubActive
-                          ? "bg-[#27272A] text-emerald-400 font-bold"
-                          : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
-                      )}
-                    >
-                      <SubIcon
-                        className={cn(
-                          "w-3.5 h-3.5 shrink-0 transition",
-                          isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
-                        )}
-                      />
-                      <span className="truncate">{sub.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          )}
 
           {/* ================================================================= */}
           {/* 2. OPERATIONS & CORE MODULES SECTION                              */}
@@ -607,7 +625,7 @@ export default function Sidebar({
           {!isCollapsed && (
             <div className="px-3 pt-3 pb-1">
               <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold">
-                Operations & Systems
+                {isHr ? "Workforce & HRM" : "Operations & Systems"}
               </span>
             </div>
           )}

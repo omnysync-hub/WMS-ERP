@@ -1852,18 +1852,36 @@ export class JobsService {
       );
     }
 
+    let targetReq: any = null;
     if (requestId) {
-      const invReq = await prisma.inventoryRequest.findUnique({ where: { id: requestId } });
-      if (!invReq) throw new Error("Inventory request not found.");
-      if (invReq.status === "issued") {
-        throw new Error(`Inventory request for '${invReq.item}' has already been issued.`);
+      targetReq = await prisma.inventoryRequest.findUnique({ where: { id: requestId } });
+      if (!targetReq) throw new Error("Inventory request not found.");
+    } else {
+      targetReq = await prisma.inventoryRequest.findFirst({
+        where: {
+          jobId,
+          status: { in: ["pending", "partially_issued"] },
+          OR: [
+            { productId: productId },
+            { item: { contains: product.name, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
+
+    if (targetReq) {
+      const currentIssued = Number(targetReq.qtyIssued) || 0;
+      const totalReq = Number(targetReq.qtyRequested) || 0;
+      if (targetReq.status === "issued" || (currentIssued >= totalReq && totalReq > 0)) {
+        throw new Error(`Inventory request for '${targetReq.item}' has already been fully issued.`);
       }
-      if (invReq.status === "rejected") {
+      if (targetReq.status === "rejected") {
         throw new Error(`Cannot issue rejected inventory request.`);
       }
-      if (qty > invReq.qtyRequested) {
+      const remainingNeeded = Math.max(0, totalReq - currentIssued);
+      if (qty > remainingNeeded) {
         throw new Error(
-          `Cannot issue more than the requested stock quantity (${invReq.qtyRequested} units requested, attempted to issue ${qty}).`
+          `Cannot issue more than the requested amount. Only ${remainingNeeded} unit(s) remaining out of ${totalReq} requested (attempted to issue ${qty}).`
         );
       }
     }
@@ -1873,31 +1891,24 @@ export class JobsService {
       productId,
       qty,
       "job_consumption",
-      requestId || jobId,
+      targetReq?.id || requestId || jobId,
       `Issued to Job ${job.jobNumber} by ${storekeeperName}`
     );
 
-    // 2. If an inventory request ID was supplied or exists for this item/job, update it to issued
-    if (requestId) {
-      await prisma.inventoryRequest.update({
-        where: { id: requestId },
-        data: { status: "issued" },
-      });
-    } else {
-      // Check if there was an open request for this product name
-      const matchingReq = await prisma.inventoryRequest.findFirst({
-        where: {
-          jobId,
-          status: "pending",
-          item: { contains: product.name },
+    // 2. If an inventory request ID was supplied or exists for this item/job, update qtyIssued and status
+    let updatedRequest: any = null;
+    if (targetReq) {
+      const currentIssued = Number(targetReq.qtyIssued) || 0;
+      const newQtyIssued = currentIssued + qty;
+      const isFullyIssued = newQtyIssued >= (Number(targetReq.qtyRequested) || 0);
+      updatedRequest = await prisma.inventoryRequest.update({
+        where: { id: targetReq.id },
+        data: {
+          qtyIssued: newQtyIssued,
+          productId: targetReq.productId || productId,
+          status: isFullyIssued ? "issued" : "partially_issued",
         },
       });
-      if (matchingReq) {
-        await prisma.inventoryRequest.update({
-          where: { id: matchingReq.id },
-          data: { status: "issued" },
-        });
-      }
     }
 
     // 3. Add item to JobItem line items
@@ -1921,19 +1932,29 @@ export class JobsService {
     });
 
     if (job.assignedTechnicianId) {
+      const isPartial = updatedRequest && updatedRequest.status === "partially_issued";
+      const totalReq = targetReq ? Number(targetReq.qtyRequested) : qty;
+      const totalIssued = updatedRequest ? Number(updatedRequest.qtyIssued) : qty;
+      const remaining = Math.max(0, totalReq - totalIssued);
+
       MobilePushService.sendAppRequest({
         recipientId: job.assignedTechnicianId,
         senderName: storekeeperName,
         senderRole: "storekeeper",
         type: "INVENTORY_ISSUED",
-        title: `Parts ready — ${job.jobNumber}`,
-        body: `${qty} x ${product.name} is ready. Open the job to check.`,
+        title: isPartial ? `Parts partially issued — ${job.jobNumber}` : `Parts ready — ${job.jobNumber}`,
+        body: isPartial
+          ? `${qty} x ${product.name} issued (${totalIssued}/${totalReq} received, ${remaining} pending).`
+          : `${qty} x ${product.name} is ready (${totalIssued}/${totalReq} complete). Open the job to check.`,
         priority: "high",
         payload: {
           jobId,
           productId,
           productName: product.name,
           quantity: qty,
+          qtyIssued: totalIssued,
+          qtyRequested: totalReq,
+          qtyPending: remaining,
         },
       }).catch((e) => console.error("[JobsService] inventory push failed:", e));
     }
