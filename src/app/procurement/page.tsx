@@ -385,7 +385,7 @@ function ProcurementPageContent() {
       <PageHeader
         moduleName="Procurement"
         breadcrumbs={[
-          { label: "Operations", href: "/dashboards" },
+          { label: "Operations", href: activeRole === "admin" ? "/dashboards" : "/jobs" },
           { label: "Procurement" },
         ]}
         title="Procurement"

@@ -12,6 +12,7 @@ import ProjectBillingTab from "@/components/projects/ProjectBillingTab";
 import ProjectGanttTab from "@/components/projects/ProjectGanttTab";
 import ProjectChangeOrdersTab from "@/components/projects/ProjectChangeOrdersTab";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
+import toastNotify from "@/lib/toast";
 import {
   FolderKanban,
   CheckCircle2,
@@ -226,13 +227,14 @@ export default function ProjectsPage() {
   const [showBoqProgressModal, setShowBoqProgressModal] = useState(false);
 
   // Toast notification
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-
   const showToast = (message: string, type: "success" | "error" | "info" = "success") => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
+    if (type === "error") {
+      toastNotify.error(message);
+    } else if (type === "info") {
+      toastNotify.info(message);
+    } else {
+      toastNotify.success(message);
+    }
   };
 
   // Modals & Drawers State
@@ -1010,29 +1012,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Toast Banner */}
-      {toast && (
-        <div
-          className={cn(
-            "fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-xs font-semibold flex items-center gap-2.5 transition animate-in slide-in-from-bottom-2",
-            toast.type === "success" && "bg-emerald-950 text-emerald-200 border-emerald-800",
-            toast.type === "error" && "bg-rose-950 text-rose-200 border-rose-800",
-            toast.type === "info" && "bg-slate-900 text-slate-200 border-slate-700"
-          )}
-        >
-          {toast.type === "success" && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
-          {toast.type === "error" && <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />}
-          {toast.type === "info" && <Sparkles className="w-4 h-4 text-sky-400 shrink-0" />}
-          <span>{toast.message}</span>
-          <button
-            onClick={() => setToast(null)}
-            className="ml-2 hover:opacity-75 text-zinc-400 hover:text-white"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Enterprise Page Header */}
       <PageHeader
         breadcrumbs={[{ label: "Commercial Operations" }, { label: "Projects & BOQ" }]}
@@ -1171,7 +1150,7 @@ export default function ProjectsPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search contract, PRJ#, client..."
-                className="w-full pl-8.5 pr-8 py-1.5 text-xs bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] text-[#18181B]"
+                className="w-full pl-9 pr-8 py-1.5 text-xs bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] text-[#18181B]"
               />
               {searchQuery && (
                 <button
@@ -1620,7 +1599,7 @@ export default function ProjectsPage() {
                           value={boqSearch}
                           onChange={(e) => setBoqSearch(e.target.value)}
                           placeholder="Search BOQ code, description..."
-                          className="w-full pl-8.5 pr-7 py-1.5 text-xs bg-white border border-[#D4D4D8] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] text-[#18181B]"
+                          className="w-full pl-9 pr-7 py-1.5 text-xs bg-white border border-[#D4D4D8] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] text-[#18181B]"
                         />
                         {boqSearch && (
                           <button

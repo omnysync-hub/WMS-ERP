@@ -860,7 +860,7 @@ export default function CareOfSettingsPage() {
                 placeholder="e.g. Apex Facilities Group"
                 value={formCompany}
                 onChange={(e) => setFormCompany(e.target.value)}
-                className="w-full text-xs pl-8.5 pr-3 py-2.5 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
+                className="w-full text-xs pl-9 pr-3 py-2.5 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
                 autoFocus
               />
             </div>
@@ -877,7 +877,7 @@ export default function CareOfSettingsPage() {
                 placeholder="e.g. Engr. Usman Khan"
                 value={formPerson}
                 onChange={(e) => setFormPerson(e.target.value)}
-                className="w-full text-xs pl-8.5 pr-3 py-2.5 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
+                className="w-full text-xs pl-9 pr-3 py-2.5 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
               />
             </div>
           </div>
@@ -893,7 +893,7 @@ export default function CareOfSettingsPage() {
                 placeholder="e.g. +92 300 1234567"
                 value={formPhone}
                 onChange={(e) => setFormPhone(e.target.value)}
-                className="w-full text-xs pl-8.5 pr-3 py-2.5 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs font-mono"
+                className="w-full text-xs pl-9 pr-3 py-2.5 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs font-mono"
               />
             </div>
           </div>

@@ -21,6 +21,8 @@ interface JobRemarksCardProps {
   className?: string;
   showCustomerPayment?: boolean;
   showUnusedStockReason?: boolean;
+  showFieldExecution?: boolean;
+  showPhotosCard?: boolean;
 }
 
 export interface ParsedEquipment {
@@ -139,10 +141,18 @@ export default function JobRemarksCard({
   className = "",
   showCustomerPayment,
   showUnusedStockReason,
+  showFieldExecution,
+  showPhotosCard: propShowPhotosCard,
 }: JobRemarksCardProps) {
-  const { activeRole, currentRole, hasPermission } = useRole();
-  const effectiveRole = (activeRole || currentRole || "").toLowerCase();
+  const { activeRole, currentRole, currentPersona, hasPermission } = useRole();
+  const effectiveRole = (activeRole || currentRole || currentPersona?.role || "").toLowerCase();
+  const isStorekeeper = effectiveRole === "storekeeper" || effectiveRole.includes("store");
   const isRestrictedRole = ["dispatcher", "call_center"].includes(effectiveRole);
+
+  const canSeeFieldExecution =
+    showFieldExecution !== undefined
+      ? showFieldExecution
+      : !isStorekeeper;
 
   const canSeePayment =
     showCustomerPayment !== undefined
@@ -154,6 +164,11 @@ export default function JobRemarksCard({
       ? showUnusedStockReason
       : !isRestrictedRole;
 
+  const canSeePhotosCard =
+    propShowPhotosCard !== undefined
+      ? propShowPhotosCard
+      : !isStorekeeper;
+
   if (!remarks || !remarks.trim()) {
     return null;
   }
@@ -161,19 +176,20 @@ export default function JobRemarksCard({
   const parsed = parseJobRemarks(remarks);
   const showPaymentCard = Boolean(parsed.customerPayment && canSeePayment);
   const showUnusedStockCard = Boolean(parsed.unusedStockReason && canSeeUnusedStock);
-  const showPhotosCard = Boolean(parsed.proofPhotos);
+  const showPhotosCard = Boolean(parsed.proofPhotos && canSeePhotosCard);
+  const showFieldExecutionCard = Boolean(parsed.fieldExecution && canSeeFieldExecution);
 
   const hasStructuredData =
     Boolean(parsed.equipment) ||
     Boolean(parsed.primaryDiagnosis) ||
-    Boolean(parsed.fieldExecution) ||
+    showFieldExecutionCard ||
     showPaymentCard ||
     showUnusedStockCard ||
     showPhotosCard ||
     parsed.otherLines.length > 0;
 
-  // If remarks only consisted of hidden financial/warehouse segments and nothing else is visible, return null
-  if (!hasStructuredData && (parsed.customerPayment || parsed.unusedStockReason)) {
+  // If remarks only consisted of hidden segments and nothing else is visible, return null
+  if (!hasStructuredData) {
     return null;
   }
 
@@ -203,7 +219,7 @@ export default function JobRemarksCard({
                 Target Equipment & Asset Profile ({parsed.equipments.length}{" "}
                 {parsed.equipments.length === 1 ? "unit / item" : "units / items"})
               </div>
-              {parsed.equipments.some((e) => (e.total && e.total > 0) || (e.unitPrice && e.unitPrice > 0)) && (
+              {!isStorekeeper && parsed.equipments.some((e) => (e.total && e.total > 0) || (e.unitPrice && e.unitPrice > 0)) && (
                 <span className="text-xs font-mono font-extrabold text-[#0D7A5F] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
                   Equipment Total: {formatCurrency(parsed.equipments.reduce((sum, e) => sum + (e.total ?? (e.quantity ?? 1) * (e.unitPrice ?? 0)), 0))}
                 </span>
@@ -249,13 +265,13 @@ export default function JobRemarksCard({
                       </div>
                     </div>
 
-                    {(lineQty > 1 || lineRate !== undefined || lineTotal !== undefined) && (
+                    {(lineQty > 1 || (!isStorekeeper && (lineRate !== undefined || lineTotal !== undefined))) && (
                       <div className="flex items-center justify-between pt-2 border-t border-[#F4F4F5] text-xs">
                         <div className="flex items-center gap-3 text-[#71717A]">
                           <span>
                             Qty: <strong className="text-[#18181B]">{lineQty}</strong> units
                           </span>
-                          {lineRate !== undefined && lineRate > 0 && (
+                          {!isStorekeeper && lineRate !== undefined && lineRate > 0 && (
                             <span>
                               Rate:{" "}
                               <strong className="font-mono text-[#18181B]">
@@ -264,7 +280,7 @@ export default function JobRemarksCard({
                             </span>
                           )}
                         </div>
-                        {lineTotal !== undefined && lineTotal > 0 && (
+                        {!isStorekeeper && lineTotal !== undefined && lineTotal > 0 && (
                           <div className="text-right">
                             <span className="text-[10px] text-[#71717A] mr-1.5 uppercase font-medium">
                               Line Total:
@@ -297,7 +313,7 @@ export default function JobRemarksCard({
         )}
 
         {/* Field Work Execution */}
-        {parsed.fieldExecution && (
+        {showFieldExecutionCard && (
           <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-xl p-4">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-900 uppercase tracking-wider mb-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />

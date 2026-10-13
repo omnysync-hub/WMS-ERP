@@ -30,6 +30,7 @@ import {
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 import CompanyLetterhead from "@/components/company/CompanyLetterhead";
+import toast from "@/lib/toast";
 
 interface PurchaseOrdersTabProps {
   pos: any[];
@@ -378,7 +379,10 @@ export default function PurchaseOrdersTab({
   };
 
   const handleRejectPo = async (id: string, reason?: string) => {
-    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
+    if (!canApprovePo) {
+      toast.warning("Missing permission: procurement.po.approve", { title: "Permission Denied" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -392,18 +396,22 @@ export default function PurchaseOrdersTab({
         }),
       });
       if (!res.ok) throw new Error("Failed to reject PO");
+      toast.success("Purchase Order has been rejected.", { title: "PO Rejected" });
       setPoToReject(null);
       setRejectReason("");
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to reject PO", { title: "Action Failed" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleSendPo = async (id: string) => {
-    if (!canSendPo) { alert("Missing permission: procurement.po.send"); return; }
+    if (!canSendPo) {
+      toast.warning("Missing permission: procurement.po.send", { title: "Permission Denied" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -416,9 +424,10 @@ export default function PurchaseOrdersTab({
         }),
       });
       if (!res.ok) throw new Error("Failed to send PO");
+      toast.success("Purchase Order successfully sent to vendor.", { title: "PO Sent" });
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to send PO", { title: "Action Failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -442,7 +451,7 @@ export default function PurchaseOrdersTab({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex flex-wrap items-center gap-2.5 flex-1">
           <div className="relative min-w-[240px] flex-1 max-w-sm">
-            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search PO #, supplier, items..."

@@ -138,19 +138,43 @@ export async function GET(req: NextRequest) {
       const stmtDateStr = searchParams.get("statementDate");
       const statementDate = stmtDateStr ? new Date(stmtDateStr) : new Date();
 
-      const [unreconciled, statement] = await Promise.all([
+      const [unreconciled, statement, reconciled] = await Promise.all([
         prisma.bankStatementLine.findMany({
           where: { bankAccountId, status: "unreconciled" },
           orderBy: { statementDate: "desc" },
         }),
         BankReconciliationService.generateReconciliationStatement(bankAccountId),
+        prisma.bankStatementLine.findMany({
+          where: { bankAccountId, status: { in: ["matched", "manually_reconciled"] } },
+          orderBy: { reconciledAt: "desc" },
+          take: 100,
+        }),
       ]);
+
+      const matchedJournalIds = reconciled
+        .map((r) => r.matchedJournalLineId)
+        .filter(Boolean) as string[];
+
+      let journalMap = new Map<string, any>();
+      if (matchedJournalIds.length > 0) {
+        const jLines = await prisma.journalLine.findMany({
+          where: { id: { in: matchedJournalIds } },
+          include: { journalEntry: true },
+        });
+        journalMap = new Map(jLines.map((jl) => [jl.id, jl]));
+      }
+
+      const reconciledLines = reconciled.map((r) => ({
+        ...r,
+        matchedJournalLine: r.matchedJournalLineId ? journalMap.get(r.matchedJournalLineId) : null,
+      }));
 
       return NextResponse.json({
         success: true,
         statementDate,
         reconciliationStatement: statement,
         unreconciledLines: unreconciled,
+        reconciledLines,
       });
     }
 

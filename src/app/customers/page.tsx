@@ -7,6 +7,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import AddCustomerDrawer from "@/components/drawers/AddCustomerDrawer";
 import { formatCurrency, formatDateTime, formatJobType, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
+import toast from "@/lib/toast";
 import {
   Users,
   Search,
@@ -57,11 +58,9 @@ export default function Customers360Page() {
   const [ledgerDocNumber, setLedgerDocNumber] = useState("");
   const [ledgerNotes, setLedgerNotes] = useState("");
   const [postingLedger, setPostingLedger] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
+    toast.success(msg);
   };
 
   // 1. Fetch Customers Directory
@@ -153,14 +152,6 @@ export default function Customers360Page() {
 
   return (
     <div className="space-y-5 pb-12">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 bg-[#18181B] text-white px-4 py-3 rounded-xl shadow-2xl border border-emerald-500/40 text-xs flex items-center gap-2 animate-in slide-in-from-top-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="font-semibold">{toastMessage}</span>
-        </div>
-      )}
-
       {/* Page Header */}
       <PageHeader
         title="Customer 360° Records & History"
@@ -250,7 +241,7 @@ export default function Customers360Page() {
             </div>
 
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="search"
                 value={searchQuery}

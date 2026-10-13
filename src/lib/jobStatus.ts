@@ -2,14 +2,20 @@
  * Shared job-status rules (safe for both server services and client components — no prisma).
  */
 
-/** Pre-start statuses: technician can be swapped directly (assign / assign_technicians). */
+/** Pre-start statuses. */
 export const JOB_PRE_START_STATUSES = ["Created", "Assigned"] as const;
 
 /**
- * Mid-job statuses: changing technician must go through `reassign`
- * (creates a successor job and marks the old one TechnicianReassigned).
+ * Reassignable statuses: changing technician must go through `reassign`
+ * (creates a successor job with the new technician and marks the old one TechnicianReassigned).
  */
-export const JOB_REASSIGNABLE_STATUSES = ["Accepted", "InProgress", "Paused"] as const;
+export const JOB_REASSIGNABLE_STATUSES = [
+  "Created",
+  "Assigned",
+  "Accepted",
+  "InProgress",
+  "Paused",
+] as const;
 
 /**
  * Terminal / locked statuses: no new service or item lines, no technician changes.

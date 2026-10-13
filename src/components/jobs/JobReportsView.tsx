@@ -644,13 +644,13 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
           {activeReportTab === "jobs" && (
             <div className="pb-2.5 flex items-center gap-2">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Filter jobs, customer, materials..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1 bg-white border border-[#D4D4D8] rounded-md text-xs text-[#18181B] focus:outline-hidden focus:ring-1 focus:ring-[#0D7A5F] w-64"
+                  className="pl-9 pr-3 py-1 bg-white border border-[#D4D4D8] rounded-md text-xs text-[#18181B] focus:outline-hidden focus:ring-1 focus:ring-[#0D7A5F] w-64"
                 />
               </div>
               <div className="flex items-center gap-1">

@@ -14,6 +14,7 @@ export type SyncEventType =
   | "DISCOUNT_GRANTED"
   | "EXPENSE_LOGGED"
   | "EXPENSE_APPROVED"
+  | "EXPENSE_CLEARED"
   | "STOCK_RETURN_ACKNOWLEDGED"
   | "TECHNICIAN_SYNC"
   | "INVENTORY_SYNC"
@@ -30,6 +31,7 @@ export interface SyncEvent {
   jobNumber?: string;
   technicianId?: string;
   technicianName?: string;
+  claimId?: string;
   payload?: any;
   isSilent?: boolean;
 }

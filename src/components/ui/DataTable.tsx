@@ -236,7 +236,7 @@ export default function DataTable<T extends Record<string, any>>({
               placeholder={searchPlaceholder}
               value={searchValue}
               onChange={(e) => onSearchChange?.(e.target.value)}
-              className="w-full bg-white pl-8 pr-3 py-1.5 rounded-lg text-xs text-[#18181B] border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none shadow-2xs placeholder-[#71717A]"
+              className="w-full bg-white pl-9 pr-3 py-1.5 rounded-lg text-xs text-[#18181B] border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none shadow-2xs placeholder-[#71717A]"
             />
           </div>
 
@@ -313,7 +313,7 @@ export default function DataTable<T extends Record<string, any>>({
                               value={chipSearchQuery}
                               onChange={(e) => setChipSearchQuery(e.target.value)}
                               autoFocus
-                              className="w-full pl-6 pr-2 py-1 bg-[#F9FAFB] hover:bg-white focus:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-md text-[11px] text-[#18181B] placeholder-[#A1A1AA] focus:outline-none transition shadow-2xs"
+                              className="w-full pl-7 pr-2 py-1 bg-[#F9FAFB] hover:bg-white focus:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-md text-[11px] text-[#18181B] placeholder-[#A1A1AA] focus:outline-none transition shadow-2xs"
                             />
                           </div>
                         </div>

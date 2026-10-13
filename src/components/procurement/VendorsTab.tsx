@@ -225,7 +225,7 @@ export default function VendorsTab({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex flex-wrap items-center gap-2.5 flex-1">
           <div className="relative min-w-[240px] flex-1 max-w-sm">
-            <Search className="w-4 h-4 text-[#A1A1AA] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#A1A1AA] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search vendor name, code, NTN, contact..."

@@ -647,7 +647,7 @@ export default function PosTerminalPage() {
             {/* Search Bar & Scanner */}
             <div className="bg-white rounded-xl border border-[#E4E4E7] p-3 shadow-2xs space-y-2.5">
               <div className="relative">
-                <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   ref={searchInputRef}
                   type="text"

@@ -84,6 +84,13 @@ function DashboardsContent() {
     try {
       setLoading(true);
       const res = await fetch(`/api/dashboards/stats?range=${range}`);
+      if (!res.ok) {
+        if (res.status === 403) {
+          router.replace(activeRole === "hr" ? "/hrm" : activeRole === "storekeeper" ? "/inventory" : "/jobs");
+          return;
+        }
+        throw new Error(`Failed to load stats: ${res.status}`);
+      }
       const data = await res.json();
       setStats(data);
     } catch (e) {

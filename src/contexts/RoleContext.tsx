@@ -66,7 +66,7 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
     avatar: "IS",
     badgeColor: "bg-violet-600 text-white",
     description: "Approves PRs, POs, and discrepancy invoices. Reports and cost visibility; limited create rights.",
-    primaryModules: ["Procurement & Sourcing", "Jobs", "Accounts", "Dashboard"],
+    primaryModules: ["Procurement & Sourcing", "Jobs", "Accounts"],
   },
   call_center: {
     id: "d41893c1-7443-41bb-92e6-c16e13f412ab",

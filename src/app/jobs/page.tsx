@@ -40,7 +40,10 @@ import { realtimeSync } from "@/lib/realtimeSync";
 
 export default function JobsListPage() {
   const { activeRole, currentPersona, hasPermission } = useRole();
-  const isStorekeeper = activeRole === "storekeeper";
+  const isStorekeeper =
+    activeRole === "storekeeper" ||
+    currentPersona?.role === "storekeeper" ||
+    (activeRole || "").toLowerCase().includes("store");
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
   const isDispatcher = activeRole === "dispatcher";
@@ -452,12 +455,12 @@ export default function JobsListPage() {
     const formattedType = formatJobType(j.jobType).toLowerCase();
     return (
       j.jobNumber?.toLowerCase().includes(q) ||
-      j.manualJobNumber?.toLowerCase().includes(q) ||
+      (!isStorekeeper && j.manualJobNumber?.toLowerCase().includes(q)) ||
       j.customer?.name?.toLowerCase().includes(q) ||
       j.customer?.phone?.toLowerCase().includes(q) ||
       j.remarks?.toLowerCase().includes(q) ||
-      j.careOfParty?.companyName?.toLowerCase().includes(q) ||
-      j.careOfParty?.personName?.toLowerCase().includes(q) ||
+      (!isStorekeeper && j.careOfParty?.companyName?.toLowerCase().includes(q)) ||
+      (!isStorekeeper && j.careOfParty?.personName?.toLowerCase().includes(q)) ||
       j.assignedTechnician?.name?.toLowerCase().includes(q) ||
       j.jobType?.toLowerCase().includes(q) ||
       formattedType.includes(q)
@@ -537,7 +540,7 @@ export default function JobsListPage() {
               {row.jobNumber}
             </Link>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {row.manualJobNumber && (
+              {!isStorekeeper && row.manualJobNumber && (
                 <span className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded font-mono inline-block">
                   Ext: #{row.manualJobNumber}
                 </span>
@@ -566,7 +569,7 @@ export default function JobsListPage() {
                 </Link>
               )}
             </div>
-            {row.careOfParty && (
+            {!isStorekeeper && row.careOfParty && (
               <div className="pt-0.5">
                 <span
                   className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1 max-w-full"
@@ -1186,22 +1189,7 @@ export default function JobsListPage() {
       ) : (
         <>
           {/* Role Banner / Context */}
-          {isAccountant && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-950">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-emerald-700 shrink-0" />
-                <span>
-                  <strong>Finance & Accounts View:</strong> Monitor active work order costs, approve mid-job discount requests, clear technician expenses, and finalize revenue recognition.
-                </span>
-              </div>
-              <Link
-                href="/accounts"
-                className="font-bold text-emerald-800 hover:text-emerald-950 underline shrink-0 ml-2"
-              >
-                General Ledger Ã¢â€ â€™
-              </Link>
-            </div>
-          )}
+
 
           {isDispatcher && (
             <div className="p-3 bg-blue-50/80 border border-blue-200 text-blue-950 rounded-lg flex items-center justify-between text-xs">
@@ -1241,6 +1229,24 @@ export default function JobsListPage() {
             }
             onExport={() => alert("Exporting jobs list...")}
           />
+
+          {/* Quick Technician Field Expenses Link Banner for Accounting & Administration */}
+          {canViewFinancials && !isStorekeeper && (
+            <div className="p-3 bg-amber-50/70 border border-amber-200/90 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+              <div className="flex items-center gap-2 text-amber-950">
+                <Receipt className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>
+                  <strong>Technician Daily Field Expenses:</strong> Review on-site fuel, food, and material claims logged from mobile app across in-progress jobs. Reconcile full or instalment payouts.
+                </span>
+              </div>
+              <Link
+                href="/jobs/expenses"
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition inline-flex items-center gap-1.5 shrink-0 shadow-2xs text-xs"
+              >
+                <span>Open Field Expenses Clearance &rarr;</span>
+              </Link>
+            </div>
+          )}
 
           {/* Warehouse Storekeeper vs General / Dispatcher / Accountant KPI Dashboard Cards */}
           {isStorekeeper ? (
@@ -1332,7 +1338,7 @@ export default function JobsListPage() {
                 selected: selectedTypeFilter,
                 onSelect: setSelectedTypeFilter,
               },
-              ...(careOfOptions.length > 0 ? [{
+              ...(!isStorekeeper && careOfOptions.length > 0 ? [{
                 id: "careOfParty",
                 label: "Client / Care-Of",
                 options: careOfOptions,
@@ -1417,12 +1423,16 @@ export default function JobsListPage() {
                   </span>
                 </div>
                 <div>
-                  <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
-                    Care-Of Party & Billing Entity
-                  </span>
-                  <span className="text-[#18181B]">
-                    {row.careOfParty?.companyName ? `c/o ${row.careOfParty.companyName} (${row.careOfParty.partyType})` : "Direct Customer Work Order"}
-                  </span>
+                  {!isStorekeeper && (
+                    <>
+                      <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                        Care-Of Party & Billing Entity
+                      </span>
+                      <span className="text-[#18181B]">
+                        {row.careOfParty?.companyName ? `c/o ${row.careOfParty.companyName} (${row.careOfParty.partyType})` : "Direct Customer Work Order"}
+                      </span>
+                    </>
+                  )}
                   <div className="flex items-center justify-between gap-2 mt-2 pt-1 border-t border-[#EDEDED]">
                     <span className="text-[11px] text-[#71717A]">
                       Tech: <strong className="text-[#18181B]">{row.assignedTechnician?.name || "Unassigned"}</strong>

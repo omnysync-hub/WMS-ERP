@@ -44,6 +44,7 @@ import {
   PackageCheck,
   ArrowLeftRight,
   Cpu,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -252,6 +253,13 @@ export default function Sidebar({
       perm: "jobs.reports",
     },
     {
+      label: "Field Expenses Clearance",
+      href: "/jobs/expenses",
+      icon: Receipt,
+      roles: ["admin", "accountant", "auditor"],
+      perm: "jobs.view_financials",
+    },
+    {
       label: "Live Dispatch Map",
       href: "/dispatch",
       icon: MapPin,
@@ -275,10 +283,11 @@ export default function Sidebar({
   ];
 
   const jobSubItems = allJobSubItems.filter((item) => {
-    // Strictly block daily audit & reports, customer records, and care-of parties for storekeeper
+    // Strictly block daily audit & reports, field expenses, customer records, and care-of parties for storekeeper
     if (
       isStorekeeper &&
       (item.href.includes("reports") ||
+        item.href.includes("expenses") ||
         item.href === "/customers" ||
         item.href === "/jobs/care-of")
     ) {
@@ -502,7 +511,7 @@ export default function Sidebar({
       <div className="flex-1 flex flex-col min-h-0">
         <div className="border-b border-[#27272A]/40 shrink-0">
           <Link
-            href={isAdmin ? "/dashboards" : isHr ? "/hrm" : "/jobs"}
+            href={isAdmin ? "/dashboards" : isHr ? "/hrm" : isStorekeeper ? "/inventory" : "/jobs"}
             className={cn(
               "group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-xl transition flex",
               isCollapsed

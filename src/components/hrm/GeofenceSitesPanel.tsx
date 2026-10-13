@@ -29,6 +29,7 @@ import {
   Layers,
   Compass,
 } from "lucide-react";
+import toast from "@/lib/toast";
 
 type EmployeeLite = {
   id: string;
@@ -163,8 +164,7 @@ export default function GeofenceSitesPanel({ employees, onZonesChanged }: Props)
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+    toast.success(msg);
   };
 
   const fieldTechs = useMemo(
@@ -569,14 +569,6 @@ export default function GeofenceSitesPanel({ employees, onZonesChanged }: Props)
 
   return (
     <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-      {/* Toast Notification Banner */}
-      {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 bg-[#0D7A5F] text-white px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-          {toastMessage}
-        </div>
-      )}
-
       {/* Header Bar */}
       <div className="p-4 border-b border-[#E4E4E7] flex items-center justify-between gap-3 flex-wrap bg-gradient-to-r from-emerald-900 via-[#0D7A5F] to-teal-800 text-white">
         <div>
@@ -1238,12 +1230,12 @@ export default function GeofenceSitesPanel({ employees, onZonesChanged }: Props)
               </div>
 
               <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
                 <input
                   value={staffQuery}
                   onChange={(e) => setStaffQuery(e.target.value)}
                   placeholder="Search staff by name, designation, department..."
-                  className="w-full h-9 pl-8 pr-3 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg focus:bg-white focus:outline-none focus:border-[#0D7A5F]"
+                  className="w-full h-9 pl-9 pr-3 text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg focus:bg-white focus:outline-none focus:border-[#0D7A5F]"
                 />
               </div>
             </div>

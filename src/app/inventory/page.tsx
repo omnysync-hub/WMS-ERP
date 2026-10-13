@@ -1280,13 +1280,13 @@ export default function InventoryPurchasingPage() {
 
                 {/* Search Bar */}
                 <div className="relative w-64">
-                  <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
+                  <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     placeholder="Search SKU, part, or service..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-8.5 pr-7 py-1.5 rounded-xl border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] placeholder:text-zinc-400"
+                    className="w-full pl-9 pr-7 py-1.5 rounded-xl border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] placeholder:text-zinc-400"
                   />
                   {searchTerm && (
                     <button

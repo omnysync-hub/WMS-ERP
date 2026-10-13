@@ -372,12 +372,16 @@ export class BankReconciliationService {
         id: l.id,
         date: l.journalEntry.date,
         memo: l.journalEntry.memo,
+        refType: l.journalEntry.refType,
+        refId: l.journalEntry.refId,
         amount: l.debit,
       })),
       unmatchedPayments: unpresentedChequesLines.map((l) => ({
         id: l.id,
         date: l.journalEntry.date,
         memo: l.journalEntry.memo,
+        refType: l.journalEntry.refType,
+        refId: l.journalEntry.refId,
         amount: l.credit,
       })),
     };

@@ -45,6 +45,34 @@
   }
 }
 
+/* Toast entrance animation */
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast-in {
+  animation: toastSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Universal System-Wide Icon Input Protection: Prevents overlapping placeholder and typed text */
+.pl-8\.5,
+input[class*="pl-8.5"] {
+  padding-left: 2.25rem !important;
+}
+
+.relative > svg.lucide[class*="left-"] ~ input[class*="pl-8"],
+.relative > svg.lucide[class*="left-"] ~ input[class*="pl-7"],
+.relative > svg.lucide[class*="left-"] ~ input:not([class*="pl-"]) {
+  padding-left: 2.25rem;
+}
+
 /* Custom quiet scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

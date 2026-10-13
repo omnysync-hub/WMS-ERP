@@ -232,6 +232,7 @@ export async function PATCH(
           {
             copyItems: payload.copyItems !== false,
             notes: payload.notes || payload.reason,
+            assistantTechnicianIds: payload.assistantTechnicianIds || payload.assistantIds,
           }
         );
         break;

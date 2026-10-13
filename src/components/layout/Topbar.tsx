@@ -27,6 +27,7 @@ import {
 import { useRole } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { formatJobType } from "@/lib/utils";
+import toast from "@/lib/toast";
 
 interface TopbarProps {
   onOpenNavigation?: () => void;
@@ -59,7 +60,6 @@ export default function Topbar({
 
   // Notifications Popover state
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [liveRealtimeToast, setLiveRealtimeToast] = useState<{ id: string; title: string; message: string } | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
 
   useEffect(() => {
@@ -223,8 +223,16 @@ export default function Topbar({
       };
 
       setNotifications((prev) => [newNotice, ...prev]);
-      setLiveRealtimeToast({ id: evt.id, title: newNotice.title, message: evt.message });
-      setTimeout(() => setLiveRealtimeToast(null), 5000);
+      toast.notification(newNotice.title, evt.message, {
+        id: evt.id,
+        duration: 6500,
+        action: evt.jobId
+          ? {
+              label: "View Job",
+              href: `/jobs/${evt.jobId}`,
+            }
+          : undefined,
+      });
     });
 
     return () => unsub();
@@ -326,7 +334,7 @@ export default function Topbar({
               onClick={() => setIsSearchOpen(true)}
               placeholder="Find jobs, customers, techs..."
               aria-label="Universal search"
-              className="w-full bg-[#27272A] hover:bg-[#2E2E32] pl-8 pr-12 py-1.5 rounded-full text-xs text-[#E4E4E7] placeholder-[#A1A1AA] border border-[#3F3F46]/70 focus:border-[#0D7A5F] cursor-pointer transition focus:outline-none"
+              className="w-full bg-[#27272A] hover:bg-[#2E2E32] pl-9.5 pr-12 py-1.5 rounded-full text-xs text-[#E4E4E7] placeholder-[#A1A1AA] border border-[#3F3F46]/70 focus:border-[#0D7A5F] cursor-pointer transition focus:outline-none"
             />
             <span className="hidden sm:inline absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] bg-[#3F3F46] text-[#D4D4D8] px-1.5 py-0.5 rounded font-mono border border-[#52525B]">
               ⌘K
@@ -647,38 +655,6 @@ export default function Topbar({
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Floating Real-time Event Toast in Desktop ERP */}
-      {liveRealtimeToast &&
-        liveRealtimeToast.title !== "System" &&
-        !liveRealtimeToast.title?.toLowerCase().includes("system") &&
-        !liveRealtimeToast.message?.toLowerCase().includes("audit") &&
-        !liveRealtimeToast.message?.toLowerCase().includes("sync event") && (
-        <div className="fixed top-16 right-6 z-50 max-w-sm bg-[#18181B] text-white p-3.5 rounded-2xl shadow-2xl border border-emerald-500/40 animate-in slide-in-from-top-3 duration-300 flex items-start gap-3">
-          <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
-            <Bell className="w-4 h-4 animate-bounce" />
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-xs text-emerald-400 truncate">
-                {liveRealtimeToast.title}
-              </span>
-              <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-mono border border-emerald-800/60">
-                LIVE
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-300 mt-0.5 leading-snug">
-              {liveRealtimeToast.message}
-            </p>
-          </div>
-          <button
-            onClick={() => setLiveRealtimeToast(null)}
-            className="text-zinc-400 hover:text-white p-1 transition"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
         </div>
       )}
     </>

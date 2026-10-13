@@ -781,13 +781,13 @@ function HrmPayrollContent() {
             <div className="flex items-center gap-2.5 flex-1 max-w-lg justify-end">
               {/* Search Bar for Searching Employees */}
               <div className="relative w-full max-w-xs">
-                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5 pointer-events-none" />
+                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search by name, role, dept, phone..."
                   value={employeeSearchTerm}
                   onChange={(e) => setEmployeeSearchTerm(e.target.value)}
-                  className="w-full pl-8.5 pr-7 py-1.5 rounded-xl border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] placeholder:text-zinc-400 transition"
+                  className="w-full pl-9 pr-7 py-1.5 rounded-xl border border-[#D4D4D8] text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] placeholder:text-zinc-400 transition"
                 />
                 {employeeSearchTerm && (
                   <button

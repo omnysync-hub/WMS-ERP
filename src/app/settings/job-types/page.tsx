@@ -298,13 +298,13 @@ export default function JobTypesSettingsPage() {
             {/* Search Filter Box */}
             {jobTypes.length > 5 && (
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-3 top-2.5" />
+                <Search className="w-3.5 h-3.5 text-[#A1A1AA] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search existing options to edit or remove..."
                   value={filterSearch}
                   onChange={(e) => setFilterSearch(e.target.value)}
-                  className="w-full bg-[#FAFAFA] pl-8 pr-3 py-1.5 rounded-lg border border-[#EDEDED] text-xs focus:bg-white focus:outline-none focus:border-[#0D7A5F] transition"
+                  className="w-full bg-[#FAFAFA] pl-9 pr-3 py-1.5 rounded-lg border border-[#EDEDED] text-xs focus:bg-white focus:outline-none focus:border-[#0D7A5F] transition"
                 />
                 {filterSearch && (
                   <button

@@ -30,6 +30,7 @@ import { printDocument } from "@/lib/printUtils";
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
+import toast from "@/lib/toast";
 
 interface ThreeWayMatchTabProps {
   invoices: any[];
@@ -252,7 +253,10 @@ export default function ThreeWayMatchTab({
   };
 
   const handleApproveInvoice = async (invoiceId: string) => {
-    if (!canApproveInvoice) { alert("Missing permission: procurement.invoice.approve"); return; }
+    if (!canApproveInvoice) {
+      toast.warning("Missing permission: procurement.invoice.approve", { title: "Permission Denied" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -271,11 +275,14 @@ export default function ThreeWayMatchTab({
         throw new Error(err.error || "Failed to approve invoice");
       }
 
-      alert("3-Way Match Verified! Accounts Payable voucher created and posted to Vendor Ledger.");
+      toast.success(
+        "3-Way Match Verified! Accounts Payable voucher created and posted to Vendor Ledger.",
+        { title: "3-Way Match Verified" }
+      );
       setActiveInvoice(null);
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to approve invoice", { title: "Approval Failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -299,7 +306,7 @@ export default function ThreeWayMatchTab({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2.5 flex-1">
           <div className="relative min-w-[280px] max-w-md">
-            <Search className="w-4 h-4 text-[#A1A1AA] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#A1A1AA] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search invoice #, vendor, PO ref..."

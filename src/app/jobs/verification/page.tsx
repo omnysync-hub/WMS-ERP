@@ -280,13 +280,13 @@ export default function AuditorVerificationPage() {
             </p>
           </div>
           <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA]" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA] pointer-events-none" />
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search job / customerâ€¦"
-              className="w-full h-8 pl-8 pr-3 rounded-lg border border-[#E4E4E7] bg-white text-xs focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
+              placeholder="Search job / customer…"
+              className="w-full h-8 pl-9 pr-3 rounded-lg border border-[#E4E4E7] bg-white text-xs focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
             />
           </div>
         </div>

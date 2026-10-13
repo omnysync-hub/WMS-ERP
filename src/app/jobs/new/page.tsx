@@ -929,7 +929,7 @@ export default function NewJobIntakePage() {
               </label>
 
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Start typing customer name or phone number (+92...)"

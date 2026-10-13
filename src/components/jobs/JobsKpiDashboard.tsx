@@ -624,7 +624,7 @@ export default function JobsKpiDashboard({
                   onChange={(e) => setKpiSearchQuery(e.target.value)}
                   placeholder="Search by job #, customer, tech, status..."
                   autoFocus
-                  className="w-full pl-8 pr-7 py-1.5 bg-[#F9FAFB] hover:bg-white focus:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-lg text-xs text-[#18181B] placeholder-[#A1A1AA] focus:outline-none transition shadow-2xs"
+                  className="w-full pl-9 pr-7 py-1.5 bg-[#F9FAFB] hover:bg-white focus:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-lg text-xs text-[#18181B] placeholder-[#A1A1AA] focus:outline-none transition shadow-2xs"
                 />
                 {kpiSearchQuery && (
                   <button

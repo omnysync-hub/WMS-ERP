@@ -10,6 +10,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import PakistanAddressAutofill from "@/components/maps/PakistanAddressAutofill";
+import toast from "@/lib/toast";
 
 interface AddCustomerDrawerProps {
   isOpen: boolean;
@@ -89,6 +90,9 @@ export default function AddCustomerDrawer({
       const customer = await res.json();
       if (!res.ok) throw new Error(customer.error || "Failed to create customer");
 
+      toast.success(`Customer "${customer.name || name}" registered successfully.`, {
+        title: "Customer Registered",
+      });
       onCustomerCreated?.(customer);
       setName("");
       setPhone("");
@@ -100,6 +104,7 @@ export default function AddCustomerDrawer({
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message);
+      toast.error(err.message || "Failed to create customer", { title: "Error Creating Customer" });
     } finally {
       setIsSubmitting(false);
     }

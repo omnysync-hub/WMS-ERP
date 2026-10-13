@@ -33,7 +33,16 @@ export default function LoginPage() {
       if (data.user?.mustChangePassword) {
         window.location.assign("/change-password");
       } else {
-        window.location.assign(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboards");
+        const userRole = (data.user?.role || "").toLowerCase();
+        const defaultLanding =
+          userRole === "admin"
+            ? "/dashboards"
+            : userRole === "hr"
+            ? "/hrm"
+            : userRole === "storekeeper"
+            ? "/inventory"
+            : "/jobs";
+        window.location.assign(next && next.startsWith("/") && !next.startsWith("//") ? next : defaultLanding);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign in. Please try again.");

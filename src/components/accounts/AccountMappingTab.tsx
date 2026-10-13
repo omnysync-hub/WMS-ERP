@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CoaAccountModal, { CoaModalAccount } from "./CoaAccountModal";
+import toast from "@/lib/toast";
 
 interface AccountOption {
   id: string;
@@ -123,8 +124,12 @@ export default function AccountMappingTab({
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [applyingSameAs, setApplyingSameAs] = useState<string | null>(null);
-  const [successToast, setSuccessToast] = useState<string | null>(null);
-  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const setSuccessToast = (msg: string | null) => {
+    if (msg) toast.success(msg);
+  };
+  const setErrorToast = (msg: string | null) => {
+    if (msg) toast.error(msg);
+  };
   const [createFor, setCreateFor] = useState<MappingItem | null>(null);
 
   // Filters for standard mappings
@@ -297,20 +302,6 @@ export default function AccountMappingTab({
 
   return (
     <div className="space-y-5 animate-in fade-in">
-      {/* Toast Notifications */}
-      {successToast && (
-        <div className="fixed top-5 right-5 z-50 bg-[#0D7A5F] text-white px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top-2">
-          <CheckCircle2 className="w-4 h-4" />
-          {successToast}
-        </div>
-      )}
-      {errorToast && (
-        <div className="fixed top-5 right-5 z-50 bg-rose-600 text-white px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top-2">
-          <AlertTriangle className="w-4 h-4" />
-          {errorToast}
-        </div>
-      )}
-
       {/* Header & Sub-Navigation Card */}
       <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-[#E4E4E7]">
@@ -539,13 +530,13 @@ export default function AccountMappingTab({
               </div>
 
               <div className="relative w-full sm:w-64">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search transaction or account..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
+                  className="w-full bg-[#F4F4F5] pl-9 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
                 />
               </div>
             </div>

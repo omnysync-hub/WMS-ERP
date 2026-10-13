@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import CoaAccountModal, { CoaModalAccount } from "./CoaAccountModal";
+import toast from "@/lib/toast";
 
 interface CoaManagerTreeProps {
   tree: any[];
@@ -87,11 +88,9 @@ export default function CoaManagerTree({
   });
 
   // Toast feedback
-  const [toastMsg, setToastMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
   const showToast = (text: string, type: "success" | "error" = "success") => {
-    setToastMsg({ type, text });
-    setTimeout(() => setToastMsg(null), 4000);
+    if (type === "error") toast.error(text);
+    else toast.success(text);
   };
 
   const toggleNode = (code: string) => {
@@ -292,34 +291,6 @@ export default function CoaManagerTree({
 
   return (
     <div className="space-y-4">
-      {/* Toast Feedback */}
-      {toastMsg && (
-        <div
-          className={cn(
-            "p-3 rounded-xl border text-xs flex items-center justify-between gap-3 shadow-md animate-in fade-in duration-150",
-            toastMsg.type === "success"
-              ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-              : "bg-rose-50 border-rose-200 text-rose-900"
-          )}
-        >
-          <div className="flex items-center gap-2">
-            {toastMsg.type === "success" ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            )}
-            <span className="font-semibold">{toastMsg.text}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setToastMsg(null)}
-            className="text-[#71717A] hover:text-[#18181B] font-bold"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Control Bar */}
       <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-xs p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E4E4E7]">
@@ -446,13 +417,13 @@ export default function CoaManagerTree({
 
           {/* Search Box */}
           <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A]" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
             <input
               type="text"
               placeholder="Search code or account title..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
+              className="w-full bg-[#F4F4F5] pl-9 pr-3 py-1.5 text-xs rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium"
             />
           </div>
         </div>

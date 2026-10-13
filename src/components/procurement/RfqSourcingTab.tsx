@@ -362,7 +362,7 @@ export default function RfqSourcingTab({
       <div className="sticky top-0 z-20 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2.5 flex-1">
           <div className="relative min-w-[280px] max-w-md">
-            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search RFQs, bidding package, status..."

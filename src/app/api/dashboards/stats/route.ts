@@ -1,9 +1,18 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { resolveErpActorFromRequest } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    const actor = resolveErpActorFromRequest(req);
+    if (actor.role !== "admin") {
+      return NextResponse.json(
+        { error: "Forbidden: Dashboards are restricted strictly to Administrators.", code: "FORBIDDEN" },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const range = searchParams.get("range") || "this_month";
 

@@ -55,8 +55,22 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  const getRoleLandingPath = (role: string) => {
+    const r = (role || "").toLowerCase();
+    if (r === "admin") return "/dashboards";
+    if (r === "hr") return "/hrm";
+    if (r === "storekeeper") return "/inventory";
+    return "/jobs";
+  };
+
   if (pathname === "/login") {
-    return NextResponse.redirect(new URL(auth.user.mustChangePassword ? "/change-password" : "/dashboards", request.url));
+    const landing = getRoleLandingPath(auth.user.role);
+    return NextResponse.redirect(new URL(auth.user.mustChangePassword ? "/change-password" : landing, request.url));
+  }
+
+  if (pathname === "/") {
+    const landing = getRoleLandingPath(auth.user.role);
+    return NextResponse.redirect(new URL(landing, request.url));
   }
 
   const passwordChangeAllowed =
@@ -72,9 +86,23 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/settings/users-roles") && auth.user.role !== "admin") {
-    const deniedUrl = new URL("/dashboards", request.url);
+    const deniedUrl = new URL(getRoleLandingPath(auth.user.role), request.url);
     deniedUrl.searchParams.set("access", "denied");
     return NextResponse.redirect(deniedUrl);
+  }
+
+  // Dashboards are strictly restricted to Admin role
+  if ((pathname === "/dashboards" || pathname.startsWith("/dashboards/")) && auth.user.role !== "admin") {
+    const deniedUrl = new URL(getRoleLandingPath(auth.user.role), request.url);
+    deniedUrl.searchParams.set("access", "denied");
+    return NextResponse.redirect(deniedUrl);
+  }
+
+  if (pathname.startsWith("/api/dashboards") && auth.user.role !== "admin") {
+    return NextResponse.json(
+      { error: "Forbidden: Dashboards are restricted strictly to Administrators.", code: "FORBIDDEN" },
+      { status: 403 }
+    );
   }
 
   const headers = new Headers(request.headers);

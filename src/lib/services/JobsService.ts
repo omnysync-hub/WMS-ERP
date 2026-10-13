@@ -132,16 +132,13 @@ export class JobsService {
       );
     }
 
-    // Mid-job reassignment must use reassignTechnician (creates successor job)
-    const midJobStatuses = ["Accepted", "InProgress", "Paused"];
-    if (
-      job.assignedTechnicianId &&
-      job.assignedTechnicianId !== technicianId &&
-      midJobStatuses.includes(job.status)
-    ) {
-      throw new Error(
-        "Mid-job technician change requires reassignment (creates a new linked job). Use action 'reassign'."
-      );
+    // If a technician is already assigned and is being changed to a new technician:
+    // Create a new successor job for the new technician, and end the old job with intact history
+    if (job.assignedTechnicianId && job.assignedTechnicianId !== technicianId) {
+      return await this.reassignTechnician(jobId, technicianId, assignedBy, {
+        copyItems: true,
+        notes: `Technician changed by ${assignedBy}`,
+      });
     }
 
     const updated = await prisma.job.update({
@@ -359,14 +356,15 @@ export class JobsService {
     if (ids.length === 0) throw new Error("At least one technicianId is required");
 
     const primaryId = primaryTechnicianId && ids.includes(primaryTechnicianId) ? primaryTechnicianId : ids[0];
-    if (
-      isReassignableStatus(job.status) &&
-      job.assignedTechnicianId &&
-      primaryId !== job.assignedTechnicianId
-    ) {
-      throw new Error(
-        "Mid-job lead technician change requires reassignment (creates a new linked job). Use action 'reassign'."
-      );
+    // If primary technician is already assigned and is being changed to another technician:
+    // Create a new successor job for the new crew, and end the old job with intact history
+    if (job.assignedTechnicianId && primaryId !== job.assignedTechnicianId) {
+      const assistantIds = ids.filter((id) => id !== primaryId);
+      return await this.reassignTechnician(jobId, primaryId, assignedBy, {
+        copyItems: true,
+        notes: `Technicians changed by ${assignedBy}`,
+        assistantTechnicianIds: assistantIds,
+      });
     }
 
     // Upsert all assignments
@@ -454,7 +452,11 @@ export class JobsService {
     jobId: string,
     newTechnicianId: string,
     assignedBy: string,
-    opts?: { copyItems?: boolean; notes?: string }
+    opts?: {
+      copyItems?: boolean;
+      notes?: string;
+      assistantTechnicianIds?: string[];
+    }
   ) {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
@@ -466,11 +468,7 @@ export class JobsService {
       throw new Error("Job was already reassigned. Use the successor job.");
     }
     if (!isReassignableStatus(job.status)) {
-      throw new Error(
-        isPreStartStatus(job.status)
-          ? `Job is '${job.status}' (not started yet) — change the technician with a direct assign instead of reassign.`
-          : `Cannot reassign a job in status '${job.status}'. Reassign is only allowed while the job is ${JOB_REASSIGNABLE_STATUSES.join(", ")}.`
-      );
+      throw new Error(`Cannot reassign a job in status '${job.status}'. Reassignment is only permitted while the job is active.`);
     }
     if (!newTechnicianId) throw new Error("newTechnicianId required");
     if (job.assignedTechnicianId === newTechnicianId) {
@@ -479,9 +477,20 @@ export class JobsService {
 
     const copyItems = opts?.copyItems !== false;
     const count = await prisma.job.count();
-    const jobNumber = `JOB-2026-${String(count + 1).padStart(4, "0")}`;
+    let jobNumber = `JOB-2026-${String(count + 1).padStart(4, "0")}`;
+    let collision = await prisma.job.findUnique({ where: { jobNumber } });
+    let attempts = 1;
+    while (collision) {
+      jobNumber = `JOB-2026-${String(count + 1 + attempts).padStart(4, "0")}`;
+      collision = await prisma.job.findUnique({ where: { jobNumber } });
+      attempts++;
+    }
 
     const newJob = await prisma.$transaction(async (tx) => {
+      const assistantIds = (opts?.assistantTechnicianIds || []).filter(
+        (id: string) => id && id !== newTechnicianId
+      );
+
       const created = await tx.job.create({
         data: {
           jobNumber,
@@ -515,12 +524,20 @@ export class JobsService {
               }
             : {}),
           assignments: {
-            create: {
-              technicianId: newTechnicianId,
-              role: "primary",
-              status: "Assigned",
-              assignedBy,
-            },
+            create: [
+              {
+                technicianId: newTechnicianId,
+                role: "primary",
+                status: "Assigned",
+                assignedBy,
+              },
+              ...assistantIds.map((astId: string) => ({
+                technicianId: astId,
+                role: "assistant",
+                status: "Assigned",
+                assignedBy,
+              })),
+            ],
           },
         },
         include: {

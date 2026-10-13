@@ -59,7 +59,10 @@ export default function JobDetailPage() {
   const jobId = params?.id as string;
 
   const { activeRole, currentPersona, hasPermission } = useRole();
-  const isStorekeeper = activeRole === "storekeeper";
+  const isStorekeeper =
+    activeRole === "storekeeper" ||
+    currentPersona?.role === "storekeeper" ||
+    (activeRole || "").toLowerCase().includes("store");
   const isAccountant = activeRole === "accountant";
   const isAdmin = activeRole === "admin";
   const isDispatcher = activeRole === "dispatcher";
@@ -502,7 +505,7 @@ export default function JobDetailPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full max-w-[1600px] mx-auto">
       {/* Enterprise Page Header */}
       <PageHeader
         breadcrumbs={[
@@ -512,15 +515,17 @@ export default function JobDetailPage() {
         title={`Work Order ${job.jobNumber}`}
         subtitle={`${job.customer?.name} • ${formatJobType(job.jobType)}`}
         badge={
-          <div className="flex items-center gap-2">
-            {job.finalizedAt && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-[#F4F4F5] text-[#3F3F46] px-2.5 py-0.5 rounded-full border border-[#E4E4E7]">
-                <Lock className="w-3 h-3 text-[#71717A]" />
-                Locked / Read-Only
-              </span>
-            )}
-            <StatusBadge status={job.status} />
-          </div>
+          !isStorekeeper ? (
+            <div className="flex items-center gap-2">
+              {job.finalizedAt && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-[#F4F4F5] text-[#3F3F46] px-2.5 py-0.5 rounded-full border border-[#E4E4E7]">
+                  <Lock className="w-3 h-3 text-[#71717A]" />
+                  Locked / Read-Only
+                </span>
+              )}
+              <StatusBadge status={job.status} />
+            </div>
+          ) : null
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
@@ -691,7 +696,7 @@ export default function JobDetailPage() {
       )}
 
       {/* Disputed Alert Banner */}
-      {job.qualityFlag === "disputed" && (
+      {!isStorekeeper && job.qualityFlag === "disputed" && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           <div>
@@ -706,7 +711,7 @@ export default function JobDetailPage() {
       )}
 
       {/* Read-Only Lock Banner */}
-      {job.finalizedAt && (
+      {!isStorekeeper && job.finalizedAt && (
         <div className="p-3 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg flex items-center gap-2.5 text-xs text-[#52525B]">
           <Lock className="w-4 h-4 text-[#71717A] shrink-0" />
           <span>
@@ -754,7 +759,7 @@ export default function JobDetailPage() {
                 <p className="text-[#27272A] font-medium mt-0.5 leading-relaxed">{job.customer?.addressText}</p>
               </div>
 
-              {job.careOfParty && (
+              {!isStorekeeper && job.careOfParty && (
                 <div className="sm:col-span-2 p-3 bg-emerald-50/60 border border-emerald-200/60 rounded-lg">
                   <div className="flex items-center gap-1.5 text-emerald-950 font-bold text-xs">
                     <Building className="w-3.5 h-3.5 text-emerald-700" />
@@ -778,6 +783,8 @@ export default function JobDetailPage() {
                     remarks={job.remarks}
                     showCustomerPayment={canViewFinancials && !isRestrictedRole}
                     showUnusedStockReason={!isRestrictedRole}
+                    showFieldExecution={!isStorekeeper}
+                    showPhotosCard={!isStorekeeper}
                   />
                 </div>
               )}
@@ -793,7 +800,7 @@ export default function JobDetailPage() {
                 } catch {
                   photos = [];
                 }
-                if (photos.length === 0) return null;
+                if (photos.length === 0 || isStorekeeper) return null;
                 return (
                   <div className="sm:col-span-2 pt-3 border-t border-[#E4E4E7]">
                     <div className="flex items-center justify-between mb-2.5">
@@ -877,9 +884,233 @@ export default function JobDetailPage() {
               })()}
             </div>
           </div>
+        </div>
 
+        {/* RIGHT COLUMN: Assigned Tech, Warehouse Inventory & Lifecycle Stepper */}
+        <div className="space-y-6">
+          {/* Assigned Technician Card */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-3">
+            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
+              <span>Assigned Technician</span>
+              <Briefcase className="w-3.5 h-3.5 text-[#71717A]" />
+            </h3>
+            {job.assignedTechnician ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-800 shrink-0">
+                    {job.assignedTechnician.name
+                      .split(" ")
+                      .map((n: string) => n[0])
+                      .join("")
+                      .slice(0, 2)}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-[#18181B]">{job.assignedTechnician.name}</p>
+                      <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-full inline-flex items-center gap-0.5">
+                        ★ Lead Tech
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
+                  </div>
+                </div>
 
-          {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
+                {job.assignments && job.assignments.length > 1 && (
+                  <div className="pt-2 border-t border-[#F4F4F5] space-y-1.5">
+                    <p className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
+                      Crew Members ({job.assignments.length})
+                    </p>
+                    <div className="space-y-1">
+                      {job.assignments.map((asgn: any) => {
+                        const isLead = asgn.role === "primary" || asgn.technicianId === job.assignedTechnicianId;
+                        return (
+                          <div key={asgn.id} className="flex items-center justify-between text-xs py-0.5">
+                            <span className="font-medium text-[#18181B] flex items-center gap-1">
+                              {asgn.technician?.name || "Technician"}
+                              {isLead ? (
+                                <span className="text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1 rounded">
+                                  ★ Lead
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-[#71717A] bg-[#F4F4F5] px-1 rounded">
+                                  Crew
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[10px] text-[#71717A] font-mono">{asgn.technician?.phone}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {canReassignTech && canChangeTechnician(job) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowReassignDrawer(true)}
+                    className="w-full py-1.5 px-3 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] transition flex items-center justify-center gap-1 shadow-2xs"
+                  >
+                    Change Technician
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <p className="text-xs text-[#A1A1AA] italic">No technician assigned to this work order.</p>
+                {canReassignTech && canChangeTechnician(job) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowReassignDrawer(true)}
+                    className="w-full py-2 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    + Assign Technician
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Central Warehouse Material & Inventory Issuance Card (Strictly visible only to Warehouse Storekeeper) */}
+          {isStorekeeper && (
+            <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-amber-100">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-700" />
+                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                    Warehouse Inventory & Material Issuance
+                  </h3>
+                </div>
+              </div>
+
+              {/* Material Requests Table / List */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-bold text-[#71717A] uppercase">
+                  Technician Material Requests ({job.inventoryRequests?.length || 0})
+                </p>
+                {!job.inventoryRequests || job.inventoryRequests.length === 0 ? (
+                  <div className="py-5 text-center bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] space-y-2">
+                    <p className="text-xs text-[#A1A1AA]">
+                      No material requests logged for this work order.
+                    </p>
+                    {canIssueStock && (
+                      <button
+                        type="button"
+                        onClick={() => openIssueInventoryModal()}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Issue Stock Directly
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {job.inventoryRequests.map((req: any) => {
+                      const reqQty = Number(req.qtyRequested || 0);
+                      const issuedQty = Number(req.qtyIssued || 0);
+                      const pendingQty = Math.max(0, reqQty - issuedQty);
+                      const isFullyIssued =
+                        req.status === "issued" || (reqQty > 0 && issuedQty >= reqQty);
+                      const isPartial = !isFullyIssued && issuedQty > 0;
+
+                      return (
+                        <div
+                          key={req.id}
+                          className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs flex items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-bold text-[#18181B]">{req.item}</p>
+                            <div className="flex items-center gap-2 text-[11px] text-[#71717A] flex-wrap">
+                              <span>
+                                Req Qty: <strong className="font-mono text-[#18181B]">{reqQty}</strong>
+                              </span>
+                              <span>•</span>
+                              <span className={issuedQty > 0 ? "text-emerald-700 font-semibold" : ""}>
+                                Issued: <strong className="font-mono">{issuedQty}</strong>
+                              </span>
+                              <span>•</span>
+                              <span className={pendingQty > 0 ? "text-amber-800 font-semibold" : ""}>
+                                Pending / Left: <strong className="font-mono">{pendingQty}</strong>
+                              </span>
+                              <span>•</span>
+                              <span>{formatDateTime(req.createdAt)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <StatusBadge
+                              status={
+                                isFullyIssued
+                                  ? "issued"
+                                  : isPartial
+                                  ? "partially_issued"
+                                  : "pending"
+                              }
+                            />
+                            {!isFullyIssued && req.status !== "rejected" && canIssueStock && (
+                              <button
+                                type="button"
+                                onClick={() => openIssueInventoryModal(req)}
+                                className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-md shadow-2xs transition inline-flex items-center gap-1"
+                              >
+                                {isPartial ? "Issue Remaining Stock" : "Fulfill & Issue"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Stock Returns from Technician */}
+              {job.stockReturns && job.stockReturns.length > 0 && (
+                <div className="pt-3 border-t border-[#E4E4E7] space-y-2">
+                  <p className="text-[11px] font-bold text-[#71717A] uppercase">
+                    Unused Parts Returned to Warehouse
+                  </p>
+                  <div className="space-y-1.5">
+                    {job.stockReturns.map((ret: any) => (
+                      <div
+                        key={ret.id}
+                        className="p-2.5 bg-emerald-50/50 border border-emerald-200 rounded-lg text-xs flex items-center justify-between"
+                      >
+                        <div>
+                          <span className="font-semibold text-emerald-950">{ret.item}</span>
+                          <span className="text-[11px] text-emerald-800 ml-2 font-mono">
+                            Qty: {ret.qtyReturned}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-emerald-700">
+                          {ret.acknowledgedAt ? `✓ Acknowledged` : "Awaiting Storekeeper Sign-off"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Lifecycle State Machine Vertical Stepper (Hidden for Storekeeper) */}
+          {!isStorekeeper && (
+            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
+              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
+                <span>Lifecycle State Machine</span>
+                <Clock className="w-3.5 h-3.5 text-[#71717A]" />
+              </h3>
+
+              <TimelineStepper steps={timelineSteps} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* FULL-WIDTH VIEWPORT SECTIONS: Reconciliation, Deliverables & Settlements */}
+      <div className="space-y-6">
+
+        {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
           {(isAccountant || isAdmin) && (
             <div className="bg-white rounded-xl p-5 border border-[#E4E4E7] shadow-xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#F4F4F5]">
@@ -928,13 +1159,17 @@ export default function JobDetailPage() {
 
 
             </div>
-          )}
-
-          {/* SEPARATE SERVICES & INVENTORY DELIVERABLES SECTION */}
+          )}          {/* SEPARATE SERVICES & INVENTORY DELIVERABLES SECTION */}
           {(() => {
             const allItems = job.items || [];
             const serviceItems = allItems.filter((it: any) => isServiceItem(it));
             const inventoryItems = allItems.filter((it: any) => !isServiceItem(it));
+            const storeIssuedItems = inventoryItems.filter(
+              (it: any) =>
+                it.description?.includes("[Issued by Storekeeper]") ||
+                it.description?.toLowerCase().includes("issued by storekeeper")
+            );
+            const visibleInventoryItems = isStorekeeper ? storeIssuedItems : inventoryItems;
 
             const servicesPlannedTotal = serviceItems.reduce((s: number, it: any) => s + (it.quantityPlanned || 0) * (it.unitRate || 0), 0);
             const servicesActualTotal = serviceItems.reduce((s: number, it: any) => {
@@ -946,19 +1181,65 @@ export default function JobDetailPage() {
             const inventoryActualTotal = inventoryItems.reduce((s: number, it: any) => {
               const qty = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
               return s + (qty || 0) * (it.unitRate || 0);
-            }, 0);
+            }, 0);            const parseItemPricing = (item: any) => {
+              const desc = item.description || "";
+              const matchApproved = desc.match(/\[Discount Approved:\s*-?\$?([0-9.]+),\s*Rate:\s*\$?([0-9.]+)\s*->\s*\$?([0-9.]+)\]/i);
+              const matchRequested = desc.match(/\[Discount Requested:\s*\$?([0-9.]+)/i);
+              const isIssuedByStore = desc.includes("[Issued by Storekeeper]") || desc.toLowerCase().includes("issued by storekeeper");
+
+              const actualQty = item.quantityActual !== null && item.quantityActual !== undefined ? Number(item.quantityActual) : Number(item.quantityPlanned || 1);
+              const issuedQty = Number(item.quantityPlanned !== null && item.quantityPlanned !== undefined ? item.quantityPlanned : actualQty);
+              const currentRate = Number(item.unitRate || 0);
+
+              if (matchApproved) {
+                const discountAmt = parseFloat(matchApproved[1]);
+                const originalRate = parseFloat(matchApproved[2]) || (currentRate + discountAmt);
+                const discountedRate = parseFloat(matchApproved[3]) || currentRate;
+                return {
+                  originalRate,
+                  discountAmt,
+                  discountedRate,
+                  hasDiscount: true,
+                  isPendingDiscount: false,
+                  issuedQty,
+                  actualQty,
+                  lineTotal: actualQty * discountedRate,
+                  isIssuedByStore,
+                };
+              }
+
+              if (matchRequested) {
+                const requestedAmt = parseFloat(matchRequested[1]);
+                return {
+                  originalRate: currentRate,
+                  discountAmt: requestedAmt,
+                  discountedRate: currentRate,
+                  hasDiscount: false,
+                  isPendingDiscount: true,
+                  issuedQty,
+                  actualQty,
+                  lineTotal: actualQty * currentRate,
+                  isIssuedByStore,
+                };
+              }
+
+              return {
+                originalRate: currentRate,
+                discountAmt: 0,
+                discountedRate: currentRate,
+                hasDiscount: false,
+                isPendingDiscount: false,
+                issuedQty,
+                actualQty,
+                lineTotal: actualQty * currentRate,
+                isIssuedByStore,
+              };
+            };
 
             const renderItemRow = (item: any) => {
-              const actualQty = item.quantityActual;
               const isService = isServiceItem(item);
-              const rowActualTotal =
-                actualQty !== null && actualQty !== undefined
-                  ? actualQty * item.unitRate
-                  : item.quantityPlanned * item.unitRate;
+              const pricing = parseItemPricing(item);
 
-              const isRequested = item.description?.includes("[Discount Requested:");
-              const isApproved = item.description?.includes("[Discount Approved:");
-              const isIssuedByStore = item.description?.includes("[Issued by Storekeeper]");
               const cleanTitle = (item.description || "")
                 .replace(/^\s*\[Service\]\s*/gi, "")
                 .replace(/\s*\[Service\]/gi, "")
@@ -975,6 +1256,7 @@ export default function JobDetailPage() {
 
               return (
                 <tr key={item.id} className="hover:bg-[#FAFAFA] transition">
+                  {/* 1. Name */}
                   <td className="py-2.5 px-4 font-medium text-[#18181B]">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-zinc-900">{cleanTitle}</span>
@@ -993,40 +1275,58 @@ export default function JobDetailPage() {
                         </span>
                       )}
                     </div>
-                    {isRequested && canViewFinancials && !isRestrictedRole && (
-                      <div className="mt-1">
-                        <span className="text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                          ⏳ {item.description.match(/\[Discount Requested: ([^\]]+)\]/)?.[1] || "Discount Requested"}
-                        </span>
-                      </div>
-                    )}
-                    {isApproved && canViewFinancials && !isRestrictedRole && (
-                      <div className="mt-1">
-                        <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                          ✓ {item.description.match(/\[Discount Approved: ([^\]]+)\]/)?.[1] || "Discount Approved"}
-                        </span>
-                      </div>
-                    )}
                   </td>
-                  <td className="py-2.5 px-4 text-center">
-                    {isService ? (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-[11px]">
-                        {actualQty !== null && actualQty !== undefined ? actualQty : 1}
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-xs shadow-2xs">
-                        {actualQty !== null && actualQty !== undefined ? actualQty : item.quantityPlanned || 1}
-                      </span>
-                    )}
-                  </td>
-                  {canViewFinancials && !isRestrictedRole ? (
+
+                  {!isStorekeeper && canViewFinancials && !isRestrictedRole ? (
                     <>
+                      {/* 2. Unit Price */}
                       <td className="py-2.5 px-4 text-right font-mono text-[#52525B]">
-                        {formatCurrency(item.unitRate)}
+                        {formatCurrency(pricing.originalRate)}
                       </td>
+
+                      {/* 3. Issued Qty */}
+                      <td className="py-2.5 px-4 text-center">
+                        <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700 font-bold font-mono text-[11px]">
+                          {pricing.issuedQty}
+                        </span>
+                      </td>
+
+                      {/* 4. Used Qty */}
+                      <td className="py-2.5 px-4 text-center">
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold font-mono text-xs shadow-2xs">
+                          {pricing.actualQty}
+                        </span>
+                      </td>
+
+                      {/* 5. Discounted Price (if any) */}
+                      <td className="py-2.5 px-4 text-right font-mono">
+                        {pricing.hasDiscount ? (
+                          <div className="inline-flex flex-col items-end">
+                            <span className="font-bold text-emerald-700">
+                              {formatCurrency(pricing.discountedRate)}
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded mt-0.5">
+                              -{formatCurrency(pricing.discountAmt)} off
+                            </span>
+                          </div>
+                        ) : pricing.isPendingDiscount ? (
+                          <div className="inline-flex flex-col items-end">
+                            <span className="text-zinc-600 font-mono">{formatCurrency(pricing.originalRate)}</span>
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded mt-0.5">
+                              Pending -{formatCurrency(pricing.discountAmt)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[#A1A1AA] font-mono">—</span>
+                        )}
+                      </td>
+
+                      {/* 6. Total */}
                       <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
-                        {formatCurrency(rowActualTotal)}
+                        {formatCurrency(pricing.lineTotal)}
                       </td>
+
+                      {/* 7. Discount Action */}
                       <td className="py-2.5 px-4 text-right">
                         {!job.finalizedAt && (
                           <button
@@ -1038,32 +1338,40 @@ export default function JobDetailPage() {
                               setItemDiscountModalOpen(true);
                             }}
                             className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition shadow-2xs ${
-                              isRequested
+                              pricing.isPendingDiscount
                                 ? "bg-amber-600 hover:bg-amber-700 text-white"
                                 : "bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B]"
                             }`}
                           >
-                            {isRequested ? "Authorize Discount" : "Give Discount"}
+                            {pricing.isPendingDiscount ? "Authorize Discount" : "Give Discount"}
                           </button>
                         )}
                       </td>
                     </>
                   ) : (
-                    <td className="py-2.5 px-4 text-center">
-                      {isService ? (
-                        <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                          Service Line
-                        </span>
-                      ) : isIssuedByStore ? (
-                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                          ✓ Warehouse Issued
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-medium text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full">
-                          Scope Item
-                        </span>
-                      )}
-                    </td>
+                    <>
+                      <td className="py-2.5 px-4 text-center font-mono font-bold text-zinc-800">
+                        {pricing.issuedQty}
+                      </td>
+                      <td className="py-2.5 px-4 text-center font-mono font-bold text-emerald-800">
+                        {pricing.actualQty}
+                      </td>
+                      <td className="py-2.5 px-4 text-center">
+                        {isService ? (
+                          <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            Service Line
+                          </span>
+                        ) : pricing.isIssuedByStore ? (
+                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            ✓ Warehouse Issued
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full">
+                            Scope Item
+                          </span>
+                        )}
+                      </td>
+                    </>
                   )}
                 </tr>
               );
@@ -1075,57 +1383,63 @@ export default function JobDetailPage() {
                 <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                      Planned vs Actual Deliverables · Services & Inventory
+                      {isStorekeeper
+                        ? "Warehouse Stock Issued"
+                        : "Planned vs Actual Deliverables · Services & Inventory"}
                     </h2>
                     <p className="text-[11px] text-[#71717A] mt-0.5">
-                      Services and warehouse inventory are tracked separately with dedicated subtotals and verification.
+                      {isStorekeeper
+                        ? "Materials and spare parts dispatched from warehouse for this work order."
+                        : "Services and warehouse inventory are tracked separately with dedicated subtotals and verification."}
                     </p>
                   </div>
 
                   {/* Section View Tabs & Actions */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <div className="inline-flex rounded-lg bg-[#E4E4E7]/70 p-0.5 text-xs font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setDeliverableActiveTab("all")}
-                        className={cn(
-                          "px-2.5 py-1 rounded-md transition text-[11px]",
-                          deliverableActiveTab === "all"
-                            ? "bg-white text-zinc-900 shadow-2xs font-bold"
-                            : "text-zinc-600 hover:text-zinc-900"
-                        )}
-                      >
-                        All ({allItems.length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeliverableActiveTab("services")}
-                        className={cn(
-                          "px-2.5 py-1 rounded-md transition text-[11px] inline-flex items-center gap-1",
-                          deliverableActiveTab === "services"
-                            ? "bg-white text-emerald-800 shadow-2xs font-bold"
-                            : "text-zinc-600 hover:text-zinc-900"
-                        )}
-                      >
-                        <Wrench className="w-3 h-3 text-emerald-600" />
-                        Services ({serviceItems.length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeliverableActiveTab("inventory")}
-                        className={cn(
-                          "px-2.5 py-1 rounded-md transition text-[11px] inline-flex items-center gap-1",
-                          deliverableActiveTab === "inventory"
-                            ? "bg-white text-blue-800 shadow-2xs font-bold"
-                            : "text-zinc-600 hover:text-zinc-900"
-                        )}
-                      >
-                        <Package className="w-3 h-3 text-blue-600" />
-                        Inventory ({inventoryItems.length})
-                      </button>
-                    </div>
+                    {!isStorekeeper && (
+                      <div className="inline-flex rounded-lg bg-[#E4E4E7]/70 p-0.5 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setDeliverableActiveTab("all")}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md transition text-[11px]",
+                            deliverableActiveTab === "all"
+                              ? "bg-white text-zinc-900 shadow-2xs font-bold"
+                              : "text-zinc-600 hover:text-zinc-900"
+                          )}
+                        >
+                          All ({allItems.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliverableActiveTab("services")}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md transition text-[11px] inline-flex items-center gap-1",
+                            deliverableActiveTab === "services"
+                              ? "bg-white text-emerald-800 shadow-2xs font-bold"
+                              : "text-zinc-600 hover:text-zinc-900"
+                          )}
+                        >
+                          <Wrench className="w-3 h-3 text-emerald-600" />
+                          Services ({serviceItems.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliverableActiveTab("inventory")}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md transition text-[11px] inline-flex items-center gap-1",
+                            deliverableActiveTab === "inventory"
+                              ? "bg-white text-blue-800 shadow-2xs font-bold"
+                              : "text-zinc-600 hover:text-zinc-900"
+                          )}
+                        >
+                          <Package className="w-3 h-3 text-blue-600" />
+                          Inventory ({inventoryItems.length})
+                        </button>
+                      </div>
+                    )}
 
-                    {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
+                    {!isStorekeeper && canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
                       <button
                         type="button"
                         onClick={() => setAddServiceDrawerOpen(true)}
@@ -1150,7 +1464,7 @@ export default function JobDetailPage() {
                 </div>
 
                 {/* 1. SECTION: SERVICES & TECHNICAL LABOR */}
-                {(deliverableActiveTab === "all" || deliverableActiveTab === "services") && (
+                {!isStorekeeper && (deliverableActiveTab === "all" || deliverableActiveTab === "services") && (
                   <div className="border-b border-[#E4E4E7]">
                     <div className="px-5 py-2.5 bg-emerald-50/50 border-b border-emerald-100/80 flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1162,11 +1476,13 @@ export default function JobDetailPage() {
                           • Diagnostic inspections, maintenance tasks & service fees
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-emerald-900 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded">
-                          Subtotal: {formatCurrency(servicesActualTotal)}
-                        </span>
-                      </div>
+                      {!isStorekeeper && canViewFinancials && !isRestrictedRole && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono font-bold text-emerald-900 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded">
+                            Subtotal: {formatCurrency(servicesActualTotal)}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="overflow-x-auto">
@@ -1174,15 +1490,21 @@ export default function JobDetailPage() {
                         <thead>
                           <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
                             <th className="py-2 px-4">Service Description</th>
-                            <th className="py-2 px-4 text-center">Qty</th>
-                            {canViewFinancials && !isRestrictedRole ? (
+                            {!isStorekeeper && canViewFinancials && !isRestrictedRole ? (
                               <>
-                                <th className="py-2 px-4 text-right">Service Rate</th>
-                                <th className="py-2 px-4 text-right">Total Price</th>
+                                <th className="py-2 px-4 text-right">Unit Price</th>
+                                <th className="py-2 px-4 text-center">Issued Qty</th>
+                                <th className="py-2 px-4 text-center">Used Qty</th>
+                                <th className="py-2 px-4 text-right">Discounted Price</th>
+                                <th className="py-2 px-4 text-right">Total</th>
                                 <th className="py-2 px-4 text-right">Discount Action</th>
                               </>
                             ) : (
-                              <th className="py-2 px-4 text-center">Service Status</th>
+                              <>
+                                <th className="py-2 px-4 text-center">Issued Qty</th>
+                                <th className="py-2 px-4 text-center">Used Qty</th>
+                                <th className="py-2 px-4 text-center">Service Status</th>
+                              </>
                             )}
                           </tr>
                         </thead>
@@ -1192,7 +1514,7 @@ export default function JobDetailPage() {
                           ) : (
                             <tr>
                               <td
-                                colSpan={canViewFinancials && !isRestrictedRole ? 5 : 3}
+                                colSpan={!isStorekeeper && canViewFinancials && !isRestrictedRole ? 7 : 4}
                                 className="py-6 text-center text-[#71717A] text-xs italic bg-white"
                               >
                                 No technical service or labor items recorded. Use &quot;+ Add Service&quot; to log work scopes.
@@ -1206,23 +1528,29 @@ export default function JobDetailPage() {
                 )}
 
                 {/* 2. SECTION: INVENTORY, SPARE PARTS & MATERIALS */}
-                {(deliverableActiveTab === "all" || deliverableActiveTab === "inventory") && (
+                {(isStorekeeper || deliverableActiveTab === "all" || deliverableActiveTab === "inventory") && (
                   <div>
                     <div className="px-5 py-2.5 bg-blue-50/50 border-b border-blue-100/80 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Package className="w-4 h-4 text-blue-700" />
                         <span className="text-xs font-bold text-blue-950 uppercase tracking-wider">
-                          2. Inventory, Spare Parts & Warehouse Materials ({inventoryItems.length})
+                          {isStorekeeper
+                            ? `Warehouse Stock Dispatched (${visibleInventoryItems.length})`
+                            : `2. Inventory, Spare Parts & Warehouse Materials (${inventoryItems.length})`}
                         </span>
                         <span className="text-[10px] text-blue-700 hidden sm:inline">
-                          • Physical parts, consumables & appliances deducted from warehouse
+                          {isStorekeeper
+                            ? "• Physical spare parts and items issued by the storekeeper"
+                            : "• Physical parts, consumables & appliances deducted from warehouse"}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-blue-900 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded">
-                          Subtotal: {formatCurrency(inventoryActualTotal)}
-                        </span>
-                      </div>
+                      {!isStorekeeper && canViewFinancials && !isRestrictedRole && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono font-bold text-blue-900 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded">
+                            Subtotal: {formatCurrency(inventoryActualTotal)}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="overflow-x-auto">
@@ -1230,28 +1558,36 @@ export default function JobDetailPage() {
                         <thead>
                           <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
                             <th className="py-2 px-4">Item Description & Brand</th>
-                            <th className="py-2 px-4 text-center">Qty (Used)</th>
-                            {canViewFinancials && !isRestrictedRole ? (
+                            {!isStorekeeper && canViewFinancials && !isRestrictedRole ? (
                               <>
-                                <th className="py-2 px-4 text-right">Unit Price (Rate)</th>
-                                <th className="py-2 px-4 text-right">Total Price</th>
+                                <th className="py-2 px-4 text-right">Unit Price</th>
+                                <th className="py-2 px-4 text-center">Issued Qty</th>
+                                <th className="py-2 px-4 text-center">Used Qty</th>
+                                <th className="py-2 px-4 text-right">Discounted Price</th>
+                                <th className="py-2 px-4 text-right">Total</th>
                                 <th className="py-2 px-4 text-right">Discount Action</th>
                               </>
                             ) : (
-                              <th className="py-2 px-4 text-center">Warehouse Status</th>
+                              <>
+                                <th className="py-2 px-4 text-center">Qty Issued</th>
+                                <th className="py-2 px-4 text-center">Qty (Used)</th>
+                                <th className="py-2 px-4 text-center">Warehouse Status</th>
+                              </>
                             )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#E4E4E7]">
-                          {inventoryItems.length > 0 ? (
-                            inventoryItems.map(renderItemRow)
+                          {visibleInventoryItems.length > 0 ? (
+                            visibleInventoryItems.map(renderItemRow)
                           ) : (
                             <tr>
                               <td
-                                colSpan={canViewFinancials && !isRestrictedRole ? 5 : 3}
+                                colSpan={!isStorekeeper && canViewFinancials && !isRestrictedRole ? 7 : 4}
                                 className="py-6 text-center text-[#71717A] text-xs italic bg-white"
                               >
-                                No physical spare parts or inventory items assigned to this work order.
+                                {isStorekeeper
+                                  ? "No warehouse materials have been issued by the storekeeper yet."
+                                  : "No physical spare parts or inventory items assigned to this work order."}
                               </td>
                             </tr>
                           )}
@@ -1262,7 +1598,7 @@ export default function JobDetailPage() {
                 )}
 
                 {/* Combined Financial Reconciliation Footer */}
-                {canViewFinancials && !isRestrictedRole ? (
+                {!isStorekeeper && canViewFinancials && !isRestrictedRole ? (
                   <div className="p-5 bg-[#FAFAFA] border-t border-[#E4E4E7] space-y-2 text-xs">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pb-3 border-b border-[#E4E4E7]/80">
                       <div className="p-2.5 bg-emerald-50/70 rounded-lg border border-emerald-200">
@@ -1666,227 +2002,6 @@ export default function JobDetailPage() {
             </div>
           )}
 
-        </div>
-
-        {/* RIGHT COLUMN: Assigned Tech, Warehouse Inventory & Lifecycle Stepper */}
-        <div className="space-y-6">
-          {/* Assigned Technician Card */}
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-3">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
-              <span>Assigned Technician</span>
-              <Briefcase className="w-3.5 h-3.5 text-[#71717A]" />
-            </h3>
-            {job.assignedTechnician ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-800 shrink-0">
-                    {job.assignedTechnician.name
-                      .split(" ")
-                      .map((n: string) => n[0])
-                      .join("")
-                      .slice(0, 2)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-xs font-bold text-[#18181B]">{job.assignedTechnician.name}</p>
-                      <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-full inline-flex items-center gap-0.5">
-                        ★ Lead Tech
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#71717A] font-mono">{job.assignedTechnician.phone}</p>
-                  </div>
-                </div>
-
-                {job.assignments && job.assignments.length > 1 && (
-                  <div className="pt-2 border-t border-[#F4F4F5] space-y-1.5">
-                    <p className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
-                      Crew Members ({job.assignments.length})
-                    </p>
-                    <div className="space-y-1">
-                      {job.assignments.map((asgn: any) => {
-                        const isLead = asgn.role === "primary" || asgn.technicianId === job.assignedTechnicianId;
-                        return (
-                          <div key={asgn.id} className="flex items-center justify-between text-xs py-0.5">
-                            <span className="font-medium text-[#18181B] flex items-center gap-1">
-                              {asgn.technician?.name || "Technician"}
-                              {isLead ? (
-                                <span className="text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-1 rounded">
-                                  ★ Lead
-                                </span>
-                              ) : (
-                                <span className="text-[9px] text-[#71717A] bg-[#F4F4F5] px-1 rounded">
-                                  Crew
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-[10px] text-[#71717A] font-mono">{asgn.technician?.phone}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {canReassignTech && canChangeTechnician(job) && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReassignDrawer(true)}
-                    className="w-full py-1.5 px-3 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] transition flex items-center justify-center gap-1 shadow-2xs"
-                  >
-                    Change Technician
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <p className="text-xs text-[#A1A1AA] italic">No technician assigned to this work order.</p>
-                {canReassignTech && canChangeTechnician(job) && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReassignDrawer(true)}
-                    className="w-full py-2 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    + Assign Technician
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Central Warehouse Material & Inventory Issuance Card (Strictly visible only to Warehouse Storekeeper) */}
-          {isStorekeeper && (
-            <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-amber-100">
-                <div className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-amber-700" />
-                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    Warehouse Inventory & Material Issuance
-                  </h3>
-                </div>
-              </div>
-
-              {/* Material Requests Table / List */}
-              <div className="space-y-2">
-                <p className="text-[11px] font-bold text-[#71717A] uppercase">
-                  Technician Material Requests ({job.inventoryRequests?.length || 0})
-                </p>
-                {!job.inventoryRequests || job.inventoryRequests.length === 0 ? (
-                  <div className="py-5 text-center bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] space-y-2">
-                    <p className="text-xs text-[#A1A1AA]">
-                      No material requests logged for this work order.
-                    </p>
-                    {canIssueStock && (
-                      <button
-                        type="button"
-                        onClick={() => openIssueInventoryModal()}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Issue Stock Directly
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {job.inventoryRequests.map((req: any) => {
-                      const reqQty = Number(req.qtyRequested || 0);
-                      const issuedQty = Number(req.qtyIssued || 0);
-                      const pendingQty = Math.max(0, reqQty - issuedQty);
-                      const isFullyIssued =
-                        req.status === "issued" || (reqQty > 0 && issuedQty >= reqQty);
-                      const isPartial = !isFullyIssued && issuedQty > 0;
-
-                      return (
-                        <div
-                          key={req.id}
-                          className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs flex items-center justify-between gap-3"
-                        >
-                          <div className="space-y-1">
-                            <p className="font-bold text-[#18181B]">{req.item}</p>
-                            <div className="flex items-center gap-2 text-[11px] text-[#71717A] flex-wrap">
-                              <span>
-                                Req Qty: <strong className="font-mono text-[#18181B]">{reqQty}</strong>
-                              </span>
-                              <span>•</span>
-                              <span className={issuedQty > 0 ? "text-emerald-700 font-semibold" : ""}>
-                                Issued: <strong className="font-mono">{issuedQty}</strong>
-                              </span>
-                              <span>•</span>
-                              <span className={pendingQty > 0 ? "text-amber-800 font-semibold" : ""}>
-                                Pending / Left: <strong className="font-mono">{pendingQty}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>{formatDateTime(req.createdAt)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <StatusBadge
-                              status={
-                                isFullyIssued
-                                  ? "issued"
-                                  : isPartial
-                                  ? "partially_issued"
-                                  : "pending"
-                              }
-                            />
-                            {!isFullyIssued && req.status !== "rejected" && canIssueStock && (
-                              <button
-                                type="button"
-                                onClick={() => openIssueInventoryModal(req)}
-                                className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-md shadow-2xs transition inline-flex items-center gap-1"
-                              >
-                                {isPartial ? "Issue Remaining Stock" : "Fulfill & Issue"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Stock Returns from Technician */}
-              {job.stockReturns && job.stockReturns.length > 0 && (
-                <div className="pt-3 border-t border-[#E4E4E7] space-y-2">
-                  <p className="text-[11px] font-bold text-[#71717A] uppercase">
-                    Unused Parts Returned to Warehouse
-                  </p>
-                  <div className="space-y-1.5">
-                    {job.stockReturns.map((ret: any) => (
-                      <div
-                        key={ret.id}
-                        className="p-2.5 bg-emerald-50/50 border border-emerald-200 rounded-lg text-xs flex items-center justify-between"
-                      >
-                        <div>
-                          <span className="font-semibold text-emerald-950">{ret.item}</span>
-                          <span className="text-[11px] text-emerald-800 ml-2 font-mono">
-                            Qty: {ret.qtyReturned}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-emerald-700">
-                          {ret.acknowledgedAt ? `✓ Acknowledged` : "Awaiting Storekeeper Sign-off"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Lifecycle State Machine Vertical Stepper (Hidden for Storekeeper) */}
-          {!isStorekeeper && (
-            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-4">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider pb-2 border-b border-[#E4E4E7] flex items-center justify-between">
-                <span>Lifecycle State Machine</span>
-                <Clock className="w-3.5 h-3.5 text-[#71717A]" />
-              </h3>
-
-              <TimelineStepper steps={timelineSteps} />
-            </div>
-          )}
-        </div>
       </div>
 
       {/* MID-JOB DISCOUNT DRAWER */}
@@ -1907,9 +2022,16 @@ export default function JobDetailPage() {
         onClose={() => setShowReassignDrawer(false)}
         job={job}
         technicians={technicians}
-        onAssigned={() => {
-          setSuccessMsg("Technician assigned and dispatch alert sent successfully!");
-          fetchJob();
+        onAssigned={(successor?: any) => {
+          if (successor?.id && successor.id !== job?.id) {
+            setSuccessMsg(`Work Order #${job?.jobNumber} ended & reassigned to Work Order #${successor.jobNumber || "new job"}. Loading new job...`);
+            setTimeout(() => {
+              router.push(`/jobs/${successor.id}`);
+            }, 600);
+          } else {
+            setSuccessMsg("Technician assigned and dispatch alert sent successfully!");
+            fetchJob();
+          }
         }}
       />
 

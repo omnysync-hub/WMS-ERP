@@ -37,6 +37,7 @@ import {
 } from "@/components/procurement/procurementUi";
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
+import toast from "@/lib/toast";
 
 interface RequisitionsTabProps {
   prs: any[];
@@ -278,8 +279,14 @@ export default function RequisitionsTab({
     reason?: string,
     prOverride?: any
   ) => {
-    if (status === "submitted" && !canSubmitPr) { alert("Missing permission: procurement.pr.submit"); return; }
-    if ((status === "approved" || status === "rejected") && !canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
+    if (status === "submitted" && !canSubmitPr) {
+      toast.warning("Missing permission: procurement.pr.submit", { title: "Permission Denied" });
+      return;
+    }
+    if ((status === "approved" || status === "rejected") && !canApprovePr) {
+      toast.warning("Missing permission: procurement.pr.approve", { title: "Permission Denied" });
+      return;
+    }
     const targetPr = prOverride || selectedPr;
     if (!targetPr) return;
     setIsSubmitting(true);
@@ -309,11 +316,16 @@ export default function RequisitionsTab({
         throw new Error(err.error || "Failed to update status");
       }
 
+      toast.success(
+        `Purchase Requisition ${targetPr.prNumber || ""} has been ${status} successfully.`,
+        { title: `PR ${status.toUpperCase()}` }
+      );
+
       setShowRejectModal(false);
       setSelectedPr(null);
       onRefresh();
     } catch (err: any) {
-      alert(err.message || "Error updating status");
+      toast.error(err.message || "Error updating status", { title: "Update Failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -457,7 +469,7 @@ export default function RequisitionsTab({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex flex-wrap items-center gap-2.5 flex-1">
           <div className="relative min-w-[240px] flex-1 max-w-sm">
-            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search PR number, site, target, requester..."

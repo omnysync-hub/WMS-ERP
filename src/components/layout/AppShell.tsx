@@ -11,7 +11,10 @@ import ToastViewport from "@/components/ui/ToastViewport";
 import { RoleProvider } from "@/contexts/RoleContext";
 import { setupGlobalClickTracker, logActivity } from "@/lib/telemetry";
 import { realtimeSync, SyncEvent } from "@/lib/realtimeSync";
-import { playNotificationAlert } from "@/lib/notificationAudio";
+import { urgentAlertManager } from "@/lib/notificationAudio";
+import UrgentAlertBanner from "@/components/ui/UrgentAlertBanner";
+
+import toast from "@/lib/toast";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -23,32 +26,58 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsub = realtimeSync.subscribe((event: SyncEvent) => {
       if (event.type === "DISCOUNT_REQUESTED") {
-        const text = `Attention: New discount request submitted for Work Order ${event.jobNumber || ""}`;
-        playNotificationAlert(text, "discount");
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("workman:toast", {
-              detail: {
-                message: `📢 ${event.message || text}`,
-                tone: "info",
-                duration: 7000,
-              },
-            })
-          );
-        }
+        const spoken = `Attention. Request for discount received on Work Order ${event.jobNumber || ""}. Please review and authorize discount.`;
+        urgentAlertManager.addAlert({
+          id: `discount-${event.jobId || event.jobNumber || Date.now()}`,
+          type: "discount",
+          jobId: event.jobId,
+          jobNumber: event.jobNumber,
+          title: "Request for Discount",
+          message: event.message || `Technician requested discount on Work Order #${event.jobNumber || ""}`,
+          spokenText: spoken,
+        });
+
+        toast.notification(
+          "Discount Requested",
+          `💰 ${event.message || spoken}`,
+          {
+            duration: 9000,
+            action: {
+              label: "Review",
+              href: "/accounts",
+            },
+          }
+        );
       } else if (event.type === "INVENTORY_REQUESTED") {
-        const text = `Attention: New warehouse stock request submitted for Work Order ${event.jobNumber || ""}`;
-        playNotificationAlert(text, "stock");
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("workman:toast", {
-              detail: {
-                message: `📦 ${event.message || text}`,
-                tone: "info",
-                duration: 7000,
-              },
-            })
-          );
+        const spoken = `Attention. Request for inventory received on Work Order ${event.jobNumber || ""}. Please issue warehouse materials.`;
+        urgentAlertManager.addAlert({
+          id: `inventory-${event.jobId || event.jobNumber || Date.now()}`,
+          type: "inventory",
+          jobId: event.jobId,
+          jobNumber: event.jobNumber,
+          title: "Request for Inventory",
+          message: event.message || `Technician requested warehouse materials on Work Order #${event.jobNumber || ""}`,
+          spokenText: spoken,
+        });
+
+        toast.notification(
+          "Inventory Requested",
+          `📦 ${event.message || spoken}`,
+          {
+            duration: 9000,
+            action: {
+              label: "Inventory",
+              href: "/inventory",
+            },
+          }
+        );
+      } else if (event.type === "INVENTORY_FULFILLED") {
+        if (event.jobId) {
+          urgentAlertManager.resolveAlertsByJob(event.jobId, "inventory");
+        }
+      } else if (event.type === "DISCOUNT_GRANTED") {
+        if (event.jobId) {
+          urgentAlertManager.resolveAlertsByJob(event.jobId, "discount");
         }
       }
     });
@@ -101,14 +130,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   if (pathname === "/login" || pathname === "/change-password") {
-    return <>{children}</>;
+    return (
+      <>
+        {children}
+        <ToastViewport />
+      </>
+    );
   }
 
-  // If on dedicated mobile route, render mobile layout with RoleProvider
+  // If on dedicated mobile route, render mobile layout with RoleProvider & ToastViewport
   if (pathname?.startsWith("/mobile")) {
     return (
       <RoleProvider>
-        <main className="min-h-screen bg-[#0C0D10]">{children}</main>
+        <main className="min-h-screen bg-[#0C0D10]">
+          {children}
+          <ToastViewport />
+        </main>
       </RoleProvider>
     );
   }
@@ -193,9 +230,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           isOpen={isAddCustomerOpen}
           onClose={() => setIsAddCustomerOpen(false)}
           onCustomerCreated={(c) => {
-            alert(`Customer "${c.name}" added successfully.`);
+            toast.success(`Customer "${c.name}" added successfully.`, { title: "Customer Created" });
           }}
         />
+        <UrgentAlertBanner />
         <ToastViewport />
       </div>
     </RoleProvider>

@@ -11,7 +11,7 @@ interface ReassignTechDrawerProps {
   onClose: () => void;
   job: any;
   technicians: any[];
-  onAssigned?: () => void;
+  onAssigned?: (successor?: any) => void;
 }
 
 export default function ReassignTechDrawer({
@@ -28,9 +28,9 @@ export default function ReassignTechDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isAlreadyAssigned = Boolean(job?.assignedTechnicianId || job?.assignedTechnician);
-  // Mid-job (Accepted/InProgress/Paused) → reassign (successor job). Pre-start → direct assign.
-  const isMidJob = isAlreadyAssigned && isReassignableStatus(job?.status);
-  const canMultiAssign = !isMidJob && isPreStartStatus(job?.status);
+  const isChangingLeadTechnician =
+    isAlreadyAssigned && Boolean(selectedTechId) && selectedTechId !== job?.assignedTechnicianId;
+  const canMultiAssign = true;
   const changeAllowed = job ? canChangeTechnician(job) : false;
 
   useEffect(() => {
@@ -68,27 +68,22 @@ export default function ReassignTechDrawer({
       setIsSubmitting(true);
 
       let body: Record<string, unknown>;
-      if (isMidJob && selectedTechId !== job.assignedTechnicianId) {
-        // Preserve history: create successor job
+      if (isChangingLeadTechnician) {
+        // When technician changes: create new job with the new technician and end the old job with intact history
         body = {
           action: "reassign",
           technicianId: selectedTechId,
           actor: "Zeeshan Ahmed (Dispatcher)",
           copyItems: true,
           notes: notes || undefined,
+          assistantTechnicianIds: assistantIds.filter((id) => id !== selectedTechId),
         };
-      } else if (canMultiAssign && (assistantIds.length > 0 || true)) {
+      } else {
         const technicianIds = [selectedTechId, ...assistantIds.filter((id) => id !== selectedTechId)];
         body = {
           action: "assign_technicians",
           technicianIds,
           primaryTechnicianId: selectedTechId,
-          actor: "Zeeshan Ahmed (Dispatcher)",
-        };
-      } else {
-        body = {
-          action: "assign",
-          technicianId: selectedTechId,
           actor: "Zeeshan Ahmed (Dispatcher)",
         };
       }
@@ -124,7 +119,7 @@ export default function ReassignTechDrawer({
         }
       );
 
-      onAssigned?.();
+      onAssigned?.(successor);
       onClose();
     } catch (e: any) {
       alert(e.message);
@@ -135,11 +130,9 @@ export default function ReassignTechDrawer({
 
   if (!job) return null;
 
-  const title = isMidJob
-    ? "Reassign Technician (new job)"
-    : isAlreadyAssigned
-      ? "Reassign / Update Technicians"
-      : "Assign Technician(s) to Job";
+  const title = isChangingLeadTechnician || isAlreadyAssigned
+    ? "Reassign Technician (Creates New Job)"
+    : "Assign Technician(s) to Job";
 
   return (
     <SideDrawer
@@ -166,27 +159,25 @@ export default function ReassignTechDrawer({
             <Check className="w-3.5 h-3.5" />
             {isSubmitting
               ? "Saving..."
-              : isMidJob
-                ? "Create Successor Job"
-                : isAlreadyAssigned && selectedTechId !== job.assignedTechnicianId
-                  ? "Confirm Reassignment"
+              : isChangingLeadTechnician
+                ? "Create Successor Job with Technician"
+                : isAlreadyAssigned
+                  ? "Update Assignments"
                   : "Assign Technician(s)"}
           </button>
         </>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {isMidJob && (
+        {isAlreadyAssigned && (
           <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-            This job is already in progress. Reassignment will <strong>create a new linked job</strong> for
-            the new technician, mark this job as <strong>TechnicianReassigned</strong>, and preserve all
-            historical data (items, expenses, status history).
+            This job already has an assigned technician. Changing the lead technician will <strong>create a new linked work order</strong> for the new technician, mark work order <strong>#{job.jobNumber}</strong> as <strong>TechnicianReassigned</strong> (ended), and keep all previous technician logs and history intact.
           </div>
         )}
 
         <div>
           <label className="font-semibold text-[#1A1D1F] block mb-1.5">
-            {isMidJob ? "New Lead Technician *" : "Lead Field Technician *"}
+            {isAlreadyAssigned ? "Lead Field Technician *" : "Lead Field Technician *"}
           </label>
           <p className="text-[11px] text-[#71717A] mb-3">
             {canMultiAssign
@@ -195,13 +186,13 @@ export default function ReassignTechDrawer({
           </p>
 
           <div className="relative mb-2.5">
-            <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Search technicians by name, phone, or status..."
               value={techSearch}
               onChange={(e) => setTechSearch(e.target.value)}
-              className="w-full bg-[#F4F4F5] pl-8 pr-3 py-1.5 rounded-lg text-xs border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
+              className="w-full bg-[#F4F4F5] pl-9 pr-3 py-1.5 rounded-lg text-xs border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none"
             />
           </div>
 
@@ -333,7 +324,7 @@ export default function ReassignTechDrawer({
           </div>
         )}
 
-        {isMidJob && (
+        {(isChangingLeadTechnician || isAlreadyAssigned) && (
           <div>
             <label className="font-semibold text-[#1A1D1F] block mb-1.5">Reassignment note</label>
             <textarea

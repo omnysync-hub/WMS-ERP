@@ -356,7 +356,7 @@ export default function UsersAndRolesSettingsPage() {
           <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-[240px]">
-                <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
+                <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search user name, username, email..."

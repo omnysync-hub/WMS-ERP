@@ -116,10 +116,10 @@ export default function AccountingSettingsPage() {
               Switch to Haris Qureshi (Admin)
             </button>
             <Link
-              href="/dashboards"
+              href="/jobs"
               className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-semibold transition"
             >
-              Return to Dashboards Hub
+              Return to Work Orders
             </Link>
           </div>
         </div>

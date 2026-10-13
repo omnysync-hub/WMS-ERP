@@ -24,6 +24,7 @@ import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
+import toast from "@/lib/toast";
 
 interface ProcurementApprovalsTabProps {
   prs: any[];
@@ -79,7 +80,10 @@ export default function ProcurementApprovalsTab({
   const totalPendingCount = pendingPrs.length + pendingPos.length + pendingBills.length;
 
   const handleApprovePr = async (id: string) => {
-    if (!canApprovePr) { alert("Missing permission: procurement.pr.approve"); return; }
+    if (!canApprovePr) {
+      toast.warning("Missing permission: procurement.pr.approve", { title: "Permission Denied" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -93,19 +97,21 @@ export default function ProcurementApprovalsTab({
         }),
       });
       if (!res.ok) throw new Error("Failed to approve PR");
-      setActionSuccess(`Purchase Requisition approved successfully!`);
-      setTimeout(() => setActionSuccess(null), 3000);
+      toast.success("Purchase Requisition approved successfully!", { title: "PR Approved" });
       setInspectItem(null);
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to approve PR", { title: "Approval Failed" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleApprovePo = async (id: string) => {
-    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
+    if (!canApprovePo) {
+      toast.warning("Missing permission: procurement.po.approve", { title: "Permission Denied" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -119,19 +125,21 @@ export default function ProcurementApprovalsTab({
         }),
       });
       if (!res.ok) throw new Error("Failed to approve PO");
-      setActionSuccess(`Purchase Order approved! Ready to dispatch to vendor.`);
-      setTimeout(() => setActionSuccess(null), 3000);
+      toast.success("Purchase Order approved! Ready to dispatch to vendor.", { title: "PO Approved" });
       setInspectItem(null);
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to approve PO", { title: "Approval Failed" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleApproveBill = async (invoiceId: string) => {
-    if (!canApproveInvoice) { alert("Missing permission: procurement.invoice.approve"); return; }
+    if (!canApproveInvoice) {
+      toast.warning("Missing permission: procurement.invoice.approve", { title: "Permission Denied" });
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -145,12 +153,11 @@ export default function ProcurementApprovalsTab({
         }),
       });
       if (!res.ok) throw new Error("Failed to approve supplier bill");
-      setActionSuccess(`Supplier Bill approved & posted to Accounts Payable ledger!`);
-      setTimeout(() => setActionSuccess(null), 3500);
+      toast.success("Supplier Bill approved & posted to Accounts Payable ledger!", { title: "Bill Approved" });
       setInspectItem(null);
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to approve bill", { title: "Approval Failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -159,11 +166,11 @@ export default function ProcurementApprovalsTab({
   const handleConfirmRejection = async () => {
     if (!rejectItem) return;
     if (rejectItem.type === "pr" && !canApprovePr) {
-      alert("Missing permission: procurement.pr.approve");
+      toast.warning("Missing permission: procurement.pr.approve", { title: "Permission Denied" });
       return;
     }
     if (rejectItem.type === "po" && !canApprovePo) {
-      alert("Missing permission: procurement.po.approve");
+      toast.warning("Missing permission: procurement.po.approve", { title: "Permission Denied" });
       return;
     }
     setIsSubmitting(true);
@@ -183,7 +190,7 @@ export default function ProcurementApprovalsTab({
             reason: rejectReason,
           }),
         });
-        setActionSuccess(`PR ${rejectItem.refNumber} rejected and returned to requester.`);
+        toast.success(`PR ${rejectItem.refNumber} rejected and returned to requester.`, { title: "PR Rejected" });
       } else if (rejectItem.type === "po") {
         await fetch("/api/procurement", {
           method: "POST",
@@ -199,15 +206,14 @@ export default function ProcurementApprovalsTab({
             reason: rejectReason,
           }),
         });
-        setActionSuccess(`Purchase Order ${rejectItem.refNumber} rejected.`);
+        toast.success(`Purchase Order ${rejectItem.refNumber} rejected.`, { title: "PO Rejected" });
       }
-      setTimeout(() => setActionSuccess(null), 3500);
       setRejectItem(null);
       setInspectItem(null);
       setRejectReason("");
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message || "Failed to process rejection", { title: "Action Failed" });
     } finally {
       setIsSubmitting(false);
     }
@@ -215,13 +221,6 @@ export default function ProcurementApprovalsTab({
 
   return (
     <div className="space-y-5">
-      {/* Toast */}
-      {actionSuccess && (
-        <div className="fixed top-5 right-5 z-50 bg-[#0D7A5F] text-white px-4 py-2.5 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 animate-in slide-in-from-top-2">
-          <CheckCircle2 className="w-4 h-4" />
-          {actionSuccess}
-        </div>
-      )}
 
       {/* Filter Tabs & Search */}
       <div className="bg-white border border-[#EDEDED] p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
@@ -273,13 +272,13 @@ export default function ProcurementApprovalsTab({
         </div>
 
         <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#71717A]" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
           <input
             type="text"
             placeholder="Search pending approvals..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1 bg-[#F8FAFC] border border-[#D4D4D8] rounded-lg text-xs text-[#18181B] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
+            className="w-full pl-9 pr-3 py-1 bg-[#F8FAFC] border border-[#D4D4D8] rounded-lg text-xs text-[#18181B] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
           />
         </div>
       </div>

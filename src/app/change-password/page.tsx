@@ -23,7 +23,16 @@ export default function ChangePasswordPage() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not change your password.");
-      window.location.assign("/dashboards");
+      const userRole = (data.user?.role || "").toLowerCase();
+      const defaultLanding =
+        userRole === "admin"
+          ? "/dashboards"
+          : userRole === "hr"
+          ? "/hrm"
+          : userRole === "storekeeper"
+          ? "/inventory"
+          : "/jobs";
+      window.location.assign(defaultLanding);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change your password.");
       setSaving(false);

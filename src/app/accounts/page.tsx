@@ -1134,13 +1134,13 @@ export default function AccountsPage() {
             </div>
 
             <div className="relative w-64">
-              <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search party by name or phone..."
                 value={partySearch}
                 onChange={(e) => setPartySearch(e.target.value)}
-                className="w-full bg-white pl-8 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none"
+                className="w-full bg-white pl-9 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none"
               />
             </div>
           </div>
