@@ -7,6 +7,8 @@ import { Plus, Trash2, Wrench, Check, AlertCircle } from "lucide-react";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { formatCurrency } from "@/lib/utils";
 
+import { INVOICE_ITEM_CATALOG } from "@/lib/constants/invoiceItemCatalog";
+
 interface ServiceEntry {
   id: string;
   catalogServiceId: string;
@@ -51,6 +53,14 @@ export default function AddServiceDrawer({
     setErrorMsg("");
     setServiceRows([createEmptyRow()]);
 
+    const staticCatalog = INVOICE_ITEM_CATALOG.map((c) => ({
+      id: c.id,
+      name: c.description,
+      sku: c.id,
+      unitPrice: c.defaultPrice || 0,
+      category: c.category,
+    }));
+
     fetch("/api/inventory")
       .then((res) => res.json())
       .then((data) => {
@@ -61,11 +71,14 @@ export default function AddServiceDrawer({
               (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
               ["service", "visit", "job", "hr", "hour"].includes((p.unit || "").toLowerCase())
           );
-          setCatalogServices(services);
+          setCatalogServices([...staticCatalog, ...services]);
+        } else {
+          setCatalogServices(staticCatalog);
         }
       })
       .catch((err) => {
         console.error("Failed to load catalog services", err);
+        setCatalogServices(staticCatalog);
       });
   }, [isOpen]);
 

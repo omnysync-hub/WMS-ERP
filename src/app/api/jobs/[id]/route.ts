@@ -498,7 +498,9 @@ export async function PATCH(
         result = await JobsService.generateCustomInvoice(
           params.id,
           payload.invoiceNumber,
-          actor
+          actor,
+          payload.items,
+          payload.discountAmount
         );
         break;
 

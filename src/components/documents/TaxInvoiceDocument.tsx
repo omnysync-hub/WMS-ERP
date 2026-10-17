@@ -11,12 +11,16 @@ import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 interface TaxInvoiceDocumentProps {
   job: any;
   invoiceNumber?: string;
+  customItems?: Array<{ description: string; quantity: number; unitRate: number; unit?: string }>;
+  customDiscount?: number;
   onClose?: () => void;
 }
 
 export default function TaxInvoiceDocument({
   job,
   invoiceNumber,
+  customItems,
+  customDiscount,
   onClose,
 }: TaxInvoiceDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null);
@@ -28,13 +32,22 @@ export default function TaxInvoiceDocument({
     job.invoice?.invoiceNumber ||
     `INV-${job.jobNumber || "DRAFT"}`;
 
-  // Calculate billable items and total
-  const billableItems = (job.items || []).filter(
-    (it: any) =>
-      (it.quantityActual !== null && it.quantityActual !== undefined
-        ? it.quantityActual
-        : it.quantityPlanned) > 0
-  );
+  // Calculate billable items and total (support manual lines if provided)
+  const billableItems = customItems && customItems.length > 0
+    ? customItems.map((it, idx) => ({
+        id: `custom-${idx}`,
+        description: it.description,
+        quantityActual: it.quantity,
+        quantityPlanned: it.quantity,
+        unitRate: it.unitRate,
+        unit: it.unit || "unit",
+      }))
+    : (job.items || []).filter(
+        (it: any) =>
+          (it.quantityActual !== null && it.quantityActual !== undefined
+            ? it.quantityActual
+            : it.quantityPlanned) > 0
+      );
 
   const calculatedSubtotal = billableItems.reduce((sum: number, it: any) => {
     const qty =
@@ -45,7 +58,7 @@ export default function TaxInvoiceDocument({
   }, 0);
 
   const subtotal = calculatedSubtotal > 0 ? calculatedSubtotal : (job.invoice?.amount || 0);
-  const discount = job.discountAmount || 0;
+  const discount = customDiscount !== undefined ? customDiscount : (job.discountAmount || 0);
   const netPayable = Math.max(0, subtotal - discount);
 
   const invoiceDate = job.invoice?.createdAt

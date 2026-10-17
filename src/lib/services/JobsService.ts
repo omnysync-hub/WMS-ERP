@@ -2179,7 +2179,9 @@ export class JobsService {
   static async generateCustomInvoice(
     jobId: string,
     customInvoiceNumber: string,
-    createdBy: string
+    createdBy: string,
+    manualItems?: Array<{ description: string; quantity: number; unitRate: number }>,
+    discountAmount?: number
   ) {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
@@ -2187,19 +2189,47 @@ export class JobsService {
     });
     if (!job) throw new Error("Job not found");
 
+    // If manual items are provided by accounting, update JobItem records
+    if (Array.isArray(manualItems) && manualItems.length > 0) {
+      await prisma.jobItem.deleteMany({ where: { jobId: job.id } });
+      await prisma.jobItem.createMany({
+        data: manualItems.map((it) => ({
+          jobId: job.id,
+          description: it.description?.trim() || "Service Item",
+          quantityPlanned: Number(it.quantity) || 1,
+          quantityActual: Number(it.quantity) || 1,
+          unitRate: Number(it.unitRate) || 0,
+        })),
+      });
+    }
+
+    if (discountAmount !== undefined && discountAmount !== null) {
+      await prisma.job.update({
+        where: { id: job.id },
+        data: { discountAmount: Math.max(0, Number(discountAmount) || 0) },
+      });
+    }
+
+    // Reload job with fresh items
+    const freshJob = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { customer: true, items: true },
+    });
+    if (!freshJob) throw new Error("Job not found");
+
     // Compute billable total
     let total = 0;
-    for (const it of job.items) {
+    for (const it of freshJob.items) {
       const q = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
       total += q * it.unitRate;
     }
-    const net = Math.max(0, total - (job.discountAmount || 0));
+    const net = Math.max(0, total - (freshJob.discountAmount || 0));
 
-    const invoiceNum = customInvoiceNumber?.trim() || `INV-${job.jobNumber}`;
+    const invoiceNum = customInvoiceNumber?.trim() || `INV-${freshJob.jobNumber}`;
 
     const existing = await prisma.invoice.findUnique({ where: { invoiceNumber: invoiceNum } });
     if (existing) {
-      if (existing.jobId && existing.jobId !== job.id) {
+      if (existing.jobId && existing.jobId !== freshJob.id) {
         throw new Error(
           `Invoice '${invoiceNum}' is already assigned to another Job. Duplicate invoice numbers across different jobs are not permitted.`
         );
@@ -2211,9 +2241,9 @@ export class JobsService {
         where: { invoiceNumber: invoiceNum },
         data: {
           amount: net,
-          jobId: job.id,
-          customerId: job.customerId,
-          customerName: job.customer.name,
+          jobId: freshJob.id,
+          customerId: freshJob.customerId,
+          customerName: freshJob.customer.name,
         },
       });
       return updated;
@@ -2222,18 +2252,19 @@ export class JobsService {
     const created = await prisma.invoice.create({
       data: {
         invoiceNumber: invoiceNum,
-        jobId: job.id,
-        customerId: job.customerId,
-        customerName: job.customer.name,
+        jobId: freshJob.id,
+        customerId: freshJob.customerId,
+        customerName: freshJob.customer.name,
         amount: net,
         status: "unpaid",
       },
     });
 
-    await this.logStatusChange(jobId, job.status, job.status, createdBy, {
+    await this.logStatusChange(jobId, freshJob.status, freshJob.status, createdBy, {
       action: "custom_invoice_generated",
       invoiceNumber: invoiceNum,
       amount: net,
+      itemsCount: freshJob.items.length,
     });
 
     return created;
