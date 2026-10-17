@@ -1205,13 +1205,9 @@ export default function JobDetailPage() {
                   <td className="py-2.5 px-4 font-medium text-[#18181B]">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-zinc-900">{cleanTitle}</span>
-                      {isService ? (
+                      {isService && (
                         <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
                           Service Task
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">
-                          Warehouse Stock
                         </span>
                       )}
                       {extractedBrand && !isService && (
