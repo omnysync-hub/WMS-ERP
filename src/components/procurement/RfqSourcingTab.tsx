@@ -284,7 +284,7 @@ export default function RfqSourcingTab({
           deliveryDays: Number(quoteDeliveryDays),
           paymentTerms: quotePaymentTerms,
           quotationReference: quoteRef,
-          qualityScore: Number(quoteQualityScore),
+          qualityScore: quoteQualityScore ? Number(quoteQualityScore) : undefined,
           remarks: quoteRemarks,
           items: quoteItems,
         }),
@@ -888,7 +888,7 @@ export default function RfqSourcingTab({
         {quotingVendor && selectedRfq && (
           <form id="submit-quote-form" onSubmit={handleSubmitQuote} className="space-y-3.5 pb-8 text-[#18181B]">
             
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Quotation Reference #
@@ -915,9 +915,7 @@ export default function RfqSourcingTab({
                     className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Payment Terms Offered
@@ -932,20 +930,6 @@ export default function RfqSourcingTab({
                       { value: "Advance", label: "100% Advance" },
                       { value: "Immediate", label: "Immediate Cash" },
                     ]}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Vendor Quality Score (1-100)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={quoteQualityScore}
-                    onChange={(e) => setQuoteQualityScore(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
                   />
                 </div>
               </div>
