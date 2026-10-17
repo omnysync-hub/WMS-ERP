@@ -23,6 +23,7 @@ import {
   MapPin,
   Briefcase,
   Printer,
+  Edit3,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, formatJobType, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
@@ -90,8 +91,9 @@ export default function RequisitionsTab({
 
   const autoRequisitionerName = activeUser?.name || currentPersona?.name || currentRole;
 
-  // Create PR Modal State
+  // Create / Edit PR Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingPr, setEditingPr] = useState<any | null>(null);
   const [targetType, setTargetType] = useState<"store" | "job" | "site">("store");
   const [selectedStore, setSelectedStore] = useState("Central Warehouse");
   const [customStore, setCustomStore] = useState("");
@@ -214,6 +216,58 @@ export default function RequisitionsTab({
     setItems(updated);
   };
 
+  const handleOpenEditModal = (pr: any) => {
+    setEditingPr(pr);
+    setFormError("");
+    setDepartment(pr.department || "Central Warehouse");
+    setDateRequired(
+      pr.dateRequired
+        ? new Date(pr.dateRequired).toISOString().split("T")[0]
+        : new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0]
+    );
+    setPriority((pr.priority as any) || "Normal");
+    setCostCenter(pr.costCenter || "CC-STORE-01");
+    setBudgetCode(pr.budgetCode || "OPEX-2026-STORE");
+
+    // Clean notes and restore targetType
+    let rawNotes = pr.notes || "";
+    if (rawNotes.includes("[Target: STORE")) {
+      setTargetType("store");
+      const match = rawNotes.match(/\[Target: STORE - ([^\]]+)\]/);
+      if (match) setSelectedStore(match[1]);
+      rawNotes = rawNotes.replace(/\[Target: STORE - [^\]]+\]\s*/, "");
+    } else if (rawNotes.includes("[Target: JOB") || pr.projectCode) {
+      setTargetType("job");
+      setSelectedJobNumber(pr.projectCode || "");
+      rawNotes = rawNotes.replace(/\[Target: JOB - [^\]]+\]\s*/, "");
+    } else if (rawNotes.includes("[Target: SITE")) {
+      setTargetType("site");
+      setSelectedSite(pr.site || "");
+      rawNotes = rawNotes.replace(/\[Target: SITE - [^\]]+\]\s*/, "");
+    } else {
+      setTargetType("store");
+      setSelectedStore(pr.site || "Central Warehouse");
+    }
+    setNotes(rawNotes);
+
+    if (pr.items && pr.items.length > 0) {
+      setItems(
+        pr.items.map((it: any) => ({
+          productId: it.productId || "",
+          itemCode: it.itemCode || (it.product?.sku || ""),
+          description: it.description || (it.product?.name || ""),
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit || (it.product?.unit || "unit"),
+        }))
+      );
+    } else {
+      setItems([{ productId: "", itemCode: "", description: "", quantity: 1, unit: "unit" }]);
+    }
+
+    setSelectedPr(null);
+    setShowCreateModal(true);
+  };
+
   const handleCreatePr = async (e: React.FormEvent) => {
     if (!canCreatePr) { alert("Missing permission: procurement.pr.create"); return; }
     e.preventDefault();
@@ -234,6 +288,41 @@ export default function RequisitionsTab({
         resolvedTargetName = selectedJobNumber === "CUSTOM" ? customJobNumber : selectedJobNumber;
       } else {
         resolvedTargetName = selectedSite === "CUSTOM" ? customSite : selectedSite;
+      }
+
+      if (editingPr) {
+        const res = await fetch("/api/procurement", {
+          method: "POST",
+          headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+          body: JSON.stringify({
+            action: "update_pr",
+            id: editingPr.id,
+            targetType,
+            targetName: resolvedTargetName || undefined,
+            department: department || "Central Warehouse",
+            site: resolvedTargetName || "General Store",
+            dateRequired,
+            priority,
+            costCenter,
+            projectCode: targetType === "job" ? resolvedTargetName : undefined,
+            budgetCode,
+            notes,
+            items,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to update PR");
+        }
+
+        setShowCreateModal(false);
+        setEditingPr(null);
+        setItems([{ productId: "", itemCode: "", description: "", quantity: 10, unit: "pcs" }]);
+        setNotes("");
+        toast.success(`Draft Requisition ${editingPr.prNumber} updated successfully!`);
+        onRefresh();
+        return;
       }
 
       const res = await fetch("/api/procurement", {
@@ -266,6 +355,7 @@ export default function RequisitionsTab({
       // Reset form
       setItems([{ productId: "", itemCode: "", description: "", quantity: 10, unit: "pcs" }]);
       setNotes("");
+      toast.success("Purchase Requisition created successfully!");
       onRefresh();
     } catch (err: any) {
       setFormError(err.message || "Failed to submit PR");
@@ -707,6 +797,16 @@ export default function RequisitionsTab({
 
                       <td className="py-2 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1 justify-end">
+                          {pr.status === "draft" && canCreatePr && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(pr)}
+                              className="p-1.5 rounded bg-white hover:bg-[#F4F4F5] text-slate-700 hover:text-[#18181B] border border-[#D4D4D8] transition shadow-2xs"
+                              title="Edit Draft Requisition"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+                            </button>
+                          )}
                           {pr.status === "draft" && canSubmitPr && (
                             <button
                               type="button"
@@ -768,14 +868,29 @@ export default function RequisitionsTab({
       {/* ========================================================================= */}
       <SideDrawer
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false);
+          setEditingPr(null);
+        }}
         title={
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-[#0D7A5F]" />
-            <span className="font-bold text-[#18181B] text-sm">Raise Purchase Requisition (PR)</span>
+            {editingPr ? (
+              <Edit3 className="w-4 h-4 text-[#0D7A5F]" />
+            ) : (
+              <FileText className="w-4 h-4 text-[#0D7A5F]" />
+            )}
+            <span className="font-bold text-[#18181B] text-sm">
+              {editingPr
+                ? `Edit Draft Purchase Requisition (${editingPr.prNumber})`
+                : "Raise Purchase Requisition (PR)"}
+            </span>
           </div>
         }
-        subtitle="Material demand specification for Site, Store, or Job Order (Pricing is assigned at PO stage)"
+        subtitle={
+          editingPr
+            ? "Update material demand specifications, requested quantities, or delivery schedule"
+            : "Material demand specification for Site, Store, or Job Order (Pricing is assigned at PO stage)"
+        }
         width="max-w-3xl"
         footer={
           <div className="flex items-center justify-between w-full">
@@ -785,7 +900,10 @@ export default function RequisitionsTab({
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingPr(null);
+                }}
                 className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5] transition"
               >
                 Cancel
@@ -796,7 +914,13 @@ export default function RequisitionsTab({
                 disabled={isSubmitting}
                 className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
               >
-                {isSubmitting ? "Submitting PR..." : "Save Purchase Requisition"}
+                {isSubmitting
+                  ? editingPr
+                    ? "Updating PR..."
+                    : "Submitting PR..."
+                  : editingPr
+                  ? "Update Draft PR"
+                  : "Save Purchase Requisition"}
               </button>
             </div>
           </div>
@@ -1388,6 +1512,15 @@ export default function RequisitionsTab({
               >
                 <Printer className="w-3.5 h-3.5" /> Print / PDF
               </button>
+              {selectedPr.status === "draft" && canCreatePr && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditModal(selectedPr)}
+                  className="h-8 px-3 rounded-lg border border-[#EDEDED] text-xs font-semibold text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1.5 transition shadow-2xs"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-600" /> Edit Draft
+                </button>
+              )}
               {selectedPr.status === "draft" && canSubmitPr && (
                 <button
                   type="button"

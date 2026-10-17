@@ -34,6 +34,7 @@ const ACTION_PERMISSION: Record<string, string> = {
   create_vendor: "procurement.vendor.manage",
   update_vendor: "procurement.vendor.manage",
   create_pr: "procurement.pr.create",
+  update_pr: "procurement.pr.create",
   submit_pr: "procurement.pr.submit",
   submitted_pr: "procurement.pr.submit",
   approve_pr: "procurement.pr.approve",
@@ -282,6 +283,11 @@ export async function POST(req: NextRequest) {
       case "create_pr": {
         const pr = await ProcurementService.createPurchaseRequisition(payload);
         return NextResponse.json(pr, { status: 201 });
+      }
+
+      case "update_pr": {
+        const pr = await ProcurementService.updatePurchaseRequisition(payload.id, payload);
+        return NextResponse.json(pr);
       }
 
       case "submit_pr":

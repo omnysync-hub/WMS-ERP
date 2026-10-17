@@ -382,6 +382,104 @@ export class ProcurementService {
     });
   }
 
+  static async updatePurchaseRequisition(
+    id: string,
+    data: Partial<CreatePrInput>
+  ) {
+    const existingPr = await prisma.purchaseRequisition.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    if (!existingPr) throw new Error("Purchase requisition not found");
+
+    if (existingPr.status !== "draft" && existingPr.status !== "rejected") {
+      throw new Error(
+        `Cannot edit PR in '${existingPr.status}' status. Only Draft or Rejected PRs can be edited.`
+      );
+    }
+
+    const updateData: any = {};
+    if (data.department !== undefined) updateData.department = data.department;
+    if (data.site !== undefined) updateData.site = data.site || data.targetName;
+    if (data.dateRequired !== undefined) {
+      updateData.dateRequired = data.dateRequired ? new Date(data.dateRequired) : null;
+    }
+    if (data.costCenter !== undefined) updateData.costCenter = data.costCenter;
+    if (data.projectCode !== undefined) updateData.projectCode = data.projectCode;
+    if (data.budgetCode !== undefined) updateData.budgetCode = data.budgetCode;
+    if (data.priority !== undefined) updateData.priority = data.priority;
+
+    let finalNotes = data.notes;
+    if (finalNotes !== undefined) {
+      const techInfo = data.technicianName ? `[Tech: ${data.technicianName}]` : "";
+      const supInfo = data.supervisorName ? `[Supervisor: ${data.supervisorName}]` : "";
+      const targetInfo = data.targetType
+        ? `[Target: ${data.targetType.toUpperCase()}${data.targetName ? ` - ${data.targetName}` : ""}]`
+        : "";
+      const prefix = [techInfo, supInfo, targetInfo].filter(Boolean).join(" ");
+      if (prefix && (!finalNotes || !finalNotes.includes(prefix))) {
+        finalNotes = finalNotes ? `${prefix} ${finalNotes}` : prefix;
+      }
+      updateData.notes = finalNotes || null;
+    }
+
+    // If items are provided, replace items atomically
+    if (data.items && Array.isArray(data.items)) {
+      const itemsData: any[] = [];
+      for (const it of data.items) {
+        let desc = it.description;
+        let unit = it.unit || "unit";
+        let price = it.estimatedPrice ?? 0;
+        let code = it.itemCode;
+
+        if (it.productId) {
+          const prod = await prisma.product.findUnique({ where: { id: it.productId } });
+          if (prod) {
+            desc = desc || prod.name;
+            unit = unit || prod.unit;
+            price = price || prod.costPrice || 0;
+            code = code || prod.sku;
+          }
+        }
+
+        itemsData.push({
+          productId: it.productId || null,
+          itemCode: code || null,
+          description: desc || "Procurement Item",
+          quantity: Number(it.quantity) || 1,
+          unit,
+          estimatedPrice: price,
+          convertedQuantity: 0,
+          boqItemId: it.boqItemId || null,
+        });
+      }
+
+      return await prisma.$transaction(async (tx) => {
+        await tx.purchaseRequisitionItem.deleteMany({ where: { prId: id } });
+        return await tx.purchaseRequisition.update({
+          where: { id },
+          data: {
+            ...updateData,
+            items: {
+              create: itemsData,
+            },
+          },
+          include: {
+            items: { include: { product: true } },
+          },
+        });
+      });
+    }
+
+    return await prisma.purchaseRequisition.update({
+      where: { id },
+      data: updateData,
+      include: {
+        items: { include: { product: true } },
+      },
+    });
+  }
+
   static async updateRequisitionStatus(
     id: string,
     status: "submitted" | "approved" | "rejected",
