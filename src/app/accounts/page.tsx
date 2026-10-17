@@ -4538,7 +4538,7 @@ export default function AccountsPage() {
                 <input
                   type="number"
                   min="1"
-                  step="50"
+                  step="1"
                   placeholder="e.g. 15000"
                   value={cashFormAmount}
                   onChange={(e) => setCashFormAmount(e.target.value)}

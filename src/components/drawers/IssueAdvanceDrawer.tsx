@@ -169,8 +169,8 @@ export default function IssueAdvanceDrawer({
           <input
             type="number"
             required
-            min="50"
-            step="10"
+            min="1"
+            step="1"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="e.g. 1000"

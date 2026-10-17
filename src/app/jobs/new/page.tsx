@@ -1222,8 +1222,8 @@ export default function NewJobIntakePage() {
                             <input
                               type="number"
                               min="0"
-                              step="50"
-                              placeholder="0.00"
+                              step="1"
+                              placeholder="0"
                               value={eq.unitPrice === 0 ? "" : eq.unitPrice}
                               onChange={(e) =>
                                 handleUpdateEquipmentLine(eq.id, "unitPrice", e.target.value)
@@ -1746,7 +1746,7 @@ export default function NewJobIntakePage() {
                         <input
                           type="number"
                           min="0"
-                          step="100"
+                          step="1"
                           value={line.unitRate}
                           onChange={(e) =>
                             handleUpdateProductLine(line.id, "unitRate", e.target.value)
@@ -1904,7 +1904,7 @@ export default function NewJobIntakePage() {
                         <input
                           type="number"
                           min="0"
-                          step="100"
+                          step="1"
                           value={srv.unitRate}
                           onChange={(e) =>
                             handleUpdateServiceLine(srv.id, "unitRate", e.target.value)
