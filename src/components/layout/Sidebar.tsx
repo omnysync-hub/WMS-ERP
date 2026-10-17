@@ -478,12 +478,6 @@ export default function Sidebar({
       roles: ["admin", "auditor"],
       perm: "settings.manage_users",
     },
-    {
-      label: "Care-Of Settings",
-      href: "/jobs/care-of",
-      icon: Building,
-      roles: ["admin", "dispatcher", "call_center", "accountant", "auditor"],
-    },
   ];
 
   const settingsSubItems = allSettingsSubItems.filter((item) => {
