@@ -20,6 +20,8 @@ import {
   ArrowDownLeft,
   DollarSign,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -225,6 +227,62 @@ export default function JobsKpiDashboard({
   // Dropdown popover state for inspecting jobs inside any specific KPI card
   const [openKpiCardDropdown, setOpenKpiCardDropdown] = React.useState<string | null>(null);
   const [kpiSearchQuery, setKpiSearchQuery] = React.useState<string>("");
+
+  // Section Tab State & Collapse State (with persistent preference)
+  const [activeSection, setActiveSection] = React.useState<"all" | "pipeline" | "financial" | "materials">(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("workman_jobs_kpi_section");
+        if (saved && ["all", "pipeline", "financial", "materials"].includes(saved)) {
+          return saved as any;
+        }
+      } catch (e) {}
+    }
+    return "all";
+  });
+
+  const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        return localStorage.getItem("workman_jobs_kpi_collapsed") === "true";
+      } catch (e) {}
+    }
+    return false;
+  });
+
+  const handleSectionChange = (sec: "all" | "pipeline" | "financial" | "materials") => {
+    setActiveSection(sec);
+    try {
+      localStorage.setItem("workman_jobs_kpi_section", sec);
+    } catch (e) {}
+  };
+
+  const handleCollapseToggle = () => {
+    const next = !isCollapsed;
+    setIsCollapsed(next);
+    try {
+      localStorage.setItem("workman_jobs_kpi_collapsed", String(next));
+    } catch (e) {}
+  };
+
+  // Auto-switch section and ensure uncollapsed if an activeFilter is set
+  React.useEffect(() => {
+    if (!activeFilter) return;
+    if (isCollapsed) setIsCollapsed(false);
+    if (activeSection === "all") return;
+
+    const lifecycleKeys = ["unassigned", "assigned", "accepted", "in_progress", "paused", "completed"];
+    const financialKeys = ["cash_collected", "pending_cash_handover", "partially_cleared_expenses", "receivables", "expenses_cleared", "pending_expenses"];
+    const requestKeys = ["pending_stock", "approved_stock", "pending_discount", "approved_discount"];
+
+    if (lifecycleKeys.includes(activeFilter) && activeSection !== "pipeline") {
+      setActiveSection("pipeline");
+    } else if (financialKeys.includes(activeFilter) && activeSection !== "financial") {
+      setActiveSection("financial");
+    } else if (requestKeys.includes(activeFilter) && activeSection !== "materials") {
+      setActiveSection("materials");
+    }
+  }, [activeFilter]);
 
   // Map each card key to its concrete list of matching jobs
   const getJobsForKpi = (key: string): any[] => {
@@ -519,22 +577,15 @@ export default function JobsKpiDashboard({
         <div
           onClick={() => toggleFilter(card.key)}
           className={cn(
-            "p-3 rounded-xl border text-left transition-all duration-150 flex flex-col justify-between cursor-pointer select-none relative overflow-hidden",
+            "px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border text-left transition-all duration-150 flex items-center justify-between gap-1.5 cursor-pointer select-none relative overflow-hidden",
             card.border,
             isSelected
-              ? "bg-emerald-50/40 border-[#0D7A5F] ring-2 ring-[#0D7A5F] shadow-xs"
+              ? "bg-emerald-50/60 border-[#0D7A5F] ring-1.5 ring-[#0D7A5F] shadow-2xs"
               : "bg-[#FAFAFA] hover:bg-white hover:border-[#D4D4D8] hover:shadow-2xs"
           )}
         >
-          <div className="flex items-center justify-between w-full mb-1">
-            <div className="flex items-center gap-1.5 truncate">
-              <span className="text-[10px] font-semibold text-[#18181B] truncate">
-                {card.label}
-              </span>
-              {card.badgeAlert && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
-              )}
-            </div>
+          {/* Left: Icon + Label & Sublabel */}
+          <div className="flex items-center gap-2 min-w-0 pr-1">
             <div
               className={cn(
                 "w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-transform group-hover:scale-105",
@@ -544,35 +595,47 @@ export default function JobsKpiDashboard({
             >
               <Icon className="w-3.5 h-3.5" />
             </div>
-          </div>
-          <div>
-            <div className="flex items-baseline justify-between">
-              <span className="font-mono text-xl font-bold text-[#18181B]">
-                {card.count}
+            <div className="min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] font-bold text-[#18181B] truncate block leading-tight">
+                  {card.label}
+                </span>
+                {card.badgeAlert && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                )}
+              </div>
+              <span className="text-[9.5px] text-[#71717A] truncate block leading-tight mt-0.5 font-medium">
+                {card.sublabel}
               </span>
-              {card.count > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (isDropdownOpen) {
-                      setOpenKpiCardDropdown(null);
-                      setKpiSearchQuery("");
-                    } else {
-                      setOpenKpiCardDropdown(card.key);
-                      setKpiSearchQuery("");
-                    }
-                  }}
-                  title={`View all ${card.count} jobs in searchable dropdown`}
-                  className="text-[10px] text-[#0D7A5F] hover:bg-emerald-50 px-1.5 py-0.5 rounded font-semibold flex items-center gap-0.5 transition"
-                >
-                  <span>Jobs ▾</span>
-                </button>
-              )}
             </div>
-            <span className="text-[10px] text-[#52525B] font-medium truncate block mt-0.5">
-              {card.sublabel}
+          </div>
+
+          {/* Right: Count & Jobs Dropdown trigger */}
+          <div className="flex flex-col items-end shrink-0 pl-1">
+            <span className="font-mono text-base font-bold text-[#18181B] leading-none">
+              {card.count}
             </span>
+            {card.count > 0 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isDropdownOpen) {
+                    setOpenKpiCardDropdown(null);
+                    setKpiSearchQuery("");
+                  } else {
+                    setOpenKpiCardDropdown(card.key);
+                    setKpiSearchQuery("");
+                  }
+                }}
+                title={`View all ${card.count} jobs in dropdown`}
+                className="text-[9px] text-[#0D7A5F] hover:text-[#0A624C] hover:underline font-bold flex items-center gap-0.5 transition leading-none mt-1"
+              >
+                <span>Jobs ▾</span>
+              </button>
+            ) : (
+              <span className="text-[9px] text-transparent select-none leading-none mt-1">—</span>
+            )}
           </div>
         </div>
 
@@ -696,24 +759,24 @@ export default function JobsKpiDashboard({
     );
   };
 
-  return (
+    return (
     <div
       className={cn(
-        "bg-white rounded-xl border border-[#EDEDED] p-4 sm:p-5 shadow-xs space-y-4",
+        "bg-white rounded-xl border border-[#EDEDED] p-3 sm:p-3.5 shadow-2xs space-y-2.5",
         className
       )}
     >
-      {/* Header with Active Filter Indicator */}
+      {/* Header with Active Filter Indicator, Section Switcher & Collapse Toggle */}
       <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-[#F4F4F5]">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#0D7A5F]">
-            <Activity className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="w-5 h-5 rounded-md bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#0D7A5F]">
+            <Activity className="w-3 h-3" />
           </div>
           <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
             {isDispatcher
               ? "Dispatcher Operations Overview"
               : isAccountant
-              ? "Dispatch Operations & Financial Clearance Overview"
+              ? "Dispatch Operations & Financial Clearance"
               : "Dispatch Operations & Request Overview"}
           </h2>
           <span className="text-[10px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full font-medium">
@@ -727,8 +790,65 @@ export default function JobsKpiDashboard({
           )}
         </div>
 
-        {/* Quick KPI Dropdown Selector */}
-        <div className="flex items-center gap-2">
+        {/* Center / Right: Section Switcher Pills + Filter Dropdown + Collapse Button */}
+        <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
+          {/* Section Filter Pills */}
+          <div className="flex items-center gap-0.5 bg-[#F4F4F5] p-0.5 rounded-lg border border-[#E4E4E7] text-[11px]">
+            <button
+              type="button"
+              onClick={() => handleSectionChange("all")}
+              className={cn(
+                "px-2 py-0.5 rounded font-semibold transition text-xs",
+                activeSection === "all"
+                  ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                  : "text-[#71717A] hover:text-[#18181B]"
+              )}
+            >
+              All ({lifecycleCards.length + (isAccountant && !isDispatcher ? financialCards.length : 0) + (!isDispatcher ? requestCards.length : 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSectionChange("pipeline")}
+              className={cn(
+                "px-2 py-0.5 rounded font-semibold transition text-xs",
+                activeSection === "pipeline"
+                  ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                  : "text-[#71717A] hover:text-[#18181B]"
+              )}
+            >
+              Pipeline ({lifecycleCards.length})
+            </button>
+            {!isDispatcher && isAccountant && (
+              <button
+                type="button"
+                onClick={() => handleSectionChange("financial")}
+                className={cn(
+                  "px-2 py-0.5 rounded font-semibold transition text-xs",
+                  activeSection === "financial"
+                    ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                    : "text-[#71717A] hover:text-[#18181B]"
+                )}
+              >
+                Cash & Clearance ({financialCards.length})
+              </button>
+            )}
+            {!isDispatcher && (
+              <button
+                type="button"
+                onClick={() => handleSectionChange("materials")}
+                className={cn(
+                  "px-2 py-0.5 rounded font-semibold transition text-xs",
+                  activeSection === "materials"
+                    ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                    : "text-[#71717A] hover:text-[#18181B]"
+                )}
+              >
+                Materials & Discounts ({requestCards.length})
+              </button>
+            )}
+          </div>
+
+          {/* Quick KPI Dropdown Selector */}
           <div className="relative">
             <select
               aria-label="Filter jobs by KPI"
@@ -765,28 +885,12 @@ export default function JobsKpiDashboard({
             </select>
           </div>
 
+          {/* Active Filter Badge */}
           {activeFilter && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[#0D7A5F] font-semibold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5">
-                <span>
-                  Active:{" "}
-                  <strong>
-                    {activeFilter === "expenses_cleared"
-                      ? "EXPENSES CLEARED"
-                      : activeFilter === "pending_expenses"
-                      ? "EXPENSES PENDING CLEARANCE"
-                      : activeFilter === "partially_cleared_expenses"
-                      ? "PARTIALLY CLEARED EXPENSES"
-                      : activeFilter === "cash_collected"
-                      ? "PAYMENTS COLLECTED / IN SAFE"
-                      : activeFilter === "pending_cash_handover"
-                      ? "CASH PENDING HANDOVER"
-                      : activeFilter === "receivables"
-                      ? "RECEIVABLES (MAHINAY BAAD / CREDIT)"
-                      : activeFilter === "paused"
-                      ? "PARTIALLY COMPLETED"
-                      : activeFilter.replace(/_/g, " ").toUpperCase()}
-                  </strong>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-[#0D7A5F] font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
+                <span className="truncate max-w-[140px]">
+                  {activeFilter.replace(/_/g, " ").toUpperCase()}
                 </span>
                 <button
                   type="button"
@@ -794,58 +898,84 @@ export default function JobsKpiDashboard({
                   className="hover:text-emerald-900 transition p-0.5 rounded"
                   title="Clear filter"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3 h-3" />
                 </button>
               </span>
-              <button
-                type="button"
-                onClick={() => onFilterSelect(null)}
-                className="text-[11px] text-[#71717A] hover:text-[#18181B] underline font-medium"
-              >
-                Reset
-              </button>
             </div>
           )}
+
+          {/* Collapse / Expand Toggle */}
+          <button
+            type="button"
+            onClick={handleCollapseToggle}
+            className="h-7 px-2 rounded-lg bg-[#F4F4F5] hover:bg-[#E4E4E7] text-xs font-semibold text-[#52525B] inline-flex items-center gap-1 transition"
+            title={isCollapsed ? "Expand KPI overview" : "Collapse KPI overview"}
+          >
+            {isCollapsed ? (
+              <>
+                <ChevronDown className="w-3.5 h-3.5 text-[#71717A]" />
+                <span className="hidden sm:inline">Show</span>
+              </>
+            ) : (
+              <>
+                <ChevronUp className="w-3.5 h-3.5 text-[#71717A]" />
+                <span className="hidden sm:inline">Hide</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Row 1: Job Lifecycle Pipeline (6 cards) — VISIBLE TO ALL ROLES INCLUDING DISPATCHER */}
-      <div className="space-y-1.5">
-        <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
-          Work Order Lifecycle Pipeline
-        </span>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-          {lifecycleCards.map((c, idx) => renderKpiCard(c, idx))}
-        </div>
-      </div>
+      {/* KPI Cards Content (Collapsible) */}
+      {!isCollapsed && (
+        <div className="space-y-2 pt-0.5">
+          {/* Row 1: Job Lifecycle Pipeline (6 cards) — VISIBLE TO ALL ROLES INCLUDING DISPATCHER */}
+          {(activeSection === "all" || activeSection === "pipeline") && (
+            <div className="space-y-1">
+              {activeSection === "all" && (
+                <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
+                  Work Order Lifecycle Pipeline
+                </span>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                {lifecycleCards.map((c, idx) => renderKpiCard(c, idx))}
+              </div>
+            </div>
+          )}
 
-      {/* Row 2: Technician Expense Clearance & Cash Recovery (Accountant/Admin View - STRICTLY HIDDEN FOR DISPATCHER) */}
-      {!isDispatcher && isAccountant && (
-        <div className="space-y-1.5 pt-1 border-t border-[#F4F4F5]">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase font-bold text-[#0D7A5F] tracking-wider flex items-center gap-1.5">
-              <Banknote className="w-3.5 h-3.5 text-[#0D7A5F]" />
-              Technician Financial Clearance & Cash Recovery (Accountant)
-            </span>
-            <span className="text-[10px] text-[#71717A]">
-              Click card to filter jobs list • Click Jobs ▾ for list
-            </span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            {financialCards.map((c, idx) => renderKpiCard(c, idx))}
-          </div>
-        </div>
-      )}
+          {/* Row 2: Technician Expense Clearance & Cash Recovery (Accountant/Admin View - STRICTLY HIDDEN FOR DISPATCHER) */}
+          {!isDispatcher && isAccountant && (activeSection === "all" || activeSection === "financial") && (
+            <div className={cn("space-y-1", activeSection === "all" && "pt-1.5 border-t border-[#F4F4F5]")}>
+              {activeSection === "all" && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-bold text-[#0D7A5F] tracking-wider flex items-center gap-1.5">
+                    <Banknote className="w-3 h-3 text-[#0D7A5F]" />
+                    Technician Financial Clearance & Cash Recovery (Accountant)
+                  </span>
+                  <span className="text-[9.5px] text-[#71717A]">
+                    Click card to filter jobs list • Click Jobs ▾ for list
+                  </span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                {financialCards.map((c, idx) => renderKpiCard(c, idx))}
+              </div>
+            </div>
+          )}
 
-      {/* Row 3: Stock & Discount Requests (STRICTLY HIDDEN FOR DISPATCHER) */}
-      {!isDispatcher && (
-        <div className="space-y-1.5 pt-1 border-t border-[#F4F4F5]">
-          <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
-            Material Dispatches & Discount Authorizations
-          </span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            {requestCards.map((c, idx) => renderKpiCard(c, idx))}
-          </div>
+          {/* Row 3: Stock & Discount Requests (STRICTLY HIDDEN FOR DISPATCHER) */}
+          {!isDispatcher && (activeSection === "all" || activeSection === "materials") && (
+            <div className={cn("space-y-1", activeSection === "all" && "pt-1.5 border-t border-[#F4F4F5]")}>
+              {activeSection === "all" && (
+                <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
+                  Material Dispatches & Discount Authorizations
+                </span>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {requestCards.map((c, idx) => renderKpiCard(c, idx))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

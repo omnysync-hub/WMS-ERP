@@ -181,21 +181,21 @@ export default function StorekeeperKpiDashboard({
   return (
     <div
       className={cn(
-        "bg-white rounded-xl border border-[#EDEDED] p-4 sm:p-5 shadow-xs space-y-4",
+        "bg-white rounded-xl border border-[#EDEDED] p-3 sm:p-3.5 shadow-2xs space-y-2.5",
         className
       )}
     >
       {/* Header with Active Filter Indicator */}
       <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-[#F4F4F5]">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-xs">
-            <Warehouse className="w-4 h-4" />
+          <div className="w-6 h-6 rounded-md bg-amber-500 text-white flex items-center justify-center shadow-xs">
+            <Warehouse className="w-3.5 h-3.5" />
           </div>
           <div>
             <h4 className="text-xs font-bold text-[#18181B] tracking-tight uppercase">
               Warehouse Material & Inventory Control
             </h4>
-            <p className="text-[11px] text-[#71717A]">
+            <p className="text-[10px] text-[#71717A]">
               Live requisitions, pending dispatches, completed issuances, and technician returnable stock.
             </p>
           </div>
@@ -222,7 +222,7 @@ export default function StorekeeperKpiDashboard({
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2">
         {kpiCards.map((card) => {
           const Icon = card.icon;
           const isSelected = activeFilter === card.key;
@@ -232,54 +232,52 @@ export default function StorekeeperKpiDashboard({
               type="button"
               onClick={() => toggleFilter(card.key)}
               className={cn(
-                "flex flex-col text-left p-3.5 rounded-xl border transition-all duration-150 relative group cursor-pointer",
+                "flex items-center justify-between gap-1.5 text-left px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border transition-all duration-150 relative group cursor-pointer",
                 card.bg,
                 card.border,
                 isSelected
-                  ? `ring-2 ${card.activeRing} shadow-sm scale-[1.01]`
+                  ? `ring-1.5 ${card.activeRing} shadow-2xs`
                   : "hover:shadow-xs hover:border-zinc-400/60"
               )}
             >
-              <div className="flex items-center justify-between w-full mb-1.5">
-                <span
+              <div className="flex items-center gap-2 min-w-0 pr-1">
+                <div
                   className={cn(
-                    "text-[11px] font-semibold tracking-tight truncate",
-                    card.color
+                    "w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-transform group-hover:scale-105",
+                    card.color,
+                    "bg-white/90 border border-current/20 shadow-2xs"
                   )}
-                  title={card.label}
                 >
-                  {card.label}
-                </span>
-                <div className="flex items-center gap-1">
-                  {card.badgeAlert && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                  )}
-                  <div
-                    className={cn(
-                      "w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-transform group-hover:scale-110",
-                      card.color,
-                      "bg-white/80 border border-current/20 shadow-2xs"
+                  <Icon className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span
+                      className={cn("text-[11px] font-bold tracking-tight truncate block leading-tight", card.color)}
+                      title={card.label}
+                    >
+                      {card.label}
+                    </span>
+                    {card.badgeAlert && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
                     )}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
                   </div>
+                  <span className="text-[9.5px] text-[#71717A] truncate block leading-tight mt-0.5 font-medium">
+                    {card.sublabel}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-xl sm:text-2xl font-mono font-bold text-[#18181B] tracking-tight">
+              <div className="flex flex-col items-end shrink-0 pl-1">
+                <span className="text-base font-mono font-bold text-[#18181B] leading-none">
                   {card.count}
                 </span>
                 {card.badgeAlert && card.alertText && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-amber-800 bg-amber-200/70 px-1 py-0.2 rounded font-sans">
+                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-amber-800 bg-amber-200/70 px-1 py-0.2 rounded font-sans leading-none mt-1">
                     {card.alertText}
                   </span>
                 )}
               </div>
-
-              <span className="text-[10px] text-[#71717A] mt-1 font-medium truncate">
-                {card.sublabel}
-              </span>
             </button>
           );
         })}
