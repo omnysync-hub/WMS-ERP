@@ -89,7 +89,6 @@ export default function RfqSourcingTab({
           description: it.description || it.product?.name,
           quantity: it.quantity,
           unit: it.unit,
-          targetPrice: it.estimatedPrice,
           prItemId: it.id,
           prId: initialPrForRfq.id,
           prNumber: initialPrForRfq.prNumber,
@@ -99,7 +98,6 @@ export default function RfqSourcingTab({
             description: "1.5 Ton Inverter Rotary Compressors",
             quantity: 10,
             unit: "pcs",
-            targetPrice: 32000,
           },
         ]
   );
@@ -135,7 +133,6 @@ export default function RfqSourcingTab({
           description: it.description || it.product?.name,
           quantity: it.quantity,
           unit: it.unit,
-          targetPrice: it.estimatedPrice,
           prItemId: it.id,
           prId: pr.id,
           prNumber: pr.prNumber,
@@ -150,7 +147,6 @@ export default function RfqSourcingTab({
               description: "1.5 Ton Inverter Rotary Compressors",
               quantity: 10,
               unit: "pcs",
-              targetPrice: 32000,
             },
           ]
     );
@@ -259,7 +255,7 @@ export default function RfqSourcingTab({
     const initialPrices: Record<string, number> = {};
     for (const it of rfq.items) {
       const existingQi = rfqVendor.quotationItems?.find((qi: any) => qi.rfqItemId === it.id);
-      initialPrices[it.id] = existingQi ? existingQi.unitPrice : it.targetPrice || 1000;
+      initialPrices[it.id] = existingQi ? existingQi.unitPrice : 0;
     }
     setQuoteItemPrices(initialPrices);
     setShowQuoteModal(true);
@@ -697,13 +693,7 @@ export default function RfqSourcingTab({
                             />
                             <span className="font-semibold text-[#18181B] text-xs">{p.prNumber}</span>
                             <span className="text-[10px] text-[#71717A]">
-                              {p.department} · {p.items?.length || 0} items · Est{" "}
-                              {formatCurrency(
-                                (p.items || []).reduce(
-                                  (sum: number, i: any) => sum + i.quantity * (i.estimatedPrice || 0),
-                                  0
-                                )
-                              )}
+                              {p.department} · {p.items?.length || 0} items
                             </span>
                           </label>
                           {prChecked && (
@@ -783,25 +773,30 @@ export default function RfqSourcingTab({
                       <tr>
                         <th className="py-2 px-3">Item Description</th>
                         <th className="py-2 px-3 text-right">Quantity</th>
-                        <th className="py-2 px-3 text-right">Target Price</th>
+                        <th className="py-2 px-3 text-center">Unit</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
                       {rfqItems.map((it, idx) => (
                         <tr key={idx}>
-                          <td className="py-2 px-3 font-medium text-[#18181B]">
-                            {it.description}
+                          <td className="py-2.5 px-3 font-medium text-[#18181B]">
+                            <div>{it.description}</div>
+                            {it.itemCode && (
+                              <span className="text-[10px] font-mono text-[#A1A1AA]">
+                                SKU: {it.itemCode}
+                              </span>
+                            )}
                             {it.prNumber && (
                               <span className="block text-[10px] font-mono text-[#A1A1AA] mt-0.5">
                                 from {it.prNumber}
                               </span>
                             )}
                           </td>
-                          <td className="py-2 px-3 text-right font-mono">
-                            {it.quantity} {it.unit}
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-[#18181B]">
+                            {it.quantity}
                           </td>
-                          <td className="py-2 px-3 text-right font-mono text-emerald-700">
-                            {formatCurrency(it.targetPrice || 0)}
+                          <td className="py-2.5 px-3 text-center font-mono text-[#71717A]">
+                            {it.unit}
                           </td>
                         </tr>
                       ))}
@@ -969,7 +964,7 @@ export default function RfqSourcingTab({
                       <div>
                         <div className="font-semibold text-[#18181B]">{it.description}</div>
                         <div className="text-[10px] font-mono text-[#71717A]">
-                          Qty: {it.quantity} {it.unit} • Target: {formatCurrency(it.targetPrice || 0)}
+                          Qty: {it.quantity} {it.unit}
                         </div>
                       </div>
                       <div className="w-36 shrink-0">
