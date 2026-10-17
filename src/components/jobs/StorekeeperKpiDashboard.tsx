@@ -130,7 +130,7 @@ export default function StorekeeperKpiDashboard({
   const kpiCards = [
     {
       key: "pending_requests",
-      label: "Pending Material Requests",
+      label: "Pending Material Req",
       count: pendingItemsCount,
       sublabel: `${jobsWithPendingStock.length} work order${jobsWithPendingStock.length === 1 ? "" : "s"} waiting`,
       icon: Package,
@@ -143,7 +143,7 @@ export default function StorekeeperKpiDashboard({
     },
     {
       key: "done_requests",
-      label: "Done / Issued Requests",
+      label: "Requests Fulfilled",
       count: issuedItemsCount,
       sublabel: `${jobsWithIssuedStock.length} work order${jobsWithIssuedStock.length === 1 ? "" : "s"} fulfilled`,
       icon: CheckCircle2,
@@ -154,7 +154,7 @@ export default function StorekeeperKpiDashboard({
     },
     {
       key: "returnable_stock",
-      label: "Unused / Returnable Stock",
+      label: "Returnable Stock",
       count: returnableJobs.length,
       sublabel: `${totalReturnableUnits} estimated unit${totalReturnableUnits === 1 ? "" : "s"} to recover`,
       icon: RotateCcw,

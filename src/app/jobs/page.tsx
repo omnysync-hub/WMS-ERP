@@ -1336,7 +1336,7 @@ export default function JobsListPage() {
                 selected: selectedCareOfFilter,
                 onSelect: setSelectedCareOfFilter,
               }] : []),
-              {
+              ...(!isStorekeeper ? [{
                 id: "paymentClearance",
                 label: "Financial & Cash",
                 options: [
@@ -1349,7 +1349,7 @@ export default function JobsListPage() {
                 ],
                 selected: selectedPaymentFilter,
                 onSelect: setSelectedPaymentFilter,
-              },
+              }] : []),
               {
                 id: "materialsStock",
                 label: "Materials & Stock",
@@ -1363,29 +1363,31 @@ export default function JobsListPage() {
                 selected: selectedMaterialFilter,
                 onSelect: setSelectedMaterialFilter,
               },
-              {
-                id: "qualityAudit",
-                label: "Quality & Audit",
-                options: [
-                  { label: "Clean / No Dispute", value: "clean" },
-                  { label: "Disputed / Review Needed", value: "disputed" },
-                  { label: "Verified & Audited", value: "verified" },
-                ],
-                selected: selectedQualityFilter,
-                onSelect: setSelectedQualityFilter,
-              },
-              {
-                id: "discountState",
-                label: "Discounts",
-                options: [
-                  { label: "Has Approved Discount", value: "approved" },
-                  { label: "Discount Requested (Pending)", value: "requested" },
-                  { label: "Standard Rate (No Discount)", value: "none" },
-                ],
-                selected: selectedDiscountFilter,
-                onSelect: setSelectedDiscountFilter,
-              },
-              ...(equipmentOptions.length > 0 ? [{
+              ...(!isStorekeeper ? [
+                {
+                  id: "qualityAudit",
+                  label: "Quality & Audit",
+                  options: [
+                    { label: "Clean / No Dispute", value: "clean" },
+                    { label: "Disputed / Review Needed", value: "disputed" },
+                    { label: "Verified & Audited", value: "verified" },
+                  ],
+                  selected: selectedQualityFilter,
+                  onSelect: setSelectedQualityFilter,
+                },
+                {
+                  id: "discountState",
+                  label: "Discounts",
+                  options: [
+                    { label: "Has Approved Discount", value: "approved" },
+                    { label: "Discount Requested (Pending)", value: "requested" },
+                    { label: "Standard Rate (No Discount)", value: "none" },
+                  ],
+                  selected: selectedDiscountFilter,
+                  onSelect: setSelectedDiscountFilter,
+                },
+              ] : []),
+              ...(!isStorekeeper && equipmentOptions.length > 0 ? [{
                 id: "equipmentType",
                 label: "Appliance / Equipment",
                 options: equipmentOptions,
