@@ -102,23 +102,51 @@ export default function ProductDropdownSettingsPage() {
   const [editingOriginal, setEditingOriginal] = useState<string>("");
   const [editingValue, setEditingValue] = useState<string>("");
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount and listen for storage updates
   useEffect(() => {
-    try {
-      const savedEquip = localStorage.getItem("custom_equipment_types");
-      if (savedEquip) setEquipmentTypes(JSON.parse(savedEquip));
+    const syncFromStorage = () => {
+      try {
+        const savedEquip = localStorage.getItem("custom_equipment_types");
+        if (savedEquip) {
+          const parsed = JSON.parse(savedEquip);
+          if (Array.isArray(parsed) && parsed.length > 0) setEquipmentTypes(parsed);
+        }
 
-      const savedBrands = localStorage.getItem("custom_hvac_brands");
-      if (savedBrands) setBrands(JSON.parse(savedBrands));
+        const savedBrands = localStorage.getItem("custom_hvac_brands");
+        if (savedBrands) {
+          const parsed = JSON.parse(savedBrands);
+          if (Array.isArray(parsed) && parsed.length > 0) setBrands(parsed);
+        }
 
-      const savedModels = localStorage.getItem("custom_hvac_models");
-      if (savedModels) setModels(JSON.parse(savedModels));
+        const savedModels = localStorage.getItem("custom_hvac_models");
+        if (savedModels) {
+          const parsed = JSON.parse(savedModels);
+          if (Array.isArray(parsed) && parsed.length > 0) setModels(parsed);
+        }
 
-      const savedJobs = localStorage.getItem("custom_job_types");
-      if (savedJobs) setJobTypes(JSON.parse(savedJobs));
-    } catch (e) {
-      console.error("Failed loading dropdown settings", e);
-    }
+        const savedJobs = localStorage.getItem("custom_job_types");
+        if (savedJobs) {
+          const parsed = JSON.parse(savedJobs);
+          if (Array.isArray(parsed) && parsed.length > 0) setJobTypes(parsed);
+        }
+      } catch (e) {
+        console.error("Failed loading dropdown settings", e);
+      }
+    };
+
+    syncFromStorage();
+    window.addEventListener("storage", syncFromStorage);
+    window.addEventListener("custom_equipment_types_updated", syncFromStorage as EventListener);
+    window.addEventListener("custom_hvac_brands_updated", syncFromStorage as EventListener);
+    window.addEventListener("custom_job_types_updated", syncFromStorage as EventListener);
+    window.addEventListener("custom_hvac_models_updated", syncFromStorage as EventListener);
+    return () => {
+      window.removeEventListener("storage", syncFromStorage);
+      window.removeEventListener("custom_equipment_types_updated", syncFromStorage as EventListener);
+      window.removeEventListener("custom_hvac_brands_updated", syncFromStorage as EventListener);
+      window.removeEventListener("custom_job_types_updated", syncFromStorage as EventListener);
+      window.removeEventListener("custom_hvac_models_updated", syncFromStorage as EventListener);
+    };
   }, []);
 
   const saveSettings = (
@@ -133,6 +161,8 @@ export default function ProductDropdownSettingsPage() {
       localStorage.setItem("custom_hvac_models", JSON.stringify(nextModels));
       localStorage.setItem("custom_job_types", JSON.stringify(nextJobs));
       window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("custom_equipment_types_updated", { detail: nextEquip }));
+      window.dispatchEvent(new CustomEvent("custom_hvac_brands_updated", { detail: nextBrands }));
       window.dispatchEvent(new CustomEvent("custom_job_types_updated", { detail: nextJobs }));
       window.dispatchEvent(new CustomEvent("custom_hvac_models_updated", { detail: nextModels }));
       setSavedNotice("Settings saved! Searchable textboxes and dropdowns synced across the system.");

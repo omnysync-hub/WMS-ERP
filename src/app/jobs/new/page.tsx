@@ -421,10 +421,14 @@ export default function NewJobIntakePage() {
 
     syncDropdowns();
     window.addEventListener("storage", syncDropdowns);
+    window.addEventListener("custom_equipment_types_updated", syncDropdowns as EventListener);
+    window.addEventListener("custom_hvac_brands_updated", syncDropdowns as EventListener);
     window.addEventListener("custom_job_types_updated", syncDropdowns as EventListener);
     window.addEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
     return () => {
       window.removeEventListener("storage", syncDropdowns);
+      window.removeEventListener("custom_equipment_types_updated", syncDropdowns as EventListener);
+      window.removeEventListener("custom_hvac_brands_updated", syncDropdowns as EventListener);
       window.removeEventListener("custom_job_types_updated", syncDropdowns as EventListener);
       window.removeEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
     };

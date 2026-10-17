@@ -32,29 +32,51 @@ export default function SearchableCombobox({
   allowCustom = true,
 }: SearchableComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Filter options based on current value
+  // Filter options:
+  // If not actively typing or if current value is an exact option match, show ALL preset options
+  // so the user can easily see and switch to any other configured option!
   const filteredOptions = useMemo(() => {
-    if (!value || !value.trim()) return options;
+    if (!isTyping || !value || !value.trim()) return options;
+
+    const isExactMatch = options.some(
+      (opt) => opt.toLowerCase().trim() === value.toLowerCase().trim()
+    );
+    if (isExactMatch) return options;
+
     const q = value.toLowerCase().trim();
     return options.filter((opt) => opt.toLowerCase().includes(q));
-  }, [options, value]);
+  }, [options, value, isTyping]);
 
   // Handle outside click to close
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
+        setIsTyping(false);
       }
     };
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  // Set highlighted index to selected item when opened so it scrolls into view
+  useEffect(() => {
+    if (isOpen && value && value.trim()) {
+      const idx = filteredOptions.findIndex(
+        (opt) => opt.toLowerCase().trim() === value.toLowerCase().trim()
+      );
+      if (idx >= 0) {
+        setHighlightedIndex(idx);
+      }
+    }
   }, [isOpen]);
 
   // Scroll highlighted item into view
@@ -71,13 +93,15 @@ export default function SearchableCombobox({
   const handleSelectOption = (opt: string) => {
     onChange(opt);
     setIsOpen(false);
+    setIsTyping(false);
     setHighlightedIndex(-1);
   };
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
     onChange("");
-    setIsOpen(false);
+    setIsTyping(false);
+    setIsOpen(true);
     inputRef.current?.focus();
   };
 
@@ -87,6 +111,7 @@ export default function SearchableCombobox({
     if (!isOpen) {
       if (e.key === "ArrowDown" || e.key === "Enter") {
         e.preventDefault();
+        setIsTyping(false);
         setIsOpen(true);
       }
       return;
@@ -111,11 +136,13 @@ export default function SearchableCombobox({
           handleSelectOption(filteredOptions[highlightedIndex]);
         } else {
           setIsOpen(false);
+          setIsTyping(false);
         }
         break;
       case "Escape":
         e.preventDefault();
         setIsOpen(false);
+        setIsTyping(false);
         break;
     }
   };
@@ -137,11 +164,19 @@ export default function SearchableCombobox({
           placeholder={placeholder}
           onChange={(e) => {
             onChange(e.target.value);
+            setIsTyping(true);
             if (!isOpen) setIsOpen(true);
             setHighlightedIndex(-1);
           }}
           onFocus={() => {
             setIsOpen(true);
+            setIsTyping(false);
+          }}
+          onClick={() => {
+            if (!isOpen) {
+              setIsOpen(true);
+              setIsTyping(false);
+            }
           }}
           onKeyDown={handleKeyDown}
           autoComplete="off"
@@ -170,10 +205,16 @@ export default function SearchableCombobox({
             type="button"
             disabled={disabled}
             onClick={() => {
-              setIsOpen((prev) => !prev);
-              if (!isOpen) inputRef.current?.focus();
+              setIsOpen((prev) => {
+                const next = !prev;
+                if (next) {
+                  setIsTyping(false);
+                  inputRef.current?.focus();
+                }
+                return next;
+              });
             }}
-            className="p-1 text-[#71717A] hover:text-[#18181B] rounded-md transition"
+            className="p-1 text-[#71717A] hover:text-[#18181B] rounded-md transition cursor-pointer"
             title="Toggle options"
           >
             <ChevronDown
