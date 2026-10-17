@@ -378,26 +378,32 @@ export default function GoodsReceiptTab({
             </span>
           </div>
         }
-        subtitle="Physical Count, Quality Inspection & Automated GR/IR Clearing Posting"
+        subtitle="Record physical inward delivery, inspect quantities, and update warehouse stock."
         width="max-w-3xl"
         footer={
           <div className="flex items-center justify-between w-full">
-            <span className="text-[11px] text-[#71717A]">
-              Items receiving: <strong className="text-[#18181B]">{receiptItems.filter((i) => (Number(i.quantityReceived) || 0) > 0).length}</strong>
-            </span>
+            <div className="flex items-center gap-2 text-xs text-zinc-600">
+              <span>
+                Lines: <strong className="text-zinc-900 font-semibold">{receiptItems.filter((i) => (Number(i.quantityReceived) || 0) > 0).length}</strong> of {receiptItems.length}
+              </span>
+              <span className="text-zinc-300">•</span>
+              <span>
+                Total Units: <strong className="text-zinc-900 font-semibold">{receiptItems.reduce((acc, i) => acc + (Number(i.quantityReceived) || 0), 0)}</strong>
+              </span>
+            </div>
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5] transition"
+                className="px-4 py-2 rounded-lg border border-zinc-300 text-xs font-medium text-zinc-700 hover:bg-zinc-100 transition shadow-2xs"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 form="create-grn-form"
-                disabled={isSubmitting || !selectedPoId}
-                className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
+                disabled={isSubmitting || !selectedPoId || receiptItems.every((it) => (Number(it.quantityReceived) || 0) <= 0)}
+                className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? "Receiving & Posting..." : "Post Inward Goods Receipt (GRN)"}
               </button>
@@ -405,160 +411,203 @@ export default function GoodsReceiptTab({
           </div>
         }
       >
-        <form id="create-grn-form" onSubmit={handleCreateGrn} className="space-y-4 pb-8 text-[#18181B]">
-          
-              {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
-                  {formError}
-                </div>
+        <form id="create-grn-form" onSubmit={handleCreateGrn} className="space-y-4 pb-6 text-[#18181B]">
+          {formError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+              {formError}
+            </div>
+          )}
+
+          {/* PO Selection & Destination */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl">
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                Purchase Order <span className="text-rose-500">*</span>
+              </label>
+              <SearchableSelect
+                required
+                value={selectedPoId}
+                onChange={(val) => handlePoSelect(val)}
+                options={openPosForReceipt.map((p) => ({
+                  value: p.id,
+                  label: `${p.poNumber} — ${p.supplierName}`,
+                  subLabel: `${(p.items || []).filter((it: any) => (it.quantity - (it.quantityReceived || 0)) > 0).length} line(s) remaining${!isStorekeeper ? ` · Val: ${formatCurrency(p.totalAmount)}` : ""}`,
+                }))}
+                placeholder="-- Select open PO with pending deliveries --"
+              />
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Only open POs with undelivered lines are displayed.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                Receiving Warehouse Location <span className="text-rose-500">*</span>
+              </label>
+              <SearchableSelect
+                value={warehouseLocation}
+                onChange={(val) => setWarehouseLocation(val)}
+                options={[
+                  { value: "Central Warehouse - Lahore", label: "Central Warehouse - Lahore" },
+                  { value: "Karachi Distribution Depot", label: "Karachi Distribution Depot" },
+                  { value: "Islamabad Regional Store", label: "Islamabad Regional Store" },
+                  { value: "Field Tech Holding Bin", label: "Field Tech Holding Bin" },
+                ]}
+              />
+              <p className="text-[10px] text-zinc-500 mt-1">
+                Designated physical storage location for inward stock update.
+              </p>
+            </div>
+          </div>
+
+          {/* Delivery & Inspection Metadata */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                Received By (Storekeeper) <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={receivedBy}
+                onChange={(e) => setReceivedBy(e.target.value)}
+                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                Receipt Date <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="date"
+                required
+                value={receivedDate}
+                onChange={(e) => setReceivedDate(e.target.value)}
+                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                Vendor Delivery Challan #
+              </label>
+              <input
+                type="text"
+                value={deliveryChallan}
+                onChange={(e) => setDeliveryChallan(e.target.value)}
+                className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-xs text-zinc-900 font-mono focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs transition"
+                placeholder="e.g. DC-UNI-8382"
+              />
+            </div>
+          </div>
+
+          {/* Items Verification Table */}
+          <div className="space-y-2.5 pt-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-zinc-900">
+                  Verify Inward Physical Quantities ({receiptItems.length})
+                </h4>
+                <p className="text-[11px] text-zinc-500">
+                  Specify the actual physical units counted at warehouse receiving dock.
+                </p>
+              </div>
+              {receiptItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updated = receiptItems.map((it) => ({
+                      ...it,
+                      quantityReceived: Math.max(0, it.orderedQty - it.alreadyReceivedQty),
+                    }));
+                    setReceiptItems(updated);
+                  }}
+                  className="text-[11px] font-semibold text-[#0D7A5F] hover:text-[#0B6851] hover:underline"
+                >
+                  Receive All Remaining
+                </button>
               )}
+            </div>
 
-              {/* PO Selection & Destination */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Receive against open Purchase Order — only open POs with remaining quantity *
-                  </label>
-                  <SearchableSelect
-                    required
-                    value={selectedPoId}
-                    onChange={(val) => handlePoSelect(val)}
-                    options={openPosForReceipt.map((p) => ({
-                      value: p.id,
-                      label: `${p.poNumber} — ${p.supplierName}`,
-                      subLabel: `${(p.items || []).filter((it: any) => (it.quantity - (it.quantityReceived || 0)) > 0).length} lines remaining${!isStorekeeper ? ` · Val: ${formatCurrency(p.totalAmount)}` : ""}`,
-                    }))}
-                    placeholder="-- Pick open PO (remaining qty) --"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Warehouse / Storage Location *
-                  </label>
-                  <SearchableSelect
-                    value={warehouseLocation}
-                    onChange={(val) => setWarehouseLocation(val)}
-                    options={[
-                      { value: "Central Warehouse - Lahore", label: "Central Warehouse - Lahore" },
-                      { value: "Karachi Distribution Depot", label: "Karachi Distribution Depot" },
-                      { value: "Islamabad Regional Store", label: "Islamabad Regional Store" },
-                      { value: "Field Tech Holding Bin", label: "Field Tech Holding Bin" },
-                    ]}
-                  />
-                </div>
+            {receiptItems.length === 0 ? (
+              <div className="p-8 bg-zinc-50 border border-zinc-200 border-dashed rounded-xl text-center text-zinc-500 text-xs space-y-1">
+                <p className="font-medium text-zinc-700">No Purchase Order Selected</p>
+                <p className="text-[11px]">Please select an open Purchase Order above to load items.</p>
               </div>
-
-              {/* Metadata */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Received By (Storekeeper) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={receivedBy}
-                    onChange={(e) => setReceivedBy(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Receipt Date *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={receivedDate}
-                    onChange={(e) => setReceivedDate(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Delivery Challan # (Vendor DC)
-                  </label>
-                  <input
-                    type="text"
-                    value={deliveryChallan}
-                    onChange={(e) => setDeliveryChallan(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                    placeholder="DC-10928"
-                  />
-                </div>
-              </div>
-
-              {/* Items Verification Table */}
+            ) : (
               <div className="space-y-2">
-                <span className="text-xs font-bold text-[#18181B] block">
-                  Verify Inward Physical Quantities & Quality Inspection ({receiptItems.length})
-                </span>
-
-                {receiptItems.length === 0 ? (
-                  <div className="p-4 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl text-center text-[#71717A] text-xs">
-                    Please select a Purchase Order above to populate receipt line items.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {receiptItems.map((it, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl space-y-2 text-xs"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EDEDED] pb-2">
-                          <div>
-                            <div className="font-bold text-[#18181B]">{it.description}</div>
-                            <div className="text-[10px] font-mono text-[#71717A]">
-                              Ordered: {it.orderedQty} {it.unit} • Already Received: {it.alreadyReceivedQty} {it.unit}
-                            </div>
+                {receiptItems.map((it, idx) => {
+                  const remaining = Math.max(0, it.orderedQty - it.alreadyReceivedQty);
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3 bg-white hover:bg-zinc-50/70 border border-zinc-200 rounded-xl transition shadow-2xs space-y-2"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <div className="font-semibold text-zinc-900 text-xs truncate">
+                            {it.description}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-600 font-mono">
+                              Ordered: <strong className="text-zinc-800">{it.orderedQty} {it.unit}</strong>
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-600 font-mono">
+                              Received: <strong className="text-zinc-800">{it.alreadyReceivedQty} {it.unit}</strong>
+                            </span>
+                            <span
+                              className={cn(
+                                "px-2 py-0.5 rounded-md font-mono font-medium",
+                                remaining > 0
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200/60"
+                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                              )}
+                            >
+                              Remaining: {remaining} {it.unit}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="max-w-xs">
-                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
-                            Quantity Inward (Receiving) *
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max={it.orderedQty - it.alreadyReceivedQty}
-                            step="any"
-                            required
-                            value={it.quantityReceived}
-                            onChange={(e) =>
-                              handleItemChange(idx, "quantityReceived", Number(e.target.value))
-                            }
-                            className="w-full bg-white border border-[#D4D4D8] rounded px-2.5 py-1.5 text-xs text-[#18181B] font-mono font-bold focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                          />
+                        {/* Inward Qty Input & Quick Fill */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center">
+                            <label className="sr-only">Quantity Inward</label>
+                            <div className="relative flex items-center">
+                              <input
+                                type="number"
+                                min="0"
+                                max={remaining}
+                                step="any"
+                                required
+                                value={it.quantityReceived}
+                                onChange={(e) =>
+                                  handleItemChange(idx, "quantityReceived", Number(e.target.value))
+                                }
+                                className="w-28 bg-white border border-zinc-300 rounded-lg px-2.5 py-1.5 pr-9 text-xs text-zinc-900 font-mono font-bold focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs"
+                                placeholder="0"
+                              />
+                              <span className="absolute right-2.5 text-[10px] font-medium text-zinc-400 pointer-events-none">
+                                {it.unit}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            title="Fill full remaining quantity"
+                            onClick={() => handleItemChange(idx, "quantityReceived", remaining)}
+                            className="px-2.5 py-1.5 text-[11px] font-medium text-[#0D7A5F] hover:text-[#0B6851] hover:bg-[#0D7A5F]/10 rounded-lg border border-[#0D7A5F]/30 transition"
+                          >
+                            Max
+                          </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })}
               </div>
-
-
-
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || receiptItems.length === 0}
-                  className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50"
-                >
-                  {isSubmitting ? "Receiving..." : "Post Goods Receipt & Update Stock"}
-                </button>
-              </div>
-            
+            )}
+          </div>
         </form>
       </SideDrawer>
 
