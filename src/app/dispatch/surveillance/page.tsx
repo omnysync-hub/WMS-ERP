@@ -550,7 +550,7 @@ export default function SurveillanceDashboardPage() {
 
       {/* Metric Quick Stats Strip */}
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-zinc-200 p-4 shadow-xs">
             <div className="flex items-center gap-2 text-zinc-500 text-[11px] font-bold uppercase tracking-wider mb-1">
               <Navigation className="w-3.5 h-3.5 text-[#0D7A5F]" />
@@ -569,29 +569,6 @@ export default function SurveillanceDashboardPage() {
             <p className="text-xl font-mono font-extrabold text-zinc-900">
               {summary.avgSpeedKmH}{" "}
               <span className="text-xs font-sans text-zinc-400 font-normal">/ {summary.maxSpeedKmH} km/h</span>
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl border border-zinc-200 p-4 shadow-xs">
-            <div className="flex items-center gap-2 text-zinc-500 text-[11px] font-bold uppercase tracking-wider mb-1">
-              <Clock className="w-3.5 h-3.5 text-emerald-600" />
-              Telemetry Pings
-            </div>
-            <p className="text-xl font-mono font-extrabold text-zinc-900">
-              {summary.totalPings} <span className="text-xs font-sans text-zinc-400">pings</span>
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl border border-zinc-200 p-4 shadow-xs">
-            <div className="flex items-center gap-2 text-zinc-500 text-[11px] font-bold uppercase tracking-wider mb-1">
-              <Battery className="w-3.5 h-3.5 text-amber-600" />
-              Battery Drain
-            </div>
-            <p className="text-xl font-mono font-extrabold text-zinc-900">
-              {summary.batteryDrain != null ? `-${summary.batteryDrain}%` : "—"}
-              <span className="text-[11px] font-sans text-zinc-400 ml-1.5">
-                ({summary.batteryStart ?? "—"}% → {summary.batteryEnd ?? "—"}%)
-              </span>
             </p>
           </div>
 
