@@ -12,6 +12,9 @@ import AddAssetDrawer from "@/components/drawers/AddAssetDrawer";
 import AssignAssetDrawer from "@/components/drawers/AssignAssetDrawer";
 import NewRequisitionDrawer from "@/components/drawers/NewRequisitionDrawer";
 import AddCandidateDrawer from "@/components/drawers/AddCandidateDrawer";
+import CreatePayrollDrawer from "@/components/drawers/CreatePayrollDrawer";
+import PayrollRunDetailDrawer from "@/components/drawers/PayrollRunDetailDrawer";
+import PayslipModal from "@/components/drawers/PayslipModal";
 import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
 import CompanyOnboardingTab from "@/components/hrm/CompanyOnboardingTab";
 import {
@@ -171,6 +174,9 @@ function HrmPayrollContent() {
 
   // Existing Payroll States
   const [payrollRuns, setPayrollRuns] = useState<any[]>([]);
+  const [showCreatePayrollDrawer, setShowCreatePayrollDrawer] = useState(false);
+  const [selectedPayrollRunForDetail, setSelectedPayrollRunForDetail] = useState<any>(null);
+  const [selectedPayslipForModal, setSelectedPayslipForModal] = useState<any>(null);
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [advanceEmpId, setAdvanceEmpId] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
@@ -459,6 +465,9 @@ function HrmPayrollContent() {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setNotification("Payroll approved! Ready for finance payout disbursement.");
+      setSelectedPayrollRunForDetail((prev: any) =>
+        prev?.id === runId ? { ...prev, status: "Approved" } : prev
+      );
       loadData();
     } catch (e: any) {
       alert(e.message);
@@ -481,9 +490,35 @@ function HrmPayrollContent() {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setNotification("Payroll disbursed and posted through Accounts Posting Engine!");
+      setSelectedPayrollRunForDetail((prev: any) =>
+        prev?.id === runId ? { ...prev, status: "Paid" } : prev
+      );
       loadData();
     } catch (e: any) {
       alert(e.message);
+    }
+  };
+
+  // Handle Discarding Draft Payroll
+  const handleDeleteDraftPayroll = async (runId: string) => {
+    if (!confirm("Discard this draft payroll cycle? This cannot be undone.")) return;
+    try {
+      const res = await fetch("/api/hrm/payroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_draft",
+          runId,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      setNotification("Draft payroll cycle discarded.");
+      if (selectedPayrollRunForDetail?.id === runId) {
+        setSelectedPayrollRunForDetail(null);
+      }
+      loadData();
+    } catch (e: any) {
+      alert(e.message || "Failed to delete draft");
     }
   };
 
@@ -642,7 +677,7 @@ function HrmPayrollContent() {
             </div>
           ) : activeTab === "payroll" ? (
             <button
-              onClick={handleCalculatePayroll}
+              onClick={() => setShowCreatePayrollDrawer(true)}
               className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
             >
               <Play className="w-3.5 h-3.5" />
@@ -2450,60 +2485,167 @@ function HrmPayrollContent() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 8: PAYROLL RUNS (3-STAGE WORKFLOW PRESERVED)                           */}
+      {/* TAB 8: PAYROLL RUNS (DETAILED BREAKDOWN & 3-STAGE WORKFLOW)                */}
       {/* ========================================================================= */}
       {activeTab === "payroll" && (
-        <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-[#E4E4E7] flex items-center justify-between">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-              Monthly Payroll Cycles (Draft → Approved → Paid)
-            </h3>
+        <div className="space-y-4">
+          {/* Quick Metrics Header */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-2xs space-y-1">
+              <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider">Payroll Cycles</span>
+              <p className="text-base font-bold text-[#18181B] font-mono">{payrollRuns.length}</p>
+              <span className="text-[10px] text-[#71717A]">Draft & processed runs</span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-2xs space-y-1">
+              <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider">Active Staff Enrolled</span>
+              <p className="text-base font-bold text-[#18181B] font-mono">{employees.length}</p>
+              <span className="text-[10px] text-[#71717A]">Eligible for salary payout</span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-2xs space-y-1">
+              <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider">Pending Approval</span>
+              <p className="text-base font-bold text-amber-700 font-mono">
+                {payrollRuns.filter((r) => r.status === "Draft").length}
+              </p>
+              <span className="text-[10px] text-[#71717A]">Draft cycles awaiting signoff</span>
+            </div>
+
+            <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 shadow-2xs space-y-1">
+              <span className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider">Total Disbursed (YTD)</span>
+              <p className="text-base font-bold text-[#0D7A5F] font-mono">
+                {formatCurrency(
+                  payrollRuns
+                    .filter((r) => r.status === "Paid")
+                    .reduce((acc, curr) => acc + Number(curr.totalNet || 0), 0)
+                )}
+              </p>
+              <span className="text-[10px] text-emerald-700">Processed via WPS transfers</span>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-[#F4F4F5] text-[#71717A] border-b border-[#E4E4E7]">
-                <tr>
-                  <th className="p-3 font-semibold">Payroll Period</th>
-                  <th className="p-3 font-semibold">Gross Salary</th>
-                  <th className="p-3 font-semibold">Advances Recovered</th>
-                  <th className="p-3 font-semibold">Net Payout</th>
-                  <th className="p-3 font-semibold">Status</th>
-                  <th className="p-3 font-semibold text-right">Workflow Stage</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E4E4E7]">
-                {payrollRuns.map((r) => (
-                  <tr key={r.id} className="hover:bg-[#F9FAFB] transition">
-                    <td className="p-3 font-bold text-[#18181B]">{r.period}</td>
-                    <td className="p-3 font-mono">{formatCurrency(r.totalGross)}</td>
-                    <td className="p-3 font-mono text-rose-600">-{formatCurrency(r.totalDeductions)}</td>
-                    <td className="p-3 font-mono font-bold text-emerald-700">{formatCurrency(r.totalNet)}</td>
-                    <td className="p-3">
-                      <StatusBadge status={r.status} />
-                    </td>
-                    <td className="p-3 text-right">
-                      {r.status === "Draft" ? (
-                        <button
-                          onClick={() => handleApprovePayroll(r.id)}
-                          className="px-3 py-1 bg-[#18181B] hover:bg-black text-white rounded-lg text-xs font-bold transition"
-                        >
-                          Approve Payroll
-                        </button>
-                      ) : r.status === "Approved" ? (
-                        <button
-                          onClick={() => handleDisbursePayroll(r.id)}
-                          className="px-3 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition"
-                        >
-                          Disburse via WPS
-                        </button>
-                      ) : (
-                        <span className="text-emerald-800 font-bold text-xs">✓ Disbursed & Posted</span>
-                      )}
-                    </td>
+
+          {/* Cycles Table Card */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-[#E4E4E7] flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  Monthly Payroll Cycles (Draft → Approved → Paid)
+                </h3>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  Click on any cycle or &ldquo;View Breakdown&rdquo; to inspect individual employee compensation, attendance records, and payslips.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowCreatePayrollDrawer(true)}
+                className="px-3.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                Generate Monthly Draft
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-[#F4F4F5] text-[#71717A] border-b border-[#E4E4E7]">
+                  <tr>
+                    <th className="p-3 font-semibold">Payroll Period</th>
+                    <th className="p-3 font-semibold">Staff Count</th>
+                    <th className="p-3 font-semibold">Gross Salary</th>
+                    <th className="p-3 font-semibold">Advances Recovered</th>
+                    <th className="p-3 font-semibold">Net Payout</th>
+                    <th className="p-3 font-semibold">Status</th>
+                    <th className="p-3 font-semibold text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[#E4E4E7]">
+                  {payrollRuns.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-10 text-center space-y-3">
+                        <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs font-semibold text-[#18181B]">No payroll cycles generated yet</p>
+                        <p className="text-[11px] text-[#71717A] max-w-sm mx-auto">
+                          Click below to preview employee attendance, advances, and generate your first monthly payroll draft.
+                        </p>
+                        <button
+                          onClick={() => setShowCreatePayrollDrawer(true)}
+                          className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          Generate First Payroll Draft
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    payrollRuns.map((r) => {
+                      const staffCount = r.payslips?.length || 0;
+                      return (
+                        <tr
+                          key={r.id}
+                          className="hover:bg-[#F9FAFB] transition cursor-pointer"
+                          onClick={() => setSelectedPayrollRunForDetail(r)}
+                        >
+                          <td className="p-3">
+                            <span className="font-bold text-[#18181B] text-xs hover:text-[#0D7A5F] transition">
+                              {r.period}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <span className="inline-flex items-center gap-1 font-mono font-semibold text-[#71717A] bg-zinc-100 px-2 py-0.5 rounded text-[11px]">
+                              <Users className="w-3 h-3 text-[#71717A]" />
+                              {staffCount} staff
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono">{formatCurrency(r.totalGross)}</td>
+                          <td className="p-3 font-mono text-rose-600">
+                            {r.totalDeductions > 0 ? `-${formatCurrency(r.totalDeductions)}` : "PKR 0"}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-emerald-700">{formatCurrency(r.totalNet)}</td>
+                          <td className="p-3">
+                            <StatusBadge status={r.status} />
+                          </td>
+                          <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => setSelectedPayrollRunForDetail(r)}
+                                className="px-2.5 py-1 bg-white hover:bg-[#F4F4F5] border border-[#E4E4E7] text-[#18181B] rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition shadow-2xs hover:border-[#0D7A5F]"
+                              >
+                                <Eye className="w-3 h-3 text-[#0D7A5F]" />
+                                View Breakdown
+                              </button>
+
+                              {r.status === "Draft" ? (
+                                <button
+                                  onClick={() => handleApprovePayroll(r.id)}
+                                  className="px-2.5 py-1 bg-[#18181B] hover:bg-black text-white rounded-lg text-xs font-bold transition shadow-2xs"
+                                >
+                                  Approve
+                                </button>
+                              ) : r.status === "Approved" ? (
+                                <button
+                                  onClick={() => handleDisbursePayroll(r.id)}
+                                  className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-2xs inline-flex items-center gap-1"
+                                >
+                                  <CreditCard className="w-3 h-3" />
+                                  Disburse via WPS
+                                </button>
+                              ) : (
+                                <span className="text-emerald-800 font-bold text-[11px] inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  Disbursed
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -2740,6 +2882,41 @@ function HrmPayrollContent() {
           loadData();
         }}
       />
+
+      <CreatePayrollDrawer
+        isOpen={showCreatePayrollDrawer}
+        onClose={() => setShowCreatePayrollDrawer(false)}
+        employees={employees}
+        existingRuns={payrollRuns}
+        onRunCreated={(newRun) => {
+          setNotification(`Draft payroll cycle for ${newRun.period} generated!`);
+          loadData();
+          setSelectedPayrollRunForDetail(newRun);
+        }}
+      />
+
+      {selectedPayrollRunForDetail && (
+        <PayrollRunDetailDrawer
+          isOpen={!!selectedPayrollRunForDetail}
+          onClose={() => setSelectedPayrollRunForDetail(null)}
+          run={selectedPayrollRunForDetail}
+          onApprove={handleApprovePayroll}
+          onDisburse={handleDisbursePayroll}
+          onDeleteDraft={handleDeleteDraftPayroll}
+          onViewPayslip={(payslip, run) => {
+            setSelectedPayslipForModal({ payslip, run });
+          }}
+        />
+      )}
+
+      {selectedPayslipForModal && (
+        <PayslipModal
+          isOpen={!!selectedPayslipForModal}
+          onClose={() => setSelectedPayslipForModal(null)}
+          payslip={selectedPayslipForModal.payslip}
+          payrollRun={selectedPayslipForModal.run}
+        />
+      )}
 
 
 

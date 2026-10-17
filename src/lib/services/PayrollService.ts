@@ -6,12 +6,19 @@ export class PayrollService {
   /**
    * Calculate a draft payroll run for a given month/period
    */
-  static async createDraftRun(period: string) {
+  static async createDraftRun(period: string, overwrite = false) {
     const existing = await prisma.payrollRun.findFirst({
       where: { period },
     });
     if (existing) {
-      throw new Error(`Payroll run for period '${period}' already exists with status '${existing.status}'.`);
+      if (existing.status !== "Draft") {
+        throw new Error(`Payroll run for period '${period}' already exists with status '${existing.status}'.`);
+      }
+      if (!overwrite) {
+        throw new Error(`A draft payroll run for '${period}' already exists. You can review it or delete it to recalculate.`);
+      }
+      // Clean up previous draft run
+      await prisma.payrollRun.delete({ where: { id: existing.id } });
     }
 
     const employees = await prisma.employee.findMany({
@@ -101,6 +108,23 @@ export class PayrollService {
         approvedBy: approverName,
         approvedAt: new Date(),
       },
+    });
+  }
+
+  /**
+   * Delete / discard a Draft payroll run
+   */
+  static async deleteDraftRun(payrollRunId: string) {
+    const run = await prisma.payrollRun.findUnique({
+      where: { id: payrollRunId },
+    });
+    if (!run) throw new Error("Payroll run not found");
+    if (run.status !== "Draft") {
+      throw new Error(`Only Draft runs can be discarded. Current status: ${run.status}`);
+    }
+
+    return await prisma.payrollRun.delete({
+      where: { id: payrollRunId },
     });
   }
 

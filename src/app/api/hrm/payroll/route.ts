@@ -11,14 +11,38 @@ export async function GET(req: NextRequest) {
     const runs = await prisma.payrollRun.findMany({
       include: {
         payslips: {
-          include: { employee: true },
+          include: {
+            employee: {
+              include: {
+                attendanceLogs: {
+                  orderBy: { timestamp: "desc" },
+                  take: 60,
+                },
+                leaveRequests: {
+                  where: { status: "Approved" },
+                },
+                advances: true,
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: "desc" },
     });
 
     const employees = await prisma.employee.findMany({
-      include: { advances: true },
+      where: { active: true },
+      include: {
+        advances: { where: { status: "approved" } },
+        attendanceLogs: {
+          orderBy: { timestamp: "desc" },
+          take: 60,
+        },
+        leaveRequests: {
+          where: { status: "Approved" },
+        },
+      },
+      orderBy: { name: "asc" },
     });
 
     return NextResponse.json({ runs, employees });
@@ -32,12 +56,17 @@ export async function POST(req: NextRequest) {
     const gate = requirePermission(req, "hrm.payroll");
     if (gate.error) return gate.error;
     const body = await req.json();
-    const { action, period, runId } = body;
+    const { action, period, runId, overwrite } = body;
 
     switch (action) {
       case "calculate_draft": {
-        const run = await PayrollService.createDraftRun(period || "Current Month");
+        const run = await PayrollService.createDraftRun(period || "Current Month", Boolean(overwrite));
         return NextResponse.json(run, { status: 201 });
+      }
+
+      case "delete_draft": {
+        const run = await PayrollService.deleteDraftRun(runId);
+        return NextResponse.json(run);
       }
 
       case "approve": {
