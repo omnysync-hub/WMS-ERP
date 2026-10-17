@@ -1273,18 +1273,6 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
 
           return (
             <div className="p-4 space-y-4">
-              <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl text-xs text-purple-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Building className="w-4 h-4 text-purple-700 shrink-0" />
-                  <span>
-                    <strong>Care-Of Parties & Subcontractor Reporting:</strong> Dedicated breakdown of work orders, customer accounts, and billings grouped by Care-Of affiliate.
-                  </span>
-                </div>
-                <span className="font-mono font-bold text-purple-900 text-xs">
-                  {groupList.length} Entity Group{groupList.length === 1 ? "" : "s"}
-                </span>
-              </div>
-
               {groupList.length === 0 ? (
                 <div className="py-16 text-center text-xs text-[#71717A]">
                   <Building className="w-8 h-8 mx-auto text-[#A1A1AA] mb-2" />
