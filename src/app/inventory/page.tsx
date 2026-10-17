@@ -41,7 +41,10 @@ import {
   ChevronRight,
   MapPin,
   Boxes,
+  PackagePlus,
 } from "lucide-react";
+import CreditWarehouseStockDrawer from "@/components/drawers/CreditWarehouseStockDrawer";
+import WarehouseTransferDrawer from "@/components/drawers/WarehouseTransferDrawer";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
@@ -215,6 +218,11 @@ export default function InventoryPurchasingPage() {
   const [transferToBranch, setTransferToBranch] = useState("Karachi Regional Depot");
   const [transferChallan, setTransferChallan] = useState("");
   const [transferNotes, setTransferNotes] = useState("");
+
+  // Dedicated Drawer states for Credit Warehouse Stock & Inter-Branch Transfers
+  const [showCreditStockDrawer, setShowCreditStockDrawer] = useState(false);
+  const [creditStockTargetProductId, setCreditStockTargetProductId] = useState("");
+  const [showTransferStockDrawer, setShowTransferStockDrawer] = useState(false);
 
   // Discrepancy Adjustment Form State
   const [adjustProductId, setAdjustProductId] = useState("");
@@ -1845,7 +1853,7 @@ export default function InventoryPurchasingPage() {
                 Manage branch warehouses, view localized stock on hand, configure storage bins/locations, and dispatch inter-branch transfers
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => {
@@ -1856,6 +1864,17 @@ export default function InventoryPurchasingPage() {
               >
                 <MapPin className="w-3.5 h-3.5 text-[#71717A]" />
                 + Add Storage Location
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreditStockTargetProductId("");
+                  setShowCreditStockDrawer(true);
+                }}
+                className="h-8 px-3 rounded-lg border border-[#0D7A5F]/30 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-[#0D7A5F] inline-flex items-center gap-1.5 transition shadow-2xs"
+              >
+                <PackagePlus className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                + Add / Credit Stock
               </button>
               <button
                 type="button"
@@ -1985,7 +2004,18 @@ export default function InventoryPurchasingPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreditStockTargetProductId("");
+                    setShowCreditStockDrawer(true);
+                  }}
+                  className="h-7 px-2.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1 transition shadow-2xs"
+                >
+                  <PackagePlus className="w-3 h-3" />
+                  + Credit Stock
+                </button>
                 <button
                   type="button"
                   onClick={() => openEditBranchModal(currentBranch)}
@@ -2176,8 +2206,21 @@ export default function InventoryPurchasingPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        setCreditStockTargetProductId("");
+                        setShowCreditStockDrawer(true);
+                      }}
+                      className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+                    >
+                      <PackagePlus className="w-3.5 h-3.5" />
+                      Add / Credit Stock
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTransferProductId("");
                         setTransferFromBranch(currentBranch.name);
-                        setActiveMovementSubTab("transfer");
+                        setShowTransferStockDrawer(true);
                       }}
                       className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
                     >
@@ -2209,8 +2252,19 @@ export default function InventoryPurchasingPage() {
 
                   if (filteredBranchProducts.length === 0) {
                     return (
-                      <div className="p-8 text-center text-xs text-[#71717A] bg-[#FAFAFA] rounded-xl border border-dashed border-[#D4D4D8]">
-                        No items found matching the current search & filter in {currentBranch.name}.
+                      <div className="p-8 text-center text-xs text-[#71717A] bg-[#FAFAFA] rounded-xl border border-dashed border-[#D4D4D8] flex flex-col items-center justify-center gap-3">
+                        <p>No items found matching the current search & filter in {currentBranch.name}.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCreditStockTargetProductId("");
+                            setShowCreditStockDrawer(true);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-bold text-white inline-flex items-center gap-1.5 shadow-xs transition"
+                        >
+                          <PackagePlus className="w-3.5 h-3.5" />
+                          Add / Credit Stock to {currentBranch.name}
+                        </button>
                       </div>
                     );
                   }
@@ -2303,18 +2357,33 @@ export default function InventoryPurchasingPage() {
                                 </td>
 
                                 <td className="py-3 px-4 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setTransferProductId(p.id);
-                                      setTransferFromBranch(currentBranch.name);
-                                      setActiveMovementSubTab("transfer");
-                                    }}
-                                    className="px-2.5 py-1 rounded bg-[#F4F4F5] hover:bg-[#E4E4E7] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1 transition shadow-2xs"
-                                  >
-                                    <ArrowRightLeft className="w-3 h-3 text-[#0D7A5F]" />
-                                    Transfer
-                                  </button>
+                                  <div className="inline-flex items-center gap-1.5 justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCreditStockTargetProductId(p.id);
+                                        setShowCreditStockDrawer(true);
+                                      }}
+                                      className="px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 border border-emerald-200 inline-flex items-center gap-1 transition shadow-2xs"
+                                      title="Credit new stock to this warehouse"
+                                    >
+                                      <PackagePlus className="w-3 h-3 text-emerald-700" />
+                                      Credit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setTransferProductId(p.id);
+                                        setTransferFromBranch(currentBranch.name);
+                                        setShowTransferStockDrawer(true);
+                                      }}
+                                      className="px-2.5 py-1 rounded bg-[#F4F4F5] hover:bg-[#E4E4E7] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1 transition shadow-2xs"
+                                      title="Transfer stock to another branch"
+                                    >
+                                      <ArrowRightLeft className="w-3 h-3 text-[#0D7A5F]" />
+                                      Transfer
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -3877,6 +3946,36 @@ export default function InventoryPurchasingPage() {
           </div>
         </form>
       </SideDrawer>
+
+      {/* Slide-out Drawer: Credit Warehouse Stock */}
+      <CreditWarehouseStockDrawer
+        isOpen={showCreditStockDrawer}
+        onClose={() => setShowCreditStockDrawer(false)}
+        branches={branches}
+        currentBranchName={currentBranch.name}
+        products={physicalProducts}
+        defaultProductId={creditStockTargetProductId}
+        onStockCredited={(updatedBranches) => {
+          saveBranches(updatedBranches);
+          setNotification("Warehouse stock credited and inventory updated.");
+          loadData();
+        }}
+      />
+
+      {/* Slide-out Drawer: Inter-Branch Stock Transfers */}
+      <WarehouseTransferDrawer
+        isOpen={showTransferStockDrawer}
+        onClose={() => setShowTransferStockDrawer(false)}
+        branches={branches}
+        products={physicalProducts}
+        defaultFromBranch={currentBranch.name}
+        defaultProductId={transferProductId}
+        onTransferCompleted={(updatedBranches) => {
+          saveBranches(updatedBranches);
+          setNotification("Inter-branch stock transfer dispatched successfully.");
+          loadData();
+        }}
+      />
     </div>
   );
 }
