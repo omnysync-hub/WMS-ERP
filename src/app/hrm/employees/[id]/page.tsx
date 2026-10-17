@@ -42,6 +42,8 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import EditEmployeeDrawer from "@/components/drawers/EditEmployeeDrawer";
+
 export default function EmployeeProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -58,9 +60,11 @@ export default function EmployeeProfilePage() {
   });
 
   const [employee, setEmployee] = useState<any>(null);
+  const [managers, setManagers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [activeSection, setActiveSection] = useState<
-    "overview" | "employment" | "related" | "onboarding" | "offboarding" | "mobile_access"
+    "overview" | "employment" | "related" | "offboarding" | "mobile_access"
   >("overview");
 
   // Notification
@@ -114,6 +118,12 @@ export default function EmployeeProfilePage() {
 
   useEffect(() => {
     if (employeeId) loadEmployee();
+    fetch("/api/hrm/employees")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.employees) setManagers(d.employees);
+      })
+      .catch(() => {});
   }, [employeeId]);
 
   // Mobile Credential Form Handlers
@@ -425,6 +435,13 @@ export default function EmployeeProfilePage() {
         actions={
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowEditDrawer(true)}
+              className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-2xs"
+            >
+              <User className="w-3.5 h-3.5" />
+              Edit Employee
+            </button>
+            <button
               onClick={() => setShowStatusModal(true)}
               className="h-8 px-3 rounded-lg border border-[#E4E4E7] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition"
             >
@@ -618,23 +635,6 @@ export default function EmployeeProfilePage() {
             <ArrowRight className="w-3 h-3 opacity-60" />
           </button>
 
-          <button
-            onClick={() => setActiveSection("onboarding")}
-            className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold flex items-center justify-between transition ${
-              activeSection === "onboarding"
-                ? "bg-[#0D7A5F] text-white"
-                : "text-[#71717A] hover:bg-[#F4F4F5] hover:text-[#18181B]"
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Onboarding Checklist
-            </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/10">
-              {employee.onboardingChecklists?.filter((i: any) => i.isDone).length || 0}/
-              {employee.onboardingChecklists?.length || 0}
-            </span>
-          </button>
 
           <button
             onClick={() => setActiveSection("offboarding")}
@@ -660,46 +660,130 @@ export default function EmployeeProfilePage() {
 
         {/* Right Detail Panel */}
         <div className="md:col-span-3 space-y-6">
-          {/* SECTION 1: PERSONAL & CONTACT */}
+          {/* SECTION 1: PERSONAL, IDENTITY & CONTACT */}
           {activeSection === "overview" && (
-            <div className="bg-white rounded-xl border border-[#E4E4E7] p-6 shadow-xs space-y-4">
-              <h2 className="text-sm font-bold text-[#18181B] pb-2 border-b border-[#E4E4E7] flex items-center gap-2">
-                <User className="w-4 h-4 text-[#0D7A5F]" />
-                Personal & Contact Profile
-              </h2>
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-[#E4E4E7] p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                  <h2 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                    <User className="w-4 h-4 text-[#0D7A5F]" />
+                    Personal, Identity & Contact Profile
+                  </h2>
+                  <button
+                    onClick={() => setShowEditDrawer(true)}
+                    className="text-xs font-semibold text-[#0D7A5F] hover:underline inline-flex items-center gap-1"
+                  >
+                    Edit Profile
+                  </button>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="text-[#71717A] block">Full Legal Name</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5">{employee.name}</p>
-                </div>
-                <div>
-                  <span className="text-[#71717A] block">Employee ID (System UUID)</span>
-                  <p className="font-mono text-[#71717A] text-[11px] mt-0.5">{employee.id}</p>
-                </div>
-                <div>
-                  <span className="text-[#71717A] block">Primary Mobile Phone</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5 flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                    {employee.phone}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[#71717A] block">Corporate Email Address</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5 flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                    {employee.email || "No email provisioned"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[#71717A] block">Current Status</span>
-                  <div className="mt-1">
-                    <StatusBadge status={employee.status} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <span className="text-[#71717A] block">Full Legal Name</span>
+                    <p className="font-semibold text-[#18181B] mt-0.5">{employee.name}</p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Employee ID (System UUID)</span>
+                    <p className="font-mono text-[#71717A] text-[11px] mt-0.5">{employee.id}</p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Primary Mobile Phone</span>
+                    <p className="font-semibold text-[#18181B] mt-0.5 flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                      {employee.phone}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Corporate Email Address</span>
+                    <p className="font-semibold text-[#18181B] mt-0.5 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                      {employee.email || "No email provisioned"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">CNIC / National ID Number</span>
+                    <p className="font-mono font-semibold text-[#18181B] mt-0.5">
+                      {employee.cnic || <span className="text-zinc-400 font-normal italic">Not Provided</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Residential Address</span>
+                    <p className="text-[#18181B] font-medium mt-0.5">
+                      {employee.address || <span className="text-zinc-400 font-normal italic">Not Provided</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Emergency Contact Person</span>
+                    <p className="text-[#18181B] font-semibold mt-0.5">
+                      {employee.emergencyContactName || <span className="text-zinc-400 font-normal italic">Not Configured</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Emergency Phone Number</span>
+                    <p className="font-mono font-semibold text-rose-700 mt-0.5 flex items-center gap-1.5">
+                      {employee.emergencyContactPhone ? (
+                        <>
+                          <Phone className="w-3.5 h-3.5 text-rose-500" />
+                          {employee.emergencyContactPhone}
+                        </>
+                      ) : (
+                        <span className="text-zinc-400 font-normal italic">Not Configured</span>
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Current Status</span>
+                    <div className="mt-1">
+                      <StatusBadge status={employee.status} />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Date Created in ERP</span>
+                    <p className="font-mono text-[#18181B] mt-0.5">{formatDateTime(employee.createdAt)}</p>
                   </div>
                 </div>
-                <div>
-                  <span className="text-[#71717A] block">Date Created in ERP</span>
-                  <p className="font-mono text-[#18181B] mt-0.5">{formatDateTime(employee.createdAt)}</p>
+              </div>
+
+              {/* Bank & Disbursement Details Card */}
+              <div className="bg-white rounded-xl border border-[#E4E4E7] p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                  <h2 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-[#0D7A5F]" />
+                    Bank Account & Payroll Disbursement
+                  </h2>
+                  <button
+                    onClick={() => setShowEditDrawer(true)}
+                    className="text-xs font-semibold text-[#0D7A5F] hover:underline inline-flex items-center gap-1"
+                  >
+                    Edit Bank Info
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <span className="text-[#71717A] block">Bank Name</span>
+                    <p className="font-semibold text-[#18181B] mt-0.5">
+                      {employee.bankName || <span className="text-zinc-400 font-normal italic">Not Configured</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Account Title (Beneficiary Name)</span>
+                    <p className="font-semibold text-[#18181B] mt-0.5">
+                      {employee.bankAccountTitle || <span className="text-zinc-400 font-normal italic">Not Configured</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">Account Number</span>
+                    <p className="font-mono font-semibold text-[#18181B] mt-0.5">
+                      {employee.bankAccountNumber || <span className="text-zinc-400 font-normal italic">Not Configured</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#71717A] block">IBAN Number</span>
+                    <p className="font-mono font-semibold text-[#18181B] mt-0.5 uppercase">
+                      {employee.bankIban || <span className="text-zinc-400 font-normal italic">Not Configured</span>}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1088,70 +1172,6 @@ export default function EmployeeProfilePage() {
             </div>
           )}
 
-          {/* SECTION 4: ONBOARDING CHECKLIST */}
-          {activeSection === "onboarding" && (
-            <div className="bg-white rounded-xl border border-[#E4E4E7] p-6 shadow-xs space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                <div>
-                  <h2 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-[#0D7A5F]" />
-                    New Hire Onboarding Checklist
-                  </h2>
-                  <p className="text-xs text-[#71717A] mt-0.5">
-                    Track statutory compliance, equipment handover, induction, and account creation
-                  </p>
-                </div>
-                <span className="text-xs font-mono font-bold text-[#0D7A5F] bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                  {employee.onboardingChecklists?.filter((i: any) => i.isDone).length || 0} /{" "}
-                  {employee.onboardingChecklists?.length || 0} Tasks Completed
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                {employee.onboardingChecklists?.map((item: any) => (
-                  <div
-                    key={item.id}
-                    onClick={() => handleToggleOnboarding(item.id, item.isDone)}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition flex items-center justify-between text-xs ${
-                      item.isDone
-                        ? "bg-emerald-50/60 border-emerald-200 text-emerald-950"
-                        : "bg-[#F9FAFB] hover:bg-[#F4F4F5] border-[#EDEDED] text-[#18181B]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-5 h-5 rounded-md flex items-center justify-center border transition ${
-                          item.isDone
-                            ? "bg-[#0D7A5F] border-[#0D7A5F] text-white"
-                            : "border-[#D4D4D8] bg-white"
-                        }`}
-                      >
-                        {item.isDone && <Check className="w-3.5 h-3.5" />}
-                      </div>
-                      <div>
-                        <p className={`font-semibold ${item.isDone ? "line-through opacity-80" : ""}`}>
-                          {item.item}
-                        </p>
-                        <p className="text-[11px] text-[#71717A]">Responsible Owner: {item.owner}</p>
-                      </div>
-                    </div>
-
-                    <div className="text-right text-[10px]">
-                      {item.isDone ? (
-                        <span className="text-emerald-700 font-bold">
-                          ✓ Done {formatDateTime(item.completedAt)}
-                        </span>
-                      ) : (
-                        <span className="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                          Pending Action
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* SECTION 5: OFFBOARDING & FINAL SETTLEMENT */}
           {activeSection === "offboarding" && (
@@ -1612,6 +1632,18 @@ export default function EmployeeProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Edit Employee Drawer */}
+      <EditEmployeeDrawer
+        isOpen={showEditDrawer}
+        onClose={() => setShowEditDrawer(false)}
+        employee={employee}
+        managers={managers}
+        onEmployeeUpdated={() => {
+          setNotification("Employee profile updated successfully.");
+          loadEmployee();
+        }}
+      />
     </div>
   );
 }

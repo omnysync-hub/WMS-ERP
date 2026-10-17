@@ -948,6 +948,14 @@ model Employee {
   status                 String                       @default("Active") // Active, On Leave, Resigning, Terminated, Inactive
   probationEndDate       DateTime?
   probationStatus        String?                      @default("Confirmed") // On Probation, Confirmed
+  cnic                   String?
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+  address                String?
+  bankName               String?
+  bankAccountTitle       String?
+  bankAccountNumber      String?
+  bankIban               String?
   reportingManagerId     String?
   reportingManager       Employee?                    @relation("ReportingChain", fields: [reportingManagerId], references: [id])
   directReports          Employee[]                   @relation("ReportingChain")

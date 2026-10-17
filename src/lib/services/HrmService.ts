@@ -111,6 +111,14 @@ export class HrmService {
     salary?: number;
     reportingManagerId?: string;
     probationEndDate?: Date | string;
+    cnic?: string;
+    emergencyContactName?: string;
+    emergencyContactPhone?: string;
+    address?: string;
+    bankName?: string;
+    bankAccountTitle?: string;
+    bankAccountNumber?: string;
+    bankIban?: string;
   }) {
     const employee = await prisma.employee.create({
       data: {
@@ -126,23 +134,75 @@ export class HrmService {
         status: "Active",
         probationStatus: data.probationEndDate ? "On Probation" : "Confirmed",
         probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
+        cnic: data.cnic || null,
+        emergencyContactName: data.emergencyContactName || null,
+        emergencyContactPhone: data.emergencyContactPhone || null,
+        address: data.address || null,
+        bankName: data.bankName || null,
+        bankAccountTitle: data.bankAccountTitle || null,
+        bankAccountNumber: data.bankAccountNumber || null,
+        bankIban: data.bankIban || null,
       },
     });
 
     // Auto-seed default leave balances
     await this.initEmployeeLeaveBalances(employee.id);
 
-    // Auto-seed onboarding checklist
-    await this.seedOnboardingChecklist(employee.id);
-
     const { mobilePasswordHash, ...safeEmployee } = employee;
     return safeEmployee;
   }
 
   static async updateEmployee(id: string, data: any) {
+    const {
+      name,
+      phone,
+      email,
+      role,
+      department,
+      designation,
+      employmentType,
+      salary,
+      reportingManagerId,
+      status,
+      probationStatus,
+      probationEndDate,
+      cnic,
+      emergencyContactName,
+      emergencyContactPhone,
+      address,
+      bankName,
+      bankAccountTitle,
+      bankAccountNumber,
+      bankIban,
+    } = data;
+
+    const updatePayload: any = {};
+    if (name !== undefined) updatePayload.name = name;
+    if (phone !== undefined) updatePayload.phone = phone;
+    if (email !== undefined) updatePayload.email = email;
+    if (role !== undefined) updatePayload.role = role;
+    if (department !== undefined) updatePayload.department = department;
+    if (designation !== undefined) updatePayload.designation = designation;
+    if (employmentType !== undefined) updatePayload.employmentType = employmentType;
+    if (salary !== undefined) updatePayload.salary = Number(salary) || 0;
+    if (reportingManagerId !== undefined) updatePayload.reportingManagerId = reportingManagerId || null;
+    if (status !== undefined) updatePayload.status = status;
+    if (probationStatus !== undefined) updatePayload.probationStatus = probationStatus;
+    if (probationEndDate !== undefined) {
+      updatePayload.probationEndDate = probationEndDate ? new Date(probationEndDate) : null;
+    }
+    if (cnic !== undefined) updatePayload.cnic = cnic;
+    if (emergencyContactName !== undefined) updatePayload.emergencyContactName = emergencyContactName;
+    if (emergencyContactPhone !== undefined) updatePayload.emergencyContactPhone = emergencyContactPhone;
+    if (address !== undefined) updatePayload.address = address;
+    if (bankName !== undefined) updatePayload.bankName = bankName;
+    if (bankAccountTitle !== undefined) updatePayload.bankAccountTitle = bankAccountTitle;
+    if (bankAccountNumber !== undefined) updatePayload.bankAccountNumber = bankAccountNumber;
+    if (bankIban !== undefined) updatePayload.bankIban = bankIban;
+
     const updated = await prisma.employee.update({
       where: { id },
-      data,
+      data: updatePayload,
     });
     const { mobilePasswordHash, ...safeEmployee } = updated;
     return safeEmployee;
