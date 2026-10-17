@@ -30,6 +30,7 @@ import {
   Users,
   Star,
   Clock,
+  RefreshCw,
 } from "lucide-react";
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import SearchableCombobox from "@/components/ui/SearchableCombobox";
@@ -270,23 +271,62 @@ export default function NewJobIntakePage() {
   // Technician Assignment (Optional - single or multiple)
   const [assignedTechnicianIds, setAssignedTechnicianIds] = useState<string[]>([]);
   const [primaryTechnicianId, setPrimaryTechnicianId] = useState<string>("");
+  const [isRefreshingTechnicians, setIsRefreshingTechnicians] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  const loadTechnicians = async () => {
+    try {
+      setIsRefreshingTechnicians(true);
+      const res = await fetch("/api/technicians");
+      const data = await res.json();
+      let list = Array.isArray(data?.technicians) ? data.technicians : [];
+
+      // Fallback: If empty, try HRM employees endpoint with technicians tab
+      if (list.length === 0) {
+        try {
+          const hrmRes = await fetch("/api/hrm/employees?tab=technicians");
+          const hrmData = await hrmRes.json();
+          const emps = Array.isArray(hrmData?.employees) ? hrmData.employees : Array.isArray(hrmData) ? hrmData : [];
+          if (emps.length > 0) {
+            list = emps
+              .filter((e: any) => e.active !== false && e.status !== "Terminated" && e.status !== "Inactive")
+              .map((e: any) => ({
+                id: e.id,
+                name: e.name,
+                phone: e.phone || "",
+                department: e.department || "Operations",
+                currentStatus: e.currentStatus || "Available",
+                active: e.active !== false,
+              }));
+          }
+        } catch (e) {
+          console.warn("HRM technicians fallback failed", e);
+        }
+      }
+
+      if (list.length > 0) {
+        setTechnicians(list);
+      }
+    } catch (err) {
+      console.error("Failed to load technicians", err);
+    } finally {
+      setIsRefreshingTechnicians(false);
+    }
+  };
 
   // Load Customers, Technicians, and Inventory Products
   const loadData = async () => {
     try {
       setLoading(true);
-      const [custRes, techRes, invRes, careOfRes] = await Promise.all([
+      const [custRes, invRes, careOfRes] = await Promise.all([
         fetch("/api/customers"),
-        fetch("/api/technicians"),
         fetch("/api/inventory"),
         fetch("/api/care-of-parties"),
       ]);
 
       const custList = await custRes.json();
-      const techData = await techRes.json();
       const invData = await invRes.json();
       try {
         const careOfData = await careOfRes.json();
@@ -300,12 +340,11 @@ export default function NewJobIntakePage() {
       if (Array.isArray(custList)) {
         setCustomers(custList);
       }
-      if (techData?.technicians) {
-        setTechnicians(techData.technicians);
-      }
       if (Array.isArray(invData)) {
         setInventoryProducts(invData);
       }
+
+      await loadTechnicians();
     } catch (err) {
       console.error("Failed to load intake data", err);
     } finally {
@@ -1995,6 +2034,16 @@ export default function NewJobIntakePage() {
                   <label className="font-semibold text-[#18181B] text-xs">
                     Assign Technicians (Single or Multi-Crew — Optional)
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => loadTechnicians()}
+                    disabled={isRefreshingTechnicians}
+                    title="Refresh technicians list"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isRefreshingTechnicians ? "animate-spin" : ""}`} />
+                    <span>Refresh</span>
+                  </button>
                 </div>
                 <span className="text-[11px] font-semibold text-[#71717A]">
                   {assignedTechnicianIds.length === 0
