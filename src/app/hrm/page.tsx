@@ -44,6 +44,8 @@ import {
   RotateCcw,
   Sparkles,
   Search,
+  Briefcase,
+  CalendarDays,
 } from "lucide-react";
 
 function HrmPayrollContent() {
@@ -639,117 +641,570 @@ function HrmPayrollContent() {
       {/* ========================================================================= */}
       {activeTab === "analytics" && (
         <div className="space-y-6">
-          {/* Top Metric Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs">
-              <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider block">
-                Total Headcount
-              </span>
-              <div className="flex items-baseline justify-between mt-1">
-                <span className="text-2xl font-bold font-mono text-[#18181B]">
-                  {analytics?.headcount?.total || 0}
-                </span>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                  {analytics?.headcount?.active || 0} Active
-                </span>
+          {/* 1. Quick HR Action Toolbar */}
+          <div className="bg-white p-4 rounded-xl border border-[#EDEDED] shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-[#0D7A5F]/10 text-[#0D7A5F] flex items-center justify-center font-bold">
+                <Sparkles className="w-4 h-4" />
               </div>
-              <p className="text-[11px] text-[#71717A] mt-2">
-                {analytics?.headcount?.onLeave || 0} currently on approved leave
-              </p>
+              <div>
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  HR Management Operations Hub
+                </h3>
+                <p className="text-[11px] text-[#71717A]">
+                  Executive workforce command, daily approvals, live attendance, and roster tracking.
+                </p>
+              </div>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs">
-              <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider block">
-                Attrition / Turnover Rate
-              </span>
-              <div className="flex items-baseline justify-between mt-1">
-                <span className="text-2xl font-bold font-mono text-emerald-700">
-                  {analytics?.turnoverRate || 0}%
-                </span>
-                <span className="text-xs font-semibold text-[#71717A]">Target: &lt; 5%</span>
-              </div>
-              <p className="text-[11px] text-[#71717A] mt-2">Calculated from offboarded records</p>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs">
-              <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider block">
-                Open Requisitions (ATS)
-              </span>
-              <div className="flex items-baseline justify-between mt-1">
-                <span className="text-2xl font-bold font-mono text-[#0D7A5F]">
-                  {analytics?.openRequisitions || 0}
-                </span>
-                <Link href="/hrm?tab=recruitment" className="text-xs text-[#0D7A5F] hover:underline font-semibold">
-                  View Pipeline →
-                </Link>
-              </div>
-              <p className="text-[11px] text-[#71717A] mt-2">Approved roles currently in hiring</p>
-            </div>
-
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs">
-              <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider block">
-                Departments & Units
-              </span>
-              <div className="flex items-baseline justify-between mt-1">
-                <span className="text-2xl font-bold font-mono text-[#18181B]">
-                  6 Active
-                </span>
-                <span className="text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                  Operations & Mgmt
-                </span>
-              </div>
-              <p className="text-[11px] text-[#71717A] mt-2">Field Ops, Accounts, HR, QA, Stores, Maint</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowAddEmployeeDrawer(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0D7A5F] hover:bg-[#0A614B] rounded-lg transition shadow-xs cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>+ Add Employee</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowLeaveDrawer(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
+              >
+                <Calendar className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                <span>Log Leave</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddAssetDrawer(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
+              >
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                <span>Issue Asset</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewRequisitionDrawer(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
+              >
+                <Briefcase className="w-3.5 h-3.5 text-purple-600" />
+                <span>Post Requisition</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("attendance")}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition cursor-pointer"
+              >
+                <Clock className="w-3.5 h-3.5 text-sky-600" />
+                <span>Live Terminal</span>
+              </button>
             </div>
           </div>
 
-          {/* Department Breakdown & Probation Ending Soon */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center justify-between">
-                <span>Headcount By Department</span>
-                <span className="text-[10px] font-mono text-[#71717A]">Workforce Allocation</span>
-              </h3>
-              <div className="space-y-2">
-                {analytics?.headcount?.byDepartment?.map((d: any) => (
-                  <div
-                    key={d.department}
-                    className="flex items-center justify-between p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs"
-                  >
-                    <span className="font-semibold text-[#18181B]">{d.department}</span>
-                    <span className="font-mono font-bold text-[#0D7A5F] bg-white px-2.5 py-0.5 rounded border">
-                      {d.count} staff
-                    </span>
+          {/* 2. Top Executive KPI Metric Cards (4 Cards) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Total Workforce */}
+            <div
+              onClick={() => setActiveTab("employees")}
+              className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs hover:border-[#0D7A5F]/60 transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                    Total Workforce
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Users className="w-4 h-4" />
                   </div>
-                ))}
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-2xl font-bold font-mono text-[#18181B]">
+                    {analytics?.headcount?.total || 0}
+                  </span>
+                  <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    {analytics?.headcount?.active || 0} Active Staff
+                  </span>
+                </div>
+              </div>
+              <div className="pt-3 mt-3 border-t border-[#F4F4F5] flex items-center justify-between text-[11px] text-[#71717A]">
+                <span>{analytics?.headcount?.onLeave || 0} on leave today</span>
+                <span className="font-semibold text-emerald-700 font-mono">
+                  Turnover: {analytics?.turnoverRate || 0}%
+                </span>
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center justify-between">
-                <span>Probation Ending Soon (&lt; 30 Days)</span>
-                <span className="text-[10px] font-mono text-amber-700 font-bold">Review Required</span>
-              </h3>
-              {analytics?.probationEndingSoon && analytics.probationEndingSoon.length > 0 ? (
-                <div className="space-y-2">
-                  {analytics.probationEndingSoon.map((emp: any) => (
-                    <Link
-                      key={emp.id}
-                      href={`/hrm/employees/${emp.id}`}
-                      className="flex items-center justify-between p-2.5 bg-amber-50/50 hover:bg-amber-50 rounded-lg border border-amber-200 text-xs transition"
-                    >
-                      <div>
-                        <p className="font-bold text-[#18181B]">{emp.name}</p>
-                        <p className="text-[11px] text-[#71717A]">{emp.designation} • {emp.department}</p>
-                      </div>
-                      <span className="text-[10px] font-mono text-amber-900 font-bold bg-white px-2 py-0.5 rounded border border-amber-200">
-                        Ends {formatDateTime(emp.probationEndDate)}
-                      </span>
-                    </Link>
-                  ))}
+            {/* Card 2: Live Shift Attendance Today */}
+            <div
+              onClick={() => setActiveTab("attendance")}
+              className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs hover:border-sky-500/60 transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                    Shift Attendance Today
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Clock className="w-4 h-4" />
+                  </div>
                 </div>
-              ) : (
-                <p className="text-xs text-[#71717A] p-4 text-center">No probation reviews pending in the next 30 days.</p>
-              )}
+                <div className="flex items-baseline justify-between">
+                  <span className="text-2xl font-bold font-mono text-[#18181B]">
+                    {analytics?.attendance?.present || 0} Present
+                  </span>
+                  <span className="text-xs font-semibold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
+                    {analytics?.attendance?.rate || 0}% Attendance
+                  </span>
+                </div>
+              </div>
+              <div className="pt-3 mt-3 border-t border-[#F4F4F5] flex items-center justify-between text-[11px] text-[#71717A]">
+                <span>{analytics?.attendance?.absent || 0} absent / pending</span>
+                <span className="font-semibold text-sky-700 font-mono">
+                  {analytics?.attendance?.geofenceVerifiedCount || 0} GPS punches
+                </span>
+              </div>
+            </div>
+
+            {/* Card 3: Monthly Wage & Payroll Liability */}
+            <div
+              onClick={() => setActiveTab("payroll")}
+              className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs hover:border-purple-500/60 transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                    Monthly Wage & Payroll
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-[#18181B] truncate">
+                    {formatCurrency(analytics?.payroll?.monthlyWageLiability || 0)}
+                  </span>
+                  <span className="text-[10px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 shrink-0">
+                    {analytics?.payroll?.latest?.period || "Current Month"}
+                  </span>
+                </div>
+              </div>
+              <div className="pt-3 mt-3 border-t border-[#F4F4F5] flex items-center justify-between text-[11px] text-[#71717A]">
+                <span>Active Advances:</span>
+                <span className="font-semibold text-amber-700 font-mono">
+                  {formatCurrency(analytics?.payroll?.activeAdvancesTotal || 0)}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 4: Equipment Assets & Talent ATS */}
+            <div
+              onClick={() => setActiveTab("assets")}
+              className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs hover:border-amber-500/60 transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                    Assets & Recruitment
+                  </span>
+                  <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-2xl font-bold font-mono text-[#18181B]">
+                    {analytics?.assets?.assigned || 0}
+                    <span className="text-sm text-[#71717A] font-normal font-sans">
+                      /{analytics?.assets?.total || 0} Assets
+                    </span>
+                  </span>
+                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                    {analytics?.openRequisitions || 0} ATS Roles
+                  </span>
+                </div>
+              </div>
+              <div className="pt-3 mt-3 border-t border-[#F4F4F5] flex items-center justify-between text-[11px] text-[#71717A]">
+                <span>{analytics?.assets?.inStorage || 0} assets in store</span>
+                <span className="font-semibold text-purple-700 font-mono">
+                  {analytics?.pendingGrievances || 0} tickets
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Operational Hub: Pending HR Approvals vs Live Shift Geofence Terminal */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left: Action Required & Pending Approvals Hub (Col span 7) */}
+            <div className="lg:col-span-7 bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[#F4F4F5]">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-md bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Priority Actions & Pending HR Approvals
+                    </h3>
+                    <p className="text-[11px] text-[#71717A]">
+                      Leave applications, salary advance authorizations, and probation reviews.
+                    </p>
+                  </div>
+                </div>
+                {((analytics?.pendingActions?.pendingLeavesCount || 0) +
+                  (analytics?.pendingActions?.pendingAdvancesCount || 0) +
+                  (analytics?.probationEndingSoon?.length || 0)) > 0 && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-100 px-2 py-0.5 rounded-full">
+                    {((analytics?.pendingActions?.pendingLeavesCount || 0) +
+                      (analytics?.pendingActions?.pendingAdvancesCount || 0) +
+                      (analytics?.probationEndingSoon?.length || 0))}{" "}
+                    Action Required
+                  </span>
+                )}
+              </div>
+
+              {/* Pending Items List */}
+              <div className="space-y-3">
+                {/* 1. Pending Leaves */}
+                {analytics?.pendingActions?.pendingLeaves && analytics.pendingActions.pendingLeaves.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-semibold text-amber-900">
+                      <span className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Pending Leave Requests ({analytics.pendingActions.pendingLeavesCount})</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("leave")}
+                        className="text-[11px] text-[#0D7A5F] hover:underline font-semibold cursor-pointer"
+                      >
+                        Review all leaves &rarr;
+                      </button>
+                    </div>
+                    {analytics.pendingActions.pendingLeaves.map((lv: any) => (
+                      <div
+                        key={lv.id}
+                        className="flex items-center justify-between p-2.5 bg-amber-50/40 hover:bg-amber-50 rounded-lg border border-amber-200/80 text-xs transition"
+                      >
+                        <div>
+                          <span className="font-bold text-[#18181B]">{lv.employee?.name || "Employee"}</span>
+                          <span className="text-[#71717A] text-[11px] ml-2">
+                            {lv.employee?.department} • {lv.leaveType?.name || "Leave"} ({lv.daysCount} days)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("leave")}
+                          className="text-[10px] font-bold text-amber-900 bg-white hover:bg-amber-100 border border-amber-300 px-2 py-1 rounded transition cursor-pointer"
+                        >
+                          Review Request
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* 2. Pending Salary Advances */}
+                {analytics?.pendingActions?.pendingAdvances && analytics.pendingActions.pendingAdvances.length > 0 ? (
+                  <div className="space-y-1.5 pt-2 border-t border-[#F4F4F5]">
+                    <div className="flex items-center justify-between text-xs font-semibold text-purple-900">
+                      <span className="flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Salary Advance Requests ({analytics.pendingActions.pendingAdvancesCount})</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("advances")}
+                        className="text-[11px] text-[#0D7A5F] hover:underline font-semibold cursor-pointer"
+                      >
+                        Open Advance Portal &rarr;
+                      </button>
+                    </div>
+                    {analytics.pendingActions.pendingAdvances.map((adv: any) => (
+                      <div
+                        key={adv.id}
+                        className="flex items-center justify-between p-2.5 bg-purple-50/40 hover:bg-purple-50 rounded-lg border border-purple-200/80 text-xs transition"
+                      >
+                        <div>
+                          <span className="font-bold text-[#18181B]">{adv.employee?.name || "Employee"}</span>
+                          <span className="text-[#71717A] text-[11px] ml-2 font-mono">
+                            Requested: {formatCurrency(adv.amount)}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("advances")}
+                          className="text-[10px] font-bold text-purple-900 bg-white hover:bg-purple-100 border border-purple-300 px-2 py-1 rounded transition cursor-pointer"
+                        >
+                          Authorize
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* 3. Probation Ending Soon */}
+                {analytics?.probationEndingSoon && analytics.probationEndingSoon.length > 0 ? (
+                  <div className="space-y-1.5 pt-2 border-t border-[#F4F4F5]">
+                    <div className="flex items-center justify-between text-xs font-semibold text-[#18181B]">
+                      <span className="flex items-center gap-1.5">
+                        <UserCheck className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Probation Expiring Within 30 Days ({analytics.probationEndingSoon.length})</span>
+                      </span>
+                      <span className="text-[10px] text-amber-700 font-mono font-semibold">Evaluation Due</span>
+                    </div>
+                    {analytics.probationEndingSoon.slice(0, 3).map((emp: any) => (
+                      <Link
+                        key={emp.id}
+                        href={`/hrm/employees/${emp.id}`}
+                        className="flex items-center justify-between p-2.5 bg-[#FAFAFA] hover:bg-zinc-100 rounded-lg border border-[#E4E4E7] text-xs transition"
+                      >
+                        <div>
+                          <span className="font-bold text-[#18181B]">{emp.name}</span>
+                          <span className="text-[#71717A] text-[11px] ml-2">
+                            {emp.designation} • {emp.department}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          Due {formatDateTime(emp.probationEndDate)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* All clear state if none of the above */}
+                {(!analytics?.pendingActions?.pendingLeaves || analytics.pendingActions.pendingLeaves.length === 0) &&
+                  (!analytics?.pendingActions?.pendingAdvances || analytics.pendingActions.pendingAdvances.length === 0) &&
+                  (!analytics?.probationEndingSoon || analytics.probationEndingSoon.length === 0) && (
+                    <div className="p-6 text-center bg-[#F9FAFB] rounded-lg border border-[#EDEDED] space-y-1.5">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                      <p className="text-xs font-bold text-[#18181B]">All Clear! No Pending Approvals</p>
+                      <p className="text-[11px] text-[#71717A]">
+                        All employee leave requests, salary advances, and probation reviews are up to date.
+                      </p>
+                    </div>
+                  )}
+              </div>
+            </div>
+
+            {/* Right: Live Shift & Geofence Verification Terminal (Col span 5) */}
+            <div className="lg:col-span-5 bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs space-y-4 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-3 border-b border-[#F4F4F5]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-sky-500 text-white flex items-center justify-center shadow-xs">
+                      <Clock className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                        Live Attendance & Geofence
+                      </h3>
+                      <p className="text-[11px] text-[#71717A]">
+                        Real-time GPS geofence checks and shift progress today.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                    {analytics?.attendance?.rate || 0}% Present
+                  </span>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-[#71717A] font-medium">
+                    <span>Shift Attendance Rate</span>
+                    <span className="font-bold text-[#18181B]">
+                      {analytics?.attendance?.present || 0} of {analytics?.headcount?.active || 0} checked in
+                    </span>
+                  </div>
+                  <div className="w-full bg-[#E4E4E7] h-2.5 rounded-full overflow-hidden flex">
+                    <div
+                      className="bg-emerald-500 h-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, analytics?.attendance?.rate || 0)}%` }}
+                    />
+                    <div
+                      className="bg-amber-400 h-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          analytics?.headcount?.active
+                            ? ((analytics?.headcount?.onLeave || 0) / analytics.headcount.active) * 100
+                            : 0
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-[#71717A] pt-1">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" /> Present (
+                      {analytics?.attendance?.present || 0})
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-amber-400" /> On Leave (
+                      {analytics?.attendance?.onLeave || 0})
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-rose-400" /> Absent (
+                      {analytics?.attendance?.absent || 0})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Geofence verification callout */}
+                <div className="p-3 bg-sky-50/60 rounded-lg border border-sky-200 text-xs text-sky-950 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-sky-600 shrink-0" />
+                    <span>
+                      <strong>{analytics?.attendance?.geofenceVerifiedCount || 0} punches</strong> verified inside
+                      active geofenced boundaries.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#F4F4F5] flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("attendance")}
+                  className="w-full py-2 bg-[#0D7A5F] hover:bg-[#0A614B] text-white text-xs font-semibold rounded-lg text-center transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Open Full Attendance Terminal & Log Punch</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Bottom 3-Column Grid: Departments, Assets & Calendar */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Column 1: Headcount by Department */}
+            <div className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-[#F4F4F5]">
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
+                  <FolderTree className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                  <span>Department Distribution</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("employees")}
+                  className="text-[11px] text-[#0D7A5F] hover:underline font-semibold cursor-pointer"
+                >
+                  Directory &rarr;
+                </button>
+              </div>
+              <div className="space-y-2.5">
+                {analytics?.headcount?.byDepartment && analytics.headcount.byDepartment.length > 0 ? (
+                  analytics.headcount.byDepartment.map((d: any) => {
+                    const total = analytics?.headcount?.total || 1;
+                    const pct = Math.round((d.count / total) * 100);
+                    return (
+                      <div key={d.department} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-[#18181B]">{d.department || "Unassigned"}</span>
+                          <span className="font-mono font-bold text-[#0D7A5F]">
+                            {d.count} staff <span className="text-[#71717A] font-normal text-[10px]">({pct}%)</span>
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#F4F4F5] h-1.5 rounded-full overflow-hidden">
+                          <div className="bg-[#0D7A5F] h-full rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-[#71717A] py-3 text-center">No departments configured yet.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Column 2: Equipment & Assets Deployed */}
+            <div className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-[#F4F4F5]">
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Company Equipment & Assets</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("assets")}
+                  className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer"
+                >
+                  View All &rarr;
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200">
+                    <span className="text-xl font-bold font-mono text-blue-900 block">
+                      {analytics?.assets?.assigned || 0}
+                    </span>
+                    <span className="text-[10px] text-blue-700 font-semibold uppercase">Assigned to Staff</span>
+                  </div>
+                  <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED]">
+                    <span className="text-xl font-bold font-mono text-[#18181B] block">
+                      {analytics?.assets?.inStorage || 0}
+                    </span>
+                    <span className="text-[10px] text-[#71717A] font-semibold uppercase">In Storage Store</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddAssetDrawer(true)}
+                  className="w-full py-1.5 bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] text-xs font-semibold rounded-lg text-[#18181B] transition flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                  <span>+ Register New Asset</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Column 3: Upcoming Holidays & Recent Joiners */}
+            <div className="bg-white p-5 rounded-xl border border-[#EDEDED] shadow-xs space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-[#F4F4F5]">
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
+                  <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Calendar & Recent Hires</span>
+                </h3>
+                <span className="text-[10px] font-mono text-[#71717A]">Workforce Pulse</span>
+              </div>
+              <div className="space-y-2">
+                {/* Upcoming Holidays */}
+                {analytics?.upcomingHolidays && analytics.upcomingHolidays.length > 0 ? (
+                  analytics.upcomingHolidays.map((h: any) => (
+                    <div
+                      key={h.id}
+                      className="flex items-center justify-between p-2 bg-emerald-50/50 rounded-lg border border-emerald-200 text-xs"
+                    >
+                      <span className="font-semibold text-emerald-950">{h.name}</span>
+                      <span className="text-[10px] font-mono text-emerald-800 font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">
+                        {formatDateTime(h.date)}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-[11px] text-[#71717A]">No upcoming holidays scheduled this month.</p>
+                )}
+
+                {/* Recent Joiners */}
+                {analytics?.recentJoiners && analytics.recentJoiners.length > 0 && (
+                  <div className="pt-2 border-t border-[#F4F4F5] space-y-1">
+                    <span className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider block">
+                      Recent Joiners
+                    </span>
+                    {analytics.recentJoiners.slice(0, 2).map((emp: any) => (
+                      <Link
+                        key={emp.id}
+                        href={`/hrm/employees/${emp.id}`}
+                        className="flex items-center justify-between text-xs py-1 hover:text-[#0D7A5F] transition"
+                      >
+                        <span className="font-semibold truncate">{emp.name}</span>
+                        <span className="text-[10px] text-[#71717A] shrink-0 font-mono">
+                          Joined {formatDateTime(emp.joinDate)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

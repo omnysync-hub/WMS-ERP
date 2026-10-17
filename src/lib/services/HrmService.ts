@@ -953,6 +953,11 @@ export class HrmService {
   // ==========================================
 
   static async getHrAnalytics() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
     const [
       totalEmployees,
       activeEmployees,
@@ -963,6 +968,19 @@ export class HrmService {
       allOffboarded,
       allLeaveThisMonth,
       probationEndingSoon,
+      todayLogs,
+      pendingLeaves,
+      pendingLeavesCount,
+      pendingAdvances,
+      pendingAdvancesCount,
+      activeAdvancesSum,
+      latestPayroll,
+      totalAssets,
+      assignedAssets,
+      inStorageAssets,
+      activeSalarySum,
+      recentJoiners,
+      upcomingHolidays,
     ] = await Promise.all([
       prisma.employee.count(),
       prisma.employee.count({ where: { active: true, status: "Active" } }),
@@ -993,11 +1011,81 @@ export class HrmService {
           probationEndDate: true,
         },
       }),
+      prisma.attendanceLog.findMany({
+        where: { timestamp: { gte: startOfToday, lte: endOfToday } },
+        select: { employeeId: true, withinGeofence: true, result: true },
+      }),
+      prisma.leaveRequest.findMany({
+        where: { status: "Pending" },
+        include: {
+          employee: { select: { id: true, name: true, department: true } },
+          leaveType: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      }),
+      prisma.leaveRequest.count({ where: { status: "Pending" } }),
+      prisma.employeeAdvance.findMany({
+        where: { status: "pending" },
+        include: {
+          employee: { select: { id: true, name: true, department: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      }),
+      prisma.employeeAdvance.count({ where: { status: "pending" } }),
+      prisma.employeeAdvance.aggregate({
+        where: { status: "approved" },
+        _sum: { amount: true },
+      }),
+      prisma.payrollRun.findFirst({
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          period: true,
+          status: true,
+          totalNet: true,
+          totalGross: true,
+          createdAt: true,
+        },
+      }),
+      prisma.asset.count(),
+      prisma.asset.count({ where: { status: "Assigned" } }),
+      prisma.asset.count({ where: { status: "In Storage" } }),
+      prisma.employee.aggregate({
+        where: { active: true, status: "Active" },
+        _sum: { salary: true },
+      }),
+      prisma.employee.findMany({
+        where: { active: true },
+        orderBy: { joinDate: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          name: true,
+          department: true,
+          designation: true,
+          joinDate: true,
+        },
+      }),
+      prisma.companyHoliday.findMany({
+        where: { date: { gte: startOfToday } },
+        orderBy: { date: "asc" },
+        take: 3,
+      }),
     ]);
 
     const turnoverRate = totalEmployees > 0
       ? Number(((allOffboarded / totalEmployees) * 100).toFixed(1))
       : 0;
+
+    const uniquePresentIds = new Set(
+      todayLogs.filter((l) => l.result === "pass").map((l) => l.employeeId)
+    );
+    const presentTodayCount = uniquePresentIds.size;
+    const absentTodayCount = Math.max(0, activeEmployees - presentTodayCount - onLeaveEmployees);
+    const attendanceRate = activeEmployees > 0 ? Math.round((presentTodayCount / activeEmployees) * 100) : 0;
+    const geofenceVerifiedCount = todayLogs.filter((l) => l.withinGeofence).length;
 
     return {
       headcount: {
@@ -1014,6 +1102,33 @@ export class HrmService {
       leaveTakenThisMonth: allLeaveThisMonth._sum.daysCount || 0,
       pendingGrievances,
       probationEndingSoon,
+      attendance: {
+        present: presentTodayCount,
+        absent: absentTodayCount,
+        onLeave: onLeaveEmployees,
+        rate: attendanceRate,
+        geofenceVerifiedCount,
+        totalPunchesToday: todayLogs.length,
+      },
+      pendingActions: {
+        pendingLeavesCount,
+        pendingLeaves,
+        pendingAdvancesCount,
+        pendingAdvances,
+        probationEndingSoonCount: probationEndingSoon.length,
+      },
+      payroll: {
+        latest: latestPayroll,
+        monthlyWageLiability: activeSalarySum._sum.salary || 0,
+        activeAdvancesTotal: activeAdvancesSum._sum.amount || 0,
+      },
+      assets: {
+        total: totalAssets,
+        assigned: assignedAssets,
+        inStorage: inStorageAssets,
+      },
+      recentJoiners,
+      upcomingHolidays,
     };
   }
 }
