@@ -315,7 +315,9 @@ export default function Sidebar({
     { label: "Self-Service (ESS)", tab: "ess", icon: Sparkles },
   ];
 
-  const hasHrmAccess = ["admin", "hr", "auditor"].includes(activeRole) || hasPermission("hrm.view_employees");
+  const hasHrmAccess =
+    activeRole !== "dispatcher" &&
+    (["admin", "hr", "auditor"].includes(activeRole) || hasPermission("hrm.view_employees"));
 
   // Dedicated Procurement Accordion Sub-Items
   const allProcurementSubItems = [
@@ -403,6 +405,7 @@ export default function Sidebar({
     ? []
     : allOperationsItems.filter((item) => {
         if (isStorekeeper && item.href === "/customers") return false;
+        if (activeRole === "dispatcher" && item.href === "/inventory") return false;
         // Check role inclusion or granular permission
         const hasRole = item.roles.includes(activeRole);
         if (!hasRole && !item.perm) return false;

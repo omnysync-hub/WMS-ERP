@@ -873,7 +873,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "dispatch.assign_job": true,
     "dispatch.surveillance": true,
     // Inventory
-    "inventory.view_stock": true,
+    "inventory.view_stock": false,
     "inventory.view_costs": false,
     "inventory.restock": false,
     "inventory.opening_stock": false,
@@ -916,9 +916,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "accounts.cashier_register": false,
     "accounts.financial_reports": false,
     // HRM
-    "hrm.view_employees": true,
+    "hrm.view_employees": false,
     "hrm.manage_employees": false,
-    "hrm.attendance": true,
+    "hrm.attendance": false,
     "hrm.payroll": false,
     "hrm.advances": false,
     // Settings
