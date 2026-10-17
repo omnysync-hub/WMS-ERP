@@ -7,7 +7,6 @@ import {
   Cpu,
   Tag,
   Layers,
-  Briefcase,
   Plus,
   Pencil,
   Trash2,
@@ -16,7 +15,6 @@ import {
   X,
   ArrowLeft,
   Settings2,
-  ExternalLink,
   Sparkles,
   Search,
 } from "lucide-react";
@@ -69,27 +67,14 @@ const DEFAULT_MODELS = [
   "Cold Storage Freezer Unit 3HP",
 ];
 
-const DEFAULT_JOB_TYPES = [
-  "Installation & Commissioning",
-  "Emergency Repair & Breakdown",
-  "Preventive Maintenance Service",
-  "AC Gas Recharge & Leakage Repair",
-  "Duct Cleaning & Sanitization",
-  "Compressor Overhaul & Replacement",
-  "System Inspection & Thermostat Audit",
-  "Annual Maintenance Contract (AMC)",
-];
-
 export default function ProductDropdownSettingsPage() {
   const [equipmentTypes, setEquipmentTypes] = useState<string[]>(DEFAULT_EQUIPMENT_TYPES);
   const [brands, setBrands] = useState<string[]>(DEFAULT_BRANDS);
   const [models, setModels] = useState<string[]>(DEFAULT_MODELS);
-  const [jobTypes, setJobTypes] = useState<string[]>(DEFAULT_JOB_TYPES);
 
   const [newEquip, setNewEquip] = useState("");
   const [newBrand, setNewBrand] = useState("");
   const [newModel, setNewModel] = useState("");
-  const [newJobType, setNewJobType] = useState("");
   const [savedNotice, setSavedNotice] = useState("");
 
   // Live interactive preview states for the 3 searchable combobox textboxes
@@ -98,7 +83,7 @@ export default function ProductDropdownSettingsPage() {
   const [previewModel, setPreviewModel] = useState("Inverter Split 1.5 Ton Fairy Series");
 
   // Inline editing state
-  const [editingCategory, setEditingCategory] = useState<"equip" | "brand" | "model" | "job" | null>(null);
+  const [editingCategory, setEditingCategory] = useState<"equip" | "brand" | "model" | null>(null);
   const [editingOriginal, setEditingOriginal] = useState<string>("");
   const [editingValue, setEditingValue] = useState<string>("");
 
@@ -123,12 +108,6 @@ export default function ProductDropdownSettingsPage() {
           const parsed = JSON.parse(savedModels);
           if (Array.isArray(parsed) && parsed.length > 0) setModels(parsed);
         }
-
-        const savedJobs = localStorage.getItem("custom_job_types");
-        if (savedJobs) {
-          const parsed = JSON.parse(savedJobs);
-          if (Array.isArray(parsed) && parsed.length > 0) setJobTypes(parsed);
-        }
       } catch (e) {
         console.error("Failed loading dropdown settings", e);
       }
@@ -138,13 +117,11 @@ export default function ProductDropdownSettingsPage() {
     window.addEventListener("storage", syncFromStorage);
     window.addEventListener("custom_equipment_types_updated", syncFromStorage as EventListener);
     window.addEventListener("custom_hvac_brands_updated", syncFromStorage as EventListener);
-    window.addEventListener("custom_job_types_updated", syncFromStorage as EventListener);
     window.addEventListener("custom_hvac_models_updated", syncFromStorage as EventListener);
     return () => {
       window.removeEventListener("storage", syncFromStorage);
       window.removeEventListener("custom_equipment_types_updated", syncFromStorage as EventListener);
       window.removeEventListener("custom_hvac_brands_updated", syncFromStorage as EventListener);
-      window.removeEventListener("custom_job_types_updated", syncFromStorage as EventListener);
       window.removeEventListener("custom_hvac_models_updated", syncFromStorage as EventListener);
     };
   }, []);
@@ -152,18 +129,15 @@ export default function ProductDropdownSettingsPage() {
   const saveSettings = (
     nextEquip = equipmentTypes,
     nextBrands = brands,
-    nextModels = models,
-    nextJobs = jobTypes
+    nextModels = models
   ) => {
     try {
       localStorage.setItem("custom_equipment_types", JSON.stringify(nextEquip));
       localStorage.setItem("custom_hvac_brands", JSON.stringify(nextBrands));
       localStorage.setItem("custom_hvac_models", JSON.stringify(nextModels));
-      localStorage.setItem("custom_job_types", JSON.stringify(nextJobs));
       window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new CustomEvent("custom_equipment_types_updated", { detail: nextEquip }));
       window.dispatchEvent(new CustomEvent("custom_hvac_brands_updated", { detail: nextBrands }));
-      window.dispatchEvent(new CustomEvent("custom_job_types_updated", { detail: nextJobs }));
       window.dispatchEvent(new CustomEvent("custom_hvac_models_updated", { detail: nextModels }));
       setSavedNotice("Settings saved! Searchable textboxes and dropdowns synced across the system.");
       setTimeout(() => setSavedNotice(""), 4000);
@@ -172,7 +146,7 @@ export default function ProductDropdownSettingsPage() {
     }
   };
 
-  const handleStartEdit = (category: "equip" | "brand" | "model" | "job", item: string) => {
+  const handleStartEdit = (category: "equip" | "brand" | "model", item: string) => {
     setEditingCategory(category);
     setEditingOriginal(item);
     setEditingValue(item);
@@ -184,26 +158,22 @@ export default function ProductDropdownSettingsPage() {
     setEditingValue("");
   };
 
-  const handleSaveEdit = (category: "equip" | "brand" | "model" | "job", original: string) => {
+  const handleSaveEdit = (category: "equip" | "brand" | "model", original: string) => {
     const trimmed = editingValue.trim();
     if (!trimmed) return;
 
     if (category === "equip") {
       const next = equipmentTypes.map((x) => (x === original ? trimmed : x));
       setEquipmentTypes(next);
-      saveSettings(next, brands, models, jobTypes);
+      saveSettings(next, brands, models);
     } else if (category === "brand") {
       const next = brands.map((x) => (x === original ? trimmed : x));
       setBrands(next);
-      saveSettings(equipmentTypes, next, models, jobTypes);
+      saveSettings(equipmentTypes, next, models);
     } else if (category === "model") {
       const next = models.map((x) => (x === original ? trimmed : x));
       setModels(next);
-      saveSettings(equipmentTypes, brands, next, jobTypes);
-    } else if (category === "job") {
-      const next = jobTypes.map((x) => (x === original ? trimmed : x));
-      setJobTypes(next);
-      saveSettings(equipmentTypes, brands, models, next);
+      saveSettings(equipmentTypes, brands, next);
     }
 
     handleCancelEdit();
@@ -216,13 +186,13 @@ export default function ProductDropdownSettingsPage() {
     const next = [...equipmentTypes, newEquip.trim()];
     setEquipmentTypes(next);
     setNewEquip("");
-    saveSettings(next, brands, models, jobTypes);
+    saveSettings(next, brands, models);
   };
 
   const handleDeleteEquip = (item: string) => {
     const next = equipmentTypes.filter((x) => x !== item);
     setEquipmentTypes(next);
-    saveSettings(next, brands, models, jobTypes);
+    saveSettings(next, brands, models);
   };
 
   const handleAddBrand = (e: React.FormEvent) => {
@@ -231,13 +201,13 @@ export default function ProductDropdownSettingsPage() {
     const next = [...brands, newBrand.trim()];
     setBrands(next);
     setNewBrand("");
-    saveSettings(equipmentTypes, next, models, jobTypes);
+    saveSettings(equipmentTypes, next, models);
   };
 
   const handleDeleteBrand = (item: string) => {
     const next = brands.filter((x) => x !== item);
     setBrands(next);
-    saveSettings(equipmentTypes, next, models, jobTypes);
+    saveSettings(equipmentTypes, next, models);
   };
 
   const handleAddModel = (e: React.FormEvent) => {
@@ -246,28 +216,13 @@ export default function ProductDropdownSettingsPage() {
     const next = [...models, newModel.trim()];
     setModels(next);
     setNewModel("");
-    saveSettings(equipmentTypes, brands, next, jobTypes);
+    saveSettings(equipmentTypes, brands, next);
   };
 
   const handleDeleteModel = (item: string) => {
     const next = models.filter((x) => x !== item);
     setModels(next);
-    saveSettings(equipmentTypes, brands, next, jobTypes);
-  };
-
-  const handleAddJobType = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newJobType.trim() || jobTypes.includes(newJobType.trim())) return;
-    const next = [...jobTypes, newJobType.trim()];
-    setJobTypes(next);
-    setNewJobType("");
-    saveSettings(equipmentTypes, brands, models, next);
-  };
-
-  const handleDeleteJobType = (item: string) => {
-    const next = jobTypes.filter((x) => x !== item);
-    setJobTypes(next);
-    saveSettings(equipmentTypes, brands, models, next);
+    saveSettings(equipmentTypes, brands, next);
   };
 
   const handleResetDefaults = () => {
@@ -275,8 +230,7 @@ export default function ProductDropdownSettingsPage() {
     setEquipmentTypes(DEFAULT_EQUIPMENT_TYPES);
     setBrands(DEFAULT_BRANDS);
     setModels(DEFAULT_MODELS);
-    setJobTypes(DEFAULT_JOB_TYPES);
-    saveSettings(DEFAULT_EQUIPMENT_TYPES, DEFAULT_BRANDS, DEFAULT_MODELS, DEFAULT_JOB_TYPES);
+    saveSettings(DEFAULT_EQUIPMENT_TYPES, DEFAULT_BRANDS, DEFAULT_MODELS);
   };
 
   return (
@@ -298,15 +252,6 @@ export default function ProductDropdownSettingsPage() {
           <ArrowLeft className="w-4 h-4" />
           Back to Settings Hub
         </Link>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/settings/job-types"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 bg-white border border-[#EDEDED] text-[#0D7A5F] hover:bg-emerald-50 rounded-lg shadow-2xs transition"
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span>Job Nature / Types Manager</span>
-          </Link>
-        </div>
       </div>
 
       {savedNotice && (
@@ -389,8 +334,8 @@ export default function ProductDropdownSettingsPage() {
         </div>
       </div>
 
-      {/* 4 Management Columns */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      {/* 3 Management Columns */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* 1. Appliance / Equipment Types */}
         <div className="bg-white rounded-xl border border-[#EDEDED] shadow-xs p-4 space-y-3 flex flex-col justify-between">
           <div className="space-y-3">
@@ -666,110 +611,6 @@ export default function ProductDropdownSettingsPage() {
                       <button
                         type="button"
                         onClick={() => handleDeleteModel(item)}
-                        className="text-[#71717A] hover:text-rose-600 transition p-1"
-                        title="Remove from options"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* 4. Job Types */}
-        <div className="bg-white rounded-xl border border-[#EDEDED] shadow-xs p-4 space-y-3 flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-[#F4F4F5]">
-              <div className="flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-blue-700" />
-                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Job Types ({jobTypes.length})
-                </h3>
-              </div>
-              <Link
-                href="/settings/job-types"
-                className="text-[11px] font-semibold text-blue-700 hover:underline flex items-center gap-0.5"
-                title="Open full interactive manager"
-              >
-                <span>Full View</span>
-                <ExternalLink className="w-3 h-3" />
-              </Link>
-            </div>
-
-            <form onSubmit={handleAddJobType} className="flex gap-1.5">
-              <input
-                type="text"
-                placeholder="+ Add job type..."
-                value={newJobType}
-                onChange={(e) => setNewJobType(e.target.value)}
-                className="flex-1 bg-[#F9FAFB] px-2.5 py-1.5 rounded-lg border border-[#EDEDED] text-xs focus:bg-white focus:outline-none focus:border-blue-600"
-              />
-              <button
-                type="submit"
-                disabled={!newJobType.trim()}
-                className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 disabled:opacity-40 text-white rounded-lg text-xs font-bold transition shadow-2xs"
-              >
-                Add
-              </button>
-            </form>
-
-            <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
-              {jobTypes.map((item) => {
-                const isEditing = editingCategory === "job" && editingOriginal === item;
-                if (isEditing) {
-                  return (
-                    <div key={`edit-job-${item}`} className="flex items-center gap-1 p-1 bg-blue-50 rounded-lg border border-blue-300">
-                      <input
-                        type="text"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSaveEdit("job", item);
-                          if (e.key === "Escape") handleCancelEdit();
-                        }}
-                        autoFocus
-                        className="flex-1 bg-white px-2 py-1 rounded text-xs border border-blue-400 focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleSaveEdit("job", item)}
-                        className="p-1 text-blue-700 hover:text-blue-900"
-                        title="Save"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCancelEdit}
-                        className="p-1 text-zinc-500 hover:text-zinc-800"
-                        title="Cancel"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={item}
-                    className="group flex items-center justify-between p-2 rounded-lg bg-[#FAFAFA] hover:bg-blue-50/50 border border-[#F4F4F5] hover:border-blue-200 transition text-xs"
-                  >
-                    <span className="font-medium text-[#18181B] truncate pr-2">{item}</span>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit("job", item)}
-                        className="text-[#71717A] hover:text-blue-700 transition p-1"
-                        title="Edit / Rename"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteJobType(item)}
                         className="text-[#71717A] hover:text-rose-600 transition p-1"
                         title="Remove from options"
                       >
