@@ -653,10 +653,6 @@ function ProcurementPageContent() {
             )}
           </div>
         )}
-
-        <p className="text-[10px] text-slate-400 text-center pt-2" title="Double-entry GL postings apply on GRN, match, and payment">
-          GL postings apply on GRN · match · payment
-        </p>
       </div>
     </div>
   );
