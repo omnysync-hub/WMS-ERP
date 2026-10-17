@@ -17,6 +17,10 @@ import {
   X,
   ChevronRight,
   Database,
+  Code2,
+  Sparkles,
+  ArrowRight,
+  FileText,
 } from "lucide-react";
 import { realtimeSync, notifySync } from "@/lib/realtimeSync";
 import { useRole } from "@/contexts/RoleContext";
@@ -39,6 +43,340 @@ interface RollbackRecord {
   reason?: string | null;
 }
 
+// Key mapping dictionary for layman-friendly labels
+const FIELD_LABELS: Record<string, string> = {
+  status: "Job Status",
+  assignedTechnicianId: "Assigned Technician",
+  technicianId: "Technician",
+  technicianName: "Technician Name",
+  discountAmount: "Discount Amount",
+  discountReason: "Discount Reason",
+  qualityFlag: "Quality Inspection Flag",
+  oldRate: "Original Price / Rate",
+  newRate: "New Discounted Rate",
+  rate: "Unit Rate",
+  price: "Price",
+  cost: "Cost",
+  totalAmount: "Total Amount",
+  amount: "Amount",
+  paidAmount: "Paid Amount",
+  balance: "Balance Due",
+  itemId: "Item Reference",
+  itemName: "Item Name",
+  action: "Action Taken",
+  reason: "Reason",
+  notes: "Notes / Remarks",
+  note: "Note",
+  customerName: "Customer Name",
+  jobNumber: "Job Reference #",
+  invoiceNumber: "Invoice Reference #",
+  meta: "Transaction Details",
+};
+
+function formatFieldKey(key: string): string {
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  return key
+    .replace(/([A-Z])/g, " $1")
+    .replace(/[_-]+/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase())
+    .trim();
+}
+
+function isCurrencyField(key: string): boolean {
+  const lower = key.toLowerCase();
+  return (
+    lower.includes("amount") ||
+    lower.includes("rate") ||
+    lower.includes("price") ||
+    lower.includes("cost") ||
+    lower.includes("total") ||
+    lower.includes("balance") ||
+    lower.includes("discount") ||
+    lower.includes("fee")
+  );
+}
+
+function safeParseJson(raw: any) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "string") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function formatActionText(action: string): string {
+  if (!action) return "";
+  return action
+    .replace(/item_discount_approved/gi, "Item Discount Approved")
+    .replace(/job_created/gi, "Job Created")
+    .replace(/job_assigned/gi, "Job Assigned")
+    .replace(/job_completed/gi, "Job Completed")
+    .replace(/->/g, "→")
+    .replace(/inprogress/gi, "In Progress");
+}
+
+function formatFieldValue(key: string, value: any): React.ReactNode {
+  if (value === null || value === undefined || value === "") {
+    return <span className="text-[#A1A1AA] italic text-[11px]">None / Not set</span>;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+        Yes
+      </span>
+    ) : (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-100 text-zinc-700">
+        No
+      </span>
+    );
+  }
+
+  if (typeof value === "number") {
+    if (isCurrencyField(key)) {
+      return (
+        <span className="font-semibold font-mono text-[#18181B]">
+          PKR {value.toLocaleString()}
+        </span>
+      );
+    }
+    return <span className="font-semibold font-mono text-[#18181B]">{value.toLocaleString()}</span>;
+  }
+
+  if (typeof value === "string") {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === "status") {
+      const statusColors: Record<string, string> = {
+        inprogress: "bg-blue-50 text-blue-700 border-blue-200",
+        assigned: "bg-purple-50 text-purple-700 border-purple-200",
+        created: "bg-zinc-100 text-zinc-700 border-zinc-200",
+        completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        paused: "bg-amber-50 text-amber-700 border-amber-200",
+        cancelled: "bg-rose-50 text-rose-700 border-rose-200",
+      };
+      const colorClass =
+        statusColors[value.toLowerCase()] || "bg-zinc-100 text-zinc-800 border-zinc-200";
+      const label = value.replace(/([A-Z])/g, " $1").trim();
+      return (
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${colorClass}`}
+        >
+          {label}
+        </span>
+      );
+    }
+
+    if (lowerKey === "action") {
+      return (
+        <span className="font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md text-[11px]">
+          {value.replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase())}
+        </span>
+      );
+    }
+
+    // Shorten raw UUIDs
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+      return (
+        <span
+          className="font-mono text-[10px] text-[#71717A] bg-[#F4F4F5] px-1.5 py-0.5 rounded border border-[#EDEDED]"
+          title={value}
+        >
+          #{value.slice(0, 8)}...
+        </span>
+      );
+    }
+
+    return <span className="font-medium text-[#18181B]">{value}</span>;
+  }
+
+  // Nested object or array
+  if (typeof value === "object") {
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return <span className="text-[#A1A1AA] italic text-[11px]">Empty list</span>;
+      }
+      return (
+        <div className="space-y-1">
+          {value.map((item, idx) => (
+            <div key={idx} className="p-1.5 bg-white/60 rounded border border-[#EDEDED] text-[11px]">
+              {typeof item === "object" ? JSON.stringify(item) : String(item)}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // Object
+    return (
+      <div className="p-2.5 bg-[#F9FAFB] rounded-xl border border-[#EDEDED] space-y-1.5 mt-1">
+        {Object.entries(value).map(([subKey, subVal]) => (
+          <div
+            key={subKey}
+            className="flex items-center justify-between gap-2 py-1 border-b border-zinc-100 last:border-none"
+          >
+            <span className="text-[#71717A] text-[11px] font-medium">{formatFieldKey(subKey)}:</span>
+            <span className="text-right">{formatFieldValue(subKey, subVal)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <span>{String(value)}</span>;
+}
+
+function LaymanStateCard({
+  title,
+  subtitle,
+  variant,
+  data,
+}: {
+  title: string;
+  subtitle: string;
+  variant: "prior" | "current";
+  data: any;
+}) {
+  const isPrior = variant === "prior";
+  const borderColor = isPrior ? "border-emerald-200" : "border-rose-200";
+  const bgHeader = isPrior ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-900";
+  const badgeClass = isPrior
+    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+    : "bg-rose-100 text-rose-800 border-rose-300";
+
+  if (!data || typeof data !== "object") {
+    return (
+      <div className={`border ${borderColor} rounded-2xl p-4 bg-white flex flex-col shadow-2xs`}>
+        <div className={`p-2.5 rounded-xl ${bgHeader} font-bold text-xs flex items-center justify-between`}>
+          <span>{title}</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono border ${badgeClass}`}>{subtitle}</span>
+        </div>
+        <p className="p-3 text-xs text-[#71717A] italic">No structured data found in snapshot.</p>
+      </div>
+    );
+  }
+
+  const entries = Object.entries(data);
+  const primitiveEntries = entries.filter(([_, v]) => typeof v !== "object" || v === null);
+  const nestedEntries = entries.filter(([_, v]) => typeof v === "object" && v !== null);
+
+  return (
+    <div className={`border ${borderColor} rounded-2xl overflow-hidden bg-white flex flex-col shadow-2xs`}>
+      <div className={`p-3.5 border-b ${borderColor} ${bgHeader} flex items-center justify-between`}>
+        <div className="flex items-center gap-1.5 font-bold text-xs">
+          {isPrior ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
+          <span>{title}</span>
+        </div>
+        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border uppercase tracking-wider ${badgeClass}`}>
+          {subtitle}
+        </span>
+      </div>
+
+      <div className="p-4 space-y-3 flex-1 overflow-y-auto max-h-[380px]">
+        {primitiveEntries.length === 0 && nestedEntries.length === 0 && (
+          <p className="text-[#71717A] text-xs italic">No attributes recorded in snapshot.</p>
+        )}
+
+        {/* Regular Field Rows */}
+        <div className="space-y-1 divide-y divide-[#F4F4F5]">
+          {primitiveEntries.map(([key, val]) => (
+            <div key={key} className="flex items-center justify-between py-2 first:pt-0 gap-3">
+              <span className="text-xs font-semibold text-[#71717A]">{formatFieldKey(key)}</span>
+              <div className="text-right">{formatFieldValue(key, val)}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Nested Objects (e.g. Transaction Details / Meta) */}
+        {nestedEntries.map(([nestedKey, nestedVal]) => (
+          <div key={nestedKey} className="mt-3 pt-2.5 border-t border-zinc-200">
+            <div className="flex items-center gap-1.5 mb-2">
+              <FileText className="w-3.5 h-3.5 text-purple-600" />
+              <span className="text-[11px] uppercase font-bold text-[#18181B] tracking-wider">
+                {formatFieldKey(nestedKey)}
+              </span>
+            </div>
+            {formatFieldValue(nestedKey, nestedVal)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DifferencesBanner({ beforeObj, afterObj }: { beforeObj: any; afterObj: any }) {
+  const flatten = (obj: any, prefix = ""): Record<string, any> => {
+    if (!obj || typeof obj !== "object") return {};
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        Object.assign(out, flatten(v, `${prefix}${k}.`));
+      } else {
+        out[`${prefix}${k}`] = v;
+      }
+    }
+    return out;
+  };
+
+  const flatBefore = flatten(beforeObj);
+  const flatAfter = flatten(afterObj);
+  const keys = Array.from(new Set([...Object.keys(flatBefore), ...Object.keys(flatAfter)]));
+
+  const diffs: { key: string; label: string; before: any; after: any }[] = [];
+  for (const k of keys) {
+    const b = flatBefore[k];
+    const a = flatAfter[k];
+    if (JSON.stringify(b) !== JSON.stringify(a)) {
+      if (k.endsWith("Id") && b && a) continue;
+      const label = k.split(".").map(formatFieldKey).join(" › ");
+      diffs.push({ key: k, label, before: b, after: a });
+    }
+  }
+
+  if (diffs.length === 0) {
+    return (
+      <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-blue-900 text-xs flex items-center gap-2">
+        <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+        <span>Verified state snapshot captured for transaction audit and rollback safety.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+        <Sparkles className="w-4 h-4 text-amber-600" />
+        <span>What Changed in this Record (Layman Summary):</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+        {diffs.map((d, i) => (
+          <div key={i} className="bg-white p-2.5 rounded-lg border border-amber-200 shadow-2xs flex items-center justify-between gap-2">
+            <span className="font-bold text-[#18181B] text-xs">{d.label}:</span>
+            <div className="flex items-center gap-1.5 text-right font-medium">
+              <span className="line-through text-rose-600 font-mono text-xs">
+                {d.before === null || d.before === undefined
+                  ? "None"
+                  : typeof d.before === "number" && isCurrencyField(d.key)
+                  ? `PKR ${d.before.toLocaleString()}`
+                  : String(d.before)}
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 text-[#71717A] shrink-0" />
+              <span className="text-emerald-700 font-bold font-mono text-xs">
+                {d.after === null || d.after === undefined
+                  ? "None"
+                  : typeof d.after === "number" && isCurrencyField(d.key)
+                  ? `PKR ${d.after.toLocaleString()}`
+                  : String(d.after)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AuditHubPage() {
   const { currentPersona } = useRole();
 
@@ -52,6 +390,7 @@ export default function AuditHubPage() {
   // Selected item for Diff / Rollback Modal
   const [selectedRollback, setSelectedRollback] = useState<RollbackRecord | null>(null);
   const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
+  const [diffViewMode, setDiffViewMode] = useState<"layman" | "raw">("layman");
   const [rollbackReason, setRollbackReason] = useState("");
   const [isExecutingRollback, setIsExecutingRollback] = useState(false);
   const [rollbackSuccessMsg, setRollbackSuccessMsg] = useState<string | null>(null);
@@ -486,15 +825,15 @@ export default function AuditHubPage() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-[#EDEDED] overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-[#EDEDED] overflow-hidden flex flex-col max-h-[92vh]">
             {/* Modal Header */}
-            <div className="p-4 border-b border-[#EDEDED] flex items-center justify-between bg-[#F7F7F8]">
+            <div className="p-4 border-b border-[#EDEDED] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[#F7F7F8]">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
                   <RotateCcw className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-[#18181B]">
+                  <h3 className="font-bold text-sm text-[#18181B] tracking-tight">
                     Inspect State Snapshot & Execute Rollback
                   </h3>
                   <p className="text-[11px] text-[#71717A]">
@@ -502,83 +841,167 @@ export default function AuditHubPage() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsDiffModalOpen(false)}
-                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                {/* View Switcher: Layman vs Raw JSON */}
+                <div className="flex items-center gap-1 bg-[#EDEDED] p-0.5 rounded-xl text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setDiffViewMode("layman")}
+                    className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition text-xs ${
+                      diffViewMode === "layman"
+                        ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                        : "text-[#71717A] hover:text-[#18181B]"
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Plain-Language View</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiffViewMode("raw")}
+                    className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition text-xs ${
+                      diffViewMode === "raw"
+                        ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                        : "text-[#71717A] hover:text-[#18181B]"
+                    }`}
+                  >
+                    <Code2 className="w-3.5 h-3.5 text-[#71717A]" />
+                    <span>Raw JSON</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setIsDiffModalOpen(false)}
+                  className="text-[#71717A] hover:text-[#18181B] p-1.5 rounded-lg hover:bg-zinc-200 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            {/* Modal Body: Before vs After Diff */}
+            {/* Modal Body */}
             <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
               {/* Mutation Context Summary */}
-              <div className="p-3 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
+              <div className="p-3.5 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="col-span-2 sm:col-span-1">
                   <span className="text-[10px] uppercase font-bold text-[#71717A]">Action</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5">{selectedRollback.action}</p>
+                  <p className="font-semibold text-[#18181B] mt-0.5 text-xs leading-snug">
+                    {formatActionText(selectedRollback.action)}
+                  </p>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[#71717A]">Logged By</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5">{selectedRollback.actorName} ({selectedRollback.actorRole})</p>
+                  <p className="font-semibold text-[#18181B] mt-0.5 text-xs">
+                    {selectedRollback.actorName} ({selectedRollback.actorRole})
+                  </p>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[#71717A]">Snapshot Date</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5">{new Date(selectedRollback.timestamp).toLocaleString()}</p>
+                  <p className="font-semibold text-[#18181B] mt-0.5 text-xs">
+                    {new Date(selectedRollback.timestamp).toLocaleString()}
+                  </p>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[#71717A]">Status</span>
-                  <p className="font-semibold text-[#18181B] mt-0.5">{selectedRollback.status}</p>
+                  <div className="mt-0.5">
+                    {selectedRollback.status === "ACTIVE" ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        ACTIVE
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                        <AlertTriangle className="w-3 h-3 text-amber-600" />
+                        ROLLED BACK
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Diff Viewer: Side-by-side JSON comparison */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {/* State Before */}
-                <div className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-3 flex flex-col">
-                  <div className="flex items-center justify-between pb-2 border-b border-emerald-200 text-emerald-800 font-bold text-xs">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      State BEFORE (Target of Rollback)
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wider font-mono">PRIOR</span>
-                  </div>
-                  <pre className="mt-2 text-[11px] font-mono text-emerald-950 whitespace-pre-wrap overflow-x-auto bg-white/70 p-2.5 rounded-lg border border-emerald-100 flex-1">
-                    {(() => {
-                      try {
-                        return JSON.stringify(JSON.parse(selectedRollback.stateBefore), null, 2);
-                      } catch {
-                        return selectedRollback.stateBefore;
-                      }
-                    })()}
-                  </pre>
-                </div>
+              {/* View 1: Layman-Friendly Formatted Cards */}
+              {diffViewMode === "layman" ? (
+                <div className="space-y-3.5">
+                  {/* Highlight What Changed */}
+                  <DifferencesBanner
+                    beforeObj={safeParseJson(selectedRollback.stateBefore)}
+                    afterObj={safeParseJson(selectedRollback.stateAfter)}
+                  />
 
-                {/* State After */}
-                <div className="border border-rose-200 bg-rose-50/40 rounded-xl p-3 flex flex-col">
-                  <div className="flex items-center justify-between pb-2 border-b border-rose-200 text-rose-800 font-bold text-xs">
-                    <span className="flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      State AFTER (Current Mutated State)
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wider font-mono">CURRENT</span>
+                  {/* Side-by-side formatted cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    <LaymanStateCard
+                      title="State BEFORE (Target of Rollback)"
+                      subtitle="PRIOR — Will Be Restored"
+                      variant="prior"
+                      data={safeParseJson(selectedRollback.stateBefore)}
+                    />
+
+                    <LaymanStateCard
+                      title="State AFTER (Current Mutated State)"
+                      subtitle="CURRENT — Active Now"
+                      variant="current"
+                      data={safeParseJson(selectedRollback.stateAfter)}
+                    />
                   </div>
-                  <pre className="mt-2 text-[11px] font-mono text-rose-950 whitespace-pre-wrap overflow-x-auto bg-white/70 p-2.5 rounded-lg border border-rose-100 flex-1">
-                    {(() => {
-                      try {
-                        return JSON.stringify(JSON.parse(selectedRollback.stateAfter), null, 2);
-                      } catch {
-                        return selectedRollback.stateAfter;
-                      }
-                    })()}
-                  </pre>
                 </div>
-              </div>
+              ) : (
+                /* View 2: Raw JSON View */
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* State Before */}
+                  <div className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-3 flex flex-col">
+                    <div className="flex items-center justify-between pb-2 border-b border-emerald-200 text-emerald-800 font-bold text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        State BEFORE (Target of Rollback)
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wider font-mono">PRIOR</span>
+                    </div>
+                    <pre className="mt-2 text-[11px] font-mono text-emerald-950 whitespace-pre-wrap overflow-x-auto bg-white/70 p-2.5 rounded-lg border border-emerald-100 flex-1">
+                      {(() => {
+                        try {
+                          return JSON.stringify(JSON.parse(selectedRollback.stateBefore), null, 2);
+                        } catch {
+                          return selectedRollback.stateBefore;
+                        }
+                      })()}
+                    </pre>
+                  </div>
+
+                  {/* State After */}
+                  <div className="border border-rose-200 bg-rose-50/40 rounded-xl p-3 flex flex-col">
+                    <div className="flex items-center justify-between pb-2 border-b border-rose-200 text-rose-800 font-bold text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        State AFTER (Current Mutated State)
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wider font-mono">CURRENT</span>
+                    </div>
+                    <pre className="mt-2 text-[11px] font-mono text-rose-950 whitespace-pre-wrap overflow-x-auto bg-white/70 p-2.5 rounded-lg border border-rose-100 flex-1">
+                      {(() => {
+                        try {
+                          return JSON.stringify(JSON.parse(selectedRollback.stateAfter), null, 2);
+                        } catch {
+                          return selectedRollback.stateAfter;
+                        }
+                      })()}
+                    </pre>
+                  </div>
+                </div>
+              )}
 
               {/* Rollback Reason Input (if active) */}
               {selectedRollback.status === "ACTIVE" && (
                 <div className="space-y-1.5 pt-2">
-                  <label className="text-xs font-semibold text-[#18181B] block">
+                  <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-[#52525B] flex items-center gap-2">
+                    <RotateCcw className="w-4 h-4 text-[#0D7A5F] shrink-0" />
+                    <span>
+                      <strong>Reversion Impact:</strong> Executing rollback will safely revert this record back to the <strong>PRIOR State</strong> above. Any newly updated fields will be returned to their previous values.
+                    </span>
+                  </div>
+
+                  <label className="text-xs font-semibold text-[#18181B] block pt-1">
                     Reason for Rollback / Reversion:
                   </label>
                   <input
