@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { installErpActorFetch, type ErpActorSnapshot } from "@/lib/erpActorFetch";
+import { ShieldCheck, Lock } from "lucide-react";
 
 export type BuiltInRoleType =
   | "admin"
@@ -645,11 +646,65 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       {sessionReady ? (
         children
       ) : (
-        <div className="min-h-screen bg-[#0b1714] text-white flex items-center justify-center">
-          <div className="text-center">
-            <div className="mx-auto h-10 w-10 rounded-2xl border-2 border-emerald-400 border-t-transparent animate-spin" />
-            <p className="mt-4 text-sm font-semibold">Opening your secure workspace…</p>
-            <p className="mt-1 text-xs text-slate-400">Checking your account and access</p>
+        <div className="relative min-h-screen bg-[#060B09] text-white flex flex-col items-center justify-center p-6 overflow-hidden select-none">
+          {/* Ambient luminous aura */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] bg-emerald-500/10 rounded-full blur-[130px] pointer-events-none" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[280px] h-[280px] bg-teal-400/15 rounded-full blur-[70px] pointer-events-none" />
+
+          {/* Embedded keyframe for smooth indeterminate progress beam */}
+          <style>{`
+            @keyframes wmsShimmer {
+              0% { transform: translateX(-120%); }
+              100% { transform: translateX(250%); }
+            }
+          `}</style>
+
+          {/* Center Content Card */}
+          <div className="relative z-10 w-full max-w-sm flex flex-col items-center text-center">
+            {/* Orbital Badge Container */}
+            <div className="relative mb-6">
+              {/* Outer decorative dashed halo */}
+              <div className="absolute -inset-3 rounded-3xl border border-dashed border-emerald-400/25 animate-[spin_16s_linear_infinite]" />
+              {/* Spinning gradient ring */}
+              <div className="absolute -inset-1 rounded-2xl border-2 border-emerald-400/40 border-t-emerald-300 border-r-transparent animate-spin" />
+              
+              {/* Core Emblem */}
+              <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 via-[#0D7A5F] to-teal-900 p-0.5 shadow-2xl shadow-emerald-950/80 flex items-center justify-center">
+                <div className="w-full h-full bg-[#081210] rounded-[14px] flex items-center justify-center">
+                  <ShieldCheck className="w-8 h-8 text-emerald-400 animate-pulse" />
+                </div>
+              </div>
+            </div>
+
+            {/* Typography */}
+            <div className="space-y-1.5 mb-6">
+              <span className="text-[10px] uppercase font-bold tracking-[0.25em] text-emerald-400 font-mono block">
+                Workman Services • WMS ERP
+              </span>
+              <h2 className="text-base font-semibold tracking-tight text-white">
+                Opening Secure Workspace
+              </h2>
+              <p className="text-xs text-zinc-400 max-w-xs leading-relaxed">
+                Verifying identity credentials, decrypting session profile, and synchronizing workspace permissions...
+              </p>
+            </div>
+
+            {/* High-Tech Shimmer Progress Bar */}
+            <div className="w-60 h-1.5 bg-white/10 rounded-full overflow-hidden mb-5 relative shadow-inner">
+              <div
+                className="h-full bg-gradient-to-r from-transparent via-emerald-400 to-transparent w-3/5 rounded-full"
+                style={{ animation: "wmsShimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite" }}
+              />
+            </div>
+
+            {/* Session Security Pill */}
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] text-zinc-400 backdrop-blur-md">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <span className="font-mono text-[10px] text-zinc-300">256-Bit TLS • Zero-Trust Session Verification</span>
+            </div>
           </div>
         </div>
       )}
