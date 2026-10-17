@@ -1581,9 +1581,6 @@ export default function EmployeeProfilePage() {
                 </div>
               )}
 
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-950 text-[11px] leading-relaxed">
-                <strong>Immediate Login:</strong> This password is saved as a secure bcrypt hash. The employee can log in immediately on the mobile app into their profile with no forced PIN reset.
-              </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-100">
                 <button
