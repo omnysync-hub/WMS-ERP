@@ -286,7 +286,7 @@ export default function JobDetailPage() {
     }
 
     let label = st;
-    if (st === "Paused") label = "Partially Completed";
+    if (st === "Paused") label = "Paused";
     if (st === "AwaitingFeedback") label = "Awaiting Feedback (call center)";
     if (st === "CompletedPendingVerification") label = "Completed (Pending Verification)";
 

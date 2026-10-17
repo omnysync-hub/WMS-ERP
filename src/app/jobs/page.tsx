@@ -1162,7 +1162,7 @@ export default function JobsListPage() {
       label: "In Progress / Active",
       count: jobs.filter((j) => j.status === "InProgress" || j.status === "Accepted").length,
     },
-    { id: "paused", label: "Partially Completed", count: jobs.filter((j) => j.status === "Paused").length },
+    { id: "paused", label: "Paused", count: jobs.filter((j) => j.status === "Paused").length },
     {
       id: "completed",
       label: "Completed",
@@ -1295,7 +1295,7 @@ export default function JobsListPage() {
                   { label: "Assigned", value: "Assigned" },
                   { label: "Accepted", value: "Accepted" },
                   { label: "In Progress", value: "InProgress" },
-                  { label: "Partially Completed (Paused)", value: "Paused" },
+                  { label: "Paused", value: "Paused" },
                   { label: "Awaiting Feedback", value: "AwaitingFeedback" },
                   { label: "Pending Verification", value: "CompletedPendingVerification" },
                   { label: "Finalized", value: "Finalized" },

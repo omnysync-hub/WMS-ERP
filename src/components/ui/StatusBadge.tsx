@@ -53,7 +53,7 @@ function formatStatusText(raw: string): string {
 
   // Dedicated human-friendly overrides
   const lower = raw.toLowerCase().trim();
-  if (lower === "paused" || lower === "pausedonsite") return "Partially Completed";
+  if (lower === "paused" || lower === "pausedonsite") return "Paused";
   if (lower === "completedpendingverification") return "Pending Verification";
   if (lower === "awaitingfeedback") return "Awaiting Feedback";
   if (lower === "inprogress") return "In Progress";

@@ -60,7 +60,7 @@ export default function JobsKpiDashboard({
   // 4. In Progress
   const inProgressCount = jobs.filter((j) => j.status === "InProgress").length;
 
-  // 5. Partially Completed (formerly Paused on site)
+  // 5. Paused on site
   const pausedCount = jobs.filter((j) => j.status === "Paused").length;
 
   // 6. Completed
@@ -401,7 +401,7 @@ export default function JobsKpiDashboard({
     },
     {
       key: "paused",
-      label: "Partially Completed",
+      label: "Paused",
       count: pausedCount,
       sublabel: "Partial work done / hold",
       icon: Pause,
@@ -732,7 +732,7 @@ export default function JobsKpiDashboard({
                           {j.jobNumber}
                         </span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[#F4F4F5] text-[#52525B]">
-                          {j.status === "Paused" ? "Partially Completed" : j.status}
+                          {j.status}
                         </span>
                       </div>
                       <p className="font-semibold text-xs text-[#18181B] truncate">

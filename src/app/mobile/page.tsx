@@ -2100,7 +2100,7 @@ export default function MobileCompanionPage() {
                       <div className="flex items-center justify-between text-amber-950 text-xs font-bold">
                         <span className="flex items-center gap-1.5">
                           <Pause className="w-4 h-4 text-amber-600" />
-                          Partially Completed on Site
+                          Paused on Site
                         </span>
                         <span className="text-[10px] font-mono bg-amber-100 px-2 py-0.5 rounded">
                           GPS & Time Logged
@@ -2178,7 +2178,7 @@ export default function MobileCompanionPage() {
                     { id: "accepted", label: "Accepted", count: acceptedJobs.length },
                     { id: "inventory", label: "Request Inventory", count: inventoryJobs.length },
                     { id: "inprogress", label: "In Progress", count: inProgressJobs.length, pulse: inProgressJobs.length > 0 },
-                    { id: "paused", label: "Partially Completed", count: pausedJobs.length },
+                    { id: "paused", label: "Paused", count: pausedJobs.length },
                     { id: "completed", label: "Completed", count: doneJobs.length },
                   ];
 
@@ -2445,8 +2445,8 @@ export default function MobileCompanionPage() {
                             {/* If job is paused, show reason banner */}
                             {isPaused && (
                               <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
-                                <span className="font-bold">⏸ Partially Completed: </span>
-                                <span>{job.remarks || "Work partially completed on site"}</span>
+                                <span className="font-bold">⏸ Paused: </span>
+                                <span>{job.remarks || "Work paused on site"}</span>
                               </div>
                             )}
 
@@ -3331,7 +3331,7 @@ export default function MobileCompanionPage() {
                   type="submit"
                   className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-900/10 transition"
                 >
-                  Confirm Partially Completed on Site
+                  Confirm Paused on Site
                 </button>
               </div>
             </form>
