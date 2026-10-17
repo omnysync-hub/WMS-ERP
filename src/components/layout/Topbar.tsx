@@ -544,7 +544,7 @@ export default function Topbar({
                     </Link>
 
                     <p className="text-[10px] text-[#71717A] px-2.5 py-1">
-                      Full mutation rollbacks & real-time omni-click telemetry audit logs.
+                      Full mutation rollbacks & transaction audit logs.
                     </p>
                     <button
                       type="button"

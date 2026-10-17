@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   RotateCcw,
-  Activity,
   ShieldCheck,
   Search,
   Filter,
@@ -12,24 +11,15 @@ import {
   AlertTriangle,
   Clock,
   User,
-  MousePointer,
-  Navigation,
   RefreshCw,
   Download,
   Eye,
   X,
-  ExternalLink,
-  Laptop,
-  Smartphone,
   ChevronRight,
   Database,
-  ArrowRight,
-  Sparkles,
 } from "lucide-react";
 import { realtimeSync, notifySync } from "@/lib/realtimeSync";
-import { logActivity } from "@/lib/telemetry";
 import { useRole } from "@/contexts/RoleContext";
-import SideDrawer from "@/components/ui/SideDrawer";
 
 interface RollbackRecord {
   id: string;
@@ -49,22 +39,8 @@ interface RollbackRecord {
   reason?: string | null;
 }
 
-interface ActivityRecord {
-  id: string;
-  timestamp: string;
-  actorId?: string | null;
-  actorName: string;
-  actorRole: string;
-  category: "UI_CLICK" | "NAVIGATION" | "ROLE_SWITCH" | "DATA_MUTATION" | "SEARCH" | "MOBILE_APP";
-  action: string;
-  target: string;
-  metadata?: string | null;
-  ipAddress?: string | null;
-}
-
 export default function AuditHubPage() {
   const { currentPersona } = useRole();
-  const [activeTab, setActiveTab] = useState<"rollbacks" | "activity">("rollbacks");
 
   // Rollback state
   const [rollbacks, setRollbacks] = useState<RollbackRecord[]>([]);
@@ -79,14 +55,6 @@ export default function AuditHubPage() {
   const [rollbackReason, setRollbackReason] = useState("");
   const [isExecutingRollback, setIsExecutingRollback] = useState(false);
   const [rollbackSuccessMsg, setRollbackSuccessMsg] = useState<string | null>(null);
-
-  // Activity Telemetry state
-  const [activities, setActivities] = useState<ActivityRecord[]>([]);
-  const [activityLoading, setActivityLoading] = useState(true);
-  const [activitySearch, setActivitySearch] = useState("");
-  const [activityCategoryFilter, setActivityCategoryFilter] = useState("ALL");
-  const [selectedActivity, setSelectedActivity] = useState<ActivityRecord | null>(null);
-  const [isTelemetryDrawerOpen, setIsTelemetryDrawerOpen] = useState(false);
 
   // Fetch Rollbacks
   const fetchRollbacks = useCallback(async () => {
@@ -107,37 +75,12 @@ export default function AuditHubPage() {
     }
   }, [rollbackSearch, rollbackEntityFilter]);
 
-  // Fetch Activities
-  const fetchActivities = useCallback(async () => {
-    try {
-      setActivityLoading(true);
-      const params = new URLSearchParams({ tab: "activity" });
-      if (activitySearch) params.set("search", activitySearch);
-      if (activityCategoryFilter !== "ALL") params.set("category", activityCategoryFilter);
-      const res = await fetch(`/api/audit?${params.toString()}`);
-      const data = await res.json();
-      if (data.activities) {
-        setActivities(data.activities);
-      }
-    } catch (e) {
-      console.error("Failed to fetch activities:", e);
-    } finally {
-      setActivityLoading(false);
-    }
-  }, [activitySearch, activityCategoryFilter]);
-
   useEffect(() => {
     fetchRollbacks();
-    fetchActivities();
-  }, [fetchRollbacks, fetchActivities]);
+  }, [fetchRollbacks]);
 
   // Real-time synchronization
   useEffect(() => {
-    const handleLocalBatch = () => {
-      fetchActivities();
-    };
-    window.addEventListener("audit_telemetry_batch", handleLocalBatch);
-
     const unsub = realtimeSync.subscribe((event) => {
       if (
         event.type === "AUDIT_LOG_UPDATE" ||
@@ -146,15 +89,13 @@ export default function AuditHubPage() {
         event.type === "INVENTORY_SYNC"
       ) {
         fetchRollbacks();
-        fetchActivities();
       }
     });
 
     return () => {
-      window.removeEventListener("audit_telemetry_batch", handleLocalBatch);
       unsub();
     };
-  }, [fetchRollbacks, fetchActivities]);
+  }, [fetchRollbacks]);
 
   // Execute safe rollback
   const handleExecuteRollback = async () => {
@@ -178,7 +119,6 @@ export default function AuditHubPage() {
         setRollbackSuccessMsg(`Successfully reverted ${selectedRollback.entityNumber} to its prior state.`);
         setIsDiffModalOpen(false);
         fetchRollbacks();
-        fetchActivities();
         notifySync("AUDIT_LOG_UPDATE", { rolledBackId: selectedRollback.id });
       } else {
         alert(data.error || "Failed to execute rollback.");
@@ -190,49 +130,21 @@ export default function AuditHubPage() {
     }
   };
 
-  // Trigger test click to show live telemetry
-  const handleTriggerTestClick = (actionName: string) => {
-    logActivity({
-      action: "CLICK",
-      target: `Interactive Demo Button: "${actionName}"`,
-      category: "UI_CLICK",
-      actorName: currentPersona.name,
-      actorRole: currentPersona.role.toUpperCase(),
-      metadata: { testEvent: true, triggerTime: new Date().toISOString() },
-    });
-  };
-
   // Export CSV
   const handleExportCSV = () => {
-    if (activeTab === "rollbacks") {
-      const headers = "ID,Timestamp,EntityType,EntityNumber,Action,ActorName,ActorRole,Status\n";
-      const rows = rollbacks
-        .map(
-          (r) =>
-            `"${r.id}","${r.timestamp}","${r.entityType}","${r.entityNumber}","${r.action}","${r.actorName}","${r.actorRole}","${r.status}"`
-        )
-        .join("\n");
-      const blob = new Blob([headers + rows], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `rollbacks_audit_${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-    } else {
-      const headers = "ID,Timestamp,ActorName,ActorRole,Category,Action,Target\n";
-      const rows = activities
-        .map(
-          (a) =>
-            `"${a.id}","${a.timestamp}","${a.actorName}","${a.actorRole}","${a.category}","${a.action}","${a.target.replace(/"/g, '""')}"`
-        )
-        .join("\n");
-      const blob = new Blob([headers + rows], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `omni_activity_telemetry_${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-    }
+    const headers = "ID,Timestamp,EntityType,EntityNumber,Action,ActorName,ActorRole,Status\n";
+    const rows = rollbacks
+      .map(
+        (r) =>
+          `"${r.id}","${r.timestamp}","${r.entityType}","${r.entityNumber}","${r.action}","${r.actorName}","${r.actorRole}","${r.status}"`
+      )
+      .join("\n");
+    const blob = new Blob([headers + rows], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rollbacks_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
   };
 
   // Filtered rollbacks
@@ -258,7 +170,7 @@ export default function AuditHubPage() {
                 Audit Log & State Rollback Hub
               </h1>
               <p className="text-xs text-[#71717A] mt-0.5">
-                Two-tier enterprise audit system: reversible transaction rollbacks and real-time omni-activity click telemetry.
+                Reversible transaction state rollbacks and data mutation audit log.
               </p>
             </div>
           </div>
@@ -266,16 +178,6 @@ export default function AuditHubPage() {
 
         {/* Global Hub Action Buttons */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => handleTriggerTestClick("Live Telemetry Ping")}
-            data-audit="Button: Test Telemetry Ping"
-            className="px-3 py-1.5 rounded-lg bg-white border border-[#EDEDED] text-xs font-semibold text-[#18181B] hover:bg-[#F4F4F5] shadow-2xs flex items-center gap-1.5 transition"
-            title="Log an immediate click to demonstrate instant telemetry capture"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-            <span>Test Telemetry Click</span>
-          </button>
-
           <button
             onClick={handleExportCSV}
             data-audit="Button: Export Audit CSV"
@@ -288,7 +190,6 @@ export default function AuditHubPage() {
           <button
             onClick={() => {
               fetchRollbacks();
-              fetchActivities();
             }}
             data-audit="Button: Refresh Audit Logs"
             className="p-1.5 rounded-lg bg-white border border-[#EDEDED] text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5] transition"
@@ -316,7 +217,7 @@ export default function AuditHubPage() {
       )}
 
       {/* Metric Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
         <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-2xs">
           <div className="flex items-center justify-between text-[#71717A]">
             <span className="text-[11px] font-semibold uppercase tracking-wider">
@@ -362,72 +263,26 @@ export default function AuditHubPage() {
             Archived rollback histories
           </p>
         </div>
-
-        <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-2xs">
-          <div className="flex items-center justify-between text-[#71717A]">
-            <span className="text-[11px] font-semibold uppercase tracking-wider">
-              Omni-Activity Events
-            </span>
-            <Activity className="w-4 h-4 text-blue-500" />
-          </div>
-          <p className="text-2xl font-extrabold text-[#18181B] mt-2 tracking-tight">
-            {activities.length}
-          </p>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] text-emerald-600 font-medium">
-              Every single click logged live
-            </span>
-          </div>
-        </div>
       </div>
 
-      {/* Primary Section Switcher Tabs */}
-      <div className="border-b border-[#EDEDED] flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={() => setActiveTab("rollbacks")}
-            data-audit="Tab: State Mutation & Rollback Hub"
-            className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition ${
-              activeTab === "rollbacks"
-                ? "border-[#0D7A5F] text-[#0D7A5F]"
-                : "border-transparent text-[#71717A] hover:text-[#18181B]"
-            }`}
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>State Mutation & Rollback Hub</span>
-            <span className="text-[10px] bg-[#F4F4F5] px-1.5 py-0.5 rounded-full text-[#71717A] font-bold">
-              {rollbacks.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("activity")}
-            data-audit="Tab: Omni-Activity & Click Telemetry"
-            className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition ${
-              activeTab === "activity"
-                ? "border-[#0D7A5F] text-[#0D7A5F]"
-                : "border-transparent text-[#71717A] hover:text-[#18181B]"
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Omni-Activity & Click Telemetry</span>
-            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live Stream
-            </span>
-          </button>
+      {/* Section Header */}
+      <div className="flex items-center justify-between pb-3 border-b border-[#EDEDED]">
+        <div className="flex items-center gap-2">
+          <RotateCcw className="w-4 h-4 text-[#0D7A5F]" />
+          <h2 className="text-sm font-bold text-[#18181B]">State Mutation & Rollback Hub</h2>
+          <span className="text-[10px] bg-[#F4F4F5] px-2 py-0.5 rounded-full text-[#71717A] font-bold">
+            {rollbacks.length} {rollbacks.length === 1 ? "record" : "records"}
+          </span>
         </div>
 
-        <div className="hidden sm:flex items-center gap-2 text-[11px] text-[#71717A] pb-2">
+        <div className="hidden sm:flex items-center gap-2 text-[11px] text-[#71717A]">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
           <span>Active Role: <strong className="text-[#18181B]">{currentPersona.name} ({currentPersona.role.toUpperCase()})</strong></span>
         </div>
       </div>
 
-      {/* TAB 1: ROLLBACK ENGINE */}
-      {activeTab === "rollbacks" && (
-        <div className="space-y-4">
+      {/* ROLLBACK ENGINE */}
+      <div className="space-y-4">
           {/* Controls Bar: Search & Filters */}
           <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
             <div className="flex items-center gap-2 flex-1 max-w-md">
@@ -623,204 +478,6 @@ export default function AuditHubPage() {
             )}
           </div>
         </div>
-      )}
-
-      {/* TAB 2: OMNI-ACTIVITY & CLICK TELEMETRY STREAM */}
-      {activeTab === "activity" && (
-        <div className="space-y-4">
-          {/* Controls Bar: Search & Category Filter */}
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search user clicks, target elements, account names..."
-                  value={activitySearch}
-                  onChange={(e) => setActivitySearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-[#EDEDED] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Category Pills */}
-              <div className="flex items-center gap-1 bg-[#F4F4F5] p-1 rounded-xl border border-[#EDEDED] text-xs">
-                {[
-                  { id: "ALL", label: "All Events" },
-                  { id: "UI_CLICK", label: "Clicks" },
-                  { id: "NAVIGATION", label: "Pages" },
-                  { id: "ROLE_SWITCH", label: "Role Switches" },
-                  { id: "DATA_MUTATION", label: "Mutations" },
-                  { id: "MOBILE_APP", label: "Mobile Companion" },
-                ].map((cat) => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setActivityCategoryFilter(cat.id)}
-                    data-audit={`Filter: Category ${cat.label}`}
-                    className={`px-2.5 py-1 rounded-lg font-semibold transition ${
-                      activityCategoryFilter === cat.id
-                        ? "bg-white text-[#18181B] shadow-2xs"
-                        : "text-[#71717A] hover:text-[#18181B]"
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Activity Feed / Table */}
-          <div className="bg-white rounded-2xl border border-[#EDEDED] shadow-2xs overflow-hidden">
-            {activityLoading ? (
-              <div className="p-12 text-center text-xs text-[#71717A] flex flex-col items-center justify-center gap-2">
-                <RefreshCw className="w-5 h-5 animate-spin text-[#0D7A5F]" />
-                <span>Streaming live telemetry click events...</span>
-              </div>
-            ) : activities.length === 0 ? (
-              <div className="p-12 text-center text-xs text-[#71717A]">
-                No user activity events recorded yet. Click anywhere in the app to generate logs.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-[#F7F7F8] border-b border-[#EDEDED] text-[#71717A] font-semibold uppercase tracking-wider text-[10px]">
-                      <th className="py-3 px-4">Timestamp & Date</th>
-                      <th className="py-3 px-4">Account / Member</th>
-                      <th className="py-3 px-4">Event Category</th>
-                      <th className="py-3 px-4">Action</th>
-                      <th className="py-3 px-4">Target Element & Context</th>
-                      <th className="py-3 px-4 text-right">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#EDEDED]">
-                    {activities.map((act) => {
-                      const dateObj = new Date(act.timestamp);
-                      const formattedTime = dateObj.toLocaleTimeString("en-US", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      });
-                      const formattedDate = dateObj.toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      });
-
-                      let categoryBadge = (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
-                          <MousePointer className="w-3 h-3" />
-                          UI Click
-                        </span>
-                      );
-
-                      if (act.category === "NAVIGATION") {
-                        categoryBadge = (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-200">
-                            <Navigation className="w-3 h-3" />
-                            Navigation
-                          </span>
-                        );
-                      } else if (act.category === "ROLE_SWITCH") {
-                        categoryBadge = (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                            <User className="w-3 h-3" />
-                            Role Switch
-                          </span>
-                        );
-                      } else if (act.category === "DATA_MUTATION") {
-                        categoryBadge = (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            <Database className="w-3 h-3" />
-                            Data Mutation
-                          </span>
-                        );
-                      } else if (act.category === "MOBILE_APP") {
-                        categoryBadge = (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200">
-                            <Smartphone className="w-3 h-3" />
-                            Field App
-                          </span>
-                        );
-                      }
-
-                      return (
-                        <tr
-                          key={act.id}
-                          className="hover:bg-[#F9FAFB] transition group"
-                        >
-                          {/* Timestamp */}
-                          <td className="py-3 px-4 whitespace-nowrap text-[#71717A]">
-                            <div className="font-mono text-xs font-semibold text-[#18181B]">
-                              {formattedTime}
-                            </div>
-                            <div className="text-[10px] text-[#A1A1AA]">
-                              {formattedDate}
-                            </div>
-                          </td>
-
-                          {/* Member / Account */}
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-md bg-[#18181B] text-white flex items-center justify-center font-bold text-[10px]">
-                                {act.actorName.slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <span className="font-semibold text-[#18181B] block">
-                                  {act.actorName}
-                                </span>
-                                <span className="text-[10px] text-[#71717A] block font-mono">
-                                  {act.actorRole}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Category */}
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            {categoryBadge}
-                          </td>
-
-                          {/* Action */}
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            <span className="font-semibold font-mono text-[#18181B] bg-[#F4F4F5] px-2 py-0.5 rounded text-[11px]">
-                              {act.action}
-                            </span>
-                          </td>
-
-                          {/* Target */}
-                          <td className="py-3 px-4 max-w-md">
-                            <p className="font-medium text-[#18181B] truncate text-xs" title={act.target}>
-                              {act.target}
-                            </p>
-                          </td>
-
-                          {/* Details Drawer Trigger */}
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <button
-                              onClick={() => {
-                                setSelectedActivity(act);
-                                setIsTelemetryDrawerOpen(true);
-                              }}
-                              data-audit={`Button: View Details for activity ${act.id}`}
-                              className="p-1 rounded text-[#71717A] hover:text-[#18181B] hover:bg-[#E4E4E7] transition"
-                              title="View technical metadata and telemetry coordinates"
-                            >
-                              <ChevronRight className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* STATE DIFF & ROLLBACK CONFIRMATION MODAL */}
       {isDiffModalOpen && selectedRollback && (
@@ -970,78 +627,6 @@ export default function AuditHubPage() {
           </div>
         </div>
       )}
-
-      {/* TELEMETRY ACTIVITY DETAILS DRAWER */}
-      <SideDrawer
-        isOpen={Boolean(isTelemetryDrawerOpen && selectedActivity)}
-        onClose={() => setIsTelemetryDrawerOpen(false)}
-        width="max-w-md"
-        title={
-          <div className="flex items-center gap-2">
-            <MousePointer className="w-4 h-4 text-purple-600" />
-            <span>Click Telemetry Event</span>
-          </div>
-        }
-        bodyClassName="p-5 overflow-y-auto space-y-4 flex-1 text-xs"
-        footer={
-          <button
-            onClick={() => setIsTelemetryDrawerOpen(false)}
-            className="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-[#EDEDED] text-[#18181B] hover:bg-[#F4F4F5] transition"
-          >
-            Close Details
-          </button>
-        }
-      >
-        {selectedActivity && (
-          <>
-            <div className="space-y-1">
-              <span className="text-[10px] uppercase font-bold text-[#71717A]">Target Element</span>
-              <p className="font-semibold text-sm text-[#18181B] break-words">
-                {selectedActivity.target}
-              </p>
-            </div>
-
-            <div className="p-3 bg-[#F4F4F5] rounded-xl space-y-2 border border-[#EDEDED]">
-              <div className="flex justify-between">
-                <span className="text-[#71717A]">Member Account:</span>
-                <strong className="text-[#18181B]">{selectedActivity.actorName}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#71717A]">Role:</span>
-                <span className="font-mono font-bold text-purple-700">{selectedActivity.actorRole}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#71717A]">Category:</span>
-                <span className="font-mono text-[#18181B]">{selectedActivity.category}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#71717A]">Action:</span>
-                <span className="font-mono text-[#18181B]">{selectedActivity.action}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#71717A]">Timestamp:</span>
-                <span className="text-[#18181B]">{new Date(selectedActivity.timestamp).toLocaleString()}</span>
-              </div>
-            </div>
-
-            {/* Technical Telemetry Metadata */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] uppercase font-bold text-[#71717A]">
-                Technical Telemetry Context
-              </span>
-              <pre className="text-[11px] font-mono bg-[#18181B] text-[#E4E4E7] p-3 rounded-xl overflow-x-auto whitespace-pre-wrap">
-                {(() => {
-                  try {
-                    return JSON.stringify(JSON.parse(selectedActivity.metadata || "{}"), null, 2);
-                  } catch {
-                    return selectedActivity.metadata || "No additional metadata";
-                  }
-                })()}
-              </pre>
-            </div>
-          </>
-        )}
-      </SideDrawer>
     </div>
   );
 }
