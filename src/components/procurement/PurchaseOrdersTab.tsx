@@ -857,7 +857,7 @@ export default function PurchaseOrdersTab({
                       .map((v) => ({
                         value: v.id,
                         label: v.name,
-                        subLabel: `${v.vendorCode || ""} · Terms: ${v.paymentTerms || "Net 30"} · WHT: ${v.whtRate || 0}%`,
+                        subLabel: `${v.vendorCode || ""} · Terms: ${v.paymentTerms || "Net 30"}`,
                       }))}
                     placeholder="-- Choose Vendor --"
                   />
@@ -1287,26 +1287,12 @@ export default function PurchaseOrdersTab({
               {/* Financial Totals */}
               <div className="flex justify-end">
                 <div className="w-64 space-y-1.5 p-3 rounded-xl bg-zinc-50 border border-zinc-300 text-xs">
-                  <div className="flex justify-between text-zinc-600">
-                    <span>Subtotal:</span>
-                    <span className="font-mono font-semibold">
-                      {isStorekeeper ? "Cost Masked" : formatCurrency(printablePo.totalAmount)}
-                    </span>
-                  </div>
-                  {printablePo.whtAmount > 0 && !isStorekeeper && (
-                    <div className="flex justify-between text-zinc-600">
-                      <span>WHT Deduction:</span>
-                      <span className="font-mono text-rose-600">
-                        -{formatCurrency(printablePo.whtAmount)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-bold text-sm text-zinc-900 border-t border-zinc-300 pt-1.5">
-                    <span>Net Order Value:</span>
+                  <div className="flex justify-between font-bold text-sm text-zinc-900">
+                    <span>Total Order Value:</span>
                     <span className="font-mono text-[#0D7A5F]">
                       {isStorekeeper
                         ? "Storekeeper View (Rates Masked)"
-                        : formatCurrency(printablePo.netPayable || printablePo.totalAmount)}
+                        : formatCurrency(printablePo.totalAmount)}
                     </span>
                   </div>
                 </div>

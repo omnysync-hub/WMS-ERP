@@ -749,8 +749,8 @@ export class ProcurementService {
         approvedBy: null,
         approvedAt: null,
         totalAmount,
-        whtAmount: Math.round((totalAmount * (winnerRfqVendor.vendor.whtRate || 0)) / 100),
-        netPayable: Math.round(totalAmount - (totalAmount * (winnerRfqVendor.vendor.whtRate || 0)) / 100),
+        whtAmount: 0,
+        netPayable: totalAmount,
         items: {
           create: poItemsData,
         },
@@ -864,9 +864,8 @@ export class ProcurementService {
       }
     }
 
-    const whtRate = vendor?.whtRate || 0;
-    const whtAmount = Math.round((totalAmount * whtRate) / 100);
-    const netPayable = Math.round(totalAmount - whtAmount);
+    const whtAmount = 0;
+    const netPayable = totalAmount;
 
     const po = await prisma.purchaseOrder.create({
       data: {
