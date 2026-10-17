@@ -11,6 +11,8 @@ interface SurveillanceMapProps {
   currentPingIndex: number;
   onSelectPingIndex?: (index: number) => void;
   technicianName: string;
+  autoFollow?: boolean;
+  onToggleAutoFollow?: (follow: boolean) => void;
 }
 
 const RealSurveillanceMap = dynamic(() => import("./RealSurveillanceMap"), {

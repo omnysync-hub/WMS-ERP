@@ -22,22 +22,24 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 }
 
+import { requireOfficePermission } from "@/lib/auth/erpActor";
+
 export async function GET(req: NextRequest) {
   try {
-    // 1. Authorize caller: Admin/HR roles only
-    const caller = await resolveCaller(req);
-    if (!caller) {
-      return NextResponse.json(
-        { error: "Unauthorized: Missing or invalid authentication credentials." },
-        { status: 401 }
-      );
-    }
+    // 1. Authorize caller: Dispatch / Office / Admin roles
+    const gate = await requireOfficePermission(req, [
+      "dispatch.view_map",
+      "dispatch.manage",
+      "jobs.view_directory",
+      "hrm.view_employees",
+      "admin",
+    ]);
 
-    if (!caller.isAdminOrHr) {
-      return NextResponse.json(
-        { error: "Forbidden: Only administrators and HR personnel can access historical surveillance telemetry." },
-        { status: 403 }
-      );
+    if (gate.error) {
+      const mobileCaller = await resolveCaller(req);
+      if (!mobileCaller || !mobileCaller.isAdminOrHr) {
+        return gate.error;
+      }
     }
 
     const { searchParams } = new URL(req.url);

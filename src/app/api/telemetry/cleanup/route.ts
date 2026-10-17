@@ -7,20 +7,44 @@ import { AuditService } from "@/lib/services/AuditService";
 
 const DEFAULT_RETENTION_DAYS = 90;
 
+import { requireOfficePermission } from "@/lib/auth/erpActor";
+
 export async function POST(req: NextRequest) {
   try {
-    const caller = await resolveCaller(req);
+    let caller: { id: string; role: string; name: string; isAdminOrHr?: boolean } | null = null;
+    const gate = await requireOfficePermission(req, [
+      "dispatch.view_map",
+      "dispatch.manage",
+      "settings.manage_data",
+      "hrm.manage_staff",
+      "admin",
+    ]);
+
+    if (!gate.error) {
+      caller = {
+        id: gate.actor.id,
+        role: gate.actor.role,
+        name: gate.actor.name || "Administrator",
+        isAdminOrHr: true,
+      };
+    } else {
+      const mobileCaller = await resolveCaller(req);
+      if (mobileCaller && mobileCaller.isAdminOrHr) {
+        caller = {
+          id: mobileCaller.id,
+          role: mobileCaller.role,
+          name: mobileCaller.name || "Administrator",
+          isAdminOrHr: true,
+        };
+      } else {
+        return gate.error;
+      }
+    }
+
     if (!caller) {
       return NextResponse.json(
         { error: "Unauthorized: Missing or invalid authentication credentials." },
         { status: 401 }
-      );
-    }
-
-    if (!caller.isAdminOrHr) {
-      return NextResponse.json(
-        { error: "Forbidden: Only administrators and HR personnel can execute telemetry retention policies." },
-        { status: 403 }
       );
     }
 

@@ -96,16 +96,6 @@ export default function DispatchMapPage() {
         breadcrumbs={[{ label: "Dispatch Map" }]}
         title="Live Field Dispatch & Proximity Map"
         subtitle="Real-time GPS technician tracking and proximity-based job assignment"
-        badge={
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live GPS Sync
-          </span>
-        }
-        primaryAction={{
-          label: "New Job Intake",
-          href: "/jobs/new",
-        }}
         secondaryActions={[
           {
             label: "Surveillance & Playback",
@@ -137,7 +127,7 @@ export default function DispatchMapPage() {
       )}
 
       {/* Metric Quick-Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-[#E4E4E7] p-4 shadow-xs flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
             <Users className="w-4 h-4" />
@@ -172,26 +162,6 @@ export default function DispatchMapPage() {
             </p>
             <p className="text-lg font-bold text-[#18181B] font-mono">{unassignedJobs.length} Awaiting</p>
           </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-[#E4E4E7] p-4 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold text-[#71717A] uppercase tracking-wider">
-              Telemetry Status
-            </p>
-            <p className="text-xs font-bold text-emerald-700 mt-1 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              PubSub Streaming
-            </p>
-          </div>
-          <button
-            onClick={loadData}
-            title="Refresh map pins"
-            className="p-2 rounded-lg bg-[#FAFAFA] hover:bg-[#F4F4F5] border border-[#E4E4E7] text-[#71717A] hover:text-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-            aria-label="Refresh telemetry"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import SurveillanceMap from "@/components/maps/SurveillanceMap";
@@ -12,6 +12,8 @@ import {
   Pause,
   RotateCcw,
   FastForward,
+  SkipBack,
+  SkipForward,
   Download,
   ShieldCheck,
   AlertTriangle,
@@ -26,6 +28,9 @@ import {
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
+  Compass,
+  Sparkles,
+  Focus,
 } from "lucide-react";
 
 export default function SurveillanceDashboardPage() {
@@ -57,7 +62,8 @@ export default function SurveillanceDashboardPage() {
   // Playback engine
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPingIndex, setCurrentPingIndex] = useState(0);
-  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 5 | 10>(1);
+  const [playbackSpeed, setPlaybackSpeed] = useState<0.5 | 1 | 2 | 4 | 8>(1);
+  const [autoFollow, setAutoFollow] = useState(true);
   const playbackTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Retention cleanup modal
@@ -65,6 +71,8 @@ export default function SurveillanceDashboardPage() {
   const [retentionDaysInput, setRetentionDaysInput] = useState("90");
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<any>(null);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [confirmPurgeStep, setConfirmPurgeStep] = useState(false);
 
   // Initialize dates
   useEffect(() => {
@@ -80,10 +88,32 @@ export default function SurveillanceDashboardPage() {
       setLoadingTechs(true);
       const res = await fetch("/api/technicians");
       const data = await res.json();
-      if (data?.technicians) {
-        setTechnicians(data.technicians);
-        if (data.technicians.length > 0 && !selectedTechId) {
-          setSelectedTechId(data.technicians[0].id);
+      let list = Array.isArray(data?.technicians) ? data.technicians : [];
+
+      if (list.length === 0) {
+        // Fallback to HRM endpoint
+        try {
+          const hrmRes = await fetch("/api/hrm/employees?tab=technicians");
+          const hrmData = await hrmRes.json();
+          const emps = Array.isArray(hrmData?.employees) ? hrmData.employees : [];
+          if (emps.length > 0) {
+            list = emps.map((e: any) => ({
+              id: e.id,
+              name: e.name,
+              phone: e.phone || "",
+              department: e.department || "Operations",
+              currentStatus: e.currentStatus || "Available",
+            }));
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (list.length > 0) {
+        setTechnicians(list);
+        if (!selectedTechId) {
+          setSelectedTechId(list[0].id);
         }
       }
     } catch (e: any) {
@@ -172,7 +202,8 @@ export default function SurveillanceDashboardPage() {
       return;
     }
 
-    const intervalMs = Math.max(100, 1000 / playbackSpeed);
+    // Interval scaled by playback speed (e.g. 1x = 1000ms, 2x = 500ms, 4x = 250ms, 8x = 125ms, 0.5x = 2000ms)
+    const intervalMs = Math.max(80, Math.round(1000 / playbackSpeed));
 
     playbackTimerRef.current = setInterval(() => {
       setCurrentPingIndex((prev) => {
@@ -196,6 +227,116 @@ export default function SurveillanceDashboardPage() {
 
   const activeTechObj = technicians.find((t) => t.id === selectedTechId);
 
+  // Playback Step Controls
+  const handleStepBackward = () => {
+    setIsPlaying(false);
+    setCurrentPingIndex((prev) => Math.max(0, prev - 1));
+  };
+
+  const handleStepForward = () => {
+    setIsPlaying(false);
+    setCurrentPingIndex((prev) => Math.min(pings.length - 1, prev + 1));
+  };
+
+  const togglePlayPause = useCallback(() => {
+    if (pings.length <= 1) return;
+    if (!isPlaying && currentPingIndex >= pings.length - 1) {
+      setCurrentPingIndex(0);
+    }
+    setIsPlaying((prev) => !prev);
+  }, [isPlaying, currentPingIndex, pings.length]);
+
+  // Keyboard Shortcuts (Space: Play/Pause, ArrowLeft: Step Back, ArrowRight: Step Forward)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+      if (e.code === "Space") {
+        e.preventDefault();
+        togglePlayPause();
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        handleStepBackward();
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        handleStepForward();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [togglePlayPause]);
+
+  // Demo Sample Route Generator (Instantly test video playback when pings are 0)
+  const handleLoadDemoRoute = () => {
+    const baseLat = 31.4700;
+    const baseLng = 74.3100;
+    const now = new Date();
+    const demoPings = [];
+    const waypoints = 18;
+
+    for (let i = 0; i < waypoints; i++) {
+      const pingTime = new Date(now.getTime() - (waypoints - i) * 3 * 60 * 1000);
+      const isStopped = i === 0 || i === 8 || i === waypoints - 1;
+      const speed = isStopped ? 0 : 35 + (i % 4) * 6;
+
+      demoPings.push({
+        id: `demo-ping-${i}`,
+        lat: baseLat + i * 0.0042 + Math.sin(i * 0.8) * 0.002,
+        lng: baseLng + i * 0.0055 + Math.cos(i * 0.8) * 0.002,
+        accuracy: 12,
+        speed,
+        batteryLevel: Math.max(25, 92 - i * 3),
+        isMoving: !isStopped,
+        isShiftActive: true,
+        activeJob:
+          i >= 4 && i <= 11
+            ? {
+                id: "demo-job-1",
+                jobNumber: "JOB-DEMO-2026",
+                status: "InProgress",
+                customerName: "Metro Commercial Center",
+              }
+            : null,
+        source: "demo_simulation",
+        timestamp: pingTime.toISOString(),
+      });
+    }
+
+    setTelemetryData({
+      employee: activeTechObj || { name: "Technician" },
+      pings: demoPings,
+      offlineGaps: [
+        {
+          id: "demo-gap-1",
+          gapStartAt: new Date(now.getTime() - 25 * 60 * 1000).toISOString(),
+          gapEndAt: new Date(now.getTime() - 15 * 60 * 1000).toISOString(),
+          durationMinutes: 10,
+          lastKnownLat: baseLat + 7 * 0.0042,
+          lastKnownLng: baseLng + 7 * 0.0055,
+          resumeLat: baseLat + 8 * 0.0042,
+          resumeLng: baseLng + 8 * 0.0055,
+          lastBatteryLevel: 71,
+          reason: "Basement parking signal drop",
+        },
+      ],
+      summary: {
+        totalDistanceKm: 14.2,
+        totalPings: waypoints,
+        avgSpeedKmH: 34,
+        maxSpeedKmH: 52,
+        batteryStart: 92,
+        batteryEnd: 41,
+        batteryDrain: 51,
+        offlineIncidents: 1,
+        totalOfflineMinutes: 10,
+      },
+    });
+    setCurrentPingIndex(0);
+    setIsPlaying(true);
+  };
+
   // Export Trigger
   const handleExport = (format: "csv" | "json") => {
     if (!selectedTechId) return;
@@ -212,6 +353,7 @@ export default function SurveillanceDashboardPage() {
   const handleExecuteRetention = async (dryRun: boolean) => {
     try {
       setCleanupLoading(true);
+      setCleanupError(null);
       const res = await fetch("/api/telemetry/cleanup", {
         method: "POST",
         headers: getAdminHeaders(),
@@ -221,10 +363,13 @@ export default function SurveillanceDashboardPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Cleanup failed.");
+      if (!res.ok) throw new Error(data.error || "Retention cleanup failed.");
       setCleanupResult(data);
+      if (!dryRun) {
+        setConfirmPurgeStep(false);
+      }
     } catch (e: any) {
-      alert(e.message);
+      setCleanupError(e.message || "Failed to execute retention policy.");
     } finally {
       setCleanupLoading(false);
     }
@@ -236,10 +381,10 @@ export default function SurveillanceDashboardPage() {
       <PageHeader
         breadcrumbs={[
           { label: "Dispatch Map", href: "/dispatch" },
-          { label: "Location Surveillance" },
+          { label: "Location Surveillance & Playback" },
         ]}
         title="Technician Location Surveillance & Playback"
-        subtitle="Full historical trajectory tracking, offline signal gap analysis, and movement telemetry"
+        subtitle="GPS route playback, movement velocity tracking, and offline signal analysis"
         badge={
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -254,7 +399,12 @@ export default function SurveillanceDashboardPage() {
           {
             label: "Retention Policy",
             icon: <Trash2 className="w-3.5 h-3.5" />,
-            onClick: () => setShowCleanupModal(true),
+            onClick: () => {
+              setCleanupResult(null);
+              setCleanupError(null);
+              setConfirmPurgeStep(false);
+              setShowCleanupModal(true);
+            },
           },
         ]}
       />
@@ -282,98 +432,95 @@ export default function SurveillanceDashboardPage() {
             <select
               value={selectedTechId}
               onChange={(e) => setSelectedTechId(e.target.value)}
+              disabled={loadingTechs}
               className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
             >
               {technicians.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({t.phone})
+                  {t.name} ({t.phone || t.department || "Operations"})
                 </option>
               ))}
             </select>
           </div>
 
-          {/* 2. Quick Date Presets */}
+          {/* 2. Date Preset Selector */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
-              Time Horizon
+              Time Window Preset
             </label>
-            <div className="grid grid-cols-3 gap-1 bg-zinc-100 p-1 rounded-xl text-xs">
-              <button
-                type="button"
-                onClick={() => handlePresetSelect("today")}
-                className={`py-1 rounded-lg font-bold transition text-[11px] ${
-                  datePreset === "today" ? "bg-white text-zinc-900 shadow-xs" : "text-zinc-600"
-                }`}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePresetSelect("yesterday")}
-                className={`py-1 rounded-lg font-bold transition text-[11px] ${
-                  datePreset === "yesterday" ? "bg-white text-zinc-900 shadow-xs" : "text-zinc-600"
-                }`}
-              >
-                Yesterday
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePresetSelect("week")}
-                className={`py-1 rounded-lg font-bold transition text-[11px] ${
-                  datePreset === "week" ? "bg-white text-zinc-900 shadow-xs" : "text-zinc-600"
-                }`}
-              >
-                7 Days
-              </button>
+            <div className="flex rounded-xl bg-zinc-100 p-1 border border-zinc-200">
+              {(["today", "yesterday", "week"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => handlePresetSelect(p)}
+                  className={`flex-1 py-1.5 text-xs font-semibold rounded-lg capitalize transition ${
+                    datePreset === p ? "bg-white text-zinc-900 shadow-xs" : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  {p === "week" ? "Last 7 Days" : p}
+                </button>
+              ))}
             </div>
           </div>
 
           {/* 3. Scope Filter */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
-              Tracking Scope
+              Filter Trajectory By Scope
             </label>
             <select
               value={scope}
               onChange={(e) => setScope(e.target.value as any)}
               className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
             >
-              <option value="all">All Telemetry Pings</option>
-              <option value="on_job">On Active Job Only</option>
-              <option value="on_shift">On Shift (Clocked-In)</option>
+              <option value="all">Full Route (All Pings)</option>
+              <option value="on_job">Only Active Job Transit</option>
+              <option value="on_shift">Only Scheduled Shift Hours</option>
             </select>
           </div>
 
-          {/* 4. Action Export Buttons */}
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
-              Audit Actions
-            </label>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleExport("csv")}
-                className="flex-1 px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-                Export CSV
-              </button>
-              <button
-                type="button"
-                onClick={fetchSurveillanceData}
-                disabled={loadingTelemetry}
-                className="px-3 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingTelemetry ? "animate-spin" : ""}`} />
-                Reload
-              </button>
-            </div>
+          {/* 4. Action Cluster */}
+          <div className="flex items-center gap-2 pt-5">
+            <button
+              type="button"
+              onClick={fetchSurveillanceData}
+              disabled={loadingTelemetry}
+              className="flex-1 px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingTelemetry ? "animate-spin" : ""}`} />
+              <span>{loadingTelemetry ? "Loading..." : "Load GPS"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleExport("csv")}
+              className="p-2 border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 rounded-xl transition"
+              title="Export Trajectory to CSV"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-[#0D7A5F]" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCleanupResult(null);
+                setCleanupError(null);
+                setConfirmPurgeStep(false);
+                setShowCleanupModal(true);
+              }}
+              className="p-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition"
+              title="Telemetry Retention Policy"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* Custom Start & End Date row */}
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-100 text-xs text-zinc-600">
-          <span className="font-semibold text-zinc-400">Custom Range:</span>
+        {/* Custom Date Inputs */}
+        <div className="pt-3 border-t border-zinc-100 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
+          <Calendar className="w-4 h-4 text-zinc-400" />
+          <span>From</span>
           <input
             type="datetime-local"
             value={startDate}
@@ -388,21 +535,16 @@ export default function SurveillanceDashboardPage() {
             className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-xs"
           />
 
-          {telemetryData?.consentStatus && (
-            <div className="ml-auto flex items-center gap-1.5 text-[11px]">
-              {telemetryData.consentStatus.hasConsent ? (
-                <span className="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  Consent Policy v{telemetryData.consentStatus.policyVersion} Acknowledged
-                </span>
-              ) : (
-                <span className="text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 font-semibold flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 text-amber-600" />
-                  Awaiting Mobile Disclosure Acknowledgment
-                </span>
-              )}
-            </div>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleLoadDemoRoute}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold transition"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Test Demo Route</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -476,101 +618,177 @@ export default function SurveillanceDashboardPage() {
           currentPingIndex={currentPingIndex}
           onSelectPingIndex={setCurrentPingIndex}
           technicianName={activeTechObj?.name || "Technician"}
+          autoFollow={autoFollow}
+          onToggleAutoFollow={setAutoFollow}
         />
 
-        {/* Playback Control Bar */}
-        {pings.length > 0 && (
-          <div className="bg-zinc-900 text-white rounded-2xl p-4 shadow-xl border border-zinc-800 space-y-3">
+        {/* Video-Player Playback Deck */}
+        {pings.length > 0 ? (
+          <div className="bg-zinc-950 text-white rounded-2xl p-4 shadow-2xl border border-zinc-800 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-              {/* Play/Pause & Speed Buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl font-bold flex items-center gap-1.5 transition shadow-xs"
-                >
-                  {isPlaying ? (
-                    <>
-                      <Pause className="w-3.5 h-3.5 fill-current" /> Pause
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3.5 h-3.5 fill-current" /> Play
-                    </>
-                  )}
-                </button>
-
+              {/* Playback Controls (Play/Pause, Step Back/Forward, Reset) */}
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => {
                     setIsPlaying(false);
                     setCurrentPingIndex(0);
                   }}
-                  className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition"
-                  title="Reset to Start"
+                  className="p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-xl transition border border-zinc-800"
+                  title="Rewind to Start"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
 
-                {/* Speed Toggle */}
-                <div className="flex items-center gap-1 bg-zinc-800 p-1 rounded-xl text-[11px] font-bold">
-                  {([1, 2, 5, 10] as const).map((s) => (
+                <button
+                  type="button"
+                  onClick={handleStepBackward}
+                  className="p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-xl transition border border-zinc-800"
+                  title="Step Backward (Left Arrow)"
+                >
+                  <SkipBack className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={togglePlayPause}
+                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl font-bold flex items-center gap-1.5 transition shadow-lg shadow-emerald-950/40"
+                  title="Play / Pause (Spacebar)"
+                >
+                  {isPlaying ? (
+                    <>
+                      <Pause className="w-4 h-4 fill-current" /> Pause
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-current" /> Play Replay
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleStepForward}
+                  className="p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-xl transition border border-zinc-800"
+                  title="Step Forward (Right Arrow)"
+                >
+                  <SkipForward className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Speed Toggle Chips */}
+                <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded-xl text-[11px] font-bold border border-zinc-800 ml-1">
+                  {([0.5, 1, 2, 4, 8] as const).map((s) => (
                     <button
                       key={s}
                       type="button"
                       onClick={() => setPlaybackSpeed(s)}
-                      className={`px-2 py-1 rounded-lg transition ${
-                        playbackSpeed === s ? "bg-[#0D7A5F] text-white" : "text-zinc-400 hover:text-white"
+                      className={`px-2 py-0.5 rounded-lg transition ${
+                        playbackSpeed === s ? "bg-[#0D7A5F] text-white shadow-xs" : "text-zinc-400 hover:text-white"
                       }`}
                     >
                       {s}x
                     </button>
                   ))}
                 </div>
+
+                {/* Auto-Follow Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setAutoFollow(!autoFollow)}
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 transition ml-1 ${
+                    autoFollow
+                      ? "bg-emerald-950 text-emerald-400 border-emerald-800"
+                      : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white"
+                  }`}
+                  title="Toggle Camera Follow"
+                >
+                  <Compass className={`w-3.5 h-3.5 ${autoFollow ? "text-emerald-400" : ""}`} />
+                  <span>{autoFollow ? "Camera: Locked" : "Camera: Free"}</span>
+                </button>
               </div>
 
-              {/* Current Playback Marker Telemetry */}
+              {/* Current Playback Marker HUD Telemetry */}
               {currentPing && (
-                <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-300">
-                  <span className="bg-zinc-800 px-2.5 py-1 rounded-lg text-emerald-400 font-bold">
-                    🕒 {new Date(currentPing.timestamp).toLocaleTimeString()}
+                <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-300 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-zinc-800">
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-emerald-500" />
+                    {new Date(currentPing.timestamp).toLocaleTimeString()}
                   </span>
                   <span>
                     ⚡ {currentPing.speed != null ? `${Math.round(currentPing.speed)} km/h` : "0 km/h"}
                   </span>
                   <span>🔋 {currentPing.batteryLevel != null ? `${Math.round(currentPing.batteryLevel)}%` : "—"}</span>
-                  <span className={currentPing.isMoving ? "text-emerald-400" : "text-amber-400"}>
-                    {currentPing.isMoving ? "In Motion" : "Stopped"}
+                  <span className={currentPing.isMoving ? "text-emerald-400 font-bold" : "text-amber-400"}>
+                    {currentPing.isMoving ? "Moving" : "Idle"}
                   </span>
                   {currentPing.activeJob && (
-                    <span className="text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
-                      Job: {currentPing.activeJob.jobNumber}
+                    <span className="text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800 font-semibold">
+                      Job #{currentPing.activeJob.jobNumber}
                     </span>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Timeline Scrubber */}
-            <div className="space-y-1">
+            {/* Video-Style Timeline Scrubber */}
+            <div className="space-y-1 pt-1">
               <input
                 type="range"
                 min={0}
-                max={pings.length - 1}
+                max={Math.max(0, pings.length - 1)}
                 value={currentPingIndex}
                 onChange={(e) => {
                   setIsPlaying(false);
                   setCurrentPingIndex(Number(e.target.value));
                 }}
-                className="w-full accent-[#0D7A5F] cursor-pointer"
+                className="w-full accent-[#0D7A5F] cursor-pointer h-2 bg-zinc-800 rounded-lg appearance-none"
               />
               <div className="flex justify-between text-[10px] text-zinc-400 font-mono">
                 <span>Start: {new Date(pings[0].timestamp).toLocaleTimeString()}</span>
-                <span>
-                  Point {currentPingIndex + 1} of {pings.length}
+                <span className="font-bold text-emerald-400">
+                  Waymark {currentPingIndex + 1} of {pings.length} (
+                  {Math.round(((currentPingIndex + 1) / pings.length) * 100)}%)
                 </span>
                 <span>End: {new Date(pings[pings.length - 1].timestamp).toLocaleTimeString()}</span>
               </div>
+            </div>
+          </div>
+        ) : (
+          /* Empty Route Helper */
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 text-center shadow-xs space-y-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 text-[#0D7A5F] flex items-center justify-center mx-auto">
+              <Navigation className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-zinc-900">No Location Telemetry In Selected Range</h3>
+              <p className="text-xs text-zinc-500 mt-1 max-w-md mx-auto">
+                No GPS location pings were reported for <strong>{activeTechObj?.name || "this technician"}</strong> between{" "}
+                {new Date(startDate).toLocaleDateString()} and {new Date(endDate).toLocaleDateString()}.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => handlePresetSelect("yesterday")}
+                className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded-xl transition"
+              >
+                Check Yesterday
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePresetSelect("week")}
+                className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded-xl transition"
+              >
+                Check Last 7 Days
+              </button>
+              <button
+                type="button"
+                onClick={handleLoadDemoRoute}
+                className="px-3.5 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Simulate Route & Test Playback</span>
+              </button>
             </div>
           </div>
         )}
@@ -622,19 +840,26 @@ export default function SurveillanceDashboardPage() {
         </div>
       )}
 
-      {/* Retention Policy Modal */}
+      {/* Modern, Reliable Retention Policy Modal */}
       {showCleanupModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-zinc-200 text-xs">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-base font-bold text-zinc-900">Telemetry Retention Policy</h3>
-                <p className="text-zinc-500 text-xs">Purge historical GPS telemetry older than retention window</p>
+                <p className="text-zinc-500 text-xs">Purge historical GPS pings older than retention window</p>
               </div>
             </div>
+
+            {cleanupError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{cleanupError}</span>
+              </div>
+            )}
 
             <div className="space-y-3">
               <div className="space-y-1">
@@ -646,25 +871,36 @@ export default function SurveillanceDashboardPage() {
                   min={7}
                   max={365}
                   value={retentionDaysInput}
-                  onChange={(e) => setRetentionDaysInput(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono"
+                  onChange={(e) => {
+                    setRetentionDaysInput(e.target.value);
+                    setCleanupResult(null);
+                    setConfirmPurgeStep(false);
+                  }}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
                 />
                 <p className="text-[10px] text-zinc-400">
-                  Standard policy: 90 days. Raw pings older than this threshold will be permanently deleted.
+                  Standard policy: 90 days. Raw location pings older than this threshold will be permanently deleted to save storage.
                 </p>
               </div>
 
               {cleanupResult && (
-                <div className="p-3 bg-zinc-100 rounded-xl space-y-1 text-[11px]">
-                  <p className="font-bold text-zinc-900">
-                    {cleanupResult.dryRun ? "Dry Run Preview:" : "Purge Complete:"}
+                <div className="p-3.5 bg-zinc-100 rounded-xl space-y-1.5 text-[11px] border border-zinc-200">
+                  <p className="font-bold text-zinc-900 flex items-center gap-1.5">
+                    {cleanupResult.dryRun ? (
+                      <span className="text-blue-700">🔍 Dry Run Analysis:</span>
+                    ) : (
+                      <span className="text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Purge Successfully Executed!
+                      </span>
+                    )}
                   </p>
-                  <p className="text-zinc-600">
-                    Eligible pings to purge:{" "}
+                  <p className="text-zinc-700">
+                    Pings matching threshold:{" "}
                     <strong>{cleanupResult.eligiblePings ?? cleanupResult.purgedPingsCount}</strong>
                   </p>
-                  <p className="text-zinc-600">
-                    Eligible gap logs:{" "}
+                  <p className="text-zinc-700">
+                    Offline gaps matching threshold:{" "}
                     <strong>{cleanupResult.eligibleOfflineGaps ?? cleanupResult.purgedGapsCount}</strong>
                   </p>
                   <p className="text-zinc-400 text-[10px]">
@@ -672,39 +908,68 @@ export default function SurveillanceDashboardPage() {
                   </p>
                 </div>
               )}
+
+              {confirmPurgeStep && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-2 animate-in fade-in">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Are you sure you want to permanently delete this telemetry?
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    This action will purge all raw GPS location pings older than {retentionDaysInput} days.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleExecuteRetention(false)}
+                      disabled={cleanupLoading}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs shadow-xs"
+                    >
+                      {cleanupLoading ? "Purging..." : "Yes, Purge Now"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmPurgeStep(false)}
+                      className="px-3 py-1.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded-lg font-semibold text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-100">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
               <button
                 type="button"
                 onClick={() => {
                   setShowCleanupModal(false);
                   setCleanupResult(null);
+                  setCleanupError(null);
+                  setConfirmPurgeStep(false);
                 }}
                 className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold rounded-xl text-xs"
               >
-                Cancel
+                Close
               </button>
               <button
                 type="button"
                 onClick={() => handleExecuteRetention(true)}
                 disabled={cleanupLoading}
-                className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold rounded-xl text-xs"
+                className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold rounded-xl text-xs flex items-center gap-1"
               >
-                Preview Dry Run
+                {cleanupLoading ? "Analyzing..." : "Preview Dry Run"}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm(`Permanently delete all GPS telemetry older than ${retentionDaysInput} days?`)) {
-                    handleExecuteRetention(false);
-                  }
-                }}
-                disabled={cleanupLoading}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs"
-              >
-                Execute Purge
-              </button>
+              {!confirmPurgeStep && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmPurgeStep(true)}
+                  disabled={cleanupLoading}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs"
+                >
+                  Execute Purge
+                </button>
+              )}
             </div>
           </div>
         </div>
