@@ -9,6 +9,15 @@ interface AddEmployeeDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   managers?: any[];
+  initialValues?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    role?: string;
+    department?: string;
+    designation?: string;
+    salary?: string;
+  };
   onEmployeeAdded?: () => void;
 }
 
@@ -16,6 +25,7 @@ export default function AddEmployeeDrawer({
   isOpen,
   onClose,
   managers = [],
+  initialValues,
   onEmployeeAdded,
 }: AddEmployeeDrawerProps) {
   const [name, setName] = useState("");
@@ -30,6 +40,18 @@ export default function AddEmployeeDrawer({
   const [probationMonths, setProbationMonths] = useState("3");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  React.useEffect(() => {
+    if (isOpen && initialValues) {
+      if (initialValues.name) setName(initialValues.name);
+      if (initialValues.phone) setPhone(initialValues.phone);
+      if (initialValues.email) setEmail(initialValues.email);
+      if (initialValues.role) setRole(initialValues.role);
+      if (initialValues.department) setDepartment(initialValues.department);
+      if (initialValues.designation) setDesignation(initialValues.designation);
+      if (initialValues.salary) setSalary(initialValues.salary);
+    }
+  }, [isOpen, initialValues]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

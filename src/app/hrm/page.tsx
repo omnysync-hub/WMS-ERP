@@ -11,6 +11,7 @@ import LeaveRequestDrawer from "@/components/drawers/LeaveRequestDrawer";
 import AddAssetDrawer from "@/components/drawers/AddAssetDrawer";
 import AssignAssetDrawer from "@/components/drawers/AssignAssetDrawer";
 import NewRequisitionDrawer from "@/components/drawers/NewRequisitionDrawer";
+import AddCandidateDrawer from "@/components/drawers/AddCandidateDrawer";
 import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
 import CompanyOnboardingTab from "@/components/hrm/CompanyOnboardingTab";
 import {
@@ -137,6 +138,11 @@ function HrmPayrollContent() {
   const [candidates, setCandidates] = useState<any[]>([]);
   const [requisitions, setRequisitions] = useState<any[]>([]);
   const [showNewRequisitionDrawer, setShowNewRequisitionDrawer] = useState(false);
+  const [showAddCandidateDrawer, setShowAddCandidateDrawer] = useState(false);
+  const [candidateDefaultStage, setCandidateDefaultStage] = useState("Applied");
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [selectedRequisitionFilter, setSelectedRequisitionFilter] = useState("all");
+  const [onboardCandidate, setOnboardCandidate] = useState<any>(null);
 
   // Tab: Grievances
   const [grievanceSubTab, setGrievanceSubTab] = useState<"all" | "open" | "resolved">("open");
@@ -333,6 +339,29 @@ function HrmPayrollContent() {
       }
     } catch (e: any) {
       alert(e.message);
+    }
+  };
+
+  // Move candidate stage
+  const handleUpdateCandidateStage = async (candidateId: string, newStage: string) => {
+    try {
+      const res = await fetch("/api/hrm/recruitment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_stage",
+          candidateId,
+          stage: newStage,
+        }),
+      });
+      if (res.ok) {
+        setCandidates((prev) =>
+          prev.map((c) => (c.id === candidateId ? { ...c, stage: newStage } : c))
+        );
+        setNotification(`Candidate advanced to ${newStage}.`);
+      }
+    } catch (e: any) {
+      alert(e.message || "Failed to update candidate stage");
     }
   };
 
@@ -592,13 +621,25 @@ function HrmPayrollContent() {
               Register Asset
             </button>
           ) : activeTab === "recruitment" ? (
-            <button
-              onClick={() => setShowNewRequisitionDrawer(true)}
-              className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              Raise Requisition
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setCandidateDefaultStage("Applied");
+                  setShowAddCandidateDrawer(true);
+                }}
+                className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Add Candidate
+              </button>
+              <button
+                onClick={() => setShowNewRequisitionDrawer(true)}
+                className="h-8 px-3.5 rounded-lg bg-white border border-[#E4E4E7] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#71717A]" />
+                Raise Requisition
+              </button>
+            </div>
           ) : activeTab === "payroll" ? (
             <button
               onClick={handleCalculatePayroll}
@@ -1640,27 +1681,88 @@ function HrmPayrollContent() {
       {/* ========================================================================= */}
       {activeTab === "recruitment" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-1.5 bg-[#F4F4F5] p-1 rounded-lg">
+          {/* Top Controls & Filter Bar */}
+          <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 bg-[#F4F4F5] p-1 rounded-lg">
+                <button
+                  onClick={() => setAtsView("pipeline")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+                    atsView === "pipeline"
+                      ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                      : "text-[#71717A] hover:text-[#18181B]"
+                  }`}
+                >
+                  Candidate Pipeline (Kanban)
+                </button>
+                <button
+                  onClick={() => setAtsView("requisitions")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+                    atsView === "requisitions"
+                      ? "bg-white text-[#18181B] shadow-2xs font-bold"
+                      : "text-[#71717A] hover:text-[#18181B]"
+                  }`}
+                >
+                  Job Requisitions ({requisitions.length})
+                </button>
+              </div>
+
+              {atsView === "pipeline" && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Requisition Filter */}
+                  <select
+                    value={selectedRequisitionFilter}
+                    onChange={(e) => setSelectedRequisitionFilter(e.target.value)}
+                    className="h-8 px-2.5 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-xs font-medium text-[#18181B] focus:outline-hidden"
+                  >
+                    <option value="all">All Requisitions ({candidates.length})</option>
+                    {requisitions.map((req) => (
+                      <option key={req.id} value={req.id}>
+                        {req.role} ({req.requisitionNumber})
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Candidate Search */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search candidate, phone, email..."
+                      value={candidateSearch}
+                      onChange={(e) => setCandidateSearch(e.target.value)}
+                      className="h-8 pl-8 pr-2.5 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-xs placeholder:text-[#71717A] text-[#18181B] focus:outline-hidden w-52 md:w-64"
+                    />
+                    {candidateSearch && (
+                      <button
+                        onClick={() => setCandidateSearch("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[#71717A] hover:text-[#18181B]"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setAtsView("pipeline")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-                  atsView === "pipeline"
-                    ? "bg-white text-[#18181B] shadow-2xs font-bold"
-                    : "text-[#71717A] hover:text-[#18181B]"
-                }`}
+                onClick={() => {
+                  setCandidateDefaultStage("Applied");
+                  setShowAddCandidateDrawer(true);
+                }}
+                className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
               >
-                Candidate Pipeline (Kanban)
+                <UserPlus className="w-3.5 h-3.5" />
+                Add Candidate
               </button>
               <button
-                onClick={() => setAtsView("requisitions")}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-                  atsView === "requisitions"
-                    ? "bg-white text-[#18181B] shadow-2xs font-bold"
-                    : "text-[#71717A] hover:text-[#18181B]"
-                }`}
+                onClick={() => setShowNewRequisitionDrawer(true)}
+                className="h-8 px-3 rounded-lg bg-white border border-[#E4E4E7] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs"
               >
-                Job Requisitions ({requisitions.length})
+                <Plus className="w-3.5 h-3.5 text-[#71717A]" />
+                Raise Requisition
               </button>
             </div>
           </div>
@@ -1675,81 +1777,295 @@ function HrmPayrollContent() {
                       <th className="p-3 font-semibold">Role Title</th>
                       <th className="p-3 font-semibold">Department</th>
                       <th className="p-3 font-semibold">Headcount</th>
+                      <th className="p-3 font-semibold">Candidates</th>
                       <th className="p-3 font-semibold">Justification</th>
                       <th className="p-3 font-semibold">Status</th>
-                      <th className="p-3 font-semibold text-right">Approval</th>
+                      <th className="p-3 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E4E4E7]">
-                    {requisitions.map((req) => (
-                      <tr key={req.id} className="hover:bg-[#F9FAFB] transition">
-                        <td className="p-3 font-mono font-bold text-[#18181B]">{req.requisitionNumber}</td>
-                        <td className="p-3 font-bold text-[#18181B]">{req.role}</td>
-                        <td className="p-3 text-[#71717A]">{req.department}</td>
-                        <td className="p-3 font-mono font-bold">{req.headcount}</td>
-                        <td className="p-3 text-[#52525B] max-w-xs truncate">{req.reason}</td>
-                        <td className="p-3">
-                          <StatusBadge status={req.status} />
-                        </td>
-                        <td className="p-3 text-right">
-                          {req.status === "Draft" ? (
-                            <button
-                              onClick={() => handleApproveRequisition(req.id)}
-                              className="px-2.5 py-1 text-xs font-bold text-white bg-[#0D7A5F] hover:bg-[#0A624C] rounded-lg transition"
-                            >
-                              Approve Requisition
-                            </button>
-                          ) : (
-                            <span className="text-[11px] text-emerald-800 font-bold">
-                              ✓ {req.approvedBy || "Approved"}
-                            </span>
-                          )}
+                    {requisitions.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-8 text-center text-xs text-[#71717A]">
+                          No job requisitions found. Raise a requisition to start hiring.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      requisitions.map((req) => {
+                        const reqCandidatesCount = candidates.filter((c) => c.requisitionId === req.id).length;
+                        return (
+                          <tr key={req.id} className="hover:bg-[#F9FAFB] transition">
+                            <td className="p-3 font-mono font-bold text-[#18181B]">{req.requisitionNumber}</td>
+                            <td className="p-3 font-bold text-[#18181B]">{req.role}</td>
+                            <td className="p-3 text-[#71717A]">{req.department}</td>
+                            <td className="p-3 font-mono font-bold">{req.headcount}</td>
+                            <td className="p-3">
+                              <span
+                                onClick={() => {
+                                  setSelectedRequisitionFilter(req.id);
+                                  setAtsView("pipeline");
+                                }}
+                                className="inline-flex items-center gap-1 cursor-pointer font-bold text-[#0D7A5F] hover:underline"
+                              >
+                                {reqCandidatesCount} applicant{reqCandidatesCount === 1 ? "" : "s"}
+                              </span>
+                            </td>
+                            <td className="p-3 text-[#52525B] max-w-xs truncate">{req.reason}</td>
+                            <td className="p-3">
+                              <StatusBadge status={req.status} />
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {req.status === "Draft" ? (
+                                  <button
+                                    onClick={() => handleApproveRequisition(req.id)}
+                                    className="px-2.5 py-1 text-xs font-bold text-white bg-[#0D7A5F] hover:bg-[#0A624C] rounded-lg transition"
+                                  >
+                                    Approve Requisition
+                                  </button>
+                                ) : (
+                                  <>
+                                    <span className="text-[11px] text-emerald-800 font-bold mr-2">
+                                      ✓ {req.approvedBy || "Approved"}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedRequisitionFilter(req.id);
+                                        setCandidateDefaultStage("Applied");
+                                        setShowAddCandidateDrawer(true);
+                                      }}
+                                      className="px-2 py-1 text-[11px] font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition inline-flex items-center gap-1"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      Add Candidate
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
           ) : (
             /* Kanban Pipeline Board */
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              {(["Applied", "Screening", "Interview", "Offer", "Hired"] as const).map((stage) => {
-                const stageCandidates = candidates.filter((c) => c.stage === stage);
-                return (
-                  <div
-                    key={stage}
-                    className="bg-[#F9FAFB] rounded-xl border border-[#EDEDED] p-3 space-y-3 min-h-[400px]"
-                  >
-                    <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                      <span className="font-bold text-xs text-[#18181B]">{stage}</span>
-                      <span className="text-[10px] font-mono font-bold bg-white px-2 py-0.5 rounded border text-[#71717A]">
-                        {stageCandidates.length}
-                      </span>
-                    </div>
+            (() => {
+              const q = candidateSearch.toLowerCase().trim();
+              const filteredCandidates = candidates.filter((c) => {
+                const matchesReq =
+                  selectedRequisitionFilter === "all" || c.requisitionId === selectedRequisitionFilter;
+                const matchesSearch =
+                  !q ||
+                  c.name?.toLowerCase().includes(q) ||
+                  c.phone?.toLowerCase().includes(q) ||
+                  c.email?.toLowerCase().includes(q) ||
+                  c.requisition?.role?.toLowerCase().includes(q);
+                return matchesReq && matchesSearch;
+              });
 
-                    <div className="space-y-2">
-                      {stageCandidates.map((cand) => (
-                        <Link
-                          key={cand.id}
-                          href={`/hrm/recruitment/candidates/${cand.id}`}
-                          className="block bg-white p-3 rounded-lg border border-[#EDEDED] shadow-2xs hover:border-[#0D7A5F] transition space-y-1.5"
-                        >
-                          <p className="font-bold text-xs text-[#18181B]">{cand.name}</p>
-                          <p className="text-[11px] text-[#71717A] truncate">
-                            {cand.requisition?.role || "Applicant"}
-                          </p>
-                          <div className="flex items-center justify-between text-[10px] text-[#71717A] pt-1 border-t border-[#F4F4F5]">
-                            <span>{cand.phone}</span>
-                            <span className="text-[#0D7A5F] font-bold">View →</span>
+              const stages = ["Applied", "Screening", "Interview", "Offer", "Hired"] as const;
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 items-start">
+                  {stages.map((stage) => {
+                    const stageCandidates = filteredCandidates.filter((c) => c.stage === stage);
+                    return (
+                      <div
+                        key={stage}
+                        className="bg-[#F9FAFB] rounded-xl border border-[#EDEDED] p-3 space-y-3 min-h-[460px] flex flex-col justify-between"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs text-[#18181B]">{stage}</span>
+                              <span className="text-[10px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-[#E4E4E7] text-[#71717A]">
+                                {stageCandidates.length}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setCandidateDefaultStage(stage);
+                                setShowAddCandidateDrawer(true);
+                              }}
+                              className="w-5 h-5 rounded hover:bg-white text-zinc-500 hover:text-emerald-700 flex items-center justify-center transition border border-transparent hover:border-[#E4E4E7]"
+                              title={`Add candidate to ${stage}`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
                           </div>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+
+                          <div className="space-y-2.5">
+                            {stageCandidates.length === 0 ? (
+                              <div className="border border-dashed border-[#D4D4D8] rounded-xl p-4 text-center space-y-2 bg-white/60">
+                                <p className="text-[11px] text-[#A1A1AA]">No candidates in {stage}</p>
+                                <button
+                                  onClick={() => {
+                                    setCandidateDefaultStage(stage);
+                                    setShowAddCandidateDrawer(true);
+                                  }}
+                                  className="px-2.5 py-1 text-[11px] font-semibold text-[#0D7A5F] hover:bg-emerald-50 rounded-md border border-[#0D7A5F]/20 transition inline-flex items-center gap-1"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  Add Candidate
+                                </button>
+                              </div>
+                            ) : (
+                              stageCandidates.map((cand) => (
+                                <div
+                                  key={cand.id}
+                                  className="bg-white p-3 rounded-xl border border-[#EDEDED] shadow-2xs hover:border-[#0D7A5F]/60 transition space-y-2"
+                                >
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div>
+                                      <Link
+                                        href={`/hrm/recruitment/candidates/${cand.id}`}
+                                        className="font-bold text-xs text-[#18181B] hover:text-[#0D7A5F] transition"
+                                      >
+                                        {cand.name}
+                                      </Link>
+                                      <p className="text-[11px] text-[#71717A] truncate">
+                                        {cand.requisition?.role || "General Applicant"}
+                                      </p>
+                                    </div>
+                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 shrink-0">
+                                      {cand.requisition?.department || "HR"}
+                                    </span>
+                                  </div>
+
+                                  <div className="text-[10px] text-[#71717A] space-y-0.5 pt-1 border-t border-[#F4F4F5]">
+                                    <div className="flex items-center justify-between">
+                                      <span>{cand.phone}</span>
+                                      {cand.email && <span className="truncate max-w-[110px]">{cand.email}</span>}
+                                    </div>
+                                    {cand.notes && (
+                                      <p className="text-[10px] text-zinc-500 italic line-clamp-1 pt-0.5">
+                                        &ldquo;{cand.notes}&rdquo;
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* ATS Stage Transition Actions */}
+                                  <div className="pt-2 border-t border-[#F4F4F5] space-y-1.5">
+                                    {stage === "Applied" && (
+                                      <button
+                                        onClick={() => handleUpdateCandidateStage(cand.id, "Screening")}
+                                        className="w-full py-1 px-2 rounded-lg bg-zinc-50 hover:bg-emerald-50 text-zinc-700 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-300 text-[11px] font-semibold transition flex items-center justify-center gap-1"
+                                      >
+                                        Move to Screening →
+                                      </button>
+                                    )}
+
+                                    {stage === "Screening" && (
+                                      <div className="grid grid-cols-2 gap-1.5">
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Applied")}
+                                          className="py-1 px-1.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border border-zinc-200 text-[10px] font-semibold transition"
+                                        >
+                                          ← Applied
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Interview")}
+                                          className="py-1 px-1.5 rounded-lg bg-zinc-50 hover:bg-emerald-50 text-zinc-700 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-300 text-[10px] font-semibold transition"
+                                        >
+                                          Interview →
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {stage === "Interview" && (
+                                      <div className="grid grid-cols-2 gap-1.5">
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Screening")}
+                                          className="py-1 px-1.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border border-zinc-200 text-[10px] font-semibold transition"
+                                        >
+                                          ← Screening
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Offer")}
+                                          className="py-1 px-1.5 rounded-lg bg-zinc-50 hover:bg-emerald-50 text-zinc-700 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-300 text-[10px] font-semibold transition"
+                                        >
+                                          Offer →
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {stage === "Offer" && (
+                                      <div className="grid grid-cols-2 gap-1.5">
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Interview")}
+                                          className="py-1 px-1.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border border-zinc-200 text-[10px] font-semibold transition"
+                                        >
+                                          ← Interview
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Hired")}
+                                          className="py-1 px-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold shadow-2xs transition"
+                                        >
+                                          ✓ Mark Hired
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {stage === "Hired" && (
+                                      <div className="space-y-1.5">
+                                        <button
+                                          onClick={() => {
+                                            setOnboardCandidate({
+                                              name: cand.name,
+                                              phone: cand.phone,
+                                              email: cand.email || "",
+                                              role: cand.requisition?.role?.toLowerCase().includes("tech")
+                                                ? "technician"
+                                                : "sales",
+                                              department: cand.requisition?.department || "Operations",
+                                              designation: cand.requisition?.role || "Staff",
+                                              salary: "6000",
+                                            });
+                                            setShowAddEmployeeDrawer(true);
+                                          }}
+                                          className="w-full py-1.5 px-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold shadow-xs transition flex items-center justify-center gap-1.5"
+                                        >
+                                          <UserPlus className="w-3.5 h-3.5" />
+                                          Onboard as Employee
+                                        </button>
+                                        <button
+                                          onClick={() => handleUpdateCandidateStage(cand.id, "Offer")}
+                                          className="w-full text-center text-[10px] text-zinc-400 hover:text-zinc-600 py-0.5 transition"
+                                        >
+                                          ← Revert to Offer
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Column footer */}
+                        <div className="pt-2 border-t border-[#E4E4E7]/60 text-center">
+                          <button
+                            onClick={() => {
+                              setCandidateDefaultStage(stage);
+                              setShowAddCandidateDrawer(true);
+                            }}
+                            className="text-[11px] text-[#71717A] hover:text-[#0D7A5F] font-medium transition inline-flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Add candidate
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()
           )}
         </div>
       )}
@@ -2357,10 +2673,15 @@ function HrmPayrollContent() {
       {/* DRAWERS & MODALS */}
       <AddEmployeeDrawer
         isOpen={showAddEmployeeDrawer}
-        onClose={() => setShowAddEmployeeDrawer(false)}
+        onClose={() => {
+          setShowAddEmployeeDrawer(false);
+          setOnboardCandidate(null);
+        }}
         managers={employees}
+        initialValues={onboardCandidate || undefined}
         onEmployeeAdded={() => {
           setNotification("Employee created successfully.");
+          setOnboardCandidate(null);
           loadData();
         }}
       />
@@ -2405,6 +2726,17 @@ function HrmPayrollContent() {
         onClose={() => setShowNewRequisitionDrawer(false)}
         onRequisitionCreated={() => {
           setNotification("Requisition raised.");
+          loadData();
+        }}
+      />
+
+      <AddCandidateDrawer
+        isOpen={showAddCandidateDrawer}
+        onClose={() => setShowAddCandidateDrawer(false)}
+        requisitions={requisitions}
+        defaultStage={candidateDefaultStage}
+        onCandidateAdded={() => {
+          setNotification("Candidate profile added to pipeline.");
           loadData();
         }}
       />
