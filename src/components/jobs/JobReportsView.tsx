@@ -337,8 +337,8 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
               >
                 <option value="all">All Statuses ({summary.totalJobs})</option>
                 <option value="done">Done / Completed ({summary.doneCount})</option>
-                <option value="in_progress">In Progress / Partial ({summary.inProgressCount})</option>
-                <option value="left">Left / Pending ({summary.leftCount})</option>
+                <option value="in_progress">In-Progress ({summary.inProgressCount})</option>
+                <option value="left">Pending ({summary.leftCount})</option>
               </select>
             </div>
 
@@ -437,12 +437,12 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
           </span>
         </div>
 
-        {/* Partially Done / In Progress */}
+        {/* In-Progress */}
         <div className="bg-white border border-blue-200 rounded-xl p-3.5 shadow-xs relative overflow-hidden">
           <div className="absolute top-0 right-0 w-2 h-full bg-blue-500" />
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider">
-              Partially / In-Progress
+              In-Progress
             </span>
             <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
               <Clock className="w-3.5 h-3.5" />
@@ -459,12 +459,12 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
           </span>
         </div>
 
-        {/* Left / Pending */}
+        {/* Pending */}
         <div className="bg-white border border-amber-200 rounded-xl p-3.5 shadow-xs relative overflow-hidden">
           <div className="absolute top-0 right-0 w-2 h-full bg-amber-500" />
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">
-              Jobs Left / Pending
+              Pending
             </span>
             <div className="w-6 h-6 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
               <AlertCircle className="w-3.5 h-3.5" />
@@ -528,11 +528,11 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
           </div>
         </div>
 
-        {/* Materials Issued (COGS) */}
+        {/* Inventory Used (COGS) */}
         <div className="bg-white border border-[#EDEDED] rounded-xl p-3.5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
-              Parts / Materials Issued
+              Inventory Used
             </span>
             <Package className="w-3.5 h-3.5 text-blue-600" />
           </div>
@@ -546,11 +546,11 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
           </div>
         </div>
 
-        {/* Tech Expenses */}
+        {/* Technician Expenses */}
         <div className="bg-white border border-[#EDEDED] rounded-xl p-3.5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
-              Tech Out-of-Pocket
+              Technician Expenses
             </span>
             <Receipt className="w-3.5 h-3.5 text-amber-600" />
           </div>
@@ -564,11 +564,11 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
           </div>
         </div>
 
-        {/* Cash Collected (Hisaab) */}
+        {/* Payment Collected */}
         <div className="bg-white border border-[#EDEDED] rounded-xl p-3.5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
-              Hisaab Cash Collected
+              Payment Collected
             </span>
             <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
           </div>
@@ -1147,7 +1147,7 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
                     <th className="py-2.5 px-3 text-center">Assigned</th>
                     <th className="py-2.5 px-3 text-center">Done</th>
                     <th className="py-2.5 px-3 text-center">In Progress</th>
-                    <th className="py-2.5 px-3 text-center">Pending Left</th>
+                    <th className="py-2.5 px-3 text-center">Pending</th>
                     <th className="py-2.5 px-3 text-right">Revenue Earned</th>
                     <th className="py-2.5 px-3 text-right">Expenses Incurred</th>
                     <th className="py-2.5 px-3 text-right">Expenses Paid</th>
