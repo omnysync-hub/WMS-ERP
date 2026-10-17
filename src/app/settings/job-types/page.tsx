@@ -223,6 +223,13 @@ export default function JobTypesSettingsPage() {
           </Link>
         </div>
 
+        <Link
+          href="/jobs/new"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-[#0D7A5F] hover:bg-[#0A614B] px-3.5 py-1.5 rounded-lg shadow-sm transition"
+        >
+          <Briefcase className="w-3.5 h-3.5" />
+          + Create New Job
+        </Link>
       </div>
 
       {/* Notifications */}

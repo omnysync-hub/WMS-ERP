@@ -412,6 +412,7 @@ export default function NewJobIntakePage() {
           const parsed = JSON.parse(savedJobs);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setConfiguredJobTypes(parsed);
+            setSelectedJobTypePreset((prev) => (parsed.includes(prev) ? prev : parsed[0]));
           }
         }
       } catch (err) {
@@ -419,17 +420,27 @@ export default function NewJobIntakePage() {
       }
     };
 
+    const handleJobTypesUpdate = (e: any) => {
+      const list = e?.detail;
+      if (Array.isArray(list) && list.length > 0) {
+        setConfiguredJobTypes(list);
+        setSelectedJobTypePreset((prev) => (list.includes(prev) ? prev : list[0]));
+      } else {
+        syncDropdowns();
+      }
+    };
+
     syncDropdowns();
     window.addEventListener("storage", syncDropdowns);
     window.addEventListener("custom_equipment_types_updated", syncDropdowns as EventListener);
     window.addEventListener("custom_hvac_brands_updated", syncDropdowns as EventListener);
-    window.addEventListener("custom_job_types_updated", syncDropdowns as EventListener);
+    window.addEventListener("custom_job_types_updated", handleJobTypesUpdate as EventListener);
     window.addEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
     return () => {
       window.removeEventListener("storage", syncDropdowns);
       window.removeEventListener("custom_equipment_types_updated", syncDropdowns as EventListener);
       window.removeEventListener("custom_hvac_brands_updated", syncDropdowns as EventListener);
-      window.removeEventListener("custom_job_types_updated", syncDropdowns as EventListener);
+      window.removeEventListener("custom_job_types_updated", handleJobTypesUpdate as EventListener);
       window.removeEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
     };
   }, []);
@@ -750,6 +761,22 @@ export default function NewJobIntakePage() {
           ? primaryTechnicianId
           : assignedTechnicianIds[0] || null;
 
+      // Auto-persist custom job type to localStorage dropdown list if not already saved
+      if (isCustomJobType && customJobType.trim()) {
+        try {
+          const savedJobs = localStorage.getItem("custom_job_types");
+          const currentList: string[] = savedJobs ? JSON.parse(savedJobs) : COMMON_JOB_TYPES;
+          const trimmed = customJobType.trim();
+          if (Array.isArray(currentList) && !currentList.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+            const nextList = [...currentList, trimmed];
+            localStorage.setItem("custom_job_types", JSON.stringify(nextList));
+            window.dispatchEvent(new CustomEvent("custom_job_types_updated", { detail: nextList }));
+          }
+        } catch (e) {
+          console.error("Could not auto-persist custom job type", e);
+        }
+      }
+
       const payload = {
         customerId: selectedCustomerId,
         careOfPartyId: isCareOf ? selectedCareOfPartyId : null,
@@ -757,7 +784,7 @@ export default function NewJobIntakePage() {
         careOfPersonName: isCareOf ? careOfPersonName.trim() : null,
         manualJobNumber: isCareOf ? manualJobNumber : null,
         isFoc,
-        jobType: effectiveJobType.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 30),
+        jobType: effectiveJobType.trim(),
         remarks: isFoc ? `[FOC: Company Billed] ${fullRemarks}`.trim() : fullRemarks,
         assignedTechnicianId: effectivePrimaryId,
         technicianIds: assignedTechnicianIds,
@@ -1025,9 +1052,20 @@ export default function NewJobIntakePage() {
           <div className="space-y-5 text-xs">
             {/* 1. JOB TYPE: Select or Type from Dropdown */}
             <div>
-              <label className="font-semibold text-[#18181B] block mb-1.5">
-                Job Nature / Type *
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="font-semibold text-[#18181B] block">
+                  Job Nature / Type <span className="text-rose-500">*</span>
+                </label>
+                <Link
+                  href="/settings/job-types"
+                  target="_blank"
+                  className="text-[11px] font-semibold text-[#0D7A5F] hover:underline flex items-center gap-1"
+                  title="Configure dropdown options in Settings"
+                >
+                  <Sparkles className="w-3 h-3 text-[#0D7A5F]" />
+                  Customize Options
+                </Link>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
