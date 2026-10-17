@@ -5,6 +5,28 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { requirePermission } from "@/lib/auth/erpActor";
 
+export async function GET(req: NextRequest) {
+  try {
+    const gate = requirePermission(req, "hrm.advances");
+    if (gate.error) return gate.error;
+
+    const advances = await prisma.employeeAdvance.findMany({
+      include: { employee: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const employees = await prisma.employee.findMany({
+      where: { active: true },
+      include: { advances: true },
+      orderBy: { name: "asc" },
+    });
+
+    return NextResponse.json({ advances, employees });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const gate = requirePermission(req, "hrm.advances");

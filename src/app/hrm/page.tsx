@@ -15,6 +15,7 @@ import AddCandidateDrawer from "@/components/drawers/AddCandidateDrawer";
 import CreatePayrollDrawer from "@/components/drawers/CreatePayrollDrawer";
 import PayrollRunDetailDrawer from "@/components/drawers/PayrollRunDetailDrawer";
 import PayslipModal from "@/components/drawers/PayslipModal";
+import IssueAdvanceDrawer from "@/components/drawers/IssueAdvanceDrawer";
 import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
 import CompanyOnboardingTab from "@/components/hrm/CompanyOnboardingTab";
 import {
@@ -178,6 +179,7 @@ function HrmPayrollContent() {
   const [selectedPayrollRunForDetail, setSelectedPayrollRunForDetail] = useState<any>(null);
   const [selectedPayslipForModal, setSelectedPayslipForModal] = useState<any>(null);
   const [showAdvanceModal, setShowAdvanceModal] = useState(false);
+  const [advances, setAdvances] = useState<any[]>([]);
   const [advanceEmpId, setAdvanceEmpId] = useState("");
   const [advanceAmount, setAdvanceAmount] = useState("");
   const [advanceReason, setAdvanceReason] = useState("");
@@ -238,10 +240,15 @@ function HrmPayrollContent() {
             setSelectedZoneId(data.zones[0].id);
           }
         }
-      } else if (activeTab === "payroll" || activeTab === "advances") {
+      } else if (activeTab === "payroll") {
         const res = await fetch("/api/hrm/payroll");
         const data = await res.json();
         if (data.runs) setPayrollRuns(data.runs);
+        if (data.employees) setEmployees(data.employees);
+      } else if (activeTab === "advances") {
+        const res = await fetch("/api/hrm/advances");
+        const data = await res.json();
+        if (data.advances) setAdvances(data.advances);
         if (data.employees) setEmployees(data.employees);
       } else if (activeTab === "ess") {
         const empRes = await fetch("/api/hrm/employees");
@@ -2651,24 +2658,133 @@ function HrmPayrollContent() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 9: STAFF ADVANCES (PRESERVED)                                         */}
+      {/* TAB 9: STAFF ADVANCES LEDGER & DISBURSEMENTS                              */}
       {/* ========================================================================= */}
       {activeTab === "advances" && (
-        <div className="bg-white rounded-xl border border-[#E4E4E7] p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-              Staff Salary Advance Ledger
-            </h3>
-            <button
-              onClick={() => setShowAdvanceModal(true)}
-              className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold"
-            >
-              + Issue Advance
-            </button>
+        <div className="space-y-4">
+          {/* Quick Metrics */}
+          {(() => {
+            const activeAdvances = advances.filter((a) => a.status === "approved");
+            const recoveredAdvances = advances.filter((a) => a.status === "recovered");
+            const totalOutstanding = activeAdvances.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+            const totalRecovered = recoveredAdvances.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+            const uniqueStaffCount = new Set(activeAdvances.map((a) => a.employeeId)).size;
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-2xs space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider">
+                    Outstanding Advances
+                  </span>
+                  <p className="text-base font-bold text-amber-700 font-mono">{formatCurrency(totalOutstanding)}</p>
+                  <span className="text-[10px] text-[#71717A]">{uniqueStaffCount} staff with active balance</span>
+                </div>
+
+                <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-2xs space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider">
+                    Total Advances Recovered
+                  </span>
+                  <p className="text-base font-bold text-[#0D7A5F] font-mono">{formatCurrency(totalRecovered)}</p>
+                  <span className="text-[10px] text-[#71717A]">Recovered via payroll deductions</span>
+                </div>
+
+                <div className="bg-white p-3.5 rounded-xl border border-[#E4E4E7] shadow-2xs space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider">
+                    Total Advances Recorded
+                  </span>
+                  <p className="text-base font-bold text-[#18181B] font-mono">{advances.length}</p>
+                  <span className="text-[10px] text-[#71717A]">Ledger entries on Account 1120</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Advances Ledger Table */}
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-[#E4E4E7] flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                  Staff Salary Advance Ledger
+                </h3>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  Staff advances are automatically debited to Account 1120 (Employee Advances Receivable) and recovered in monthly payroll runs.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  if (employees.length > 0 && !advanceEmpId) setAdvanceEmpId(employees[0].id);
+                  setShowAdvanceModal(true);
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Issue Staff Advance
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-[#F4F4F5] text-[#71717A] border-b border-[#E4E4E7]">
+                  <tr>
+                    <th className="p-3 font-semibold">Date</th>
+                    <th className="p-3 font-semibold">Employee</th>
+                    <th className="p-3 font-semibold">Department</th>
+                    <th className="p-3 font-semibold">Advance Amount</th>
+                    <th className="p-3 font-semibold">Reason / Purpose</th>
+                    <th className="p-3 font-semibold">Status</th>
+                    <th className="p-3 font-semibold text-right">Approved By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E4E4E7]">
+                  {advances.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-10 text-center space-y-3">
+                        <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs font-semibold text-[#18181B]">No salary advances recorded</p>
+                        <p className="text-[11px] text-[#71717A] max-w-sm mx-auto">
+                          Disburse staff advances safely with automated accounting entries and monthly payroll deduction tracking.
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (employees.length > 0 && !advanceEmpId) setAdvanceEmpId(employees[0].id);
+                            setShowAdvanceModal(true);
+                          }}
+                          className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Issue First Advance
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    advances.map((adv) => (
+                      <tr key={adv.id} className="hover:bg-[#F9FAFB] transition">
+                        <td className="p-3 font-mono text-[#71717A]">{formatDateTime(adv.createdAt)}</td>
+                        <td className="p-3">
+                          <p className="font-bold text-[#18181B]">{adv.employee?.name || "Staff"}</p>
+                          <p className="text-[10px] text-[#71717A]">{adv.employee?.designation || adv.employee?.role}</p>
+                        </td>
+                        <td className="p-3 text-[#71717A]">{adv.employee?.department || "Operations"}</td>
+                        <td className="p-3 font-mono font-bold text-amber-700">{formatCurrency(adv.amount)}</td>
+                        <td className="p-3 text-[#52525B] max-w-xs truncate">{adv.notes || "Salary advance"}</td>
+                        <td className="p-3">
+                          <StatusBadge status={adv.status} />
+                        </td>
+                        <td className="p-3 text-right">
+                          <span className="text-[11px] font-semibold text-[#18181B]">
+                            {adv.approvedBy || "Admin"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <p className="text-xs text-[#71717A]">
-            Staff advances are automatically debited to Account 1120 (Employee Advances Receivable) and recovered in the next monthly payroll run.
-          </p>
         </div>
       )}
 
@@ -2921,70 +3037,16 @@ function HrmPayrollContent() {
 
 
       {/* Staff Advance Modal */}
-      {showAdvanceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl border border-[#EDEDED] text-xs">
-            <h3 className="text-sm font-bold text-[#18181B]">Issue Staff Salary Advance</h3>
-            <form onSubmit={handleIssueAdvance} className="space-y-3">
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">Employee</label>
-                <select
-                  value={advanceEmpId}
-                  onChange={(e) => setAdvanceEmpId(e.target.value)}
-                  className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                >
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name} ({e.role})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">Advance Amount</label>
-                <input
-                  type="number"
-                  required
-                  min="50"
-                  value={advanceAmount}
-                  onChange={(e) => setAdvanceAmount(e.target.value)}
-                  placeholder="e.g. 500"
-                  className="w-full h-9 px-3 font-mono font-bold bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-[#18181B] block mb-1">Reason</label>
-                <input
-                  required
-                  value={advanceReason}
-                  onChange={(e) => setAdvanceReason(e.target.value)}
-                  placeholder="Purpose of the advance"
-                  className="w-full h-9 px-3 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#EDEDED]">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanceModal(false)}
-                  className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingAdvance}
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold shadow-xs"
-                >
-                  {isSubmittingAdvance ? "Processing..." : "Confirm Advance"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <IssueAdvanceDrawer
+        isOpen={showAdvanceModal}
+        onClose={() => setShowAdvanceModal(false)}
+        employees={employees}
+        defaultEmployeeId={advanceEmpId}
+        onAdvanceIssued={() => {
+          setNotification("Salary advance issued! Advance ledger debited.");
+          loadData();
+        }}
+      />
     </div>
   );
 }
