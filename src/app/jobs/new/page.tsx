@@ -239,9 +239,6 @@ export default function NewJobIntakePage() {
     );
   };
 
-  // Customer Job History
-  const [customerJobHistory, setCustomerJobHistory] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // SECTION 3: Line Items & Charges (Products from Inventory + Services)
   const [productLines, setProductLines] = useState<ProductLineItem[]>([]);
@@ -404,25 +401,6 @@ export default function NewJobIntakePage() {
     return [...opts, { value: "CUSTOM", label: "+ Custom / Other Brand..." }];
   }, [configuredBrands]);
 
-  // Fetch recent job history when a customer is selected
-  useEffect(() => {
-    if (!selectedCustomerId) {
-      setCustomerJobHistory([]);
-      return;
-    }
-    setLoadingHistory(true);
-    fetch(`/api/jobs?customerId=${selectedCustomerId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setCustomerJobHistory(data.slice(0, 5));
-        } else if (Array.isArray(data?.jobs)) {
-          setCustomerJobHistory(data.jobs.slice(0, 5));
-        }
-      })
-      .catch((err) => console.error("Failed to load customer jobs", err))
-      .finally(() => setLoadingHistory(false));
-  }, [selectedCustomerId]);
 
   // Close customer dropdown when clicking outside
   useEffect(() => {
@@ -885,43 +863,6 @@ export default function NewJobIntakePage() {
                 </button>
               </div>
 
-              {/* Customer Past Job History */}
-              <div className="pt-2.5 border-t border-emerald-100/80">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-bold text-[#18181B] flex items-center gap-1.5 uppercase tracking-wider">
-                    <Clock className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                    Past Job History ({loadingHistory ? "Loading..." : `${customerJobHistory.length} previous jobs`})
-                  </span>
-                </div>
-                {loadingHistory ? (
-                  <p className="text-[11px] text-[#71717A] italic">Loading customer service records...</p>
-                ) : customerJobHistory.length === 0 ? (
-                  <p className="text-[11px] text-[#71717A]">First-time customer — no previous work orders recorded.</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                    {customerJobHistory.map((pj: any) => (
-                      <div
-                        key={pj.id}
-                        className="p-2 rounded-lg bg-white border border-[#E4E4E7] text-[11px] space-y-1 shadow-2xs"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-[#0D7A5F]">{pj.jobNumber}</span>
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-[#F4F4F5] text-[#52525B]">
-                            {pj.status}
-                          </span>
-                        </div>
-                        <p className="text-[#18181B] font-medium truncate">{pj.title || formatJobType(pj.jobType)}</p>
-                        <div className="flex items-center justify-between text-[10px] text-[#71717A]">
-                          <span>{pj.createdAt ? new Date(pj.createdAt).toLocaleDateString() : "—"}</span>
-                          {pj.assignedTechnician && (
-                            <span className="truncate max-w-[100px]">Tech: {pj.assignedTechnician.name}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           ) : (
             /* Customer Search Input with Interactive Dropdown */
