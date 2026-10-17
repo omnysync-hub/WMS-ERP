@@ -1199,22 +1199,7 @@ export default function JobsListPage() {
           {/* Role Banner / Context */}
 
 
-          {isDispatcher && (
-            <div className="p-3 bg-blue-50/80 border border-blue-200 text-blue-950 rounded-lg flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-blue-700 shrink-0" />
-                <span>
-                  <strong>Lead Dispatcher Operational Command:</strong> Live fleet technician assignment, queue monitoring, and field lifecycle control. Financial pricing is masked.
-                </span>
-              </div>
-              <Link
-                href="/dispatch/map"
-                className="font-bold text-blue-800 hover:text-blue-950 underline shrink-0 ml-2 inline-flex items-center gap-1"
-              >
-                <span>Live Dispatch Map &rarr;</span>
-              </Link>
-            </div>
-          )}
+
 
           {/* Page Header (Per 04-DESIGN.md Section 1) */}
           <PageHeader
