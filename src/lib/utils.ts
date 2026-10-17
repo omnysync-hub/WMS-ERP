@@ -76,6 +76,18 @@ export function formatJobType(type: string | null | undefined): string {
     .join(" ");
 }
 
+export function formatStockUnitName(unit?: string | null): string {
+  if (!unit) return "Pieces";
+  const lower = unit.toLowerCase().trim();
+  if (lower === "pcs" || lower === "unit" || lower === "pieces") return "Pieces";
+  if (lower === "cylinder" || lower === "cyl") return "Cylinder";
+  if (lower === "roll") return "Roll";
+  if (lower === "meter" || lower === "mtr") return "Meter";
+  if (lower === "kg") return "Kg";
+  if (lower === "pack" || lower === "box") return unit.charAt(0).toUpperCase() + unit.slice(1);
+  return unit.charAt(0).toUpperCase() + unit.slice(1);
+}
+
 export function numberToWords(num: number): string {
   if (!num || isNaN(num) || num <= 0) return "Zero";
   const a = [

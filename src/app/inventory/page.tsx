@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatStockUnitName } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
 import {
   Package,
@@ -258,7 +259,10 @@ export default function InventoryPurchasingPage() {
   // New Physical Product State
   const [newProductSku, setNewProductSku] = useState("");
   const [newProductName, setNewProductName] = useState("");
-  const [newProductUnit, setNewProductUnit] = useState("unit");
+  const [newProductUnit, setNewProductUnit] = useState("Pieces");
+  const [isCustomUnit, setIsCustomUnit] = useState(false);
+  const [customUnitInput, setCustomUnitInput] = useState("");
+  const [configuredStockUnits, setConfiguredStockUnits] = useState<string[]>(["Pieces"]);
   const [newProductCost, setNewProductCost] = useState("");
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductQty, setNewProductQty] = useState("10");
@@ -270,10 +274,11 @@ export default function InventoryPurchasingPage() {
   const [newServiceCost, setNewServiceCost] = useState("");
   const [newServiceNotes, setNewServiceNotes] = useState("");
 
-  // Quick Edit Modal State (Rate / Cost update)
+  // Quick Edit Modal State (Rate / Cost / Unit update)
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [editPrice, setEditPrice] = useState("");
   const [editCost, setEditCost] = useState("");
+  const [editUnit, setEditUnit] = useState("");
   const [isUpdatingProduct, setIsUpdatingProduct] = useState(false);
 
   const [notification, setNotification] = useState("");
@@ -318,6 +323,54 @@ export default function InventoryPurchasingPage() {
   useEffect(() => {
     loadData();
   }, [activeTab]);
+
+  // Synchronize stock units from Settings (workman_stock_units)
+  useEffect(() => {
+    const syncStockUnits = (e?: any) => {
+      try {
+        const detailList = e?.detail;
+        if (Array.isArray(detailList) && detailList.length > 0) {
+          const active = detailList
+            .filter((u: any) => u.status !== "Inactive")
+            .map((u: any) => u.name || u.code)
+            .filter(Boolean);
+          if (active.length > 0) {
+            setConfiguredStockUnits(active);
+            setNewProductUnit((prev) => (active.includes(prev) ? prev : active[0]));
+            return;
+          }
+        }
+
+        const saved = localStorage.getItem("workman_stock_units");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const active = parsed
+              .filter((u: any) => u.status !== "Inactive")
+              .map((u: any) => u.name || u.code)
+              .filter(Boolean);
+            if (active.length > 0) {
+              setConfiguredStockUnits(active);
+              setNewProductUnit((prev) => (active.includes(prev) ? prev : active[0]));
+              return;
+            }
+          }
+        }
+        setConfiguredStockUnits(["Pieces"]);
+        setNewProductUnit("Pieces");
+      } catch (err) {
+        console.error("Failed loading stock units in inventory", err);
+      }
+    };
+
+    syncStockUnits();
+    window.addEventListener("storage", syncStockUnits);
+    window.addEventListener("workman_stock_units_updated", syncStockUnits as EventListener);
+    return () => {
+      window.removeEventListener("storage", syncStockUnits);
+      window.removeEventListener("workman_stock_units_updated", syncStockUnits as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     if (products.length > 0 && (!newServiceSku || newServiceSku === "SRV-")) {
@@ -456,6 +509,25 @@ export default function InventoryPurchasingPage() {
     if (!newProductSku || !newProductName) return;
     try {
       setIsSubmittingStock(true);
+      const effectiveUnit = (isCustomUnit ? customUnitInput.trim() : newProductUnit) || configuredStockUnits[0] || "Pieces";
+
+      // Auto-persist custom unit to workman_stock_units in localStorage if typed
+      if (isCustomUnit && customUnitInput.trim()) {
+        try {
+          const saved = localStorage.getItem("workman_stock_units");
+          const list: any[] = saved ? JSON.parse(saved) : [{ id: "unit-pcs", name: "Pieces", status: "Active" }];
+          const trimmed = customUnitInput.trim();
+          const formatted = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+          if (Array.isArray(list) && !list.some((u) => (u.name || "").toLowerCase() === formatted.toLowerCase())) {
+            const next = [...list, { id: `unit-${Date.now()}`, name: formatted, status: "Active" }];
+            localStorage.setItem("workman_stock_units", JSON.stringify(next));
+            window.dispatchEvent(new CustomEvent("workman_stock_units_updated", { detail: next }));
+          }
+        } catch (e) {
+          console.error("Auto-persisting stock unit failed", e);
+        }
+      }
+
       const res = await fetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -463,7 +535,7 @@ export default function InventoryPurchasingPage() {
           action: "create_product",
           sku: newProductSku,
           name: newProductName,
-          unit: newProductUnit,
+          unit: effectiveUnit,
           costPrice: Number(newProductCost) || 0,
           unitPrice: Number(newProductPrice) || 0,
           stockQuantity: Number(newProductQty) || 0,
@@ -476,11 +548,13 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error);
       }
       setShowAddStockModal(false);
-      setNotification(`Product "${newProductName}" (${newProductSku}) created with ${newProductQty} initial units.`);
+      setNotification(`Product "${newProductName}" (${newProductSku}) created with ${newProductQty} initial ${effectiveUnit}.`);
       setNewProductSku("");
       setNewProductName("");
       setNewProductCost("");
       setNewProductPrice("");
+      setIsCustomUnit(false);
+      setCustomUnitInput("");
       loadData();
     } catch (err: any) {
       alert(err.message);
@@ -531,7 +605,7 @@ export default function InventoryPurchasingPage() {
     }
   };
 
-  // Quick Update Service / Product Rate
+  // Quick Update Service / Product Rate & Unit
   const handleQuickUpdateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
@@ -544,6 +618,7 @@ export default function InventoryPurchasingPage() {
         body: JSON.stringify({
           action: "update_product",
           id: editingProduct.id,
+          unit: isService ? (editingProduct.unit || "service") : (editUnit.trim() || undefined),
           unitPrice: Number(editPrice) || 0,
           costPrice: isService ? (Number(editPrice) || 0) : (Number(editCost) || 0),
         }),
@@ -552,7 +627,7 @@ export default function InventoryPurchasingPage() {
         const err = await res.json();
         throw new Error(err.error);
       }
-      setNotification(`Updated rates for "${editingProduct.name}" successfully.`);
+      setNotification(`Updated details for "${editingProduct.name}" successfully.`);
       setEditingProduct(null);
       loadData();
     } catch (err: any) {
@@ -1343,6 +1418,7 @@ export default function InventoryPurchasingPage() {
                     <tr className="text-[11px] font-semibold text-[#71717A] uppercase tracking-wider">
                       <th className="py-3 px-4">Item Code & Type</th>
                       <th className="py-3 px-4">Description / Service</th>
+                      <th className="py-3 px-3 text-center">Stock Unit (UOM)</th>
                       <th className="py-3 px-4 text-center">In Warehouse</th>
                       <th className="py-3 px-4 text-center">Stock on Job</th>
                       <th className="py-3 px-4 text-center">Total Stock</th>
@@ -1394,23 +1470,34 @@ export default function InventoryPurchasingPage() {
                           <td className="py-3 px-4 max-w-xs">
                             <div className="font-semibold text-xs text-[#18181B]">{p.name}</div>
                           </td>
+                          <td className="py-3 px-3 text-center">
+                            {isService ? (
+                              <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200/80 px-2 py-0.5 rounded-md capitalize font-mono">
+                                {p.unit || "Service"}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md font-mono shadow-2xs">
+                                {formatStockUnitName(p.unit)}
+                              </span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-center font-mono">
                             {isService ? (
                               <span className="text-xs text-zinc-300 font-mono">—</span>
                             ) : isOut ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                                0 <span className="font-normal text-[10px] text-rose-600">{p.unit || "unit"}</span>
+                                0 <span className="font-normal text-[10px] text-rose-600">{formatStockUnitName(p.unit)}</span>
                               </span>
                             ) : isLow ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                {p.stockQuantity} <span className="font-normal text-[10px] text-amber-700">{p.unit || "unit"}</span>
+                                {p.stockQuantity} <span className="font-normal text-[10px] text-amber-700">{formatStockUnitName(p.unit)}</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                {p.stockQuantity} <span className="font-normal text-[10px] text-emerald-700">{p.unit || "unit"}</span>
+                                {p.stockQuantity} <span className="font-normal text-[10px] text-emerald-700">{formatStockUnitName(p.unit)}</span>
                               </span>
                             )}
                           </td>
@@ -1425,7 +1512,7 @@ export default function InventoryPurchasingPage() {
                                 title="Click to view technician allocations across active jobs"
                               >
                                 <Truck className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-105 transition-transform" />
-                                <span>{onJobQty} <span className="text-[10px] font-normal">{p.unit || "units"}</span></span>
+                                <span>{onJobQty} <span className="text-[10px] font-normal">{formatStockUnitName(p.unit)}</span></span>
                                 <span className="text-[10px] px-1.5 py-0.2 bg-blue-200/80 rounded-full font-mono text-blue-900 font-semibold">
                                   {p.jobAllocations?.length || 1} {p.jobAllocations?.length === 1 ? "job" : "jobs"}
                                 </span>
@@ -1439,7 +1526,7 @@ export default function InventoryPurchasingPage() {
                               <span className="text-xs text-zinc-300 font-mono">—</span>
                             ) : (
                               <div className="font-mono font-bold text-xs text-[#18181B]">
-                                {totalQty} <span className="text-[10px] font-normal text-zinc-500">{p.unit || "unit"}</span>
+                                {totalQty} <span className="text-[10px] font-normal text-zinc-500">{formatStockUnitName(p.unit)}</span>
                               </div>
                             )}
                           </td>
@@ -1448,7 +1535,7 @@ export default function InventoryPurchasingPage() {
                               <span className="text-xs text-zinc-300 font-mono">—</span>
                             ) : (
                               <span className="text-xs text-zinc-600 font-medium">
-                                {p.reorderPoint || 5} <span className="text-[10px] text-zinc-400 font-normal">{p.unit || "unit"}</span>
+                                {p.reorderPoint || 5} <span className="text-[10px] text-zinc-400 font-normal">{formatStockUnitName(p.unit)}</span>
                               </span>
                             )}
                           </td>
@@ -1457,7 +1544,7 @@ export default function InventoryPurchasingPage() {
                               <div className="font-mono text-xs font-bold text-[#18181B]">
                                 <span>{formatCurrency(p.unitPrice || p.costPrice || 0)}</span>
                                 {!isService && (
-                                  <span className="text-[10px] font-normal text-zinc-500 ml-1">/{p.unit || "unit"}</span>
+                                  <span className="text-[10px] font-normal text-zinc-500 ml-1">/{formatStockUnitName(p.unit)}</span>
                                 )}
                               </div>
                             </td>
@@ -1496,6 +1583,7 @@ export default function InventoryPurchasingPage() {
                                         setEditingProduct(p);
                                         setEditPrice(String(p.unitPrice || 0));
                                         setEditCost(String(p.costPrice || 0));
+                                        setEditUnit(p.unit || "service");
                                       }}
                                       className="h-7 px-2.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-semibold inline-flex items-center gap-1 transition shadow-2xs cursor-pointer focus-visible:outline-none"
                                       title="Edit service billing rate or technician cost"
@@ -1516,6 +1604,22 @@ export default function InventoryPurchasingPage() {
                                 </>
                               ) : (
                                 <>
+                                  {!isStorekeeper && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingProduct(p);
+                                        setEditPrice(String(p.unitPrice || 0));
+                                        setEditCost(String(p.costPrice || 0));
+                                        setEditUnit(formatStockUnitName(p.unit));
+                                      }}
+                                      className="h-7 px-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200 text-xs font-semibold inline-flex items-center gap-1 transition shadow-2xs cursor-pointer focus-visible:outline-none"
+                                      title="Edit product unit of measure, billable rate or base cost"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                      Edit
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -1606,15 +1710,15 @@ export default function InventoryPurchasingPage() {
                   </h3>
                   <div className="flex items-center gap-3 text-[11px] text-[#71717A] mt-0.5">
                     <span>
-                      Warehouse: <strong className="text-[#18181B] font-mono">{selectedProduct.stockQuantity}</strong> {selectedProduct.unit || "unit"}
+                      Warehouse: <strong className="text-[#18181B] font-mono">{selectedProduct.stockQuantity}</strong> {formatStockUnitName(selectedProduct.unit)}
                     </span>
                     <span>•</span>
                     <span>
-                      Stock on Job: <strong className="text-blue-700 font-mono">{selectedProduct.stockOnJob || 0}</strong> {selectedProduct.unit || "unit"}
+                      Stock on Job: <strong className="text-blue-700 font-mono">{selectedProduct.stockOnJob || 0}</strong> {formatStockUnitName(selectedProduct.unit)}
                     </span>
                     <span>•</span>
                     <span>
-                      Total Stock: <strong className="text-[#18181B] font-mono">{(selectedProduct.stockQuantity || 0) + (selectedProduct.stockOnJob || 0)}</strong> {selectedProduct.unit || "unit"}
+                      Total Stock: <strong className="text-[#18181B] font-mono">{(selectedProduct.stockQuantity || 0) + (selectedProduct.stockOnJob || 0)}</strong> {formatStockUnitName(selectedProduct.unit)}
                     </span>
                   </div>
                 </div>
@@ -1633,7 +1737,7 @@ export default function InventoryPurchasingPage() {
                   <div className="flex items-center justify-between text-xs font-bold text-blue-900">
                     <span className="flex items-center gap-1.5">
                       <Truck className="w-3.5 h-3.5 text-blue-700" />
-                      Active Field Allocations ({selectedProduct.stockOnJob} {selectedProduct.unit || "units"} issued)
+                      Active Field Allocations ({selectedProduct.stockOnJob} {formatStockUnitName(selectedProduct.unit)} issued)
                     </span>
                     <span className="text-[11px] font-normal text-blue-800">
                       Currently deployed on {selectedProduct.jobAllocations.length} active work orders
@@ -1648,7 +1752,7 @@ export default function InventoryPurchasingPage() {
                         </div>
                         <div className="text-right">
                           <span className="font-mono font-bold text-blue-700 text-xs">
-                            {alloc.quantity} {selectedProduct.unit || "unit"}
+                            {alloc.quantity} {formatStockUnitName(selectedProduct.unit)}
                           </span>
                           <span className="block text-[10px] text-[#71717A]">{alloc.jobStatus}</span>
                         </div>
@@ -3097,7 +3201,7 @@ export default function InventoryPurchasingPage() {
                     <option value="" disabled>-- Select a Product --</option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku}) — Available: {p.stockQuantity} {p.unit || "units"}
+                        {p.name} ({p.sku}) — Available: {p.stockQuantity} {formatStockUnitName(p.unit)}
                       </option>
                     ))}
                   </select>
@@ -3181,11 +3285,11 @@ export default function InventoryPurchasingPage() {
                     <div className="p-3 bg-[#F4F4F5] rounded-lg border border-[#E4E4E7] text-xs space-y-1">
                       <div className="flex justify-between font-medium text-[#71717A]">
                         <span>Current Stock:</span>
-                        <span className="font-mono font-bold text-[#18181B]">{currentQty} {sel.unit || "units"}</span>
+                        <span className="font-mono font-bold text-[#18181B]">{currentQty} {formatStockUnitName(sel.unit)}</span>
                       </div>
                       <div className="flex justify-between font-medium text-[#0D7A5F]">
                         <span>New Balance After Inward:</span>
-                        <span className="font-mono font-bold">{newQty} {sel.unit || "units"}</span>
+                        <span className="font-mono font-bold">{newQty} {formatStockUnitName(sel.unit)}</span>
                       </div>
                       <div className="flex justify-between font-medium text-[#71717A] pt-1 border-t border-[#E4E4E7]">
                         <span>Total Inventory Asset Value Added:</span>
@@ -3240,21 +3344,48 @@ export default function InventoryPurchasingPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      Unit of Measure
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-[#18181B] block">
+                        Unit of Measure *
+                      </label>
+                      <Link
+                        href="/settings/stock-units"
+                        target="_blank"
+                        className="text-[10px] text-[#0D7A5F] hover:underline flex items-center gap-1 font-semibold"
+                        title="Manage stock units in Settings"
+                      >
+                        Manage Units ↗
+                      </Link>
+                    </div>
                     <select
-                      value={newProductUnit}
-                      onChange={(e) => setNewProductUnit(e.target.value)}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+                      value={isCustomUnit ? "CUSTOM" : newProductUnit}
+                      onChange={(e) => {
+                        if (e.target.value === "CUSTOM") {
+                          setIsCustomUnit(true);
+                        } else {
+                          setIsCustomUnit(false);
+                          setNewProductUnit(e.target.value);
+                        }
+                      }}
+                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
                     >
-                      <option value="unit">unit (pcs)</option>
-                      <option value="cylinder">cylinder</option>
-                      <option value="meter">meter</option>
-                      <option value="roll">roll</option>
-                      <option value="pack">pack</option>
-                      <option value="kg">kg</option>
+                      {configuredStockUnits.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                      <option value="CUSTOM">+ Other Custom Unit...</option>
                     </select>
+                    {isCustomUnit && (
+                      <input
+                        type="text"
+                        placeholder="Type custom unit (e.g. Box, Drum, Pair)..."
+                        value={customUnitInput}
+                        onChange={(e) => setCustomUnitInput(e.target.value)}
+                        className="mt-1.5 w-full bg-white p-2 rounded-lg text-xs border border-[#0D7A5F] focus:outline-none text-[#18181B] animate-in fade-in font-medium"
+                        required
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -3500,6 +3631,35 @@ export default function InventoryPurchasingPage() {
             ) : (
               <>
                 <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-[#18181B] block">
+                      Stock Unit of Measure (UOM)
+                    </label>
+                    <Link
+                      href="/settings/stock-units"
+                      target="_blank"
+                      className="text-[10px] text-[#0D7A5F] hover:underline font-semibold"
+                    >
+                      Manage Units ↗
+                    </Link>
+                  </div>
+                  <select
+                    value={editUnit}
+                    onChange={(e) => setEditUnit(e.target.value)}
+                    className="w-full bg-[#FAFAFA] p-2.5 rounded-lg border border-[#D4D4D8] font-medium text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none text-[#18181B]"
+                  >
+                    {configuredStockUnits.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                    {!configuredStockUnits.includes(editUnit) && editUnit && (
+                      <option value={editUnit}>{editUnit}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
                   <label className="font-semibold text-[#18181B] block mb-1">
                     Customer Billable Rate (PKR) *
                   </label>
@@ -3541,7 +3701,7 @@ export default function InventoryPurchasingPage() {
                 disabled={isUpdatingProduct}
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs"
               >
-                {isUpdatingProduct ? "Saving..." : isServiceProduct(editingProduct) ? "Update Cost" : "Update Rate"}
+                {isUpdatingProduct ? "Saving..." : isServiceProduct(editingProduct) ? "Update Cost" : "Update Product & Rates"}
               </button>
             </div>
           </form>
@@ -3588,19 +3748,19 @@ export default function InventoryPurchasingPage() {
                 <div className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]">
                   <span className="text-[10px] font-semibold uppercase text-[#71717A] block">Warehouse Storage</span>
                   <span className="text-lg font-bold font-mono text-[#18181B]">
-                    {activeAllocationProduct.stockQuantity} {activeAllocationProduct.unit || "unit"}
+                    {activeAllocationProduct.stockQuantity} {formatStockUnitName(activeAllocationProduct.unit)}
                   </span>
                 </div>
                 <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200">
                   <span className="text-[10px] font-semibold uppercase text-blue-800 block">Stock on Job (Field)</span>
                   <span className="text-lg font-bold font-mono text-blue-900">
-                    {activeAllocationProduct.stockOnJob || 0} {activeAllocationProduct.unit || "unit"}
+                    {activeAllocationProduct.stockOnJob || 0} {formatStockUnitName(activeAllocationProduct.unit)}
                   </span>
                 </div>
                 <div className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7]">
                   <span className="text-[10px] font-semibold uppercase text-[#71717A] block">Total Stock</span>
                   <span className="text-lg font-bold font-mono text-[#18181B]">
-                    {(activeAllocationProduct.stockQuantity || 0) + (activeAllocationProduct.stockOnJob || 0)} {activeAllocationProduct.unit || "unit"}
+                    {(activeAllocationProduct.stockQuantity || 0) + (activeAllocationProduct.stockOnJob || 0)} {formatStockUnitName(activeAllocationProduct.unit)}
                   </span>
                 </div>
               </div>
@@ -3641,7 +3801,7 @@ export default function InventoryPurchasingPage() {
                               </span>
                             </td>
                             <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700">
-                              {alloc.quantity} {activeAllocationProduct.unit || "unit"}
+                              {alloc.quantity} {formatStockUnitName(activeAllocationProduct.unit)}
                             </td>
                             <td className="py-2.5 px-3 text-right">
                               <a

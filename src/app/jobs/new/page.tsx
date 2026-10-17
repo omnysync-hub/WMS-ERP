@@ -35,7 +35,7 @@ import {
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import SearchableCombobox from "@/components/ui/SearchableCombobox";
 import { realtimeSync } from "@/lib/realtimeSync";
-import { cn, formatCurrency, formatJobType } from "@/lib/utils";
+import { cn, formatCurrency, formatJobType, formatStockUnitName } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
 
 // Standard HVAC Job Types
@@ -518,8 +518,8 @@ export default function NewJobIntakePage() {
       ...inventoryProducts.map((inv) => ({
         value: inv.id,
         label: `${inv.name} (${inv.sku})`,
-        subLabel: `Stock: ${inv.stockQuantity} ${inv.unit} @ ${formatCurrency(inv.unitPrice)}`,
-        badge: inv.stockQuantity > 0 ? `${inv.stockQuantity} ${inv.unit}` : "Out of stock",
+        subLabel: `Stock: ${inv.stockQuantity} ${formatStockUnitName(inv.unit)} @ ${formatCurrency(inv.unitPrice)}`,
+        badge: inv.stockQuantity > 0 ? `${inv.stockQuantity} ${formatStockUnitName(inv.unit)}` : "Out of stock",
         badgeTone: inv.stockQuantity > 5 ? ("green" as const) : inv.stockQuantity > 0 ? ("amber" as const) : ("red" as const),
       })),
       {
@@ -539,7 +539,7 @@ export default function NewJobIntakePage() {
       productId: defaultProd?.id || "",
       name: defaultProd?.name || "",
       sku: defaultProd?.sku || "",
-      unit: defaultProd?.unit || "unit",
+      unit: formatStockUnitName(defaultProd?.unit),
       availableStock: defaultProd?.stockQuantity ?? 0,
       quantity: 1,
       unitRate: defaultProd?.unitPrice || 0,
@@ -578,7 +578,7 @@ export default function NewJobIntakePage() {
               productId: prod.id,
               name: prod.name,
               sku: prod.sku,
-              unit: prod.unit,
+              unit: formatStockUnitName(prod.unit),
               availableStock: prod.stockQuantity,
               unitRate: prod.unitPrice || 0,
             }

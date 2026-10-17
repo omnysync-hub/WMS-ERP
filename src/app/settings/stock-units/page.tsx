@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import SideDrawer from "@/components/ui/SideDrawer";
 import {
@@ -10,6 +11,7 @@ import {
   CheckCircle2,
   Edit2,
   Trash2,
+  Package,
 } from "lucide-react";
 
 interface StockUnit {
@@ -77,7 +79,37 @@ export default function StockUnitsPage() {
   const saveUnits = (newUnits: StockUnit[]) => {
     setUnits(newUnits);
     localStorage.setItem("workman_stock_units", JSON.stringify(newUnits));
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new CustomEvent("workman_stock_units_updated", { detail: newUnits }));
   };
+
+  useEffect(() => {
+    const handleSync = (e: any) => {
+      try {
+        const list = e?.detail;
+        if (Array.isArray(list) && list.length > 0) {
+          setUnits(list);
+          return;
+        }
+        const saved = localStorage.getItem("workman_stock_units");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setUnits(parsed);
+          }
+        }
+      } catch (err) {
+        console.error("Failed syncing stock units", err);
+      }
+    };
+
+    window.addEventListener("storage", handleSync as EventListener);
+    window.addEventListener("workman_stock_units_updated", handleSync as EventListener);
+    return () => {
+      window.removeEventListener("storage", handleSync as EventListener);
+      window.removeEventListener("workman_stock_units_updated", handleSync as EventListener);
+    };
+  }, []);
 
   const handleOpenAdd = () => {
     setEditingUnit(null);
@@ -165,13 +197,22 @@ export default function StockUnitsPage() {
         title="Stock Units of Measure (UOM)"
         subtitle="Manage measurement units for inventory, materials, and services"
         actions={
-          <button
-            onClick={handleOpenAdd}
-            className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add New Unit
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/inventory"
+              className="h-8 px-3 rounded-lg border border-[#D4D4D8] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-2xs"
+            >
+              <Package className="w-3.5 h-3.5 text-[#0D7A5F]" />
+              Inventory Catalog
+            </Link>
+            <button
+              onClick={handleOpenAdd}
+              className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add New Unit
+            </button>
+          </div>
         }
       />
 
