@@ -149,7 +149,7 @@ export class MobilePushService {
       const isUrgent =
         isJobRing || priority === "urgent" || priority === "high";
       const channelId = isJobRing
-        ? "job-ring-v1"
+        ? "job-ring-v3"
         : isUrgent
           ? "urgent-dispatch-v2"
           : "general-dispatch";
