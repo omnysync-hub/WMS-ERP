@@ -1,8 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { JobReportService } from "@/lib/services/JobReportService";
+import { requireOfficePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
+  const gate = await requireOfficePermission(req, ["jobs.reports", "jobs.view_financials"]);
+  if (gate.error) return gate.error;
   try {
     const { searchParams } = new URL(req.url);
     const period = (searchParams.get("period") || "today") as any;

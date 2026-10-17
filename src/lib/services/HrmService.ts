@@ -280,59 +280,60 @@ export class HrmService {
     });
   }
 
+  /**
+   * Approve a pending leave request. One transaction; the Pending -> Approved flip is a
+   * conditional update, so two concurrent approvals cannot deduct the balance twice.
+   */
   static async approveLeave(requestId: string, approverName: string) {
-    const req = await prisma.leaveRequest.findUnique({
-      where: { id: requestId },
-      include: { leaveType: true, employee: true },
-    });
+    return prisma.$transaction(async (tx) => {
+      const req = await tx.leaveRequest.findUnique({ where: { id: requestId } });
+      if (!req) throw new Error("Leave request not found");
+      if (req.status !== "Pending") throw new Error(`Request is already ${req.status}`);
 
-    if (!req) throw new Error("Leave request not found");
-    if (req.status !== "Pending") throw new Error(`Request is already ${req.status}`);
-
-    // Deduct from balance
-    const balance = await prisma.leaveBalance.findFirst({
-      where: { employeeId: req.employeeId, leaveTypeId: req.leaveTypeId },
-    });
-
-    if (balance) {
-      await prisma.leaveBalance.update({
-        where: { id: balance.id },
-        data: {
-          taken: balance.taken + req.daysCount,
-          balance: Math.max(0, balance.balance - req.daysCount),
-        },
+      const claimed = await tx.leaveRequest.updateMany({
+        where: { id: requestId, status: "Pending" },
+        data: { status: "Approved", approvedBy: approverName, approvedAt: new Date() },
       });
-    }
+      if (claimed.count !== 1) throw new Error("Request was already processed by someone else. Refresh.");
 
-    // Check if leave covers today
-    const now = new Date();
-    if (now >= req.startDate && now <= req.endDate) {
-      await prisma.employee.update({
-        where: { id: req.employeeId },
-        data: { status: "On Leave" },
+      const balance = await tx.leaveBalance.findFirst({
+        where: { employeeId: req.employeeId, leaveTypeId: req.leaveTypeId },
       });
-    }
+      if (balance) {
+        await tx.leaveBalance.update({
+          where: { id: balance.id },
+          data: {
+            taken: { increment: req.daysCount },
+            balance: Math.max(0, balance.balance - req.daysCount),
+          },
+        });
+      }
 
-    return await prisma.leaveRequest.update({
-      where: { id: requestId },
-      data: {
-        status: "Approved",
-        approvedBy: approverName,
-        approvedAt: new Date(),
-      },
-      include: { leaveType: true, employee: true },
+      const now = new Date();
+      if (now >= req.startDate && now <= req.endDate) {
+        await tx.employee.update({ where: { id: req.employeeId }, data: { status: "On Leave" } });
+      }
+
+      return tx.leaveRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        include: { leaveType: true, employee: true },
+      });
     });
   }
 
   static async rejectLeave(requestId: string, approverName: string, reason?: string) {
-    return await prisma.leaveRequest.update({
-      where: { id: requestId },
+    const claimed = await prisma.leaveRequest.updateMany({
+      where: { id: requestId, status: "Pending" },
       data: {
         status: "Rejected",
         approvedBy: approverName,
         approvedAt: new Date(),
-        reason: reason ? `[Rejected: ${reason}]` : undefined,
+        ...(reason ? { reason: `[Rejected: ${reason}]` } : {}),
       },
+    });
+    if (claimed.count !== 1) throw new Error("Only pending leave requests can be rejected.");
+    return prisma.leaveRequest.findUniqueOrThrow({
+      where: { id: requestId },
       include: { leaveType: true, employee: true },
     });
   }

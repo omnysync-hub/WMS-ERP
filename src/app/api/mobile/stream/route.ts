@@ -4,6 +4,14 @@ import { NextRequest } from "next/server";
 import { MobilePushService } from "@/lib/services/MobilePushService";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 
+/**
+ * BEST-EFFORT realtime channel (Server-Sent Events).
+ * Events are fanned out from an in-memory emitter inside ONE serverless instance; on Vercel a
+ * publish that runs on another instance never reaches this stream, and the function is cut off
+ * at the platform's max duration. Never rely on it for correctness: the mobile app
+ * (services/jobDispatchWatcher.ts) polls every 8 s and treats SSE only as a speed-up.
+ * For guaranteed delivery use push notifications (MobilePushService) or a hosted pub/sub.
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const employeeId = searchParams.get("employeeId");

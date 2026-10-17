@@ -1,0 +1,1240 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  LayoutDashboard,
+  Briefcase,
+  MapPin,
+  Users,
+  CreditCard,
+  UserCheck,
+  Package,
+  FolderKanban,
+  Headphones,
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  TrendingUp,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  FileText,
+  Smartphone,
+  Flame,
+  MoreHorizontal,
+  RotateCcw,
+  ExternalLink,
+  ShoppingBag,
+  ShoppingCart,
+  Layers,
+  Calendar,
+  Camera,
+  UserPlus,
+  Sparkles,
+  TrendingDown,
+  Wallet,
+  BookOpen,
+  Sliders,
+  Scale,
+  Building,
+  Building2,
+  PackageCheck,
+  ArrowLeftRight,
+  Cpu,
+  Receipt,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
+
+interface SidebarProps {
+  onOpenMobileSim?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+export default function Sidebar({
+  onOpenMobileSim,
+  isCollapsed: controlledCollapsed,
+  onToggleCollapse,
+}: SidebarProps) {
+  const pathname = usePathname();
+  const { activeRole, isModulePrimary, hasPermission } = useRole();
+  const isStorekeeper = activeRole === "storekeeper";
+  const isAdmin = activeRole === "admin";
+  const isHr = activeRole === "hr";
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+
+  const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
+  const isJobsActive = pathname.startsWith("/jobs") || pathname.startsWith("/dispatch");
+  const isAccountsActive = pathname.startsWith("/accounts");
+  const isProcurementActive = pathname.startsWith("/procurement");
+  const isHrmActive = pathname.startsWith("/hrm");
+  const isSettingsActive = pathname.startsWith("/settings");
+
+  // Single open menu state for strict accordion behavior (opening one collapses others)
+  const [openMenu, setOpenMenu] = useState<string | null>(() => {
+    if (activeRole === "hr" || isHrmActive) return "hrm";
+    if (isSettingsActive) return "settings";
+    if (isAccountsActive) return "accounts";
+    if (isProcurementActive) return "procurement";
+    if (isJobsActive) return "jobs";
+    if (isDashboardsActive && activeRole === "admin") return "dashboards";
+    return null;
+  });
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [verificationPendingCount, setVerificationPendingCount] = useState(0);
+  const [procurementCounts, setProcurementCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const canSeeVerify =
+      ["admin", "auditor"].includes(activeRole) || hasPermission("jobs.verify");
+    if (!canSeeVerify) {
+      setVerificationPendingCount(0);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch("/api/jobs/verification?countOnly=true", {
+          headers: {
+            "x-actor-role": activeRole || "anonymous",
+            "x-actor-name": "Sidebar",
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setVerificationPendingCount(Number(data.pendingCount) || 0);
+      } catch {
+        /* ignore badge errors */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRole, hasPermission, pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const canSeeProcurement =
+      ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"].includes(activeRole) ||
+      hasPermission("procurement.view_pr") ||
+      hasPermission("procurement.pr.create");
+    if (!canSeeProcurement) {
+      setProcurementCounts({});
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch("/api/procurement?view=counts", {
+          headers: {
+            "x-actor-role": activeRole || "anonymous",
+            "x-actor-name": "Sidebar",
+          },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data && typeof data === "object") {
+          setProcurementCounts(data);
+        }
+      } catch {
+        /* ignore badge errors */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRole, hasPermission, pathname]);
+
+  useEffect(() => {
+    const updateSearch = () => {
+      if (typeof window !== "undefined") {
+        setSearchQuery(window.location.search);
+      }
+    };
+    updateSearch();
+    window.addEventListener("popstate", updateSearch);
+    return () => window.removeEventListener("popstate", updateSearch);
+  }, [pathname]);
+
+  // Sync open menu when pathname changes
+  useEffect(() => {
+    if (isHr) {
+      setOpenMenu("hrm");
+      return;
+    }
+    if (isSettingsActive) {
+      setOpenMenu("settings");
+    } else if (isAccountsActive) {
+      setOpenMenu("accounts");
+    } else if (isProcurementActive) {
+      setOpenMenu("procurement");
+    } else if (isHrmActive) {
+      setOpenMenu("hrm");
+    } else if (isJobsActive) {
+      setOpenMenu("jobs");
+    } else if (isDashboardsActive && isAdmin) {
+      setOpenMenu("dashboards");
+    }
+  }, [pathname, isJobsActive, isDashboardsActive, isProcurementActive, isHrmActive, isAccountsActive, isSettingsActive, isAdmin, isHr]);
+
+  const toggleMenu = (menuId: string) => {
+    setOpenMenu((prev) => (prev === menuId ? null : menuId));
+  };
+
+  const isDashboardsOpen = openMenu === "dashboards";
+  const isJobsOpen = openMenu === "jobs";
+  const isAccountsOpen = openMenu === "accounts";
+  const isProcurementOpen = openMenu === "procurement";
+  const isHrmOpen = openMenu === "hrm";
+  const isSettingsOpen = openMenu === "settings";
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("sidebar_collapsed");
+      if (saved !== null) {
+        setInternalCollapsed(saved === "true");
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  const isCollapsed = controlledCollapsed ?? internalCollapsed;
+
+  const toggleCollapse = () => {
+    if (onToggleCollapse) {
+      onToggleCollapse();
+    } else {
+      const next = !internalCollapsed;
+      setInternalCollapsed(next);
+      try {
+        localStorage.setItem("sidebar_collapsed", String(next));
+      } catch (e) {
+        // ignore
+      }
+    }
+  };
+
+  const dashboardSubItems = [
+    { label: "Executive Overview", tab: "overview", icon: TrendingUp },
+    { label: "Technicians & Ops", tab: "technicians", icon: Users },
+    { label: "Accountants & Finance", tab: "finance", icon: CreditCard },
+    { label: "Purchasing & Stock", tab: "inventory", icon: Package },
+    { label: "HRM & Workforce", tab: "hrm", icon: UserCheck },
+    { label: "Customer Care & QA", tab: "feedback", icon: Headphones },
+  ];
+
+  // Dedicated Jobs Accordion Sub-Items
+  const allJobSubItems = [
+    {
+      label: "Jobs Directory",
+      href: "/jobs",
+      icon: Briefcase,
+      roles: ["admin", "accountant", "dispatcher", "call_center", "storekeeper", "cashier", "auditor"],
+      perm: "jobs.view_directory",
+    },
+    {
+      label: "Auditor Verification",
+      href: "/jobs/verification",
+      icon: ShieldCheck,
+      roles: ["admin", "auditor"],
+      perm: "jobs.verify",
+      badgeCountKey: "verification",
+    },
+    {
+      label: "Job Reports & Audit",
+      href: "/jobs/reports",
+      icon: BarChart3,
+      roles: ["admin", "accountant", "auditor"],
+      perm: "jobs.reports",
+    },
+    {
+      label: "Field Expenses Clearance",
+      href: "/jobs/expenses",
+      icon: Receipt,
+      roles: ["admin", "accountant", "auditor"],
+      perm: "jobs.view_financials",
+    },
+    {
+      label: "Live Dispatch Map",
+      href: "/dispatch",
+      icon: MapPin,
+      roles: ["admin", "dispatcher", "call_center", "auditor"],
+      perm: "dispatch.view_map",
+    },
+    {
+      label: "Customer 360 Records",
+      href: "/customers",
+      icon: Users,
+      roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
+      perm: "customers.view_directory",
+    },
+    {
+      label: "Care-Of Parties",
+      href: "/jobs/care-of",
+      icon: Building,
+      roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
+      perm: "care_of.view",
+    },
+  ];
+
+  const jobSubItems = allJobSubItems.filter((item) => {
+    // Strictly block daily audit & reports, field expenses, customer records, and care-of parties for storekeeper
+    if (
+      isStorekeeper &&
+      (item.href.includes("reports") ||
+        item.href.includes("expenses") ||
+        item.href === "/customers" ||
+        item.href === "/jobs/care-of")
+    ) {
+      return false;
+    }
+    const hasRole = item.roles.includes(activeRole);
+    if (!hasRole && !item.perm) return false;
+    if (item.perm) {
+      return hasRole || hasPermission(item.perm);
+    }
+    return hasRole;
+  });
+
+  // Dedicated HRM Accordion Sub-Items
+  const hrmSubItems = [
+    { label: "HR Dashboard", tab: "analytics", icon: BarChart3 },
+    { label: "Company Onboarding", tab: "company-onboarding", icon: Building },
+    { label: "Employees", tab: "employees", icon: Users },
+    { label: "Leave Management", tab: "leave", icon: Calendar },
+    { label: "Assets Register", tab: "assets", icon: Package },
+    { label: "Recruitment (ATS)", tab: "recruitment", icon: UserPlus },
+    { label: "Attendance & Face", tab: "attendance", icon: Camera },
+    { label: "Payroll Runs", tab: "payroll", icon: CreditCard },
+    { label: "Advances", tab: "advances", icon: TrendingDown },
+    { label: "Self-Service (ESS)", tab: "ess", icon: Sparkles },
+  ];
+
+  const hasHrmAccess = ["admin", "hr", "auditor"].includes(activeRole) || hasPermission("hrm.view_employees");
+
+  // Dedicated Procurement Accordion Sub-Items
+  const allProcurementSubItems = [
+    {
+      label: "Approvals",
+      tab: "approvals",
+      icon: ShieldAlert,
+      perms: ["procurement.pr.approve", "procurement.po.approve", "procurement.invoice.approve"],
+      badgeKey: "approvals",
+    },
+    {
+      label: "Requisitions",
+      tab: "prs",
+      icon: FileText,
+      perms: ["procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.view_pr", "procurement.po.create", "procurement.rfq.manage"],
+      badgeKey: "prs",
+    },
+    {
+      label: "RFQ",
+      tab: "rfqs",
+      icon: Scale,
+      perms: ["procurement.rfq.manage", "procurement.rfq.award"],
+      badgeKey: "rfqs",
+    },
+    {
+      label: "Purchase Orders",
+      tab: "pos",
+      icon: ShoppingCart,
+      perms: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view"],
+      badgeKey: "pos",
+    },
+    {
+      label: "Goods Receipt",
+      tab: "grns",
+      icon: PackageCheck,
+      perms: ["procurement.grn.create", "procurement.grn.quality"],
+      badgeKey: "grns",
+    },
+    {
+      label: "3-Way Match",
+      tab: "invoices",
+      icon: ShieldAlert,
+      perms: ["procurement.invoice.create", "procurement.invoice.match", "procurement.invoice.approve"],
+    },
+    {
+      label: "Payments",
+      tab: "payments",
+      icon: CreditCard,
+      perms: ["procurement.payment.record"],
+    },
+    {
+      label: "Vendors",
+      tab: "vendors",
+      icon: Building2,
+      perms: ["procurement.vendor.manage", "procurement.rfq.manage", "procurement.po.create"],
+      badgeKey: "vendors",
+    },
+    {
+      label: "Reports",
+      tab: "reports",
+      icon: BarChart3,
+      perms: ["procurement.reports.view"],
+    },
+  ];
+
+  const procurementSubItems = allProcurementSubItems.filter((sub) => {
+    if (activeRole === "admin") return true;
+    return sub.perms.some((p) => hasPermission(p));
+  });
+
+  const hasProcurementAccess =
+    procurementSubItems.length > 0 ||
+    ["admin", "accountant", "storekeeper", "auditor", "purchasing", "manager"].includes(activeRole);
+
+  const allOperationsItems = [
+    { label: "Customer 360°", href: "/customers", icon: Users, roles: ["admin", "accountant", "dispatcher", "call_center", "cashier", "auditor", "manager", "purchasing"] },
+    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"] },
+    { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
+    { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
+    { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "auditor"] },
+    { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"], perm: "audit.view_logs" },
+  ];
+
+  const operationsItems = isHr
+    ? []
+    : allOperationsItems.filter((item) => {
+        if (isStorekeeper && item.href === "/customers") return false;
+        // Check role inclusion or granular permission
+        const hasRole = item.roles.includes(activeRole);
+        if (!hasRole && !item.perm) return false;
+        if (item.perm) {
+          return hasRole || hasPermission(item.perm);
+        }
+        return hasRole;
+      });
+
+  const preAccountsOperations = operationsItems.filter((item) =>
+    ["/customers", "/projects", "/pos"].includes(item.href)
+  );
+
+  const inventoryOperations = operationsItems.filter((item) =>
+    ["/inventory"].includes(item.href)
+  );
+
+  // Dedicated Accounts & Ledgers Accordion Sub-Items
+  const accountingSubItems = [
+    { label: "Statements of Account", tab: "statements", icon: FileText },
+    { label: "Party Ledgers (AR & AP)", tab: "ledgers", icon: Users },
+    { label: "Expenses & Outflows", tab: "expenses", icon: TrendingDown },
+    { label: "POS Sales Register", tab: "pos", icon: ShoppingBag },
+    { label: "Cash & Bank Book", tab: "cashbook", icon: Wallet },
+    { label: "Chart of Accounts (COA)", tab: "chart", icon: BookOpen },
+    { label: "Account Mapping", tab: "mapping", icon: Sliders },
+    { label: "General Journal", tab: "journal", icon: Scale },
+    { label: "Financial Statements", tab: "reports", icon: FileText },
+    { label: "Bank Reconciliation", tab: "bankrec", icon: Building },
+    { label: "Fixed Assets & Depr", tab: "fixedassets", icon: Layers },
+    { label: "Sub-Ledger Drift & Aging", tab: "subledgers", icon: ArrowLeftRight },
+  ];
+
+  const hasAccountsAccess =
+    ["admin", "accountant", "cashier", "auditor"].includes(activeRole) ||
+    hasPermission("accounts.general_ledger");
+
+  // Dedicated Settings Accordion Sub-Items
+  const allSettingsSubItems = [
+    {
+      label: "Product, Brand & Model",
+      href: "/settings/product-dropdowns",
+      icon: Cpu,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "storekeeper", "auditor", "manager"],
+    },
+    {
+      label: "Job Types Settings",
+      href: "/settings/job-types",
+      icon: Briefcase,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "storekeeper", "auditor", "manager"],
+    },
+    {
+      label: "Accounting Settings",
+      href: "/settings/accounting",
+      icon: CreditCard,
+      roles: ["admin", "accountant"],
+      perm: "settings.accounting",
+    },
+    {
+      label: "Stock Units Settings",
+      href: "/settings/stock-units",
+      icon: Layers,
+      roles: ["admin", "storekeeper", "accountant"],
+      perm: "inventory.stock_units",
+    },
+    {
+      label: "Users & Role Settings",
+      href: "/settings/users-roles",
+      icon: ShieldCheck,
+      roles: ["admin", "auditor"],
+      perm: "settings.manage_users",
+    },
+    {
+      label: "Care-Of Settings",
+      href: "/jobs/care-of",
+      icon: Building,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "auditor"],
+    },
+  ];
+
+  const settingsSubItems = allSettingsSubItems.filter((item) => {
+    if (activeRole === "admin") return true;
+    const hasRole = item.roles.includes(activeRole);
+    if (!hasRole && !item.perm) return false;
+    if (item.perm) {
+      return hasRole || hasPermission(item.perm);
+    }
+    return hasRole;
+  });
+
+  const hasSettingsAccess = settingsSubItems.length > 0;
+
+  const postHrmOperations = operationsItems.filter((item) =>
+    ["/feedback", "/audit"].includes(item.href)
+  );
+
+  return (
+    <aside
+      aria-label="Primary Navigation"
+      className={cn(
+        "bg-[#18181B] text-[#E4E4E7] h-full flex flex-col justify-between select-none shrink-0 transition-all duration-300",
+        isCollapsed ? "w-18" : "w-60"
+      )}
+    >
+      {/* Brand Header & Active Role Indicator */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="border-b border-[#27272A]/40 shrink-0">
+          <Link
+            href={isAdmin ? "/dashboards" : isHr ? "/hrm" : isStorekeeper ? "/inventory" : "/jobs"}
+            className={cn(
+              "group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] rounded-xl transition flex",
+              isCollapsed
+                ? "p-3 justify-center items-center"
+                : "flex-col items-center text-center px-4 py-4 hover:bg-white/[0.02]"
+            )}
+            title="Workman Services ERP v2.0.0"
+          >
+            {/* Bigger Logo Container */}
+            <div
+              className={cn(
+                "rounded-2xl bg-white flex items-center justify-center shadow-lg border border-white/20 overflow-hidden transition-all shrink-0",
+                isCollapsed ? "w-10 h-10 p-1" : "w-20 h-20 p-2.5 ring-4 ring-white/10"
+              )}
+            >
+              <img
+                src="/logo.png"
+                alt="Workman Services"
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            {!isCollapsed && (
+              <div className="mt-3 w-full flex flex-col items-center">
+                <span className="font-extrabold text-sm sm:text-base tracking-tight text-white block leading-tight uppercase">
+                  WORKMAN SERVICES
+                </span>
+                <span className="text-[10px] text-[#A1A1AA] font-medium tracking-tight mt-0.5 text-center leading-snug">
+                  Enterprise Resource Planning Software
+                </span>
+                <div className="mt-1.5 flex items-center justify-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    v2.0.0
+                  </span>
+                </div>
+              </div>
+            )}
+          </Link>
+        </div>
+
+        {/* Navigation Sections */}
+        <div className="p-2 space-y-1 overflow-y-auto flex-1">
+          {/* ================================================================= */}
+          {/* 1. DEDICATED DASHBOARDS SECTION                                    */}
+          {/* ================================================================= */}
+          {isAdmin && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/dashboards";
+                  } else {
+                    toggleMenu("dashboards");
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isDashboardsActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <BarChart3
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isDashboardsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && <span>Dashboards Hub</span>}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isDashboardsOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Sub-Dashboards List */}
+              {isDashboardsOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {dashboardSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      pathname === "/dashboards" &&
+                      (searchQuery.includes(`tab=${sub.tab}`) || (!searchQuery.includes("tab=") && sub.tab === "overview"));
+                    return (
+                      <Link
+                        key={sub.tab}
+                        href={`/dashboards?tab=${sub.tab}`}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* 2. OPERATIONS & CORE MODULES SECTION                              */}
+          {/* ================================================================= */}
+          {!isCollapsed && (
+            <div className="px-3 pt-3 pb-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold">
+                {isHr ? "Workforce & HRM" : "Operations & Systems"}
+              </span>
+            </div>
+          )}
+
+          {/* Dedicated Expandable Jobs Hub */}
+          {jobSubItems.length > 0 && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/jobs";
+                  } else {
+                    toggleMenu("jobs");
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isJobsActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <Briefcase
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isJobsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && (
+                    <span className="flex items-center gap-2">
+                      Jobs
+                      {verificationPendingCount > 0 &&
+                        (["admin", "auditor"].includes(activeRole) || hasPermission("jobs.verify")) && (
+                        <span className="text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full">
+                          {verificationPendingCount}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isJobsOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Jobs Sub-Items List */}
+              {isJobsOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {jobSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      sub.href === "/jobs/reports"
+                        ? (pathname === "/jobs/reports" || (pathname === "/jobs" && searchQuery.includes("view=reports")))
+                        : sub.href === "/jobs/verification"
+                        ? pathname === "/jobs/verification" || pathname.startsWith("/jobs/verification/")
+                        : sub.href === "/jobs"
+                        ? (pathname === "/jobs" && !searchQuery.includes("view=reports"))
+                        : (pathname === sub.href || pathname.startsWith(`${sub.href}/`));
+
+                    return (
+                      <Link
+                        key={sub.href}
+                        href={sub.href}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group w-full",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate flex-1">{sub.label}</span>
+                        {sub.href === "/jobs/verification" && verificationPendingCount > 0 && (
+                          <span className="ml-auto text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-500/30">
+                            {verificationPendingCount}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {preAccountsOperations.map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isPrimary = isModulePrimary(item.label);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={isCollapsed ? `${item.label}${isPrimary && activeRole !== "admin" ? " (Role Primary)" : ""}` : undefined}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] relative",
+                  isActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "w-4 h-4 shrink-0 transition",
+                    isActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                  )}
+                />
+                {!isCollapsed && (
+                  <div className="flex items-center justify-between flex-1 overflow-hidden">
+                    <span className="truncate">{item.label}</span>
+                    {isPrimary && activeRole !== "admin" && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Primary Module for Active Role" />
+                    )}
+                  </div>
+                )}
+              </Link>
+            );
+          })}
+
+          {/* Dedicated Expandable Accounts & Ledgers Accordion */}
+          {hasAccountsAccess && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/accounts";
+                  } else {
+                    toggleMenu("accounts");
+                  }
+                }}
+                title={isCollapsed ? "Accounts & Ledgers" : undefined}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isAccountsActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <CreditCard
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isAccountsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && (
+                    <div className="flex items-center gap-2">
+                      <span>Accounts & Ledgers</span>
+                      {isModulePrimary("Accounts & Ledgers") && activeRole !== "admin" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Primary Module for Active Role" />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isAccountsOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Accounts Sub-Items List */}
+              {isAccountsOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {accountingSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      pathname === "/accounts" &&
+                      (searchQuery.includes(`tab=${sub.tab}`) || (!searchQuery.includes("tab=") && sub.tab === "ledgers"));
+
+                    return (
+                      <Link
+                        key={sub.tab}
+                        href={`/accounts?tab=${sub.tab}`}
+                        onClick={() => {
+                          setSearchQuery(`?tab=${sub.tab}`);
+                          if (typeof window !== "undefined") {
+                            if (pathname === "/accounts") {
+                              const url = new URL(window.location.href);
+                              url.searchParams.set("tab", sub.tab);
+                              window.history.pushState(null, "", url.toString());
+                              window.dispatchEvent(new Event("popstate"));
+                            }
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dedicated Expandable Procurement & Sourcing Accordion */}
+          {hasProcurementAccess && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/procurement";
+                  } else {
+                    toggleMenu("procurement");
+                  }
+                }}
+                title={isCollapsed ? "Procurement & Sourcing" : undefined}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isProcurementActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <ShoppingCart
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isProcurementActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && (
+                    <div className="flex items-center gap-2">
+                      <span>Procurement & Sourcing</span>
+                      {isModulePrimary("Procurement & Sourcing") && activeRole !== "admin" && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Primary Module for Active Role" />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isProcurementOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Procurement Sub-Items List */}
+              {isProcurementOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {procurementSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const roleDefaultTab: Record<string, string> = {
+                      storekeeper: "prs",
+                      purchasing: "prs",
+                      accountant: "invoices",
+                      manager: "approvals",
+                      auditor: "reports",
+                      admin: "approvals",
+                    };
+                    const defaultTab = roleDefaultTab[activeRole] || procurementSubItems[0]?.tab || "prs";
+                    const activeParam =
+                      new URLSearchParams(searchQuery).get("tab") || defaultTab;
+                    const isSubActive =
+                      pathname === "/procurement" && activeParam === sub.tab;
+                    const badge = sub.badgeKey ? procurementCounts[sub.badgeKey] : undefined;
+
+                    return (
+                      <Link
+                        key={sub.tab}
+                        href={`/procurement?tab=${sub.tab}`}
+                        onClick={() => {
+                          setSearchQuery(`?tab=${sub.tab}`);
+                          if (typeof window !== "undefined") {
+                            if (pathname === "/procurement") {
+                              const url = new URL(window.location.href);
+                              url.searchParams.set("tab", sub.tab);
+                              window.history.pushState(null, "", url.toString());
+                              window.dispatchEvent(new Event("popstate"));
+                            }
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <SubIcon
+                            className={cn(
+                              "w-3.5 h-3.5 shrink-0 transition",
+                              isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                            )}
+                          />
+                          <span className="truncate">{sub.label}</span>
+                        </div>
+                        {badge !== undefined && badge > 0 && (
+                          <span
+                            className={cn(
+                              "text-[10px] px-1.5 py-0.2 font-mono font-bold rounded-full ml-1 shrink-0",
+                              isSubActive
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : "bg-zinc-800 text-zinc-400 group-hover:text-zinc-200"
+                            )}
+                          >
+                            {badge}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {inventoryOperations.map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isPrimary = isModulePrimary(item.label);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={isCollapsed ? `${item.label}${isPrimary && activeRole !== "admin" ? " (Role Primary)" : ""}` : undefined}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] relative",
+                  isActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "w-4 h-4 shrink-0 transition",
+                    isActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                  )}
+                />
+                {!isCollapsed && (
+                  <div className="flex items-center justify-between flex-1 overflow-hidden">
+                    <span className="truncate">{item.label}</span>
+                    {isPrimary && activeRole !== "admin" && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Primary Module for Active Role" />
+                    )}
+                  </div>
+                )}
+              </Link>
+            );
+          })}
+
+          {/* Dedicated Expandable HRM & Workforce Accordion */}
+          {hasHrmAccess && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/hrm";
+                  } else {
+                    toggleMenu("hrm");
+                  }
+                }}
+                title={isCollapsed ? "HRM & Workforce" : undefined}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isHrmActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <UserCheck
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isHrmActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && <span>HRM</span>}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isHrmOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* HRM Sub-Items List */}
+              {isHrmOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {hrmSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      pathname === "/hrm" &&
+                      (searchQuery.includes(`tab=${sub.tab}`) || (!searchQuery.includes("tab=") && sub.tab === "analytics"));
+
+                    return (
+                      <Link
+                        key={sub.tab}
+                        href={`/hrm?tab=${sub.tab}`}
+                        onClick={() => setSearchQuery(`?tab=${sub.tab}`)}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {postHrmOperations.map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isPrimary = isModulePrimary(item.label);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={isCollapsed ? `${item.label}${isPrimary && activeRole !== "admin" ? " (Role Primary)" : ""}` : undefined}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all group focus-visible:ring-2 focus-visible:ring-[#0D7A5F] relative",
+                  isActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "w-4 h-4 shrink-0 transition",
+                    isActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                  )}
+                />
+                {!isCollapsed && (
+                  <div className="flex items-center justify-between flex-1 overflow-hidden">
+                    <span className="truncate">{item.label}</span>
+                    {isPrimary && activeRole !== "admin" && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="Primary Module for Active Role" />
+                    )}
+                  </div>
+                )}
+              </Link>
+            );
+          })}
+
+          {/* Dedicated Expandable Settings Accordion */}
+          {hasSettingsAccess && (
+            <div>
+              <div
+                onClick={() => {
+                  if (isCollapsed) {
+                    window.location.href = "/settings";
+                  } else {
+                    toggleMenu("settings");
+                  }
+                }}
+                title={isCollapsed ? "Settings" : undefined}
+                className={cn(
+                  "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                  isSettingsActive
+                    ? "bg-[#27272A] text-white"
+                    : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <Settings
+                    className={cn(
+                      "w-4 h-4 shrink-0 transition",
+                      isSettingsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                    )}
+                  />
+                  {!isCollapsed && <span>Settings</span>}
+                </div>
+                {!isCollapsed && (
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                      isSettingsOpen ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                )}
+              </div>
+
+              {/* Settings Sub-Items List */}
+              {isSettingsOpen && !isCollapsed && (
+                <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                  {settingsSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      pathname === sub.href || pathname.startsWith(`${sub.href}/`);
+
+                    return (
+                      <Link
+                        key={sub.href}
+                        href={sub.href}
+                        className={cn(
+                          "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group",
+                          isSubActive
+                            ? "bg-[#27272A] text-emerald-400 font-bold"
+                            : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <SubIcon
+                          className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition",
+                            isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                          )}
+                        />
+                        <span className="truncate">{sub.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Section: Collapse Toggle & Brand Footprint */}
+      <div className="p-2 space-y-1.5 border-t border-[#27272A]/40">
+        {/* Digital Footprint Link */}
+        <div className="px-2 pt-1 text-center">
+          {isCollapsed ? (
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Powered by OmnySync (omnysync.com)"
+              className="inline-block text-[11px] font-bold text-zinc-500 hover:text-emerald-400 transition"
+            >
+              ⚡
+            </a>
+          ) : (
+            <a
+              href="https://omnysync.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-emerald-400 transition"
+            >
+              <span>Powered by</span>
+              <span className="font-semibold text-zinc-300 hover:text-emerald-400">OmnySync</span>
+            </a>
+          )}
+        </div>
+
+        {/* Sidebar Collapse/Expand Toggle */}
+        <button
+          type="button"
+          onClick={toggleCollapse}
+          className="w-full flex items-center justify-center p-2 rounded-xl text-[#71717A] hover:text-white hover:bg-[#27272A]/40 transition"
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isCollapsed ? (
+            <ChevronRight className="w-4 h-4" />
+          ) : (
+            <div className="flex items-center gap-2 text-xs">
+              <ChevronLeft className="w-4 h-4" />
+              <span>Collapse Sidebar</span>
+            </div>
+          )}
+        </button>
+      </div>
+    </aside>
+  );
+}

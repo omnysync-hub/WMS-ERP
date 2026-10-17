@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveErpActorFromRequest } from "@/lib/auth/erpActor";
+import { pktTodayStart } from "@/lib/pktTime";
 
 export async function GET(req: NextRequest) {
   try {
@@ -35,8 +36,7 @@ export async function GET(req: NextRequest) {
     const dateFilter = startDate ? { gte: startDate } : undefined;
     const jobWhere = dateFilter ? { createdAt: dateFilter } : {};
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = pktTodayStart(); // PKT midnight (server runs in UTC)
 
     // Parallel queries to fetch core entities
     const [

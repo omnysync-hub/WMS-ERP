@@ -142,7 +142,7 @@ export default function ProjectChangeOrdersTab({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create change order.");
 
-      showToast(`Change Order ${data.changeNumber} approved! Scope baseline updated to Rev ${currentRevision + 1}.`, "success");
+      showToast(`Change Order ${data.changeNumber} submitted for approval. Budget and BOQ update once a manager approves it.`, "success");
       setShowDrawer(false);
       setTitle("");
       setDescription("");
@@ -157,7 +157,33 @@ export default function ProjectChangeOrdersTab({
     }
   }
 
-  const totalVariationsAmount = changeOrders.reduce((sum, co) => sum + co.amountImpact, 0);
+  async function decideChangeOrder(changeOrderId: string, approve: boolean) {
+    try {
+      setSubmitting(true);
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: approve ? "approve_change_order" : "reject_change_order", changeOrderId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update change order.");
+      showToast(
+        approve
+          ? `Change Order ${data.changeNumber} approved. Scope baseline updated to Rev ${currentRevision + 1}.`
+          : `Change Order ${data.changeNumber} rejected.`,
+        "success"
+      );
+      onRefresh();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const totalVariationsAmount = changeOrders
+    .filter((co) => co.status === "approved")
+    .reduce((sum, co) => sum + co.amountImpact, 0);
 
   return (
     <div className="space-y-6">
@@ -222,9 +248,37 @@ export default function ProjectChangeOrdersTab({
                           {co.changeNumber}
                         </span>
                         <span className="text-sm font-bold text-[#18181B]">{co.title}</span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Approved
-                        </span>
+                        {co.status === "approved" ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Approved
+                          </span>
+                        ) : co.status === "rejected" ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                            Rejected
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                              Pending approval
+                            </span>
+                            <button
+                              type="button"
+                              disabled={submitting}
+                              onClick={() => decideChangeOrder(co.id, true)}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={submitting}
+                              onClick={() => decideChangeOrder(co.id, false)}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </span>
+                        )}
                       </div>
                       {co.description && (
                         <p className="text-xs text-[#71717A]">{co.description}</p>
@@ -244,7 +298,7 @@ export default function ProjectChangeOrdersTab({
                   <div className="flex items-center gap-4 text-xs text-[#71717A]">
                     <span>Requested by: <strong className="text-[#18181B]">{co.requestedBy}</strong></span>
                     <span>•</span>
-                    <span>Approved: {formatDate(co.approvedAt || co.createdAt)}</span>
+                    <span>{co.approvedAt ? `Approved: ${formatDate(co.approvedAt)}` : `Raised: ${formatDate(co.createdAt)}`}</span>
                     {linkedItems.length > 0 && (
                       <>
                         <span>•</span>

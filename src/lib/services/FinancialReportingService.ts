@@ -16,7 +16,7 @@ export class FinancialReportingService {
           where: {
             journalEntry: {
               date: { lte: asOfDate },
-              status: { in: ["posted", "reversal"] },
+              status: { in: ["posted", "reversed", "reversal"] },
             },
           },
         },
@@ -155,7 +155,7 @@ export class FinancialReportingService {
       where: {
         journalEntry: {
           date: { gte: fromDate, lte: toDate },
-          status: { in: ["posted", "reversal"] },
+          status: { in: ["posted", "reversed", "reversal"] },
         },
         account: {
           type: { in: ["revenue", "contra_revenue", "expense"] },
@@ -273,7 +273,7 @@ export class FinancialReportingService {
           accountId: deprAcc.id,
           journalEntry: {
             date: { gte: fromDate, lte: toDate },
-            status: { in: ["posted", "reversal"] },
+            status: { in: ["posted", "reversed", "reversal"] },
           },
         },
       });
@@ -289,7 +289,7 @@ export class FinancialReportingService {
           accountId: arAcc.id,
           journalEntry: {
             date: { gte: fromDate, lte: toDate },
-            status: { in: ["posted", "reversal"] },
+            status: { in: ["posted", "reversed", "reversal"] },
           },
         },
       });
@@ -304,7 +304,7 @@ export class FinancialReportingService {
           accountId: invAcc.id,
           journalEntry: {
             date: { gte: fromDate, lte: toDate },
-            status: { in: ["posted", "reversal"] },
+            status: { in: ["posted", "reversed", "reversal"] },
           },
         },
       });
@@ -319,7 +319,7 @@ export class FinancialReportingService {
           accountId: apAcc.id,
           journalEntry: {
             date: { gte: fromDate, lte: toDate },
-            status: { in: ["posted", "reversal"] },
+            status: { in: ["posted", "reversed", "reversal"] },
           },
         },
       });
@@ -342,7 +342,7 @@ export class FinancialReportingService {
           where: {
             journalEntry: {
               date: { lte: toDate },
-              status: { in: ["posted", "reversal"] },
+              status: { in: ["posted", "reversed", "reversal"] },
             },
           },
         },

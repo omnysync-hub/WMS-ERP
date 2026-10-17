@@ -14,6 +14,25 @@ export async function GET(
     if (gate.error) return gate.error;
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
+    // Technicians may only open jobs they are (or were) assigned to.
+    if ((gate.actor.role || "").toLowerCase() === "technician") {
+      const owned = await prisma.job.findFirst({
+        where: {
+          id: params.id,
+          OR: [
+            { assignedTechnicianId: gate.actor.id },
+            { assignments: { some: { technicianId: gate.actor.id } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!owned) {
+        return NextResponse.json(
+          { error: "Forbidden: you are not assigned to this job.", code: "PERMISSION_DENIED" },
+          { status: 403 }
+        );
+      }
+    }
     const job = await prisma.job.findUnique({
       where: { id: params.id },
       include: {
@@ -149,6 +168,7 @@ const TECH_OWNED_ACTIONS = new Set([
   "update_item_usage",
   "request_item_discount",
   "add_service",
+  "record_misplaced_item",
 ]);
 
 export async function PATCH(
@@ -175,8 +195,7 @@ export async function PATCH(
 
     // Mobile technician sessions: identity comes from the verified token, and field actions
     // are restricted to jobs the technician is actually assigned to.
-    const viaMobileToken = (req.headers.get("authorization") || "").startsWith("Bearer ");
-    if (viaMobileToken && gate.actor.role === "technician") {
+    if (gate.actor.role === "technician") {
       payload.technicianId = gate.actor.id;
       if (payload.completionDetails && typeof payload.completionDetails === "object") {
         payload.completionDetails.technicianEmployeeId = gate.actor.id;

@@ -2,15 +2,15 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolveJobsActor, roleHasPermission } from "@/lib/auth/erpActor";
+import { resolveJobsActor, actorHasPermission, type ErpActor } from "@/lib/auth/erpActor";
 import { EMPTY_COMPANY_PROFILE, normalizeCompanyProfile } from "@/lib/companyProfile";
 
-function canViewHrReadiness(role: string) {
-  return role === "admin" || roleHasPermission(role, "hrm.view_employees") || roleHasPermission(role, "hrm.manage_employees");
+function canViewHrReadiness(actor: ErpActor) {
+  return actorHasPermission(actor, "hrm.view_employees") || actorHasPermission(actor, "hrm.manage_employees");
 }
 
-function canEditCompanyProfile(role: string) {
-  return role === "admin" || roleHasPermission(role, "settings.accounting") || roleHasPermission(role, "hrm.manage_employees");
+function canEditCompanyProfile(actor: ErpActor) {
+  return actorHasPermission(actor, "settings.accounting") || actorHasPermission(actor, "hrm.manage_employees");
 }
 
 export async function GET(req: NextRequest) {
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
-    if (!canViewHrReadiness(resolved.actor.role)) {
+    if (!canViewHrReadiness(resolved.actor)) {
       return NextResponse.json({ error: "You do not have permission to view company onboarding." }, { status: 403 });
     }
 
@@ -70,7 +70,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
-    if (!canEditCompanyProfile(resolved.actor.role)) {
+    if (!canEditCompanyProfile(resolved.actor)) {
       return NextResponse.json({ error: "You do not have permission to update company onboarding." }, { status: 403 });
     }
 

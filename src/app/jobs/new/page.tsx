@@ -256,6 +256,7 @@ export default function NewJobIntakePage() {
 
   // Care-Of Subcontract Toggle & Autocomplete
   const [isCareOf, setIsCareOf] = useState(false);
+  const [isFoc, setIsFoc] = useState(false);
   const [careOfParties, setCareOfParties] = useState<any[]>([]);
   const [selectedCareOfPartyId, setSelectedCareOfPartyId] = useState<string | null>(null);
   const [careOfCompanyName, setCareOfCompanyName] = useState("");
@@ -734,8 +735,9 @@ export default function NewJobIntakePage() {
         careOfCompanyName: isCareOf ? careOfCompanyName.trim() : null,
         careOfPersonName: isCareOf ? careOfPersonName.trim() : null,
         manualJobNumber: isCareOf ? manualJobNumber : null,
+        isFoc,
         jobType: effectiveJobType.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 30),
-        remarks: fullRemarks,
+        remarks: isFoc ? `[FOC: Company Billed] ${fullRemarks}`.trim() : fullRemarks,
         assignedTechnicianId: effectivePrimaryId,
         technicianIds: assignedTechnicianIds,
         items: combinedItems,
@@ -1311,8 +1313,9 @@ export default function NewJobIntakePage() {
               </div>
             </div>
 
-            {/* 3. CARE-OF TOGGLE BUTTON & SUB-FIELDS */}
-            <div className="pt-2 border-t border-[#EDEDED]">
+            {/* 3. CARE-OF & FOC ORDER TOGGLES & SUB-FIELDS */}
+            <div className="pt-2 border-t border-[#EDEDED] space-y-2.5">
+              {/* Care-Of / Subcontracted Order */}
               <div className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-xl border border-[#EDEDED]">
                 <div className="flex items-center gap-2.5">
                   <Building className="w-4 h-4 text-[#71717A]" />
@@ -1344,6 +1347,69 @@ export default function NewJobIntakePage() {
                   />
                 </button>
               </div>
+
+              {/* FOC (Free of Charge) Dispatcher Toggle */}
+              <div className="flex items-center justify-between p-3 bg-purple-50/60 rounded-xl border border-purple-100 hover:border-purple-200 transition">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs shrink-0 border border-purple-200">
+                    FOC
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-purple-950 block">
+                        Free of Charge (FOC) Order
+                      </span>
+                      {isFoc && (
+                        <span className="text-[10px] font-bold text-purple-800 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-purple-600" />
+                          Customer Pays PKR 0
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-purple-800/80">
+                      Enable if this is a company warranty/corporate order where the customer pays PKR 0 at site, and revenue will be received from the principal company/partner.
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !isFoc;
+                    setIsFoc(nextVal);
+                    if (nextVal && !isCareOf) {
+                      setIsCareOf(true);
+                    }
+                  }}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                    isFoc ? "bg-purple-700" : "bg-[#D4D4D8]"
+                  )}
+                  role="switch"
+                  aria-checked={isFoc}
+                >
+                  <span
+                    className={cn(
+                      "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                      isFoc ? "translate-x-5" : "translate-x-0"
+                    )}
+                  />
+                </button>
+              </div>
+
+              {/* FOC Active Explanatory Banner */}
+              {isFoc && (
+                <div className="p-3 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-start gap-2.5 animate-in fade-in">
+                  <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-purple-950">FOC Customer Exemption Active</p>
+                    <p className="text-[11px] text-purple-800 leading-relaxed">
+                      The customer will be charged <strong>PKR 0</strong>. In the accounting workstation, this work order will be marked as <strong>FOC</strong> under the company's ledger so the finance team can record company receipts.
+                      {!isCareOf && " Please specify the Company/Brand details below."}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {isCareOf && (
                 <div className="p-3.5 mt-2 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] animate-in fade-in space-y-3">

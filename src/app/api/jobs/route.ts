@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     if (gate.error) return gate.error;
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
-    if (resolved.viaMobileToken && gate.actor.role === "technician") {
+    if (gate.actor.role === "technician") {
       // A field user can only list jobs assigned to their own account, even if
       // a different technicianId is supplied in the URL.
       technicianId = gate.actor.id;
@@ -121,6 +121,7 @@ export async function POST(req: NextRequest) {
       careOfCompanyName,
       careOfPersonName,
       manualJobNumber,
+      isFoc,
       jobType,
       remarks,
       items,
@@ -169,6 +170,7 @@ export async function POST(req: NextRequest) {
         customerId,
         careOfPartyId: effectiveCareOfId,
         manualJobNumber: manualJobNumber || null,
+        isFoc: Boolean(isFoc),
         jobType,
         remarks: remarks || "",
         status: effectivePrimaryId ? "Assigned" : "Created",

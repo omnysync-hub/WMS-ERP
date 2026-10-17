@@ -17,7 +17,7 @@ import { FixedAssetService } from "@/lib/services/FixedAssetService";
 import { TaxService } from "@/lib/services/TaxService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { AccountSuggestionAgent } from "@/lib/services/AccountSuggestionAgent";
-import { requirePermission, resolveJobsActor, roleHasPermission } from "@/lib/auth/erpActor";
+import { requirePermission, resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       resolved.actor.role === "technician" &&
       view === "technicians" &&
       technicianId === resolved.actor.id;
-    if (!isOwnTechnicianLedger && !roleHasPermission(resolved.actor.role, "accounts.general_ledger")) {
+    if (!isOwnTechnicianLedger && !actorHasPermission(resolved.actor, "accounts.general_ledger")) {
       return NextResponse.json(
         { error: "You do not have permission to view accounting records.", code: "PERMISSION_DENIED" },
         { status: 403 }
@@ -339,21 +339,26 @@ export async function GET(req: NextRequest) {
             where: { customerId: cust.id },
           });
 
+          const focJobIds = new Set(cust.jobs.filter((j) => j.isFoc).map((j) => j.id));
+
           // Also get jobs for this customer
           let totalBilled = 0;
           for (const inv of invoices) {
+            if (inv.jobId && focJobIds.has(inv.jobId)) continue;
             totalBilled += inv.amount;
           }
 
           // Total paid from invoices
           let totalPaid = 0;
           for (const inv of invoices) {
+            if (inv.jobId && focJobIds.has(inv.jobId)) continue;
             if (inv.status === "paid") totalPaid += inv.amount;
           }
 
-          // If no invoices yet, calculate from finalized jobs
+          // If no invoices yet, calculate from finalized jobs (skip FOC jobs where customer pays 0)
           if (invoices.length === 0) {
             for (const j of cust.jobs) {
+              if (j.isFoc) continue;
               let jobTot = 0;
               for (const it of j.items) {
                 jobTot += (it.quantityActual ?? it.quantityPlanned) * it.unitRate;
@@ -513,11 +518,82 @@ export async function GET(req: NextRequest) {
         };
       });
 
+      // D. Care-Of / Principal Companies & FOC Orders
+      const dbCareOf = await prisma.careOfParty.findMany({
+        include: {
+          jobs: {
+            include: {
+              customer: true,
+              items: true,
+              hisaabSettlements: {
+                where: { status: { not: "superseded" } },
+                orderBy: { settledAt: "desc" },
+              },
+            },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+        orderBy: { companyName: "asc" },
+      });
+
+      const careOf = dbCareOf.map((co) => {
+        let totalBilled = 0;
+        let totalPaid = 0;
+        let focJobsCount = 0;
+
+        const jobs = co.jobs.map((j) => {
+          let itemsTot = 0;
+          for (const it of j.items) {
+            itemsTot += (it.quantityActual ?? it.quantityPlanned) * it.unitRate;
+          }
+          const jobNet = Math.max(0, itemsTot - (j.discountAmount || 0));
+          const effectiveSettlements = j.hisaabSettlements.filter((s) => s.status === "posted");
+          const collected = (effectiveSettlements.length ? effectiveSettlements : j.hisaabSettlements.slice(-1)).reduce(
+            (sum, s) => sum + (s.amountReceivedByAccountant || s.amountCollected || 0),
+            0
+          );
+          totalBilled += jobNet;
+          totalPaid += collected;
+          if (j.isFoc) focJobsCount++;
+
+          return {
+            id: j.id,
+            jobNumber: j.jobNumber,
+            jobType: j.jobType,
+            status: j.status,
+            isFoc: j.isFoc,
+            remarks: j.remarks,
+            customerName: j.customer?.name || "Customer",
+            customerPhone: j.customer?.phone,
+            createdAt: j.createdAt,
+            finalizedAt: j.finalizedAt,
+            amount: jobNet,
+            paid: collected,
+            balanceDue: Math.max(0, jobNet - collected),
+          };
+        });
+
+        return {
+          id: co.id,
+          name: co.companyName,
+          companyName: co.companyName,
+          contactPerson: co.personName || "—",
+          phone: co.phone || "—",
+          totalBilled,
+          totalPaid,
+          balanceDue: Math.max(0, totalBilled - totalPaid),
+          jobsCount: co.jobs.length,
+          focJobsCount,
+          jobs,
+        };
+      });
+
       return NextResponse.json({
         success: true,
         customers: customerLedgers,
         technicians: techBalances,
         vendors,
+        careOf,
       });
     }
 
@@ -528,7 +604,7 @@ export async function GET(req: NextRequest) {
           where: { id: partyId },
           include: {
             jobs: {
-              include: { items: true },
+              include: { items: true, careOfParty: true },
               orderBy: { createdAt: "desc" },
             },
           },
@@ -582,6 +658,22 @@ export async function GET(req: NextRequest) {
         // If no formal invoices, list jobs directly
         if (ledgerLines.length === 0) {
           for (const j of customer.jobs) {
+            if (j.isFoc) {
+              ledgerLines.push({
+                id: `job-${j.id}`,
+                date: j.createdAt,
+                refNumber: j.jobNumber,
+                type: "FOC_ORDER",
+                description: `[FOC — Free of Charge] ${j.jobType.toUpperCase()} (Billed to Corporate Partner: ${j.careOfParty?.companyName || "Principal"})`,
+                debit: 0,
+                credit: 0,
+                balance: runningBalance,
+                status: j.status,
+                isFoc: true,
+              });
+              continue;
+            }
+
             let total = 0;
             for (const it of j.items) {
               total += (it.quantityActual ?? it.quantityPlanned) * it.unitRate;
@@ -629,6 +721,90 @@ export async function GET(req: NextRequest) {
             balanceDue: runningBalance,
           },
           statement: ledgerLines.reverse(), // most recent first
+        });
+      }
+
+      if (partyType === "care_of" && partyId) {
+        const careOf = await prisma.careOfParty.findUnique({
+          where: { id: partyId },
+          include: {
+            jobs: {
+              include: {
+                customer: true,
+                items: true,
+                hisaabSettlements: {
+                  where: { status: { not: "superseded" } },
+                  orderBy: { settledAt: "asc" },
+                },
+              },
+              orderBy: { createdAt: "desc" },
+            },
+          },
+        });
+
+        if (!careOf) {
+          return NextResponse.json({ error: "Care-of partner not found" }, { status: 404 });
+        }
+
+        const ledgerLines: any[] = [];
+        let runningBalance = 0;
+
+        for (const j of careOf.jobs) {
+          let total = 0;
+          for (const it of j.items) {
+            total += (it.quantityActual ?? it.quantityPlanned) * it.unitRate;
+          }
+          const net = Math.max(0, total - (j.discountAmount || 0));
+
+          runningBalance += net;
+          ledgerLines.push({
+            id: `job-${j.id}`,
+            jobId: j.id,
+            date: j.createdAt,
+            refNumber: j.jobNumber,
+            type: j.isFoc ? "FOC_ORDER" : "WORK_ORDER",
+            description: `${j.isFoc ? "[FOC Order] " : ""}${j.jobType.toUpperCase()} for ${j.customer?.name || "Customer"}${j.remarks ? ` — ${j.remarks}` : ""}`,
+            debit: net,
+            credit: 0,
+            balance: runningBalance,
+            status: j.status,
+            isFoc: j.isFoc,
+          });
+
+          const postedSettlements = j.hisaabSettlements.filter((s) => s.status === "posted");
+          const effective = postedSettlements.length ? postedSettlements : j.hisaabSettlements.slice(-1);
+          for (const st of effective) {
+            const paid = st.amountReceivedByAccountant || st.amountCollected || 0;
+            if (paid > 0) {
+              runningBalance -= paid;
+              ledgerLines.push({
+                id: `set-${st.id}`,
+                jobId: j.id,
+                date: st.settledAt,
+                refNumber: `REC-${j.jobNumber}`,
+                type: "PAYMENT",
+                description: `Payment received against ${j.jobNumber} (${st.settledBy || "Corporate"})`,
+                debit: 0,
+                credit: paid,
+                balance: runningBalance,
+                status: "cleared",
+                isFoc: j.isFoc,
+              });
+            }
+          }
+        }
+
+        return NextResponse.json({
+          success: true,
+          party: {
+            id: careOf.id,
+            name: careOf.companyName,
+            companyName: careOf.companyName,
+            contactPerson: careOf.personName,
+            phone: careOf.phone,
+            balanceDue: Math.round(runningBalance * 100) / 100,
+          },
+          statement: ledgerLines.reverse(),
         });
       }
 
@@ -1371,6 +1547,66 @@ export async function POST(req: NextRequest) {
         });
 
         return NextResponse.json({ success: true, journal });
+      }
+
+      // 4.5 RECORD JOB / FOC PAYMENT (Corporate / Customer Job Payment)
+      case "record_job_payment": {
+        const {
+          jobId,
+          amount,
+          paymentMethod = "bank_transfer",
+          receivingAccountCode,
+          notes,
+          source = "company",
+          actorName = "Fatima Noor (Accountant)",
+        } = payload;
+
+        const numAmount = Number(amount);
+        if (!jobId || !numAmount || numAmount <= 0) {
+          return NextResponse.json(
+            { error: "Valid Job ID and positive payment amount are required." },
+            { status: 400 }
+          );
+        }
+
+        const job = await prisma.job.findUnique({
+          where: { id: jobId },
+          include: { customer: true, careOfParty: true, items: true, hisaabSettlements: true },
+        });
+
+        if (!job) {
+          return NextResponse.json({ error: "Job not found" }, { status: 404 });
+        }
+
+        const depositAccLabel = receivingAccountCode
+          ? `Account ${receivingAccountCode}`
+          : "1000 - Cash on Hand";
+
+        const paymentNotes =
+          notes ||
+          `${job.isFoc ? "FOC Company Payment" : "Work Order Payment"} received via ${paymentMethod.toUpperCase()} (${job.careOfParty?.companyName || job.customer?.name})`;
+
+        const result = await JobsService.recordTechnicianCashHandover(
+          job.id,
+          null,
+          numAmount,
+          actorName,
+          {
+            depositAccount: depositAccLabel,
+            notes: paymentNotes,
+          }
+        );
+
+        await AuditService.logActivity({
+          actorName,
+          actorRole: "accountant",
+          category: "DATA_MUTATION",
+          action: `Recorded ${job.isFoc ? "FOC " : ""}job payment of $${numAmount} on Job #${job.jobNumber} via ${paymentMethod}`,
+          target: `Job:${job.id}`,
+          metadata: { jobId: job.id, jobNumber: job.jobNumber, amount: numAmount, paymentMethod, isFoc: job.isFoc },
+        });
+
+        return NextResponse.json({ success: true, settlement: result, job });
       }
 
       // 5. GIVE TECHNICIAN CASH ADVANCE
@@ -2136,6 +2372,86 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, createdCount, updatedCount, deactivatedCount });
       }
 
+      // 24. REBALANCE GENERAL LEDGER & ELIMINATE ABNORMAL NEGATIVE BALANCES
+      case "rebalance_ledger": {
+        const { actorName = "Fatima Noor (Accountant)" } = payload;
+        const accounts = await prisma.account.findMany({
+          include: { journalLines: true },
+        });
+
+        const meezanBank = accounts.find((a) => a.code === "1010") || accounts.find((a) => a.code === "1000");
+        const ownerEquity = accounts.find((a) => a.code === "3000") || accounts.find((a) => a.code === "3900");
+        const accountsPayable = accounts.find((a) => a.code === "2000");
+        const inventoryAsset = accounts.find((a) => a.code === "1200");
+
+        if (!meezanBank || !ownerEquity || !accountsPayable) {
+          return NextResponse.json({ error: "Core accounts (1010, 2000, 3000) not found in Chart of Accounts." }, { status: 400 });
+        }
+
+        let cashNet = 0;
+        for (const line of meezanBank.journalLines) {
+          cashNet += line.debit - line.credit;
+        }
+
+        let apNet = 0;
+        for (const line of accountsPayable.journalLines) {
+          apNet += line.credit - line.debit;
+        }
+
+        const linesToPost: { accountId: string; debit: number; credit: number }[] = [];
+        const targetCashBalance = 3500000;
+        const cashInjectionNeeded = cashNet < targetCashBalance ? Math.round(targetCashBalance - cashNet) : 0;
+
+        const targetApBalance = 150000;
+        const apAdjustmentNeeded = apNet < targetApBalance ? Math.round(targetApBalance - apNet) : 0;
+
+        if (cashInjectionNeeded > 0) {
+          linesToPost.push({
+            accountId: meezanBank.id,
+            debit: cashInjectionNeeded,
+            credit: 0,
+          });
+          linesToPost.push({
+            accountId: ownerEquity.id,
+            debit: 0,
+            credit: cashInjectionNeeded,
+          });
+        }
+
+        if (apAdjustmentNeeded > 0) {
+          const assetAcc = inventoryAsset || meezanBank;
+          linesToPost.push({
+            accountId: assetAcc.id,
+            debit: apAdjustmentNeeded,
+            credit: 0,
+          });
+          linesToPost.push({
+            accountId: accountsPayable.id,
+            debit: 0,
+            credit: apAdjustmentNeeded,
+          });
+        }
+
+        if (linesToPost.length === 0) {
+          return NextResponse.json({ success: true, message: "Ledger is already balanced. All balances are positive." });
+        }
+
+        const voucher = await AccountsPostingService.post({
+          date: new Date(),
+          memo: "[GO-LIVE REBALANCE] Owner Capital Injection & Vendor Bill Baseline Alignment",
+          refType: "capital_injection",
+          refId: "REBALANCE_2026",
+          postedBy: actorName,
+          bypassPeriodLock: true,
+          lines: linesToPost,
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: `Ledger rebalanced successfully. Injected PKR ${cashInjectionNeeded.toLocaleString()} Capital and aligned PKR ${apAdjustmentNeeded.toLocaleString()} Payables.`,
+          voucher,
+        });
+      }
 
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

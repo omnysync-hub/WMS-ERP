@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { requireJobsPermission, requireOfficePermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
+  const gate = await requireOfficePermission(request, "jobs.view_directory");
+  if (gate.error) return gate.error;
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search")?.trim().toLowerCase();

@@ -166,7 +166,7 @@ export class FiscalPeriodService {
                 gte: startOfFY,
                 lte: endOfFY,
               },
-              status: { in: ["posted", "reversal"] },
+              status: { in: ["posted", "reversed", "reversal"] },
             },
           },
         },

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { HrmService } from "@/lib/services/HrmService";
-import { requirePermission, resolveJobsActor, roleHasPermission } from "@/lib/auth/erpActor";
+import { requirePermission, resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
 
 export async function GET(
   req: NextRequest,
@@ -11,7 +11,7 @@ export async function GET(
     const params = await context.params;
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
-    const canViewAll = roleHasPermission(resolved.actor.role, "hrm.view_employees");
+    const canViewAll = actorHasPermission(resolved.actor, "hrm.view_employees");
     if (!canViewAll && resolved.actor.id !== params.id) {
       return NextResponse.json({ error: "You can only view your own employee profile." }, { status: 403 });
     }

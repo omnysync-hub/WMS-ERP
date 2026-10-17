@@ -1,0 +1,1519 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import PageHeader from "@/components/layout/PageHeader";
+import DataTable, { ColumnDef } from "@/components/ui/DataTable";
+import StatusBadge from "@/components/ui/StatusBadge";
+import ReassignTechDrawer from "@/components/drawers/ReassignTechDrawer";
+import RecordStockReturnDrawer from "@/components/drawers/RecordStockReturnDrawer";
+import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianCashDrawer";
+import JobsKpiDashboard from "@/components/jobs/JobsKpiDashboard";
+import StorekeeperKpiDashboard from "@/components/jobs/StorekeeperKpiDashboard";
+import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn, isServiceItem } from "@/lib/utils";
+import {
+  Plus,
+  User,
+  AlertTriangle,
+  Building,
+  RefreshCw,
+  Package,
+  Receipt,
+  DollarSign,
+  ShieldCheck,
+  BarChart3,
+  Briefcase,
+  Lock,
+  MapPin,
+  ChevronRight,
+  ArrowUpRight,
+  RotateCcw,
+  CheckCircle2,
+  Clock,
+  CheckCheck,
+  Banknote,
+  ArrowDownLeft,
+} from "lucide-react";
+import { useRole } from "@/contexts/RoleContext";
+import { realtimeSync } from "@/lib/realtimeSync";
+
+export default function JobsListPage() {
+  const { activeRole, currentPersona, hasPermission } = useRole();
+  const isStorekeeper =
+    activeRole === "storekeeper" ||
+    currentPersona?.role === "storekeeper" ||
+    (activeRole || "").toLowerCase().includes("store");
+  const isAccountant = activeRole === "accountant";
+  const isAdmin = activeRole === "admin";
+  const isDispatcher = activeRole === "dispatcher";
+  const isCallCenter = activeRole === "call_center";
+  const canViewFinancials = hasPermission("jobs.view_financials");
+  const canReassignTech = hasPermission("jobs.reassign_tech");
+  const canCreateJob = hasPermission("jobs.create_job");
+  const canViewDirectory = hasPermission("jobs.view_directory");
+  const canStockReturn = hasPermission("jobs.stock_return");
+  const canViewReports = hasPermission("jobs.reports") && !isStorekeeper;
+  const router = useRouter();
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("all");
+  const [kpiFilter, setKpiFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Redirect legacy /jobs?view=reports links to dedicated /jobs/reports page
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("view") === "reports" || params.get("tab") === "reports") {
+        router.replace("/jobs/reports");
+      }
+    }
+  }, [router]);
+
+  // Reassign Drawer state
+  const [reassignJob, setReassignJob] = useState<any>(null);
+  const [returnJob, setReturnJob] = useState<any>(null);
+  const [receiveCashJob, setReceiveCashJob] = useState<any>(null);
+
+  async function fetchJobs() {
+    try {
+      setLoading(true);
+      const [jobsRes, techRes] = await Promise.all([
+        fetch("/api/jobs"),
+        fetch("/api/technicians"),
+      ]);
+      const jobsData = await jobsRes.json();
+      const techData = await techRes.json();
+
+      if (Array.isArray(jobsData)) setJobs(jobsData);
+      if (techData?.technicians) setTechnicians(techData.technicians);
+    } catch (e) {
+      console.error("Failed loading jobs", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchJobs();
+
+    // Subscribe to realtime bus so updates from mobile app and other users reflect without refreshing
+    const unsub = realtimeSync.subscribe(() => {
+      fetchJobs();
+    });
+
+    // Auto-poll in background every 8 seconds for true zero-refresh live data
+    const interval = setInterval(() => {
+      fetchJobs();
+    }, 8000);
+
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Filter states for individual chips
+  const [selectedTechFilter, setSelectedTechFilter] = useState("");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("");
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState("");
+  const [selectedDateFilter, setSelectedDateFilter] = useState("all");
+  const [selectedCareOfFilter, setSelectedCareOfFilter] = useState("");
+  const [selectedPaymentFilter, setSelectedPaymentFilter] = useState("");
+  const [selectedMaterialFilter, setSelectedMaterialFilter] = useState("");
+  const [selectedQualityFilter, setSelectedQualityFilter] = useState("");
+  const [selectedDiscountFilter, setSelectedDiscountFilter] = useState("");
+  const [selectedEquipmentFilter, setSelectedEquipmentFilter] = useState("");
+
+  // Dynamically extracted options for advanced filters
+  const careOfOptions = React.useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach((j) => {
+      const name = j.careOfParty?.companyName || j.careOfParty?.personName;
+      if (name) set.add(name);
+    });
+    return Array.from(set).sort().map((n) => ({ label: n, value: n }));
+  }, [jobs]);
+
+  const equipmentOptions = React.useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach((j) => {
+      (j.items || []).forEach((it: any) => {
+        if (it.equipmentType) set.add(it.equipmentType);
+        const desc = it.description || "";
+        if (desc.includes("Split")) set.add("Split AC");
+        if (desc.includes("Inverter")) set.add("Inverter AC");
+        if (desc.includes("Cassette")) set.add("Cassette AC");
+        if (desc.includes("Floor") || desc.includes("Tower")) set.add("Tower / Floor Standing AC");
+        if (desc.includes("Duct")) set.add("Ducted AC");
+        if (desc.includes("Chiller")) set.add("Chiller System");
+      });
+    });
+    return Array.from(set).sort().map((e) => ({ label: e, value: e }));
+  }, [jobs]);
+
+  // Filter based on active tab & role
+  const filteredByTab = jobs.filter((j) => {
+    if (isStorekeeper) {
+      // The storekeeper should see ONLY jobs with requests for inventory or returns, NEVER unrelated jobs
+      const hasInventoryReq = Boolean(j.inventoryRequests && j.inventoryRequests.length > 0);
+      const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
+      const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+      const returnableQty = j.items?.reduce((sum: number, it: any) => {
+        if (!isServiceItem(it) && it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+          return sum + (it.quantityPlanned - it.quantityActual);
+        }
+        return sum;
+      }, 0) || 0;
+      const isReturnable = hasReturns || (isDoneOrPaused && returnableQty > 0);
+
+      // Strictly isolate: hide jobs that have no inventory activity or returnable materials
+      if (!hasInventoryReq && !isReturnable) return false;
+
+      if (kpiFilter) {
+        if (kpiFilter === "pending_requests" || kpiFilter === "pending_stock") {
+          return j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued");
+        }
+        if (kpiFilter === "done_requests" || kpiFilter === "approved_stock") {
+          return j.inventoryRequests?.some(
+            (r: any) => r.status === "issued" || r.status === "fulfilled"
+          );
+        }
+        if (kpiFilter === "returnable_stock" || kpiFilter === "returnable") {
+          return isReturnable;
+        }
+        if (kpiFilter === "recorded_returns") {
+          return hasReturns;
+        }
+        if (kpiFilter === "all_requisitions") {
+          return true;
+        }
+      }
+
+      if (activeTab === "pending_materials") {
+        return j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued");
+      }
+      if (activeTab === "returnable") {
+        return isReturnable;
+      }
+      return true;
+    }
+
+    if (kpiFilter) {
+      if (kpiFilter === "unassigned") {
+        const isUnassigned =
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0));
+        if (!isUnassigned) return false;
+      } else if (kpiFilter === "assigned") {
+        if (j.status !== "Assigned") return false;
+      } else if (kpiFilter === "accepted") {
+        if (j.status !== "Accepted") return false;
+      } else if (kpiFilter === "in_progress") {
+        if (j.status !== "InProgress") return false;
+      } else if (kpiFilter === "paused") {
+        if (j.status !== "Paused") return false;
+      } else if (kpiFilter === "completed") {
+        if (
+          ![
+            "CompletedPendingVerification",
+            "Finalized",
+            "Verified",
+            "AwaitingFeedback",
+          ].includes(j.status)
+        )
+          return false;
+      } else if (kpiFilter === "pending_stock") {
+        if (!j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")) return false;
+      } else if (kpiFilter === "approved_stock") {
+        if (
+          !j.inventoryRequests?.some(
+            (r: any) => r.status === "issued" || r.status === "fulfilled"
+          )
+        )
+          return false;
+      } else if (kpiFilter === "pending_discount") {
+        if (!j.items?.some((it: any) => it.description?.includes("[Discount Requested:"))) return false;
+      } else if (kpiFilter === "approved_discount") {
+        const hasApprovedDiscount =
+          (j.discountAmount && j.discountAmount > 0) ||
+          j.items?.some(
+            (it: any) =>
+              it.description?.includes("[Discount Approved:") ||
+              it.description?.includes("[Discount:")
+          );
+        if (!hasApprovedDiscount) return false;
+      } else if (kpiFilter === "expenses_cleared") {
+        if (!j.expenseClaims?.some((c: any) => c.status === "paid")) return false;
+      } else if (kpiFilter === "pending_expenses") {
+        if (!j.expenseClaims?.some((c: any) => c.status === "pending")) return false;
+      } else if (kpiFilter === "partially_cleared_expenses") {
+        const hasPaid = j.expenseClaims?.some((c: any) => c.status === "paid");
+        const hasPending = j.expenseClaims?.some((c: any) => c.status === "pending");
+        const hasPartialNote = j.expenseClaims?.some(
+          (c: any) =>
+            c.note?.includes("[Partially Cleared") || c.note?.includes("[Remaining Balance")
+        );
+        if (!((hasPaid && hasPending) || hasPartialNote)) return false;
+      } else if (kpiFilter === "receivables") {
+        const hasBalanceDue = j.hisaabSettlements?.some(
+          (s: any) => s.status !== "superseded" && Number(s.balanceDue) > 0
+        );
+        const isCareOfReceivable = Boolean(j.careOfPartyId);
+        const isUnsettledCompleted =
+          ["CompletedPendingVerification", "Finalized", "Verified"].includes(j.status) &&
+          (!j.hisaabSettlements ||
+            j.hisaabSettlements.length === 0 ||
+            j.hisaabSettlements.every((s: any) => Number(s.amountCollected) === 0));
+        if (!(hasBalanceDue || isCareOfReceivable || isUnsettledCompleted)) return false;
+      } else if (kpiFilter === "cash_collected") {
+        const hasHandover = j.hisaabSettlements?.some(
+          (s: any) =>
+            s.status !== "superseded" &&
+            ((Number(s.amountReceivedByAccountant) || 0) > 0 || s.status === "posted")
+        );
+        if (!hasHandover) return false;
+      } else if (kpiFilter === "pending_cash_handover") {
+        const hasPendingHandover = j.hisaabSettlements?.some((s: any) => {
+          if (s.status === "superseded") return false;
+          const collected = Number(s.amountCollected) || 0;
+          const received = Number(s.amountReceivedByAccountant) || 0;
+          return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+        });
+        if (!hasPendingHandover) return false;
+      }
+    }
+
+    // Timeframe / Date filters (Today, This Week, Last Week, This Month, Last Month, This Quarter, This Year)
+    if (selectedDateFilter && selectedDateFilter !== "all") {
+      const jobTime = new Date(j.createdAt || j.jobDate || 0).getTime();
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const dayOfWeek = now.getDay();
+      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek).getTime();
+      const startOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek - 7).getTime();
+      const endOfLastWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek, 0, 0, 0, -1).getTime();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).getTime();
+      const startOfQuarter = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).getTime();
+      const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
+
+      const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
+      if (selectedDateFilter === "yesterday" && (jobTime < startOfYesterday || jobTime >= startOfToday)) return false;
+      if (selectedDateFilter === "today" && jobTime < startOfToday) return false;
+      if (selectedDateFilter === "this_week" && jobTime < startOfWeek) return false;
+      if (selectedDateFilter === "last_week" && (jobTime < startOfLastWeek || jobTime > endOfLastWeek)) return false;
+      if (selectedDateFilter === "this_month" && jobTime < startOfMonth) return false;
+      if (selectedDateFilter === "last_month" && (jobTime < startOfLastMonth || jobTime > endOfLastMonth)) return false;
+      if (selectedDateFilter === "this_quarter" && jobTime < startOfQuarter) return false;
+      if (selectedDateFilter === "this_year" && jobTime < startOfYear) return false;
+    }
+
+    if (activeTab === "all") return true;
+
+    if (isAccountant) {
+      if (activeTab === "awaiting_feedback") return j.status === "AwaitingFeedback";
+      if (activeTab === "pending_clearance") return j.status === "CompletedPendingVerification";
+      if (activeTab === "discount_requests") return j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
+      if (activeTab === "pending_expenses") return j.expenseClaims?.some((c: any) => c.status === "pending");
+      if (activeTab === "pending_cash") {
+        return j.hisaabSettlements?.some((s: any) => {
+          if (s.status === "superseded") return false;
+          const collected = Number(s.amountCollected) || 0;
+          const received = Number(s.amountReceivedByAccountant) || 0;
+          return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+        });
+      }
+      if (activeTab === "completed") return ["Finalized", "Verified"].includes(j.status);
+    } else if (isDispatcher) {
+      if (activeTab === "unassigned") {
+        return (
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0))
+        );
+      }
+      if (activeTab === "assigned") return j.status === "Assigned";
+      if (activeTab === "in_progress") return j.status === "InProgress" || j.status === "Accepted";
+      if (activeTab === "paused") return j.status === "Paused";
+      if (activeTab === "completed") {
+        return ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
+      }
+    } else {
+      // Admin / Manager / Ops / Call Center / Cashier / Auditor
+      if (activeTab === "assigned_today") return j.status === "Assigned" || j.status === "InProgress";
+      if (activeTab === "needs_review") return j.qualityFlag === "disputed";
+      if (activeTab === "completed") return ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status);
+    }
+
+    return true;
+  });
+
+  // Filter based on search query and filter chips
+  const filteredJobs = filteredByTab.filter((j) => {
+    // Technician Filter (including Unassigned)
+    if (selectedTechFilter) {
+      if (selectedTechFilter === "unassigned") {
+        const isUnassigned =
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0));
+        if (!isUnassigned) return false;
+      } else if (j.assignedTechnician?.name !== selectedTechFilter) {
+        return false;
+      }
+    }
+    if (selectedStatusFilter && j.status !== selectedStatusFilter) return false;
+    if (selectedTypeFilter && j.jobType !== selectedTypeFilter) return false;
+
+    // Care-Of / B2B Corporate Client Filter
+    if (selectedCareOfFilter) {
+      const party = j.careOfParty?.companyName || j.careOfParty?.personName;
+      if (party !== selectedCareOfFilter) return false;
+    }
+
+    // Payment & Cash Clearance Filter
+    if (selectedPaymentFilter) {
+      if (selectedPaymentFilter === "cash_collected") {
+        const hasHandover = j.hisaabSettlements?.some((s: any) => s.status === "verified" || s.accountantVerifiedAt);
+        if (!hasHandover) return false;
+      } else if (selectedPaymentFilter === "pending_cash") {
+        const hasPendingCash = j.hisaabSettlements?.some((s: any) => s.status === "pending_handover" || (!s.accountantVerifiedAt && s.amountCollected > 0));
+        if (!hasPendingCash) return false;
+      } else if (selectedPaymentFilter === "receivables") {
+        const isAr = j.hisaabSettlements?.some((s: any) => s.paymentMethod === "customer_receivable" || s.isReceivable);
+        if (!isAr) return false;
+      } else if (selectedPaymentFilter === "expenses_pending") {
+        const hasPendingExp = j.expenseClaims?.some((c: any) => c.status === "pending");
+        if (!hasPendingExp) return false;
+      } else if (selectedPaymentFilter === "expenses_cleared") {
+        const hasClearedExp = j.expenseClaims?.length > 0 && j.expenseClaims.every((c: any) => c.status === "approved" || c.status === "paid");
+        if (!hasClearedExp) return false;
+      } else if (selectedPaymentFilter === "has_expenses") {
+        if (!j.expenseClaims || j.expenseClaims.length === 0) return false;
+      }
+    }
+
+    // Materials & Stock Requisitions Filter
+    if (selectedMaterialFilter) {
+      if (selectedMaterialFilter === "has_requests") {
+        if (!j.inventoryRequests || j.inventoryRequests.length === 0) return false;
+      } else if (selectedMaterialFilter === "pending_approval") {
+        if (!j.inventoryRequests?.some((r: any) => r.status === "pending" || r.status === "partially_issued")) return false;
+      } else if (selectedMaterialFilter === "issued") {
+        if (!j.inventoryRequests?.some((r: any) => r.status === "issued" || r.status === "fulfilled")) return false;
+      } else if (selectedMaterialFilter === "returnable") {
+        const isReturnable = (j.stockReturns && j.stockReturns.length > 0) || j.inventoryRequests?.some((r: any) => r.requiresReturn);
+        if (!isReturnable) return false;
+      } else if (selectedMaterialFilter === "no_requests") {
+        if (j.inventoryRequests && j.inventoryRequests.length > 0) return false;
+      }
+    }
+
+    // Quality & Audit Review Filter
+    if (selectedQualityFilter) {
+      if (selectedQualityFilter === "clean") {
+        if (j.qualityFlag === "disputed") return false;
+      } else if (selectedQualityFilter === "disputed") {
+        if (j.qualityFlag !== "disputed") return false;
+      } else if (selectedQualityFilter === "verified") {
+        if (!j.verifiedAt && j.status !== "Verified") return false;
+      }
+    }
+
+    // Discount Filter
+    if (selectedDiscountFilter) {
+      if (selectedDiscountFilter === "approved") {
+        const hasApproved = (j.discountAmount && j.discountAmount > 0) || j.items?.some((it: any) => it.description?.includes("[Discount Approved:"));
+        if (!hasApproved) return false;
+      } else if (selectedDiscountFilter === "requested") {
+        const hasReq = j.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
+        if (!hasReq) return false;
+      } else if (selectedDiscountFilter === "none") {
+        const hasAny = (j.discountAmount && j.discountAmount > 0) || j.items?.some((it: any) => it.description?.includes("Discount"));
+        if (hasAny) return false;
+      }
+    }
+
+    // Equipment / Appliance Type Filter
+    if (selectedEquipmentFilter) {
+      const matchEquip = (j.items || []).some((it: any) => {
+        const text = `${it.equipmentType || ""} ${it.description || ""}`.toLowerCase();
+        return text.includes(selectedEquipmentFilter.toLowerCase());
+      });
+      if (!matchEquip) return false;
+    }
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const formattedType = formatJobType(j.jobType).toLowerCase();
+    return (
+      j.jobNumber?.toLowerCase().includes(q) ||
+      (!isStorekeeper && j.manualJobNumber?.toLowerCase().includes(q)) ||
+      j.customer?.name?.toLowerCase().includes(q) ||
+      j.customer?.phone?.toLowerCase().includes(q) ||
+      j.remarks?.toLowerCase().includes(q) ||
+      (!isStorekeeper && j.careOfParty?.companyName?.toLowerCase().includes(q)) ||
+      (!isStorekeeper && j.careOfParty?.personName?.toLowerCase().includes(q)) ||
+      j.assignedTechnician?.name?.toLowerCase().includes(q) ||
+      j.jobType?.toLowerCase().includes(q) ||
+      formattedType.includes(q)
+    );
+  }).sort((a, b) => {
+    const dateA = new Date(a.createdAt || a.created_at || a.jobDate || 0).getTime();
+    const dateB = new Date(b.createdAt || b.created_at || b.jobDate || 0).getTime();
+    if (dateA && dateB && dateA !== dateB) return dateB - dateA;
+    return 0;
+  });
+
+  function getJobTypeBadge(type: string | null | undefined) {
+    const formatted = formatJobType(type);
+    const lower = (type || "").toLowerCase();
+
+    let colorClasses = "bg-zinc-100/90 text-zinc-700 border-zinc-200/90";
+    let dotColor = "bg-zinc-400";
+
+    if (lower.includes("install") || lower.includes("commission")) {
+      colorClasses = "bg-sky-50 text-sky-800 border-sky-200/90";
+      dotColor = "bg-sky-500";
+    } else if (lower.includes("duct") || lower.includes("clean") || lower.includes("sanitiz")) {
+      colorClasses = "bg-teal-50 text-teal-800 border-teal-200/90";
+      dotColor = "bg-teal-500";
+    } else if (lower.includes("repair") || lower.includes("breakdown") || lower.includes("leak")) {
+      colorClasses = "bg-amber-50 text-amber-800 border-amber-200/90";
+      dotColor = "bg-amber-500";
+    } else if (lower.includes("maint") || lower.includes("inspect") || lower.includes("audit") || lower.includes("amc")) {
+      colorClasses = "bg-emerald-50 text-emerald-800 border-emerald-200/90";
+      dotColor = "bg-emerald-500";
+    } else if (lower.includes("emergency") || lower.includes("overhaul")) {
+      colorClasses = "bg-rose-50 text-rose-800 border-rose-200/90";
+      dotColor = "bg-rose-500";
+    }
+
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border tracking-tight shadow-2xs whitespace-nowrap",
+          colorClasses
+        )}
+      >
+        <span className={cn("w-2 h-2 rounded-full shrink-0", dotColor)} />
+        <span>{formatted}</span>
+      </span>
+    );
+  }
+
+  // Base columns
+  const allColumns: ColumnDef<any>[] = [
+    {
+      id: "jobNumber",
+      header: "Job # & External Ref",
+      accessorKey: "jobNumber",
+      width: "215px",
+      cell: (row) => {
+        const successors = (row.childJobs || []).filter(
+          (c: any) => c && c.id
+        ) as { id: string; jobNumber: string; status?: string }[];
+        const openSuccessor =
+          successors.find((c) => c.status !== "TechnicianReassigned") || successors[0];
+        const parent = row.parentJob as
+          | { id: string; jobNumber: string; status?: string }
+          | null
+          | undefined;
+        const showParent =
+          parent?.id &&
+          (row.parentJobId || row.reassignedFromJobId || row.status !== "TechnicianReassigned");
+
+        return (
+          <div className="space-y-1">
+            <Link
+              href={`/jobs/${row.id}`}
+              scroll={false}
+              className="font-mono font-bold text-sm text-[#0D7A5F] hover:underline inline-block whitespace-nowrap focus-visible:outline-none"
+            >
+              {row.jobNumber}
+            </Link>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {!isStorekeeper && row.manualJobNumber && (
+                <span className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded font-mono inline-block">
+                  Ext: #{row.manualJobNumber}
+                </span>
+              )}
+              {row.status === "TechnicianReassigned" && openSuccessor && (
+                <Link
+                  href={`/jobs/${openSuccessor.id}`}
+                  scroll={false}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[11px] text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 hover:bg-violet-100"
+                  title="Open successor work order"
+                >
+                  <ArrowUpRight className="w-3 h-3" />
+                  Successor {openSuccessor.jobNumber}
+                </Link>
+              )}
+              {showParent && parent && (
+                <Link
+                  href={`/jobs/${parent.id}`}
+                  scroll={false}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[11px] text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 hover:bg-slate-100"
+                  title="Open parent / reassigned-from work order"
+                >
+                  From {parent.jobNumber}
+                </Link>
+              )}
+              {row.isFoc && (
+                <span
+                  className="text-[10px] font-bold text-purple-900 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs"
+                  title="Free of Charge Order (Company Billed)"
+                >
+                  FOC Order
+                </span>
+              )}
+            </div>
+            {!isStorekeeper && row.careOfParty && (
+              <div className="pt-0.5">
+                <span
+                  className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1 max-w-full"
+                  title={`Care-Of: ${row.careOfParty.companyName}`}
+                >
+                  <Building className="w-3 h-3 text-purple-500 shrink-0" />
+                  <span className="truncate">c/o {row.careOfParty.companyName}</span>
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "customer",
+      header: "Customer",
+      width: "230px",
+      cell: (row) => {
+        const customerName = capitalizeWords(row.customer?.name || "Customer");
+        const address = row.customer?.addressText || "";
+        const formattedAddress = address.startsWith("GPS Location")
+          ? address.replace("GPS Location", "GPS: ")
+          : capitalizeWords(address);
+
+        return (
+          <div className="max-w-[230px]">
+            <p className="font-semibold text-[#18181B] text-sm truncate" title={customerName}>
+              {customerName}
+            </p>
+            {address ? (
+              <p
+                className="text-xs text-[#71717A] truncate flex items-center gap-1 mt-0.5"
+                title={address}
+              >
+                <MapPin className="w-3.5 h-3.5 text-[#A1A1AA] shrink-0" />
+                <span className="truncate">{formattedAddress}</span>
+              </p>
+            ) : (
+              <p className="text-xs text-[#A1A1AA] italic mt-0.5">No address on file</p>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "type",
+      header: "Job Type",
+      accessorKey: "jobType",
+      width: "210px",
+      cell: (row) => getJobTypeBadge(row.jobType),
+    },
+    {
+      id: "technician",
+      header: "Technician",
+      width: "195px",
+      cell: (row) => {
+        const techName = row.assignedTechnician?.name
+          ? capitalizeWords(row.assignedTechnician.name)
+          : null;
+
+        const initials = techName
+          ? techName
+              .split(" ")
+              .map((n: string) => n[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase()
+          : "";
+
+        return (
+          <div className="flex items-center">
+            {row.assignedTechnician ? (
+              <div className="inline-flex items-center gap-2 bg-white border border-[#E4E4E7] hover:border-emerald-300 rounded-full pl-1 pr-2.5 py-0.5 shadow-2xs transition group max-w-full">
+                <span className="w-6 h-6 rounded-full bg-emerald-100 text-[#0D7A5F] text-[10px] font-bold inline-flex items-center justify-center shrink-0 border border-emerald-200">
+                  {initials}
+                </span>
+                <span
+                  className="font-semibold text-[#18181B] truncate text-xs max-w-[115px]"
+                  title={techName || ""}
+                >
+                  {techName}
+                </span>
+                {row.assignments?.some((a: any) => a.technicianId === row.assignedTechnician?.id && a.role === "primary") && (
+                  <span className="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 py-0.5 rounded border border-amber-200 shrink-0">
+                    ★ Lead
+                  </span>
+                )}
+                {canReassignTech && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReassignJob(row);
+                    }}
+                    title="Change assigned technician"
+                    className="text-[11px] font-semibold text-[#71717A] hover:text-[#0D7A5F] bg-[#F4F4F5] hover:bg-emerald-50 px-2 py-0.5 rounded-full border border-[#E4E4E7] hover:border-emerald-200 transition shrink-0 ml-0.5"
+                  >
+                    Change
+                  </button>
+                )}
+              </div>
+            ) : canReassignTech ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReassignJob(row);
+                }}
+                className="text-xs font-semibold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 px-3 py-1 rounded-full border border-emerald-200 transition inline-flex items-center gap-1.5 shadow-2xs group"
+              >
+                <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition" />
+                <span>+ Assign Tech</span>
+              </button>
+            ) : (
+              <span className="text-xs text-[#A1A1AA] italic">Unassigned</span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "status",
+      header: isStorekeeper ? "Material Status" : "Status",
+      width: isStorekeeper ? "280px" : "180px",
+      cell: (row) => {
+        if (isStorekeeper) {
+          const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending" || r.status === "partially_issued").length || 0;
+          const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued" || r.status === "fulfilled").length || 0;
+          const returns = row.stockReturns || [];
+          const pendingAckCount = returns.filter((r: any) => !r.acknowledgedAt).length;
+          const ackedCount = returns.filter((r: any) => r.acknowledgedAt).length;
+          const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
+          const isDone = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
+          const returnableQty = row.items?.reduce((sum: number, it: any) => {
+            if (!isServiceItem(it) && it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+              return sum + (it.quantityPlanned - it.quantityActual);
+            }
+            return sum;
+          }, 0) || 0;
+          const remainingReturnable = Math.max(0, returnableQty - ackedQty);
+
+          return (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {pendingCount > 0 && (
+                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs whitespace-nowrap shrink-0">
+                    <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Pending Req ({pendingCount})</span>
+                  </span>
+                )}
+                {issuedCount > 0 && (
+                  <span className="text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{issuedCount} {issuedCount === 1 ? "Item" : "Items"} Issued</span>
+                  </span>
+                )}
+                {pendingAckCount > 0 && (
+                  <span className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-2xs whitespace-nowrap shrink-0">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>{pendingAckCount} Awaiting Ack</span>
+                  </span>
+                )}
+                {isDone && remainingReturnable > 0 && (
+                  <span className="text-xs font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0">
+                    <RotateCcw className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                    <span>{remainingReturnable} Returnable</span>
+                  </span>
+                )}
+                {ackedCount > 0 && (
+                  <span className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0">
+                    <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>{ackedCount} Return Logged</span>
+                  </span>
+                )}
+                {pendingCount === 0 && issuedCount === 0 && !remainingReturnable && ackedCount === 0 && (
+                  <span className="text-xs text-[#71717A] italic whitespace-nowrap shrink-0">
+                    No Material Requests
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        const hasPendingReq = row.inventoryRequests?.some((r: any) => r.status === "pending");
+        const hasDiscountReq = row.items?.some((it: any) => it.description?.includes("[Discount Requested:"));
+        const hasPendingExpense = row.expenseClaims?.some((c: any) => c.status === "pending");
+
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <StatusBadge status={row.status} size="md" />
+              {row.qualityFlag === "disputed" && (
+                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                  Disputed
+                </span>
+              )}
+              {row.status === "TechnicianReassigned" &&
+                (row.childJobs || []).some((c: any) => c?.id) && (
+                  <Link
+                    href={`/jobs/${(row.childJobs.find((c: any) => c.status !== "TechnicianReassigned") || row.childJobs[0]).id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[11px] font-bold text-violet-800 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-violet-100 shadow-2xs"
+                  >
+                    <ArrowUpRight className="w-3 h-3" />
+                    Open successor
+                  </Link>
+                )}
+              {(row.parentJob?.id || row.reassignedFromJobId) && row.parentJob?.jobNumber && (
+                <Link
+                    href={`/jobs/${row.parentJob.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[11px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 hover:bg-slate-100 shadow-2xs"
+                  >
+                    Parent {row.parentJob.jobNumber}
+                  </Link>
+                )}
+            </div>
+            {isStorekeeper && hasPendingReq && (
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                <Package className="w-3 h-3 text-amber-600" />
+                Material Req Pending
+              </span>
+            )}
+            {isAccountant && hasDiscountReq && (
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                Discount Requested
+              </span>
+            )}
+            {isAccountant && (
+              (() => {
+                const pendingExpenseAmt = (row.expenseClaims || [])
+                  .filter((c: any) => c.status === "pending")
+                  .reduce((s: number, c: any) => s + (Number(c.amount) || 0), 0);
+                const hasPaidExpense = (row.expenseClaims || []).some((c: any) => c.status === "paid");
+                const pendingSettlement = (row.hisaabSettlements || []).find((s: any) => {
+                  if (s.status === "superseded") return false;
+                  const collected = Number(s.amountCollected) || 0;
+                  const received = Number(s.amountReceivedByAccountant) || 0;
+                  return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+                });
+                const pendingCashAmt = pendingSettlement
+                  ? Math.max(0, (Number(pendingSettlement.amountCollected) || 0) - (Number(pendingSettlement.amountReceivedByAccountant) || 0))
+                  : 0;
+                const hasReceivedCash = (row.hisaabSettlements || []).some(
+                  (s: any) =>
+                    s.status !== "superseded" &&
+                    ((Number(s.amountReceivedByAccountant) || 0) > 0 || s.status === "posted")
+                );
+
+                return (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    {pendingExpenseAmt > 0 ? (
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                        <Receipt className="w-3 h-3 text-rose-600" />
+                        Exp Left: {formatCurrency(pendingExpenseAmt)}
+                      </span>
+                    ) : hasPaidExpense ? (
+                      <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Exp Cleared
+                      </span>
+                    ) : null}
+
+                    {pendingCashAmt > 0 ? (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1 animate-pulse shadow-2xs">
+                        <ArrowDownLeft className="w-3 h-3 text-amber-600" />
+                        Cash Left: {formatCurrency(pendingCashAmt)}
+                      </span>
+                    ) : hasReceivedCash ? (
+                      <span className="text-[10px] font-medium text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                        <Banknote className="w-3 h-3 text-teal-600" />
+                        Cash Collected
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })()
+            )}
+          </div>
+        );      },
+    },
+    // Strictly hide Amount column if user lacks financial permission, showing warehouse material status instead
+    ...((!canViewFinancials || isDispatcher || isCallCenter) && !isStorekeeper
+      ? [
+          {
+            id: "storeInventorySummary",
+            header: "Warehouse Material Status",
+            width: "280px",
+            cell: (row: any) => {
+              const pendingCount = row.inventoryRequests?.filter((r: any) => r.status === "pending").length || 0;
+              const issuedCount = row.inventoryRequests?.filter((r: any) => r.status === "issued").length || 0;
+              const returns = row.stockReturns || [];
+              const returnedCount = returns.length;
+              const pendingAckCount = returns.filter((r: any) => !r.acknowledgedAt).length;
+              const ackedCount = returns.filter((r: any) => r.acknowledgedAt).length;
+              const ackedQty = returns.filter((r: any) => r.acknowledgedAt).reduce((s: number, r: any) => s + (Number(r.qtyReturned) || 0), 0);
+              const isDone = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(row.status);
+              const returnableQty = row.items?.reduce((sum: number, it: any) => {
+                if (!isServiceItem(it) && it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+                  return sum + (it.quantityPlanned - it.quantityActual);
+                }
+                return sum;
+              }, 0) || 0;
+              const remainingReturnable = Math.max(0, returnableQty - ackedQty);
+
+              return (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {issuedCount > 0 && (
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{issuedCount} Item{issuedCount === 1 ? "" : "s"} Issued</span>
+                      </span>
+                    )}
+                    {pendingCount > 0 && (
+                      <span className="bg-amber-50 text-amber-800 border border-amber-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse whitespace-nowrap shrink-0">
+                        <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>{pendingCount} Pending Req</span>
+                      </span>
+                    )}
+                    {pendingAckCount > 0 && (
+                      <span className="bg-amber-50 text-amber-900 border border-amber-300 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 animate-pulse whitespace-nowrap shrink-0">
+                        <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>{pendingAckCount} Awaiting Ack</span>
+                      </span>
+                    )}
+                    {isDone && remainingReturnable > 0 && (
+                      <span className="bg-purple-50 text-purple-800 border border-purple-200/90 font-semibold px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                        <RotateCcw className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                        <span>{remainingReturnable} Returnable</span>
+                      </span>
+                    )}
+                    {ackedCount > 0 && (
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                        <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>{ackedCount} Return Recorded</span>
+                      </span>
+                    )}
+                    {returnedCount > 0 && ackedCount === 0 && pendingAckCount === 0 && (
+                      <span className="bg-blue-50 text-blue-800 border border-blue-200/90 font-medium px-2.5 py-1 rounded-full text-xs shadow-2xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                        <CheckCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>{returnedCount} Return Recorded</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            },
+          },
+        ]
+      : !isDispatcher && !isCallCenter && (isAdmin || isAccountant || canViewFinancials)
+      ? [
+          {
+            id: "amount",
+            header: "Amount",
+            align: "right" as const,
+            width: "130px",
+            cell: (row: any) => {
+              let total = 0;
+              for (const it of row.items || []) {
+                total += (it.quantityActual ?? it.quantityPlanned) * it.unitRate;
+              }
+              const net = Math.max(0, total - (row.discountAmount || 0));
+              return (
+                <div className="text-right">
+                  <span className="font-mono font-bold text-[#18181B] text-sm block">
+                    {formatCurrency(net)}
+                  </span>
+                  {row.discountAmount > 0 && (
+                    <span className="text-[11px] text-amber-700 font-mono inline-block bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                      -{formatCurrency(row.discountAmount)}
+                    </span>
+                  )}
+                </div>
+              );
+            },
+          },
+        ]
+      : []),
+    {
+      id: "createdAt",
+      header: "Created",
+      align: "right",
+      width: "130px",
+      cell: (row) => {
+        if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">—</span>;
+        const d = new Date(row.createdAt);
+        const dateStr = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);
+        const timeStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).format(d);
+        return (
+          <div className="text-right">
+            <span className="text-xs font-semibold text-[#3F3F46] block">{dateStr}</span>
+            <span className="text-[11px] text-[#A1A1AA] font-mono block mt-0.5">{timeStr}</span>
+          </div>
+        );
+      },
+    },
+    {
+      id: "actions",
+      header: "Quick Action",
+      align: "right",
+      width: "140px",
+      cell: (row) => {
+        const onReturnableTab =
+          isStorekeeper &&
+          (activeTab === "returnable" ||
+            kpiFilter === "returnable_stock" ||
+            kpiFilter === "returnable");
+        const showRecordReturn = onReturnableTab && canStockReturn;
+
+        if (showRecordReturn) {
+          return (
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReturnJob(row);
+                }}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Record return</span>
+              </button>
+              <Link
+                href={`/jobs/${row.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-[#52525B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#E4E4E7] transition"
+                title="Open job details / issue stock"
+              >
+                Details
+              </Link>
+            </div>
+          );
+        }
+
+        const pendingCashSettlement = isAccountant
+          ? row.hisaabSettlements?.find((s: any) => {
+              if (s.status === "superseded") return false;
+              const collected = Number(s.amountCollected) || 0;
+              const received = Number(s.amountReceivedByAccountant) || 0;
+              return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+            })
+          : null;
+        const pendingCashAmt = pendingCashSettlement
+          ? Math.max(0, (Number(pendingCashSettlement.amountCollected) || 0) - (Number(pendingCashSettlement.amountReceivedByAccountant) || 0))
+          : 0;
+
+        return (
+          <div className="flex items-center justify-end gap-1.5">
+            {pendingCashAmt > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReceiveCashJob(row);
+                }}
+                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white shadow-2xs transition inline-flex items-center gap-1.5 whitespace-nowrap"
+                title="Receive cash handover from technician"
+              >
+                <Banknote className="w-3.5 h-3.5" />
+                <span>Receive Cash</span>
+              </button>
+            )}
+            <Link
+              href={`/jobs/${row.id}`}
+              scroll={false}
+              className={
+                isStorekeeper
+                  ? "text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition inline-flex items-center gap-1.5"
+                  : isAccountant
+                  ? "text-xs font-semibold px-3 py-1.5 rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition inline-flex items-center gap-1.5 shadow-2xs"
+                  : "text-xs font-semibold px-3 py-1.5 rounded-lg text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-900 border border-emerald-200 transition inline-flex items-center gap-1.5 shadow-2xs group"
+              }
+            >
+              {isStorekeeper ? (
+                <>
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Details & Issue</span>
+                </>
+              ) : isAccountant ? (
+                <>
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>Financials</span>
+                </>
+              ) : (
+                <>
+                  <span>Details</span>
+                  <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform text-[#0D7A5F]" />
+                </>
+              )}
+            </Link>
+          </div>
+        );
+      },
+    },
+  ];
+
+  // Role-specific tab presets
+  const accountantTabs = [
+    { id: "all", label: "All Jobs Ledger", count: jobs.length },
+    { id: "awaiting_feedback", label: "Awaiting Feedback", count: jobs.filter((j) => j.status === "AwaitingFeedback").length },
+    { id: "pending_clearance", label: "Needs Finalization", count: jobs.filter((j) => j.status === "CompletedPendingVerification").length },
+    { id: "discount_requests", label: "Discount Requested", count: jobs.filter((j) => j.items?.some((it: any) => it.description?.includes("[Discount Requested:"))).length },
+    { id: "pending_expenses", label: "Pending Expenses", count: jobs.filter((j) => j.expenseClaims?.some((c: any) => c.status === "pending")).length },
+    {
+      id: "pending_cash",
+      label: "Pending Cash Handover",
+      count: jobs.filter((j) =>
+        j.hisaabSettlements?.some((s: any) => {
+          if (s.status === "superseded") return false;
+          const collected = Number(s.amountCollected) || 0;
+          const received = Number(s.amountReceivedByAccountant) || 0;
+          return collected > received || (s.status === "field_reported" && received === 0 && collected > 0);
+        })
+      ).length,
+    },
+    { id: "completed", label: "Finalized / Verified", count: jobs.filter((j) => ["Finalized", "Verified"].includes(j.status)).length },
+  ];
+
+  const storekeeperJobs = jobs.filter((j) => {
+    const hasInventoryReq = Boolean(j.inventoryRequests && j.inventoryRequests.length > 0);
+    const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
+    const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+    const returnableQty = j.items?.reduce((sum: number, it: any) => {
+      if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+        return sum + (it.quantityPlanned - it.quantityActual);
+      }
+      return sum;
+    }, 0) || 0;
+    return hasInventoryReq || hasReturns || (isDoneOrPaused && returnableQty > 0);
+  });
+
+  const storekeeperPendingJobs = storekeeperJobs.filter((j) =>
+    j.inventoryRequests?.some((r: any) => r.status === "pending")
+  );
+
+  const storekeeperReturnableJobs = storekeeperJobs.filter((j) => {
+    const hasReturns = Boolean(j.stockReturns && j.stockReturns.length > 0);
+    const isDoneOrPaused = ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified", "Paused"].includes(j.status);
+    const returnableQty = j.items?.reduce((sum: number, it: any) => {
+      if (it.quantityActual !== null && it.quantityActual !== undefined && it.quantityPlanned > it.quantityActual) {
+        return sum + (it.quantityPlanned - it.quantityActual);
+      }
+      return sum;
+    }, 0) || 0;
+    return hasReturns || (isDoneOrPaused && returnableQty > 0);
+  });
+
+  const storekeeperTabs = [
+    { id: "all", label: "Inventory Requested Jobs", count: storekeeperJobs.length },
+    { id: "pending_materials", label: "Pending Material Requests", count: storekeeperPendingJobs.length },
+    { id: "returnable", label: "Unused / Returnable Stock", count: storekeeperReturnableJobs.length },
+  ];
+
+  const adminTabs = [
+    { id: "all", label: "All Jobs", count: jobs.length },
+    { id: "assigned_today", label: "Assigned Today", count: jobs.filter((j) => j.status === "Assigned" || j.status === "InProgress").length },
+    { id: "needs_review", label: "Needs Review", count: jobs.filter((j) => j.qualityFlag === "disputed").length },
+    { id: "completed", label: "Completed", count: jobs.filter((j) => ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)).length },
+  ];
+
+  const dispatcherTabs = [
+    { id: "all", label: "All Jobs", count: jobs.length },
+    {
+      id: "unassigned",
+      label: "Unassigned Queue",
+      count: jobs.filter(
+        (j) =>
+          j.status === "Created" ||
+          (!j.assignedTechnicianId &&
+            (!j.technicianIds || j.technicianIds.length === 0) &&
+            (!j.assignments || j.assignments.length === 0))
+      ).length,
+    },
+    { id: "assigned", label: "Assigned", count: jobs.filter((j) => j.status === "Assigned").length },
+    {
+      id: "in_progress",
+      label: "In Progress / Active",
+      count: jobs.filter((j) => j.status === "InProgress" || j.status === "Accepted").length,
+    },
+    { id: "paused", label: "Partially Completed", count: jobs.filter((j) => j.status === "Paused").length },
+    {
+      id: "completed",
+      label: "Completed",
+      count: jobs.filter((j) =>
+        ["AwaitingFeedback", "CompletedPendingVerification", "Finalized", "Verified"].includes(j.status)
+      ).length,
+    },
+  ];
+
+  const activeTabsList = isAccountant
+    ? accountantTabs
+    : isStorekeeper
+    ? storekeeperTabs
+    : isDispatcher
+    ? dispatcherTabs
+    : adminTabs;
+
+  return (
+    <div className="space-y-4">
+      {!canViewDirectory ? (
+        <div className="bg-white border border-rose-200 rounded-xl p-8 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-[#18181B]">
+            Work Orders Directory Access Restricted
+          </h3>
+          <p className="text-xs text-[#71717A] max-w-md mx-auto">
+            Permission to view the jobs directory has been toggled off for your user account or role (<code className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">jobs.view_directory</code>). Please contact your administrator.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Role Banner / Context */}
+
+
+          {isDispatcher && (
+            <div className="p-3 bg-blue-50/80 border border-blue-200 text-blue-950 rounded-lg flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-blue-700 shrink-0" />
+                <span>
+                  <strong>Lead Dispatcher Operational Command:</strong> Live fleet technician assignment, queue monitoring, and field lifecycle control. Financial pricing is masked.
+                </span>
+              </div>
+              <Link
+                href="/dispatch/map"
+                className="font-bold text-blue-800 hover:text-blue-950 underline shrink-0 ml-2 inline-flex items-center gap-1"
+              >
+                <span>Live Dispatch Map &rarr;</span>
+              </Link>
+            </div>
+          )}
+
+          {/* Page Header (Per 04-DESIGN.md Section 1) */}
+          <PageHeader
+            moduleName={isStorekeeper ? "Warehouse Material Dispatch" : isAccountant ? "Jobs Financial Ledger" : "Jobs"}
+            currentView={isStorekeeper ? "Active Work Orders" : isAccountant ? "Work Orders & Clearance" : "All Jobs"}
+            viewVariants={activeTabsList.map((tab) => ({
+              label: tab.label,
+              count: tab.count,
+              onClick: () => setActiveTab(tab.id),
+            }))}
+            primaryAction={
+              canCreateJob
+                ? {
+                    label: "+ New Job",
+                    onClick: () => {
+                      window.location.href = "/jobs/new";
+                    },
+                  }
+                : undefined
+            }
+            onExport={() => alert("Exporting jobs list...")}
+          />
+
+
+          {/* Warehouse Storekeeper vs General / Dispatcher / Accountant KPI Dashboard Cards */}
+          {isStorekeeper ? (
+            <StorekeeperKpiDashboard
+              jobs={jobs}
+              activeFilter={kpiFilter}
+              onFilterSelect={setKpiFilter}
+            />
+          ) : (
+            <JobsKpiDashboard
+              jobs={jobs}
+              activeFilter={kpiFilter}
+              onFilterSelect={setKpiFilter}
+              isAccountant={isAccountant || isAdmin || canViewFinancials}
+              isDispatcher={isDispatcher}
+            />
+          )}
+
+          {/* Dense Data Table (Per 04-DESIGN.md Section 2) */}
+          <DataTable
+            data={filteredJobs}
+            columns={allColumns}
+            moduleName="jobs"
+            tabs={activeTabsList}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            searchPlaceholder={
+              isStorekeeper
+                ? "Filter work orders by number, customer, materials..."
+                : "Filter jobs by number, customer, notes..."
+            }
+            searchValue={searchQuery}
+            onSearchChange={setSearchQuery}
+            filterChips={[
+              {
+                id: "dateRange",
+                label: "Timeframe",
+                options: [
+                  { label: "All Time", value: "all" },
+                  { label: "Today", value: "today" },
+                  { label: "Yesterday", value: "yesterday" },
+                  { label: "This Week", value: "this_week" },
+                  { label: "Last Week", value: "last_week" },
+                  { label: "This Month", value: "this_month" },
+                  { label: "Last Month", value: "last_month" },
+                  { label: "This Quarter", value: "this_quarter" },
+                  { label: "This Year", value: "this_year" },
+                ],
+                selected: selectedDateFilter,
+                onSelect: setSelectedDateFilter,
+              },
+              {
+                id: "technician",
+                label: "Technician",
+                options: [
+                  { label: "Unassigned Jobs", value: "unassigned" },
+                  ...technicians.map((t) => ({
+                    label: capitalizeWords(t.name),
+                    value: t.name,
+                  })),
+                ],
+                selected: selectedTechFilter,
+                onSelect: setSelectedTechFilter,
+              },
+              {
+                id: "status",
+                label: "Status",
+                options: [
+                  { label: "Created", value: "Created" },
+                  { label: "Assigned", value: "Assigned" },
+                  { label: "Accepted", value: "Accepted" },
+                  { label: "In Progress", value: "InProgress" },
+                  { label: "Partially Completed (Paused)", value: "Paused" },
+                  { label: "Awaiting Feedback", value: "AwaitingFeedback" },
+                  { label: "Pending Verification", value: "CompletedPendingVerification" },
+                  { label: "Finalized", value: "Finalized" },
+                  { label: "Verified", value: "Verified" },
+                ],
+                selected: selectedStatusFilter,
+                onSelect: setSelectedStatusFilter,
+              },
+              {
+                id: "jobType",
+                label: "Job Type",
+                options: Array.from(new Set(jobs.map((j) => j.jobType).filter(Boolean))).map((t) => ({
+                  label: formatJobType(t),
+                  value: t,
+                })),
+                selected: selectedTypeFilter,
+                onSelect: setSelectedTypeFilter,
+              },
+              ...(!isStorekeeper && careOfOptions.length > 0 ? [{
+                id: "careOfParty",
+                label: "Client / Care-Of",
+                options: careOfOptions,
+                selected: selectedCareOfFilter,
+                onSelect: setSelectedCareOfFilter,
+              }] : []),
+              {
+                id: "paymentClearance",
+                label: "Financial & Cash",
+                options: [
+                  { label: "Cash Collected / in Safe", value: "cash_collected" },
+                  { label: "Cash Pending with Tech", value: "pending_cash" },
+                  { label: "Receivables (AR / Credit)", value: "receivables" },
+                  { label: "Expenses Pending Approval", value: "expenses_pending" },
+                  { label: "Expenses Reimbursed / Cleared", value: "expenses_cleared" },
+                  { label: "Has Expense Claim Logged", value: "has_expenses" },
+                ],
+                selected: selectedPaymentFilter,
+                onSelect: setSelectedPaymentFilter,
+              },
+              {
+                id: "materialsStock",
+                label: "Materials & Stock",
+                options: [
+                  { label: "Has Stock Requisitions", value: "has_requests" },
+                  { label: "Pending Stock Approval", value: "pending_approval" },
+                  { label: "Stock Dispatched / Fulfilled", value: "issued" },
+                  { label: "Returnable Parts / Tools", value: "returnable" },
+                  { label: "No Materials Requested", value: "no_requests" },
+                ],
+                selected: selectedMaterialFilter,
+                onSelect: setSelectedMaterialFilter,
+              },
+              {
+                id: "qualityAudit",
+                label: "Quality & Audit",
+                options: [
+                  { label: "Clean / No Dispute", value: "clean" },
+                  { label: "Disputed / Review Needed", value: "disputed" },
+                  { label: "Verified & Audited", value: "verified" },
+                ],
+                selected: selectedQualityFilter,
+                onSelect: setSelectedQualityFilter,
+              },
+              {
+                id: "discountState",
+                label: "Discounts",
+                options: [
+                  { label: "Has Approved Discount", value: "approved" },
+                  { label: "Discount Requested (Pending)", value: "requested" },
+                  { label: "Standard Rate (No Discount)", value: "none" },
+                ],
+                selected: selectedDiscountFilter,
+                onSelect: setSelectedDiscountFilter,
+              },
+              ...(equipmentOptions.length > 0 ? [{
+                id: "equipmentType",
+                label: "Appliance / Equipment",
+                options: equipmentOptions,
+                selected: selectedEquipmentFilter,
+                onSelect: setSelectedEquipmentFilter,
+              }] : []),
+            ]}
+            renderExpandedRow={(row) => (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-[#52525B]">
+                <div>
+                  <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                    Site Address & Coordinates
+                  </span>
+                  <span className="text-[#18181B] font-medium">{row.customer?.addressText || "Physical site address verified on GPS"}</span>
+                  <span className="text-[11px] text-[#71717A] block font-mono mt-0.5">
+                    GPS Lat: 25.2048, Lng: 55.2708 (Verified geofence)
+                  </span>
+                </div>
+                <div>
+                  <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                    {isStorekeeper ? "Materials & Stock Usage" : "Field Diagnostic Remarks"}
+                  </span>
+                  <span className="text-[#18181B]">{row.remarks || "No diagnostic remarks logged yet"}</span>
+                  <span className="text-[11px] text-[#71717A] block mt-0.5">
+                    Line Items: {row.items?.length || 0} items | Requests: {row.inventoryRequests?.length || 0}
+                  </span>
+                </div>
+                <div>
+                  {!isStorekeeper && (
+                    <>
+                      <span className="font-semibold text-[#71717A] text-[10px] uppercase block">
+                        Care-Of Party & Billing Entity
+                      </span>
+                      <span className="text-[#18181B]">
+                        {row.careOfParty?.companyName ? `c/o ${row.careOfParty.companyName} (${row.careOfParty.partyType})` : "Direct Customer Work Order"}
+                      </span>
+                    </>
+                  )}
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-1 border-t border-[#EDEDED]">
+                    <span className="text-[11px] text-[#71717A]">
+                      Tech: <strong className="text-[#18181B]">{row.assignedTechnician?.name || "Unassigned"}</strong>
+                    </span>
+                    {!isStorekeeper ? (
+                      <button
+                        type="button"
+                        onClick={() => setReassignJob(row)}
+                        className="text-[11px] font-bold text-[#0D7A5F] hover:underline"
+                      >
+                        {row.assignedTechnician ? "Change Tech Ã¢â€ â€™" : "+ Assign Tech Ã¢â€ â€™"}
+                      </button>
+                    ) : activeTab === "returnable" && canStockReturn ? (
+                      <button
+                        type="button"
+                        onClick={() => setReturnJob(row)}
+                        className="text-[11px] font-bold text-blue-700 hover:underline"
+                      >
+                        Record unused return
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/jobs/${row.id}`}
+                        className="text-[11px] font-bold text-[#0D7A5F] hover:underline"
+                      >
+                        Open Details & Issue Materials
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            bulkActions={[
+              {
+                label: "Export Selected",
+                onClick: (ids) => alert(`Exporting ${ids.length} jobs`),
+              },
+            ]}
+            emptyMessage={
+              isStorekeeper && activeTab === "returnable"
+                ? "No unused or returnable stock in the queue. Completed/paused jobs with leftover materials or pending tech returns will appear here."
+                : isStorekeeper && activeTab === "pending_materials"
+                ? "No pending material requests. New technician inventory requests will show up here for fulfillment."
+                : "There is no data to show in this view. Try adjusting filters."
+            }
+            onRefresh={fetchJobs}
+          />
+
+          {/* Reassign Technician Drawer */}
+          <ReassignTechDrawer
+            isOpen={Boolean(reassignJob)}
+            onClose={() => setReassignJob(null)}
+            job={reassignJob}
+            technicians={technicians}
+            onAssigned={fetchJobs}
+          />
+
+          <RecordStockReturnDrawer
+            isOpen={Boolean(returnJob)}
+            onClose={() => setReturnJob(null)}
+            job={returnJob}
+            storekeeperName={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
+            onSuccess={fetchJobs}
+          />
+
+          {/* Receive Technician Cash Handover Drawer */}
+          {receiveCashJob && (
+            <ReceiveTechnicianCashDrawer
+              isOpen={Boolean(receiveCashJob)}
+              onClose={() => setReceiveCashJob(null)}
+              job={receiveCashJob}
+              settlement={
+                receiveCashJob.hisaabSettlements?.find(
+                  (s: any) =>
+                    s.status !== "superseded" &&
+                    ((Number(s.amountCollected) || 0) > (Number(s.amountReceivedByAccountant) || 0) ||
+                      (s.status === "field_reported" && (Number(s.amountCollected) || 0) > 0))
+                ) ||
+                receiveCashJob.hisaabSettlements?.[0] ||
+                null
+              }
+              currentAccountantName={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
+              onSuccess={() => {
+                setReceiveCashJob(null);
+                fetchJobs();
+              }}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}

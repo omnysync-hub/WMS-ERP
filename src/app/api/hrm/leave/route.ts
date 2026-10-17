@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { HrmService } from "@/lib/services/HrmService";
 import { prisma } from "@/lib/prisma";
-import { resolveJobsActor, roleHasPermission } from "@/lib/auth/erpActor";
+import { resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
-    const canManage = roleHasPermission(resolved.actor.role, "hrm.manage_employees");
+    const canManage = actorHasPermission(resolved.actor, "hrm.manage_employees");
 
     let reportingManagerId = searchParams.get("reportingManagerId") || undefined;
     const managerScope = searchParams.get("managerOnly") === "true";
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   try {
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
-    const canManage = roleHasPermission(resolved.actor.role, "hrm.manage_employees");
+    const canManage = actorHasPermission(resolved.actor, "hrm.manage_employees");
     const body = await req.json();
     const action = body.action || "request";
 

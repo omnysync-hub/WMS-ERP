@@ -15,7 +15,7 @@ import { prisma } from "@/lib/prisma";
 import {
   requireProcurementPermission,
   requireAnyProcurementPermission,
-  roleHasPermission,
+  actorHasPermission,
 } from "@/lib/auth/erpActor";
 
 const VIEW_PERMISSION: Record<string, string | string[]> = {
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
     if (gated.error) return gated.error;
 
     const actor = gated.actor;
-    const canViewCosts = roleHasPermission(actor.role, "procurement.costs.view");
+    const canViewCosts = actorHasPermission(actor, "procurement.costs.view");
 
     if (view === "counts") {
       const [pendingPrs, activeVendors, openPos, openRfqs, pendingGrns, submittedPrs, draftPos, pendingInvoices] = await Promise.all([
@@ -259,7 +259,7 @@ export async function POST(req: NextRequest) {
           where: { id: payload.invoiceId },
           select: { matchStatus: true },
         });
-        if (inv?.matchStatus === "discrepancy" && !roleHasPermission(actor.role, "procurement.invoice.approve")) {
+        if (inv?.matchStatus === "discrepancy" && !actorHasPermission(actor, "procurement.invoice.approve")) {
           return NextResponse.json(
             { error: "Forbidden: discrepancy invoices require procurement.invoice.approve" },
             { status: 403 }

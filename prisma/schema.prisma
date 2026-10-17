@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // ==========================================
@@ -89,6 +90,8 @@ model JournalEntry {
   approvedBy       String?
   approvedAt       DateTime?
   fiscalPeriodId   String?
+  /// Optional business idempotency key (e.g. "expense_clear:<claimId>"). Unique when set; NULL for legacy rows.
+  idempotencyKey   String?       @unique
   lines            JournalLine[]
   createdAt        DateTime      @default(now())
 }
@@ -180,6 +183,7 @@ model Job {
   parentJob            Job?                     @relation("JobReassignmentTree", fields: [parentJobId], references: [id])
   childJobs            Job[]                    @relation("JobReassignmentTree")
   reassignedFromJobId  String?
+  isFoc                Boolean                  @default(false)
   discountAmount       Float                    @default(0)
   discountReason       String?
   qualityFlag          String? // clean, disputed

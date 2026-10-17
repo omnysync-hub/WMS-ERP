@@ -1,0 +1,1535 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import {
+  ShoppingCart,
+  Plus,
+  Search,
+  CheckCircle2,
+  Send,
+  Printer,
+  PackageCheck,
+  Building,
+  Calendar,
+  Eye,
+  ArrowRight,
+  ShieldCheck,
+  FileSpreadsheet,
+  XCircle,
+  AlertTriangle,
+} from "lucide-react";
+import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import SideDrawer from "@/components/ui/SideDrawer";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+import { printDocument } from "@/lib/printUtils";
+import {
+  ProcurementStatusBadge,
+  ProcurementEmptyState,
+} from "@/components/procurement/procurementUi";
+
+import { useRole } from "@/contexts/RoleContext";
+import { procurementActorHeaders } from "@/lib/procurementClient";
+import CompanyLetterhead from "@/components/company/CompanyLetterhead";
+import toast from "@/lib/toast";
+
+interface PurchaseOrdersTabProps {
+  pos: any[];
+  vendors: any[];
+  products: any[];
+  prs?: any[];
+  onRefresh: () => void;
+  onOpenGrnModal?: (po: any) => void;
+  queueFilter?: string | null;
+  initialAction?: string | null;
+}
+
+export default function PurchaseOrdersTab({
+  pos,
+  vendors,
+  products,
+  prs = [],
+  onRefresh,
+  onOpenGrnModal,
+  queueFilter = null,
+  initialAction = null,
+}: PurchaseOrdersTabProps) {
+  const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
+  const canCreatePo = hasPermission("procurement.po.create");
+  const canApprovePo = hasPermission("procurement.po.approve");
+  const canSendPo = hasPermission("procurement.po.send");
+  const canCreateGrn = hasPermission("procurement.grn.create");
+  const canViewCosts = hasPermission("procurement.costs.view");
+  const isStorekeeper = currentRole === "storekeeper";
+
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(queueFilter || "all");
+
+  // queueFilter sync
+  useEffect(() => {
+    if (queueFilter) setStatusFilter(queueFilter);
+  }, [queueFilter]);
+
+  // Create PO Modal State
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // initialAction sync
+  useEffect(() => {
+    if (initialAction === "new") {
+      setShowCreateModal(true);
+    }
+  }, [initialAction]);
+  const [poSourceMode, setPoSourceMode] = useState<"blank" | "from_pr">("blank");
+  const [selectedPrIdsForPo, setSelectedPrIdsForPo] = useState<string[]>([]);
+  const [selectedPrItemKeysForPo, setSelectedPrItemKeysForPo] = useState<string[]>([]);
+  const [poType, setPoType] = useState<"standard" | "blanket" | "service">("standard");
+  const [vendorId, setVendorId] = useState("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [paymentTerms, setPaymentTerms] = useState("Net 30");
+  const [shippingAddress, setShippingAddress] = useState(
+    "Central Warehouse, Main Workshop St, Gulberg III, Lahore, Pakistan"
+  );
+  const [termsAndConditions, setTermsAndConditions] = useState(
+    "1. Quality Acceptance: 100% QA physical inspection upon delivery. 2. 3-Way Matching: Invoices must match PO rates and GRN accepted quantities. 3. Payment: Within 30 days of 3-Way Match approval."
+  );
+
+  const [items, setItems] = useState<
+    {
+      productId: string;
+      itemCode: string;
+      description: string;
+      quantity: number;
+      unitCost: number;
+      unit: string;
+      discountPercent: number;
+      taxPercent: number;
+      deliverySchedule: string;
+    }[]
+  >([
+    {
+      productId: "",
+      itemCode: "",
+      description: "",
+      quantity: 10,
+      unitCost: 0,
+      unit: "pcs",
+      discountPercent: 0,
+      taxPercent: 0,
+      deliverySchedule: "Immediate Single Lot",
+    },
+  ]);
+
+  // Selected PO for Printable Document View
+  const [printablePo, setPrintablePo] = useState<any | null>(null);
+
+  // Dedicated PO Approval State
+  const [poToApprove, setPoToApprove] = useState<any | null>(null);
+  const [approvalNotes, setApprovalNotes] = useState("");
+
+  // Dedicated PO Rejection State
+  const [poToReject, setPoToReject] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const handleAddItem = () => {
+    setItems([
+      ...items,
+      {
+        productId: "",
+        itemCode: "",
+        description: "",
+        quantity: 5,
+        unitCost: 0,
+        unit: "unit",
+        discountPercent: 0,
+        taxPercent: 0,
+        deliverySchedule: "Immediate Single Lot",
+      },
+    ]);
+  };
+
+  const handleRemoveItem = (index: number) => {
+    if (items.length > 1) {
+      setItems(items.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleProductSelect = (index: number, pId: string) => {
+    const product = products.find((p) => p.id === pId);
+    const updated = [...items];
+    if (product) {
+      updated[index] = {
+        productId: product.id,
+        itemCode: product.sku,
+        description: product.name,
+        quantity: updated[index].quantity || 1,
+        unitCost: product.costPrice || 0,
+        unit: product.unit || "unit",
+        discountPercent: 0,
+        taxPercent: 0,
+        deliverySchedule: updated[index].deliverySchedule || "Immediate Single Lot",
+      };
+    } else {
+      updated[index].productId = "";
+    }
+    setItems(updated);
+  };
+
+  const handleItemChange = (index: number, field: string, val: any) => {
+    const updated = [...items];
+    (updated[index] as any)[field] = val;
+    setItems(updated);
+  };
+
+  const calculatedSubtotal = items.reduce(
+    (sum, it) =>
+      sum +
+      (Number(it.quantity) || 0) *
+        (Number(it.unitCost) || 0) *
+        (1 - (Number(it.discountPercent) || 0) / 100),
+    0
+  );
+
+
+  const eligiblePrsForPo = (prs || []).filter(
+    (p) => p.status === "approved" || p.status === "partially_converted"
+  );
+
+  const syncItemsFromSelectedPrs = (prIds: string[], itemKeys: string[]) => {
+    const next: typeof items = [];
+    for (const prId of prIds) {
+      const pr = eligiblePrsForPo.find((p) => p.id === prId);
+      if (!pr) continue;
+      for (const it of pr.items || []) {
+        const key = `${prId}::${it.id}`;
+        if (itemKeys.length && !itemKeys.includes(key)) continue;
+        const remaining = Math.max(0, it.quantity - (it.convertedQuantity || 0));
+        if (remaining <= 0) continue;
+        next.push({
+          productId: it.productId || "",
+          itemCode: it.itemCode || it.product?.sku || "",
+          description: it.description || it.product?.name || "",
+          quantity: remaining,
+          unitCost: it.estimatedPrice || it.product?.costPrice || 0,
+          unit: it.unit || "unit",
+          discountPercent: 0,
+          taxPercent: 0,
+          deliverySchedule: "Immediate Single Lot",
+          prItemId: it.id,
+        } as any);
+      }
+    }
+    setItems(
+      next.length
+        ? next
+        : [
+            {
+              productId: "",
+              itemCode: "",
+              description: "",
+              quantity: 10,
+              unitCost: 0,
+              unit: "pcs",
+              discountPercent: 0,
+              taxPercent: 0,
+              deliverySchedule: "Immediate Single Lot",
+            },
+          ]
+    );
+  };
+
+  const togglePrForPo = (prId: string) => {
+    const pr = eligiblePrsForPo.find((p) => p.id === prId);
+    setSelectedPrIdsForPo((prev) => {
+      const next = prev.includes(prId) ? prev.filter((id) => id !== prId) : [...prev, prId];
+      setSelectedPrItemKeysForPo((keys) => {
+        let nextKeys = keys.filter((k) => !k.startsWith(prId + "::"));
+        if (!prev.includes(prId) && pr?.items) {
+          nextKeys = [
+            ...nextKeys,
+            ...pr.items
+              .filter((it: any) => Math.max(0, it.quantity - (it.convertedQuantity || 0)) > 0)
+              .map((it: any) => `${prId}::${it.id}`),
+          ];
+        }
+        syncItemsFromSelectedPrs(next, nextKeys);
+        return nextKeys;
+      });
+      return next;
+    });
+  };
+
+  const togglePrItemForPo = (prId: string, itemId: string) => {
+    const key = `${prId}::${itemId}`;
+    setSelectedPrItemKeysForPo((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      setSelectedPrIdsForPo((prIds) => {
+        let nextPrIds = prIds;
+        if (next.some((k) => k.startsWith(prId + "::")) && !prIds.includes(prId)) {
+          nextPrIds = [...prIds, prId];
+        }
+        if (!next.some((k) => k.startsWith(prId + "::"))) {
+          nextPrIds = prIds.filter((id) => id !== prId);
+        }
+        syncItemsFromSelectedPrs(nextPrIds, next);
+        return nextPrIds;
+      });
+      return next;
+    });
+  };
+
+  const handleCreatePo = async (e: React.FormEvent) => {
+    if (!canCreatePo) { alert("Missing permission: procurement.po.create"); return; }
+    e.preventDefault();
+    if (!vendorId) {
+      setFormError("Please select a vendor.");
+      return;
+    }
+
+    const selectedVendor = vendors.find((v) => v.id === vendorId);
+
+    setIsSubmitting(true);
+    setFormError("");
+
+    try {
+      const res = await fetch("/api/procurement", {
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
+        body: JSON.stringify(
+          poSourceMode === "from_pr" && selectedPrIdsForPo.length > 0
+            ? {
+                action: "convert_pr_to_po",
+                prIds: selectedPrIdsForPo,
+                vendorId,
+                poType,
+                expectedDeliveryDate,
+                items: items.map((it: any) => ({
+                  productId: it.productId || undefined,
+                  itemCode: it.itemCode,
+                  description: it.description,
+                  quantity: it.quantity,
+                  unit: it.unit,
+                  unitCost: Number(it.unitCost) || 0,
+                  discountPercent: it.discountPercent,
+                  taxPercent: it.taxPercent,
+                  deliverySchedule: it.deliverySchedule,
+                  prItemId: it.prItemId,
+                })),
+              }
+            : {
+                action: "create_po",
+                poType,
+                vendorId,
+                supplierName: selectedVendor?.name,
+                supplierEmail: selectedVendor?.email || "orders@vendor.pk",
+                expectedDeliveryDate,
+                paymentTerms,
+                shippingAddress,
+                termsAndConditions,
+                items,
+              }
+        ),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create PO");
+      }
+
+      setShowCreateModal(false);
+      onRefresh();
+    } catch (err: any) {
+      setFormError(err.message || "Failed to create PO");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleApprovePo = async (id: string, notes?: string) => {
+    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/procurement", {
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
+        body: JSON.stringify({
+          action: "approve_po",
+          id,
+          actorName: activeUser?.name || currentPersona?.name || currentRole,
+          notes,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to approve PO");
+      setPoToApprove(null);
+      setApprovalNotes("");
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRejectPo = async (id: string, reason?: string) => {
+    if (!canApprovePo) {
+      toast.warning("Missing permission: procurement.po.approve", { title: "Permission Denied" });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/procurement", {
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+        body: JSON.stringify({
+          action: "reject_po",
+          id,
+          actorName: activeUser?.name || currentPersona?.name || currentRole,
+          reason,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to reject PO");
+      toast.success("Purchase Order has been rejected.", { title: "PO Rejected" });
+      setPoToReject(null);
+      setRejectReason("");
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reject PO", { title: "Action Failed" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSendPo = async (id: string) => {
+    if (!canSendPo) {
+      toast.warning("Missing permission: procurement.po.send", { title: "Permission Denied" });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/procurement", {
+        method: "POST",
+        headers: procurementActorHeaders(activeRole || currentRole, currentPersona?.name || activeUser?.name, activeUser?.id),
+
+        body: JSON.stringify({
+          action: "send_po",
+          id,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to send PO");
+      toast.success("Purchase Order successfully sent to vendor.", { title: "PO Sent" });
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send PO", { title: "Action Failed" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const filteredPos = pos.filter((p) => {
+    const matchType = typeFilter === "all" || p.poType === typeFilter;
+    const matchStatus = statusFilter === "all" || p.status === statusFilter;
+    const q = search.toLowerCase();
+    const matchSearch =
+      !q ||
+      p.poNumber?.toLowerCase().includes(q) ||
+      p.supplierName?.toLowerCase().includes(q) ||
+      p.items?.some((i: any) => i.description?.toLowerCase().includes(q));
+    return matchType && matchStatus && matchSearch;
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Controls Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
+        <div className="flex flex-wrap items-center gap-2.5 flex-1">
+          <div className="relative min-w-[240px] flex-1 max-w-sm">
+            <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search PO #, supplier, items..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#D4D4D8] rounded-lg text-xs text-[#18181B] placeholder-[#A1A1AA] focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
+            />
+          </div>
+
+          <div className="w-44">
+            <SearchableSelect
+              value={typeFilter}
+              onChange={(val) => setTypeFilter(val)}
+              options={[
+                { value: "all", label: "All PO Types" },
+                { value: "standard", label: "Standard PO" },
+                { value: "blanket", label: "Blanket / Framework PO" },
+                { value: "service", label: "Service PO" },
+              ]}
+              placeholder="PO Type..."
+            />
+          </div>
+
+          <div className="w-48">
+            <SearchableSelect
+              value={statusFilter}
+              onChange={(val) => setStatusFilter(val)}
+              options={[
+                { value: "all", label: "All Statuses" },
+                { value: "draft", label: "Draft" },
+                { value: "approved", label: "Approved" },
+                { value: "sent_to_vendor", label: "Sent to Vendor" },
+                { value: "partially_received", label: "Partially Received" },
+                { value: "fully_received", label: "Fully Received" },
+                { value: "closed", label: "Closed / Completed" },
+              ]}
+              placeholder="Status..."
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setVendorId(vendors[0]?.id || "");
+            setShowCreateModal(true);
+            setFormError("");
+          }}
+          className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Create Purchase Order
+        </button>
+      </div>
+
+      {/* PO Table */}
+      <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-[#EDEDED] bg-[#F8FAFC] text-[#71717A] font-mono text-[11px] uppercase tracking-wider">
+                <th className="py-3 px-4">PO Number & Type</th>
+                <th className="py-3 px-3">Vendor / Supplier</th>
+                <th className="py-3 px-3">Order Date</th>
+                <th className="py-3 px-3">Delivery Date</th>
+                <th className="py-3 px-3">Fulfillment Progress</th>
+                {!isStorekeeper && (
+                  <th className="py-3 px-3 text-right">Order Value</th>
+                )}
+                <th className="py-3 px-3 text-center">Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
+              {filteredPos.length === 0 ? (
+                <tr>
+                  <td colSpan={isStorekeeper ? 7 : 8} className="p-0">
+                    <ProcurementEmptyState
+                      title="No purchase orders"
+                      description="Convert an approved PR or create a PO to start a vendor order."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                filteredPos.map((po) => {
+                  const totalOrdered = (po.items || []).reduce(
+                    (s: number, i: any) => s + (i.quantity || 0),
+                    0
+                  );
+                  const totalReceived = (po.items || []).reduce(
+                    (s: number, i: any) => s + (i.quantityReceived || 0),
+                    0
+                  );
+                  const percentReceived =
+                    totalOrdered > 0 ? Math.min(100, Math.round((totalReceived / totalOrdered) * 100)) : 0;
+
+                  return (
+                    <tr
+                      key={po.id}
+                      className="hover:bg-[#F8FAFC] transition-colors group"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="font-mono font-bold text-[#18181B] group-hover:text-[#0D7A5F] transition-colors flex items-center gap-1.5">
+                          {po.poNumber}
+                          {po.poType === "blanket" && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 font-mono">
+                              BLANKET
+                            </span>
+                          )}
+                          {po.poType === "service" && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                              SERVICE
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-[#A1A1AA] font-mono">
+                          {po.items?.length || 0} line items
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-[#18181B]">
+                          {po.supplierName}
+                        </div>
+                        <div className="text-[10px] text-[#71717A] font-mono">
+                          Terms: {po.paymentTerms || "Net 30"}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
+                        {new Date(po.poDate || po.createdAt).toLocaleDateString()}
+                      </td>
+
+                      <td className="py-3 px-3 font-mono text-[11px]">
+                        {po.expectedDeliveryDate ? (
+                          <span
+                            className={
+                              new Date(po.expectedDeliveryDate) < new Date() &&
+                              po.status !== "fully_received" &&
+                              po.status !== "closed"
+                                ? "text-rose-600 font-bold"
+                                : "text-[#71717A]"
+                            }
+                          >
+                            {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span className="text-[#A1A1AA]">—</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <div className="w-36">
+                          <div className="flex justify-between text-[10px] font-mono mb-1">
+                            <span className="text-[#71717A]">
+                              {totalReceived} / {totalOrdered}
+                            </span>
+                            <span className="text-[#18181B] font-bold">
+                              {percentReceived}%
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-[#F4F4F5] rounded-full overflow-hidden border border-[#EDEDED]">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all duration-300",
+                                percentReceived === 100
+                                  ? "bg-emerald-500"
+                                  : percentReceived > 0
+                                  ? "bg-amber-500"
+                                  : "bg-zinc-300"
+                              )}
+                              style={{ width: `${percentReceived}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      {!isStorekeeper && (
+                        <td className="py-3 px-3 text-right font-mono font-bold text-[#18181B] text-sm">
+                          {formatCurrency(po.totalAmount || 0)}
+                        </td>
+                      )}
+
+                      <td className="py-2 px-3 text-center">
+                        <ProcurementStatusBadge status={po.status} />
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Printable Document View Button */}
+                          <button
+                            onClick={() => setPrintablePo(po)}
+                            title="Print Formal PO / PDF Preview"
+                            className="p-1.5 rounded bg-white hover:bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B] border border-[#D4D4D8] transition"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Approval / Workflow Action */}
+                          {po.status === "draft" && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setRejectReason("");
+                                  setPoToReject(po);
+                                }}
+                                disabled={isSubmitting || !canApprovePo}
+                                title={!canApprovePo ? "Missing permission: procurement.po.approve" : undefined}
+                                className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold px-2 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                              >
+                                <XCircle className="w-3 h-3" /> Reject
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setApprovalNotes("");
+                                  setPoToApprove(po);
+                                }}
+                                disabled={isSubmitting || !canApprovePo}
+                                title={!canApprovePo ? "Missing permission: procurement.po.approve" : undefined}
+                                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                              >
+                                <ShieldCheck className="w-3 h-3" /> Approve PO
+                              </button>
+                            </div>
+                          )}
+
+                          {po.status === "approved" && (
+                            <button
+                              onClick={() => handleSendPo(po.id)}
+                              disabled={isSubmitting || !canSendPo}
+                              title={!canSendPo ? "Missing permission" : undefined}
+                              className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg transition flex items-center gap-1"
+                            >
+                              <Send className="w-3 h-3" /> Send to Vendor
+                            </button>
+                          )}
+
+                          {(po.status === "sent_to_vendor" ||
+                            po.status === "partially_received") &&
+                            onOpenGrnModal && (
+                              <button
+                                onClick={() => onOpenGrnModal(po)}
+                                className="text-[10px] bg-[#0D7A5F] hover:bg-[#0B6851] text-white font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                              >
+                                <PackageCheck className="w-3 h-3" /> Receive GRN
+                              </button>
+                            )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Create Purchase Order Drawer (SideDrawer — same pattern as PR drawer) */}
+      <SideDrawer
+        isOpen={showCreateModal}
+        onClose={() => {
+          if (!isSubmitting) setShowCreateModal(false);
+        }}
+        title={
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="text-sm font-bold text-[#18181B]">
+              Issue Purchase Order (PO)
+            </span>
+          </div>
+        }
+        subtitle="Standard, Blanket, and Service Contracts with Delivery Schedule"
+        width="max-w-3xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(false)}
+              disabled={isSubmitting}
+              className="h-8 px-3 rounded-lg border border-[#EDEDED] text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="create-po-form"
+              disabled={isSubmitting}
+              className="h-8 px-4 rounded-lg bg-[#0D7A5F] hover:bg-[#0B6851] text-xs font-bold text-white shadow-2xs transition disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {isSubmitting ? "Issuing..." : "Issue Purchase Order"}
+            </button>
+          </>
+        }
+      >
+        <form id="create-po-form" onSubmit={handleCreatePo} className="space-y-4">
+
+              <div className="space-y-2">
+                <label className="block text-[11px] font-mono text-[#71717A]">PO source</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPoSourceMode("blank");
+                      setSelectedPrIdsForPo([]);
+                      setSelectedPrItemKeysForPo([]);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs border ${
+                      poSourceMode === "blank"
+                        ? "bg-[#0D7A5F] text-white border-[#0D7A5F]"
+                        : "bg-white text-[#18181B] border-[#D4D4D8]"
+                    }`}
+                  >
+                    Blank / catalog lines
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPoSourceMode("from_pr")}
+                    className={`px-3 py-1.5 rounded-lg text-xs border ${
+                      poSourceMode === "from_pr"
+                        ? "bg-[#0D7A5F] text-white border-[#0D7A5F]"
+                        : "bg-white text-[#18181B] border-[#D4D4D8]"
+                    }`}
+                  >
+                    From Purchase Requisition(s)
+                  </button>
+                </div>
+                {poSourceMode === "from_pr" && (
+                  <div className="border border-[#EDEDED] rounded-xl max-h-48 overflow-y-auto divide-y divide-[#EDEDED] bg-[#F8FAFC]">
+                    {eligiblePrsForPo.length === 0 ? (
+                      <p className="p-3 text-[11px] text-[#A1A1AA] text-center">
+                        No approved PRs with remaining quantity.
+                      </p>
+                    ) : (
+                      eligiblePrsForPo.map((p) => {
+                        const checked = selectedPrIdsForPo.includes(p.id);
+                        return (
+                          <div key={p.id} className="p-2.5 bg-white">
+                            <label className="flex items-center gap-2 cursor-pointer text-xs">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => togglePrForPo(p.id)}
+                                className="accent-[#0D7A5F]"
+                              />
+                              <span className="font-semibold">{p.prNumber}</span>
+                              <span className="text-[10px] text-[#71717A]">
+                                {p.department} · remaining lines available
+                              </span>
+                            </label>
+                            {checked && (
+                              <div className="mt-1.5 ml-6 space-y-1">
+                                {(p.items || []).map((it: any) => {
+                                  const rem = Math.max(0, it.quantity - (it.convertedQuantity || 0));
+                                  if (rem <= 0) return null;
+                                  const key = `${p.id}::${it.id}`;
+                                  return (
+                                    <label key={it.id} className="flex items-center gap-2 text-[11px] cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedPrItemKeysForPo.includes(key)}
+                                        onChange={() => togglePrItemForPo(p.id, it.id)}
+                                        className="accent-[#0D7A5F]"
+                                      />
+                                      <span className="flex-1">{it.description || it.product?.name}</span>
+                                      <span className="font-mono text-[#71717A]">
+                                        {rem} {it.unit}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {formError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+                  {formError}
+                </div>
+              )}
+
+              {/* Vendor & PO Type */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                    Select Vendor / Supplier *
+                  </label>
+                  <SearchableSelect
+                    required
+                    value={vendorId}
+                    onChange={(val) => {
+                      setVendorId(val);
+                      const v = vendors.find((vend) => vend.id === val);
+                      if (v) setPaymentTerms(v.paymentTerms || "Net 30");
+                    }}
+                    options={vendors
+                      .filter((v) => v.status === "Active")
+                      .map((v) => ({
+                        value: v.id,
+                        label: v.name,
+                        subLabel: `${v.vendorCode || ""} · Terms: ${v.paymentTerms || "Net 30"} · WHT: ${v.whtRate || 0}%`,
+                      }))}
+                    placeholder="-- Choose Vendor --"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                    PO Type
+                  </label>
+                  <SearchableSelect
+                    value={poType}
+                    onChange={(val) => setPoType(val as any)}
+                    options={[
+                      { value: "standard", label: "Standard PO" },
+                      { value: "blanket", label: "Blanket / Framework PO (Annual)" },
+                      { value: "service", label: "Service PO (Labor/Maintenance)" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {/* Dates & Terms */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                    Expected Delivery Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={expectedDeliveryDate}
+                    onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                    Payment Terms
+                  </label>
+                  <input
+                    type="text"
+                    value={paymentTerms}
+                    onChange={(e) => setPaymentTerms(e.target.value)}
+                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                    placeholder="Net 30"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                    Currency
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value="PKR (Pakistani Rupee)"
+                    className="w-full bg-[#F8FAFC] border border-[#EDEDED] rounded-lg px-3 py-1.5 text-xs text-[#71717A] font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Shipping Address */}
+              <div>
+                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                  Shipping & Delivery Address
+                </label>
+                <input
+                  type="text"
+                  value={shippingAddress}
+                  onChange={(e) => setShippingAddress(e.target.value)}
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                />
+              </div>
+
+              {/* Line Items Builder */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#18181B]">
+                    Order Line Items ({items.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddItem}
+                    className="inline-flex items-center gap-1 text-[11px] text-[#0D7A5F] hover:text-[#0A624C] font-semibold"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Item Line
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {items.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl space-y-2"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                        <div className="sm:col-span-4">
+                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                            Catalog Product
+                          </label>
+                          <SearchableSelect
+                            value={it.productId}
+                            onChange={(val) => handleProductSelect(idx, val)}
+                            options={[
+                              { value: "", label: "-- Custom Non-Catalog Item --" },
+                              ...products.map((p) => ({
+                                value: p.id,
+                                label: p.name,
+                                subLabel: p.sku,
+                                badge: p.costPrice != null ? `Cost: ${p.costPrice}` : undefined,
+                              })),
+                            ]}
+                            placeholder="Select product..."
+                            clearable
+                          />
+                        </div>
+
+                        <div className="sm:col-span-4">
+                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                            Item Description *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={it.description}
+                            onChange={(e) =>
+                              handleItemChange(idx, "description", e.target.value)
+                            }
+                            className="w-full bg-white border border-[#D4D4D8] rounded-lg px-2.5 py-1 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                            placeholder="Description"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-1">
+                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                            Qty
+                          </label>
+                          <input
+                            type="number"
+                            min="0.1"
+                            step="any"
+                            required
+                            value={it.quantity}
+                            onChange={(e) =>
+                              handleItemChange(idx, "quantity", Number(e.target.value))
+                            }
+                            className="w-full bg-white border border-[#D4D4D8] rounded-lg px-2 py-1 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-1">
+                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                            Unit
+                          </label>
+                          <input
+                            type="text"
+                            value={it.unit}
+                            onChange={(e) =>
+                              handleItemChange(idx, "unit", e.target.value)
+                            }
+                            className="w-full bg-white border border-[#D4D4D8] rounded-lg px-2 py-1 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                            Unit Price (PKR) *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            required
+                            value={it.unitCost}
+                            onChange={(e) =>
+                              handleItemChange(idx, "unitCost", Number(e.target.value))
+                            }
+                            className="w-full bg-white border border-[#D4D4D8] rounded-lg px-2.5 py-1 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1 border-t border-[#EDEDED]">
+                        <div>
+                          <label className="block text-[9px] font-mono text-[#71717A] mb-0.5">
+                            Delivery Schedule / Milestone
+                          </label>
+                          <input
+                            type="text"
+                            value={it.deliverySchedule}
+                            onChange={(e) =>
+                              handleItemChange(idx, "deliverySchedule", e.target.value)
+                            }
+                            className="w-full bg-white border border-[#D4D4D8] rounded px-2 py-0.5 text-xs text-[#18181B] font-mono"
+                            placeholder="e.g. Lot 1: 5 units on 25th, Lot 2: 5 units"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <label className="block text-[9px] font-mono text-[#71717A] mb-0.5">
+                              Discount %
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={it.discountPercent}
+                              onChange={(e) =>
+                                handleItemChange(
+                                  idx,
+                                  "discountPercent",
+                                  Number(e.target.value)
+                                )
+                              }
+                              className="w-16 bg-white border border-[#D4D4D8] rounded px-2 py-0.5 text-xs text-[#18181B] font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-mono text-[#71717A] mb-0.5">
+                              Tax %
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={it.taxPercent}
+                              onChange={(e) =>
+                                handleItemChange(idx, "taxPercent", Number(e.target.value))
+                              }
+                              className="w-16 bg-white border border-[#D4D4D8] rounded px-2 py-0.5 text-xs text-[#18181B] font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2">
+                          <span className="font-mono text-[#71717A]">
+                            Net Total:{" "}
+                            <strong className="text-emerald-700 font-mono">
+                              {formatCurrency(
+                                (it.quantity || 0) *
+                                  (it.unitCost || 0) *
+                                  (1 - (it.discountPercent || 0) / 100) *
+                                  (1 + (it.taxPercent || 0) / 100)
+                              )}
+                            </strong>
+                          </span>
+                          {items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveItem(idx)}
+                              className="text-rose-600 hover:text-rose-700 text-[10px]"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total Summary */}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                <span className="text-[#18181B] font-semibold">
+                  Purchase Order Total Payable:
+                </span>
+                <span className="text-base font-extrabold font-mono text-emerald-700">
+                  {formatCurrency(calculatedSubtotal)}
+                </span>
+              </div>
+        </form>
+      </SideDrawer>
+
+      {/* FORMAL PRINTABLE PURCHASE ORDER DRAWER */}
+      <SideDrawer
+        isOpen={!!printablePo}
+        onClose={() => setPrintablePo(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Printer className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Formal Purchase Order Document • {printablePo?.poNumber}
+            </span>
+          </div>
+        }
+        subtitle="Official commercial letterhead & order verification"
+        width="max-w-4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <button
+              type="button"
+              onClick={() => setPrintablePo(null)}
+              className="px-4 py-2 border border-[#D4D4D8] rounded-lg text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => printDocument("#printable-purchase-order", `Purchase_Order_${printablePo?.poNumber}`)}
+              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-2xs"
+            >
+              <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+            </button>
+          </div>
+        }
+      >
+        {printablePo && (
+          <div
+            id="printable-purchase-order"
+            className="printable-document p-8 space-y-6 max-h-[85vh] overflow-y-auto bg-white font-sans text-xs"
+          >
+              {/* Header Letterhead */}
+              <div className="flex items-start justify-between border-b-2 border-zinc-900 pb-5">
+                <CompanyLetterhead qualifier="Purchase Order" />
+
+                <div className="text-right">
+                  <div className="text-xl font-black font-mono text-zinc-900 tracking-wider">
+                    PURCHASE ORDER
+                  </div>
+                  <div className="text-xs font-mono font-bold text-[#0D7A5F] mt-0.5">
+                    {printablePo.poNumber}
+                  </div>
+                  <div className="text-[10px] font-mono text-zinc-600 mt-1">
+                    Date: {new Date(printablePo.poDate || printablePo.createdAt).toLocaleDateString()}
+                  </div>
+                  <div className="text-[10px] font-mono text-zinc-600">
+                    Type: <strong className="uppercase">{printablePo.poType}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Vendor & Shipping Address Blocks */}
+              <div className="grid grid-cols-2 gap-6">
+                <div className="p-4 rounded-xl border border-zinc-300 bg-zinc-50/50">
+                  <span className="block text-[10px] font-mono uppercase font-bold text-zinc-500 mb-1">
+                    Supplier / Vendor Details
+                  </span>
+                  <div className="font-bold text-sm text-zinc-900">
+                    {printablePo.supplierName}
+                  </div>
+                  <div className="text-zinc-600 mt-0.5">
+                    {printablePo.vendor?.addressText || "Industrial Area, Lahore/Karachi"}
+                  </div>
+                  <div className="text-zinc-600">
+                    Email: {printablePo.supplierEmail || printablePo.vendor?.email || "—"}
+                  </div>
+                  <div className="font-mono text-[10px] text-zinc-500 mt-1">
+                    NTN: {printablePo.vendor?.ntnNumber || "Exempt / N/A"} • STRN: {printablePo.vendor?.strnNumber || "—"}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-zinc-300 bg-zinc-50/50">
+                  <span className="block text-[10px] font-mono uppercase font-bold text-zinc-500 mb-1">
+                    Shipping & Billing Terms
+                  </span>
+                  <div className="font-bold text-zinc-900">Delivery Destination:</div>
+                  <div className="text-zinc-600">
+                    {printablePo.shippingAddress || "Central Warehouse, Gulberg III, Lahore"}
+                  </div>
+                  <div className="mt-1">
+                    <span className="font-semibold text-zinc-800">Expected Delivery:</span>{" "}
+                    <span className="font-mono">
+                      {printablePo.expectedDeliveryDate
+                        ? new Date(printablePo.expectedDeliveryDate).toLocaleDateString()
+                        : "Immediate"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-zinc-800">Payment Terms:</span>{" "}
+                    <span className="font-mono">{printablePo.paymentTerms || "Net 30"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Line Items Table */}
+              <div className="border border-zinc-300 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-100 border-b border-zinc-300 text-zinc-700 font-mono text-[10px] uppercase">
+                      <th className="py-2.5 px-3">#</th>
+                      <th className="py-2.5 px-3">Item Code & Specification</th>
+                      <th className="py-2.5 px-3">Delivery Schedule</th>
+                      <th className="py-2.5 px-3 text-right">Qty</th>
+                      <th className="py-2.5 px-3 text-right">Unit Rate</th>
+                      <th className="py-2.5 px-3 text-right">Net Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 text-zinc-800">
+                    {printablePo.items?.map((it: any, idx: number) => (
+                      <tr key={it.id}>
+                        <td className="py-2.5 px-3 font-mono text-zinc-500">{idx + 1}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-zinc-900">{it.description}</div>
+                          {it.itemCode && (
+                            <span className="font-mono text-[10px] text-zinc-500">
+                              Part #: {it.itemCode}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-[10px] text-zinc-600">
+                          {it.deliverySchedule || "Single Delivery"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold">
+                          {it.quantity} {it.unit}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono">
+                          {isStorekeeper ? "—" : formatCurrency(it.unitCost)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-zinc-900">
+                          {isStorekeeper ? (
+                            <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                              Cost Masked
+                            </span>
+                          ) : (
+                            formatCurrency(it.lineTotal || it.quantity * it.unitCost)
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Financial Totals */}
+              <div className="flex justify-end">
+                <div className="w-64 space-y-1.5 p-3 rounded-xl bg-zinc-50 border border-zinc-300 text-xs">
+                  <div className="flex justify-between text-zinc-600">
+                    <span>Subtotal:</span>
+                    <span className="font-mono font-semibold">
+                      {isStorekeeper ? "Cost Masked" : formatCurrency(printablePo.totalAmount)}
+                    </span>
+                  </div>
+                  {printablePo.whtAmount > 0 && !isStorekeeper && (
+                    <div className="flex justify-between text-zinc-600">
+                      <span>WHT Deduction:</span>
+                      <span className="font-mono text-rose-600">
+                        -{formatCurrency(printablePo.whtAmount)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-sm text-zinc-900 border-t border-zinc-300 pt-1.5">
+                    <span>Net Order Value:</span>
+                    <span className="font-mono text-[#0D7A5F]">
+                      {isStorekeeper
+                        ? "Storekeeper View (Rates Masked)"
+                        : formatCurrency(printablePo.netPayable || printablePo.totalAmount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Terms & Conditions */}
+              <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 text-[10px] text-zinc-600 space-y-1">
+                <span className="font-bold text-zinc-800 uppercase tracking-wide block">
+                  Commercial Conditions:
+                </span>
+                <p>{printablePo.termsAndConditions}</p>
+                <p>
+                  • Discrepancies between Delivery Challan and Physical Count must be endorsed on Goods Receipt Note (GRN).
+                </p>
+                <p>
+                  • Supplier Invoices must be accompanied by verified GRN copy for 3-Way Match processing.
+                </p>
+              </div>
+
+              {/* Signature Blocks */}
+              <div className="grid grid-cols-3 gap-8 pt-8 border-t border-zinc-300 text-center text-xs">
+                <div>
+                  <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-500">
+                    Bilal Sheikh
+                  </div>
+                  <span className="text-[10px] font-bold text-zinc-700 uppercase">
+                    Prepared By (Storekeeper)
+                  </span>
+                </div>
+
+                <div>
+                  <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-500">
+                    Fatima Noor
+                  </div>
+                  <span className="text-[10px] font-bold text-zinc-700 uppercase">
+                    Verified By (Finance)
+                  </span>
+                </div>
+
+                <div>
+                  <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-900 font-bold">
+                    {printablePo.approvedBy || printablePo.approverName || "Pending approval"}
+                  </div>
+                  <span className="text-[10px] font-bold text-zinc-700 uppercase">
+                    Authorized Signatory (MD)
+                  </span>
+                </div>
+              </div>
+            </div>
+        )}
+      </SideDrawer>
+
+      {/* Dedicated PO Approval SideDrawer */}
+      <SideDrawer
+        isOpen={!!poToApprove}
+        onClose={() => setPoToApprove(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-600" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Executive PO Authorization · {poToApprove?.poNumber}
+            </span>
+          </div>
+        }
+        subtitle={poToApprove ? `Supplier: ${poToApprove.supplierName} • Order Value: ${formatCurrency(poToApprove.totalAmount)}` : ""}
+        width="max-w-xl"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setPoToApprove(null)}
+              className="px-3.5 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const po = poToApprove;
+                setPoToApprove(null);
+                setPoToReject(po);
+                setRejectReason("");
+              }}
+              disabled={isSubmitting || !canApprovePo}
+              className="px-3.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1"
+            >
+              <XCircle className="w-3.5 h-3.5" /> Reject PO
+            </button>
+            <button
+              type="button"
+              onClick={() => poToApprove && handleApprovePo(poToApprove.id, approvalNotes)}
+              disabled={isSubmitting || !canApprovePo}
+              title={!canApprovePo ? "Missing permission" : undefined}
+              className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" /> Authorize & Sign PO
+            </button>
+          </div>
+        }
+      >
+        {poToApprove && (
+          <div className="space-y-4 text-xs pt-1 text-[#18181B]">
+            
+              <div className="grid grid-cols-2 gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-[#EDEDED]">
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">PO Contract Type</span>
+                  <span className="font-bold uppercase font-mono">{poToApprove.poType} PO</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">Expected Delivery</span>
+                  <span className="font-bold font-mono">
+                    {poToApprove.expectedDeliveryDate ? new Date(poToApprove.expectedDeliveryDate).toLocaleDateString() : "Immediate"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">Payment Terms</span>
+                  <span className="font-semibold">{poToApprove.paymentTerms || "Net 30"}</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A]">Total Net Payable</span>
+                  <span className="font-bold font-mono text-emerald-800 text-sm">
+                    {formatCurrency(poToApprove.totalAmount)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Items Summary */}
+              <div className="space-y-1.5">
+                <span className="font-bold text-[#18181B] block">
+                  Commercial Items Breakdown ({poToApprove.items?.length || 0})
+                </span>
+                <div className="border border-[#EDEDED] rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
+                      <tr>
+                        <th className="py-2 px-3">Item Description</th>
+                        <th className="py-2 px-3 text-right">Qty</th>
+                        <th className="py-2 px-3 text-right">Unit Rate</th>
+                        <th className="py-2 px-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EDEDED]">
+                      {poToApprove.items?.map((it: any) => (
+                        <tr key={it.id}>
+                          <td className="py-2 px-3 font-semibold">{it.description}</td>
+                          <td className="py-2 px-3 text-right font-mono">{it.quantity} {it.unit}</td>
+                          <td className="py-2 px-3 text-right font-mono text-[#71717A]">{formatCurrency(it.unitCost)}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">{formatCurrency(it.lineTotal || (it.quantity * it.unitCost))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Approval Notes */}
+              <div>
+                <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                  Authorization Remarks / Executive Notes
+                </label>
+                <input
+                  type="text"
+                  value={approvalNotes}
+                  onChange={(e) => setApprovalNotes(e.target.value)}
+                  placeholder="Approved per approved requisition & vendor quote..."
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-blue-600 outline-none"
+                />
+              </div>
+
+              
+          </div>
+        )}
+      </SideDrawer>
+
+      {/* REJECT PO MODAL */}
+      <SideDrawer
+        isOpen={!!poToReject}
+        onClose={() => setPoToReject(null)}
+        title={
+          <div className="flex items-center gap-2 text-rose-600">
+            <AlertTriangle className="w-4 h-4" />
+            <span className="font-bold text-sm">
+              Reject Purchase Order {poToReject?.poNumber}
+            </span>
+          </div>
+        }
+        subtitle="Provide formal reason for rejecting this purchase order"
+        width="max-w-md"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setPoToReject(null)}
+              className="px-3 py-1.5 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => poToReject && handleRejectPo(poToReject.id, rejectReason)}
+              disabled={isSubmitting}
+              className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow"
+            >
+              Confirm PO Rejection
+            </button>
+          </div>
+        }
+      >
+        {poToReject && (
+          <div className="space-y-3 pt-1 text-[#18181B]">
+            <p className="text-[11px] text-[#71717A]">
+              State formal reason for rejecting Purchase Order <strong>{poToReject.poNumber}</strong> ({poToReject.supplierName}):
+            </p>
+            <textarea
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="w-full bg-white border border-[#D4D4D8] rounded-lg p-2.5 text-xs text-[#18181B] focus:ring-1 focus:ring-rose-500 outline-none"
+              placeholder="State reason (budget limitation, supplier disagreement, spec change, duplicate PO)..."
+            />
+          </div>
+        )}
+      </SideDrawer>
+    </div>
+  );
+}

@@ -218,7 +218,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await requireJobsPermission(req, "jobs.view_financials");
+  // Paying out money: same permission as the job-level clear_expense action (jobs.collect_payment).
+  const gate = await requireJobsPermission(req, "jobs.collect_payment");
   if (gate.error) return gate.error;
 
   try {

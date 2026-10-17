@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { roleHasPermission, resolveJobsActor } from "@/lib/auth/erpActor";
+import { actorHasPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { normalizeAgingBuckets } from "@/lib/accountingConfig";
 
@@ -344,7 +344,7 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
 export async function GET(req: NextRequest) {
   const resolved = await resolveJobsActor(req);
   if (resolved.error) return resolved.error;
-  if (!roleHasPermission(resolved.actor.role, "accounts.general_ledger")) {
+  if (!actorHasPermission(resolved.actor, "accounts.general_ledger")) {
     return NextResponse.json({ error: "You do not have permission to view statements of account." }, { status: 403 });
   }
 

@@ -20,6 +20,11 @@ export interface PostEntryParams {
   approvedBy?: string;
   bypassPeriodLock?: boolean;
   lines: PostLineItem[];
+  /**
+   * Business idempotency key (unique in DB). A second post with the same key fails with a
+   * unique-constraint error instead of double-posting. Use e.g. `expense_clear:<claimId>`.
+   */
+  idempotencyKey?: string | null;
   /** When provided, the entry is written inside the caller's interactive transaction. */
   tx?: Prisma.TransactionClient;
 }
@@ -50,6 +55,7 @@ export class AccountsPostingService {
       approvedBy,
       bypassPeriodLock = false,
       lines,
+      idempotencyKey,
       tx: outerTx,
     } = params;
     const db: DbClient = outerTx ?? prisma;
@@ -147,6 +153,7 @@ export class AccountsPostingService {
           approvedBy: approvedBy || null,
           approvedAt: approvedBy ? new Date() : null,
           fiscalPeriodId: targetFiscalPeriodId,
+          idempotencyKey: idempotencyKey || null,
           lines: {
             create: normalizedLines.map((l) => ({
               accountId: l.accountId,

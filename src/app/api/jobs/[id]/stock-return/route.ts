@@ -22,6 +22,27 @@ export async function POST(
     if (!techId || !item || !String(item).trim()) {
       return NextResponse.json({ error: "technicianId and item are required" }, { status: 400 });
     }
+    const qty = qtyReturned === undefined || qtyReturned === null || qtyReturned === "" ? 1 : Number(qtyReturned);
+    if (!Number.isFinite(qty) || qty <= 0 || qty > 100000) {
+      return NextResponse.json({ error: "Return quantity must be a positive number." }, { status: 400 });
+    }
+    // The returning technician must be on this job (mobile = self; web = the named technician).
+    const assigned = await prisma.job.findFirst({
+      where: {
+        id: params.id,
+        OR: [
+          { assignedTechnicianId: techId },
+          { assignments: { some: { technicianId: techId, status: { not: "Removed" } } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!assigned) {
+      return NextResponse.json(
+        { error: "Forbidden: this technician is not assigned to this job.", code: "PERMISSION_DENIED" },
+        { status: 403 }
+      );
+    }
     // Link the warehouse product now when resolvable (storekeeper acknowledge requires it).
     // Pause/resume never waits on this: filing a return request is optional and non-blocking.
     let resolvedProductId: string | null = null;
@@ -36,13 +57,23 @@ export async function POST(
       return NextResponse.json({ error: e.message }, { status: 400 });
     }
 
+    if (resolvedProductId) {
+      const cap = await InventoryService.getReturnableQty(prisma, params.id, resolvedProductId);
+      if (qty > cap.returnable + 1e-9) {
+        return NextResponse.json(
+          { error: `Only ${cap.returnable} unit(s) of this item can be returned for this job (issued ${cap.issuedQty}, already returned ${cap.returnedQty}).` },
+          { status: 400 }
+        );
+      }
+    }
+
     const returnRecord = await prisma.stockReturn.create({
       data: {
         jobId: params.id,
         technicianId: techId,
         item,
         productId: resolvedProductId,
-        qtyReturned: Number(qtyReturned) || 1,
+        qtyReturned: qty,
       },
     });
 

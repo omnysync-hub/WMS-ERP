@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { pktTodayStart } from "@/lib/pktTime";
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,8 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Check active shift and active job context
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = pktTodayStart(now); // PKT midnight
 
     const [todayAttendance, activeJob] = await Promise.all([
       prisma.attendanceLog.findFirst({

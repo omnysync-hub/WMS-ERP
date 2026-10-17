@@ -1454,7 +1454,8 @@ export class ProcurementService {
         include: { vendor: true },
       });
       if (!invoice) throw new Error("Supplier invoice not found");
-      if (invoice.matchStatus !== "approved_for_payment" && invoice.matchStatus !== "matched") {
+      // Only invoices explicitly approved for payment may be paid ("matched" still needs approval).
+      if (invoice.matchStatus !== "approved_for_payment") {
         throw new Error(
           `Payment rejected: invoice matchStatus must be 'approved_for_payment' (current: '${invoice.matchStatus}')`
         );
@@ -1472,8 +1473,11 @@ export class ProcurementService {
 
       const newPaidAmount = Math.round((invoice.paidAmount + amountPaid) * 100) / 100;
       const claimed = await tx.supplierInvoice.updateMany({
+        // Conditional (compare-and-set) update: fails if a concurrent payment changed the balance,
+        // the status, or the approval in the meantime, so the invoice can never be overpaid.
         where: {
           id: invoice.id,
+          matchStatus: "approved_for_payment",
           paidAmount: invoice.paidAmount,
           paymentStatus: invoice.paymentStatus,
         },

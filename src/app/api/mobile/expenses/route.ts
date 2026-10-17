@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
+import { validateReceiptUrl } from "@/lib/receiptUrl";
 
 const EXPENSE_CATEGORIES = [
   "Food",
@@ -42,6 +43,10 @@ export async function POST(req: NextRequest) {
     const technicianId = isMobileTechnician ? gate.actor.id : body.technicianId;
     if (!technicianId) {
       return NextResponse.json({ error: "technicianId required" }, { status: 400 });
+    }
+    const receiptCheck = validateReceiptUrl(body.receiptUrl);
+    if (!receiptCheck.ok) {
+      return NextResponse.json({ error: receiptCheck.error }, { status: 400 });
     }
 
     const amount = Number(body.amount);
@@ -131,7 +136,7 @@ export async function POST(req: NextRequest) {
             category,
             allocationGroupId,
             note: cleanNote,
-            receiptUrl: typeof body.receiptUrl === "string" ? body.receiptUrl : null,
+            receiptUrl: receiptCheck.value,
             status: "pending",
           },
         })

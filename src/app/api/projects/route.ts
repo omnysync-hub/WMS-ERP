@@ -5,7 +5,7 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { DocumentSequenceService } from "@/lib/services/DocumentSequenceService";
-import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { actorHasPermission, requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   const gate = await requireJobsPermission(req, "jobs.view_directory");
@@ -199,7 +199,28 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const invoice = await prisma.$transaction(async (tx) => {
+      let invoice;
+      try {
+      invoice = await prisma.$transaction(async (tx) => {
+        // Idempotency: a milestone can be billed only once (conditional claim inside the tx).
+        if (milestoneId) {
+          const claimedMilestone = await tx.projectMilestone.updateMany({
+            where: { id: milestoneId, projectId, status: { not: "billed" } },
+            data: { status: "billed", billedAt: new Date() },
+          });
+          if (claimedMilestone.count !== 1) {
+            throw new BillingConflict("This milestone has already been billed (or does not belong to this project).");
+          }
+        }
+        // Cap: never invoice beyond the contract value (re-read inside the tx).
+        const fresh = await tx.project.findUnique({ where: { id: projectId }, select: { invoicedAmount: true, contractValue: true } });
+        const contract = Number(fresh?.contractValue) || 0;
+        const alreadyInvoiced = Number(fresh?.invoicedAmount) || 0;
+        if (contract > 0 && alreadyInvoiced + invoiceAmount > contract + 0.01) {
+          throw new BillingConflict(
+            `Invoice would exceed the contract value: already invoiced PKR ${alreadyInvoiced.toLocaleString()} of PKR ${contract.toLocaleString()}.`
+          );
+        }
         const [arAccount, revAccount] = await Promise.all([
           AccountMappingService.resolveAccount({
             transactionType: "job_revenue_receivable",
@@ -249,6 +270,7 @@ export async function POST(req: NextRequest) {
           memo: `Progress billing ${invoiceNumber} for Project: "${project.name}"`,
           refType: "project_revenue",
           refId: createdInvoice.id,
+          idempotencyKey: milestoneId ? `project_milestone_bill:${milestoneId}` : null,
           postedBy: "Project Billing System",
           lines: [
             { accountId: arAccount.id, debit: invoiceAmount, credit: 0 },
@@ -269,6 +291,11 @@ export async function POST(req: NextRequest) {
         return createdInvoice;
       });
 
+      } catch (e: any) {
+        if (e instanceof BillingConflict) return NextResponse.json({ error: e.message }, { status: 409 });
+        throw e;
+      }
+
       return NextResponse.json({ invoice, message: "Progress billing invoice generated successfully" }, { status: 201 });
     }
 
@@ -277,61 +304,66 @@ export async function POST(req: NextRequest) {
     // ==========================================
     if (action === "create_change_order") {
       const { projectId, title, description, requestedBy, amountImpact, daysImpact, newBoqItems = [] } = payload;
-      if (!projectId || !title) {
+      if (!projectId || !title || !String(title).trim()) {
         return NextResponse.json({ error: "Project ID and change order title are required." }, { status: 400 });
       }
+      const amount = Math.round((Number(amountImpact) || 0) * 100) / 100;
+      const days = Math.trunc(Number(daysImpact) || 0);
+      if (!Number.isFinite(amount) || Math.abs(amount) > 1_000_000_000) {
+        return NextResponse.json({ error: "Invalid amount impact." }, { status: 400 });
+      }
 
-      const project = await prisma.project.findUnique({ where: { id: projectId } });
+      const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, projectNumber: true } });
       if (!project) {
         return NextResponse.json({ error: "Project not found." }, { status: 404 });
       }
 
-      const coCount = await prisma.bOQChangeOrder.count({ where: { projectId } });
-      const changeNumber = `CO-${String(coCount + 1).padStart(2, "0")}`;
-      const amount = Number(amountImpact) || 0;
-      const days = Number(daysImpact) || 0;
-      const nextRevision = (project.revision || 1) + 1;
+      // Change orders are created PENDING; budget/contract/BOQ change only on approval.
+      // Numbering: per-project sequence, prefixed with the project number because changeNumber is
+      // globally unique. A unique-constraint collision (concurrent create) retries with the next number.
+      let changeOrder = null;
+      for (let attempt = 0; attempt < 5 && !changeOrder; attempt++) {
+        const coCount = await prisma.bOQChangeOrder.count({ where: { projectId } });
+        const changeNumber = `${project.projectNumber}-CO-${String(coCount + 1 + attempt).padStart(2, "0")}`;
+        try {
+          changeOrder = await prisma.bOQChangeOrder.create({
+            data: {
+              projectId,
+              changeNumber,
+              title: String(title).trim().slice(0, 200),
+              description: typeof description === "string" ? description.trim().slice(0, 4000) : "",
+              requestedBy: typeof requestedBy === "string" && requestedBy.trim() ? requestedBy.trim().slice(0, 120) : "Client Representative",
+              amountImpact: amount,
+              daysImpact: days,
+              status: "pending_client",
+              approvedAt: null,
+            },
+          });
+        } catch (e: any) {
+          if (e?.code !== "P2002") throw e;
+        }
+      }
+      if (!changeOrder) {
+        return NextResponse.json({ error: "Could not allocate a change order number. Please retry." }, { status: 409 });
+      }
 
-      const changeOrder = await prisma.bOQChangeOrder.create({
-        data: {
-          projectId,
-          changeNumber,
-          title: title.trim(),
-          description: description?.trim() || "",
-          requestedBy: requestedBy || "Client Representative",
-          amountImpact: amount,
-          daysImpact: days,
-          status: "approved",
-          approvedAt: new Date(),
-        },
-      });
-
-      // Adjust project budget, contract value & revision
-      await prisma.project.update({
-        where: { id: projectId },
-        data: {
-          revision: nextRevision,
-          totalBudget: { increment: amount },
-          contractValue: { increment: amount },
-        },
-      });
-
-      // Insert revision BOQ items if specified
+      // Proposed BOQ lines are stored as pending, tagged with the CO, and only become part of the
+      // revision when the CO is approved.
       if (Array.isArray(newBoqItems) && newBoqItems.length > 0) {
         for (let i = 0; i < newBoqItems.length; i++) {
           const item = newBoqItems[i];
-          if (item.description?.trim()) {
+          if (item?.description?.trim()) {
             await prisma.bOQItem.create({
               data: {
                 projectId,
-                itemCode: item.itemCode?.trim() || `BOQ-REV${nextRevision}-${String(i + 1).padStart(2, "0")}`,
+                itemCode: item.itemCode?.trim() || `${changeOrder.changeNumber}-${String(i + 1).padStart(2, "0")}`,
                 description: item.description.trim(),
                 unit: item.unit?.trim() || "unit",
                 plannedQty: Number(item.plannedQty) || 1,
                 unitRate: Number(item.unitRate) || 0,
                 category: item.category || "material",
-                version: nextRevision,
-                changeOrderRef: changeNumber,
+                version: 0, // set to the new revision on approval
+                changeOrderRef: changeOrder.changeNumber,
                 status: "pending",
               },
             });
@@ -340,6 +372,52 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json(changeOrder, { status: 201 });
+    }
+
+    if (action === "approve_change_order" || action === "reject_change_order") {
+      if (!actorHasPermission(gate.actor, "projects.approve_change_order")) {
+        return NextResponse.json(
+          { error: "Forbidden: approving change orders requires a manager.", code: "PERMISSION_DENIED" },
+          { status: 403 }
+        );
+      }
+      const { changeOrderId } = payload;
+      if (!changeOrderId) return NextResponse.json({ error: "changeOrderId is required." }, { status: 400 });
+      const approve = action === "approve_change_order";
+
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const co = await tx.bOQChangeOrder.findUnique({ where: { id: changeOrderId } });
+          if (!co) throw new BillingConflict("Change order not found.");
+          const claimed = await tx.bOQChangeOrder.updateMany({
+            where: { id: co.id, status: { in: ["draft", "pending_client"] } },
+            data: approve ? { status: "approved", approvedAt: new Date() } : { status: "rejected" },
+          });
+          if (claimed.count !== 1) throw new BillingConflict(`Change order ${co.changeNumber} is already ${co.status}.`);
+          if (!approve) {
+            await tx.bOQItem.deleteMany({ where: { projectId: co.projectId, changeOrderRef: co.changeNumber, version: 0 } });
+            return tx.bOQChangeOrder.findUnique({ where: { id: co.id } });
+          }
+          const project = await tx.project.update({
+            where: { id: co.projectId },
+            data: {
+              revision: { increment: 1 },
+              totalBudget: { increment: co.amountImpact },
+              contractValue: { increment: co.amountImpact },
+            },
+            select: { revision: true },
+          });
+          await tx.bOQItem.updateMany({
+            where: { projectId: co.projectId, changeOrderRef: co.changeNumber, version: 0 },
+            data: { version: project.revision },
+          });
+          return tx.bOQChangeOrder.findUnique({ where: { id: co.id } });
+        });
+        return NextResponse.json(result);
+      } catch (e: any) {
+        if (e instanceof BillingConflict) return NextResponse.json({ error: e.message }, { status: 409 });
+        throw e;
+      }
     }
 
     // ==========================================
@@ -753,3 +831,5 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
+class BillingConflict extends Error {}

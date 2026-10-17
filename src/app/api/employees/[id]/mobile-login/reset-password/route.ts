@@ -18,7 +18,7 @@ import {
  * Security:
  * - Strictly requires ADMIN_HR_ROLES via resolveCaller() (no self-service).
  * - Admin provides new password directly in the request body.
- * - Password length & strength validated (min 6 chars).
+ * - Password length & strength validated (min 8 chars, no edge spaces).
  * - Plaintext password is NOT returned in response body.
  */
 export async function POST(

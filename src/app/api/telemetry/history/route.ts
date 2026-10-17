@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { pktTodayStart } from "@/lib/pktTime";
 
 /**
  * Haversine formula to calculate great-circle distance between two GPS points in kilometers.
@@ -75,8 +76,7 @@ export async function GET(req: NextRequest) {
 
     // Default time range: Start of today to now
     const now = new Date();
-    const defaultStart = new Date(now);
-    defaultStart.setHours(0, 0, 0, 0);
+    const defaultStart = pktTodayStart(now); // PKT midnight
 
     const start = startDateParam ? new Date(startDateParam) : defaultStart;
     const end = endDateParam ? new Date(endDateParam) : now;

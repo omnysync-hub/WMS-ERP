@@ -1,3 +1,4 @@
+import { pktDayFromString, pktEndOfDay, pktParts, pktStartOfDay } from "@/lib/pktTime";
 import { prisma } from "@/lib/prisma";
 
 export interface JobReportFilter {
@@ -164,44 +165,36 @@ export class JobReportService {
    * Helper to compute start and end dates from period or custom strings
    */
   static parseDateRange(period?: string, startDateStr?: string, endDateStr?: string): { start: Date; end: Date; label: string } {
-    const now = new Date();
+    // All boundaries are PKT calendar days (server clock is UTC on Vercel).
+    const { year, month, day, weekday } = pktParts(new Date());
+    const fmt = (d: Date, withYear = false) =>
+      d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}), timeZone: "Asia/Karachi" });
 
     if (period === "yesterday") {
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
-      return { start, end, label: "Yesterday" };
+      return { start: pktStartOfDay(year, month, day - 1), end: pktEndOfDay(year, month, day - 1), label: "Yesterday" };
     }
 
     if (period === "this_week") {
-      const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-      const start = new Date(now.getFullYear(), now.getMonth(), diff, 0, 0, 0, 0);
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      return { start, end, label: "This Week" };
+      const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+      return { start: pktStartOfDay(year, month, day + mondayOffset), end: pktEndOfDay(year, month, day), label: "This Week" };
     }
 
     if (period === "this_month") {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      return { start, end, label: "This Month" };
+      return { start: pktStartOfDay(year, month, 1), end: pktEndOfDay(year, month, day), label: "This Month" };
     }
 
     if (period === "custom" && startDateStr) {
-      const start = new Date(startDateStr);
-      start.setHours(0, 0, 0, 0);
-      const end = endDateStr ? new Date(endDateStr) : new Date(startDateStr);
-      end.setHours(23, 59, 59, 999);
-      return {
-        start,
-        end,
-        label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
-      };
+      const s = pktDayFromString(startDateStr);
+      const e = endDateStr ? pktDayFromString(endDateStr) : s;
+      if (s && e) {
+        const start = pktStartOfDay(s.year, s.month, s.day);
+        const end = pktEndOfDay(e.year, e.month, e.day);
+        return { start, end, label: `${fmt(start)} - ${fmt(end, true)}` };
+      }
     }
 
     // Default to "today"
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    return { start, end, label: "Today" };
+    return { start: pktStartOfDay(year, month, day), end: pktEndOfDay(year, month, day), label: "Today" };
   }
 
   /**

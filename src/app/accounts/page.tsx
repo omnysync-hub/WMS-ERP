@@ -108,7 +108,7 @@ export default function AccountsPage() {
   }, []);
 
   // Sub-tabs for Party Ledgers
-  const [partySubTab, setPartySubTab] = useState<"customers" | "technicians" | "vendors">("customers");
+  const [partySubTab, setPartySubTab] = useState<"customers" | "care_of" | "technicians" | "vendors">("customers");
 
   // Data states
   const [pendingDiscounts, setPendingDiscounts] = useState<any[]>([]);
@@ -116,10 +116,25 @@ export default function AccountsPage() {
 
   const [partiesData, setPartiesData] = useState<{
     customers: any[];
+    careOf: any[];
     technicians: any[];
     vendors: any[];
-  }>({ customers: [], technicians: [], vendors: [] });
+  }>({ customers: [], careOf: [], technicians: [], vendors: [] });
   const [partySearch, setPartySearch] = useState("");
+
+  // Care-Of / FOC Corporate Ledger state
+  const [selectedCareOf, setSelectedCareOf] = useState<any>(null);
+  const [careOfStatement, setCareOfStatement] = useState<any[]>([]);
+  const [careOfStatementLoading, setCareOfStatementLoading] = useState(false);
+
+  // Job Payment Modal state (for any Job or FOC Job)
+  const [showJobPaymentModal, setShowJobPaymentModal] = useState(false);
+  const [selectedJobForPayment, setSelectedJobForPayment] = useState<any>(null);
+  const [jobPaymentAmount, setJobPaymentAmount] = useState("");
+  const [jobPaymentMethod, setJobPaymentMethod] = useState("bank_transfer");
+  const [jobPaymentAccount, setJobPaymentAccount] = useState("1010");
+  const [jobPaymentNotes, setJobPaymentNotes] = useState("");
+  const [isSubmittingJobPayment, setIsSubmittingJobPayment] = useState(false);
 
   // Customer Statement Drawer state
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
@@ -188,6 +203,33 @@ export default function AccountsPage() {
   const [coaSearch, setCoaSearch] = useState("");
   const [coaLevelFilter, setCoaLevelFilter] = useState<"ALL" | "1" | "2" | "3" | "4">("ALL");
   const [coaTypeFilter, setCoaTypeFilter] = useState<string>("ALL");
+  const [isRebalancing, setIsRebalancing] = useState(false);
+
+  const handleRebalanceLedger = async () => {
+    if (
+      !confirm(
+        "This will inject initial Owner Capital into Meezan Bank and align baseline vendor payables to eliminate negative overdrafts and unallocated balances across the General Ledger. Proceed?"
+      )
+    ) {
+      return;
+    }
+    try {
+      setIsRebalancing(true);
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rebalance_ledger", actorName: "Fatima Noor (Accountant)" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to rebalance ledger");
+      setActionSuccessMsg(data.message || "Ledger successfully rebalanced. All account balances are now positive and funded.");
+      loadData();
+    } catch (err: any) {
+      setActionErrorMsg(err.message || "Failed to rebalance ledger");
+    } finally {
+      setIsRebalancing(false);
+    }
+  };
   const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(
     new Set(["1000-GRP", "1100", "2000-GRP", "2100-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
   );
@@ -290,14 +332,26 @@ export default function AccountsPage() {
   const loadData = useCallback(async () => {
     try {
       if (activeTab === "ledgers") {
-        const res = await fetch("/api/accounts?view=parties");
-        const data = await res.json();
+        const [partiesRes, hisaabRes] = await Promise.all([
+          fetch("/api/accounts?view=parties"),
+          fetch("/api/hisaab"),
+        ]);
+        const data = await partiesRes.json();
         if (data.success) {
           setPartiesData({
             customers: data.customers || [],
+            careOf: data.careOf || [],
             technicians: data.technicians || [],
             vendors: data.vendors || [],
           });
+        }
+        try {
+          const hisaabData = await hisaabRes.json();
+          if (Array.isArray(hisaabData)) {
+            setPendingSettlements(hisaabData);
+          }
+        } catch (e) {
+          // ignore
         }
       } else if (activeTab === "expenses") {
         const res = await fetch("/api/accounts?view=expenses");
@@ -383,6 +437,23 @@ export default function AccountsPage() {
       console.error("Customer statement fetch failed", e);
     } finally {
       setStatementLoading(false);
+    }
+  };
+
+  // Load Care-Of / Principal Company statement
+  const handleOpenCareOfStatement = async (co: any) => {
+    setSelectedCareOf(co);
+    setCareOfStatementLoading(true);
+    try {
+      const res = await fetch(`/api/accounts?view=party_ledger&partyType=care_of&partyId=${co.id}`);
+      const data = await res.json();
+      if (data.statement) {
+        setCareOfStatement(data.statement);
+      }
+    } catch (e) {
+      console.error("Care-of statement fetch failed", e);
+    } finally {
+      setCareOfStatementLoading(false);
     }
   };
 
@@ -519,6 +590,68 @@ export default function AccountsPage() {
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+    }
+  };
+
+  // 3.5 ACTION: RECORD JOB / FOC PAYMENT (Corporate or Customer)
+  const handleOpenJobPayment = (job: any, defaultCompany?: string) => {
+    setSelectedJobForPayment({
+      ...job,
+      companyName: defaultCompany || job.companyName || job.careOfParty?.companyName,
+    });
+    setJobPaymentAmount(String(job.balanceDue ?? job.amount ?? ""));
+    setJobPaymentMethod("bank_transfer");
+    setJobPaymentAccount(cashAccounts[0]?.code || "1010");
+    setJobPaymentNotes(
+      job.isFoc
+        ? `FOC settlement payment for Work Order ${job.jobNumber} (${defaultCompany || job.companyName || "Principal Partner"})`
+        : `Payment collection for Work Order ${job.jobNumber}`
+    );
+    setShowJobPaymentModal(true);
+  };
+
+  const handleSubmitJobPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedJobForPayment || !jobPaymentAmount || Number(jobPaymentAmount) <= 0) {
+      alert("Please enter a valid positive payment amount");
+      return;
+    }
+
+    try {
+      setIsSubmittingJobPayment(true);
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_job_payment",
+          jobId: selectedJobForPayment.id || selectedJobForPayment.jobId,
+          amount: Number(jobPaymentAmount),
+          paymentMethod: jobPaymentMethod,
+          receivingAccountCode: jobPaymentAccount,
+          notes: jobPaymentNotes,
+          actorName: "Fatima Noor (Accountant)",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to record job payment");
+
+      setActionSuccessMsg(
+        `Recorded payment of ${formatCurrency(Number(jobPaymentAmount))} on Job #${selectedJobForPayment.jobNumber}${selectedJobForPayment.isFoc ? " (FOC Company Settlement)" : ""}.`
+      );
+      setShowJobPaymentModal(false);
+      setSelectedJobForPayment(null);
+      loadData();
+      if (selectedCareOf) {
+        handleOpenCareOfStatement(selectedCareOf);
+      }
+      if (selectedCustomer) {
+        handleOpenCustomerStatement(selectedCustomer);
+      }
+    } catch (err: any) {
+      setActionErrorMsg(err.message || "Failed to record payment");
+    } finally {
+      setIsSubmittingJobPayment(false);
     }
   };
 
@@ -727,7 +860,10 @@ export default function AccountsPage() {
     const fieldReport = (job.hisaabSettlements || []).find(
       (h: any) => h.status === "field_reported"
     );
-    if (fieldReport) {
+    if (job.isFoc) {
+      setAmountCollected("0");
+      setCustomerPaymentMeans("unmarked");
+    } else if (fieldReport) {
       const m = /field app · (\w+)/i.exec(fieldReport.settledBy || "");
       setAmountCollected(String(fieldReport.amountCollected || 0));
       setCustomerPaymentMeans(m?.[1]?.toLowerCase() || "cash");
@@ -1112,6 +1248,22 @@ export default function AccountsPage() {
                 Customers (Receivables / AR)
               </button>
               <button
+                onClick={() => setPartySubTab("care_of")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5 ${
+                  partySubTab === "care_of"
+                    ? "bg-white text-purple-900 shadow-xs"
+                    : "text-[#71717A] hover:text-[#18181B]"
+                }`}
+              >
+                <Building className="w-3.5 h-3.5 text-purple-600" />
+                Care-Of & Corporate (FOC)
+                {partiesData.careOf?.some((c: any) => c.focJobsCount > 0) && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-purple-100 text-purple-800">
+                    FOC
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={() => setPartySubTab("technicians")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   partySubTab === "technicians"
@@ -1227,7 +1379,122 @@ export default function AccountsPage() {
             </div>
           )}
 
-          {/* SUB-VIEW B: TECHNICIAN HISAAB */}
+          {/* SUB-VIEW B: CARE-OF & CORPORATE FOC ORDERS */}
+          {partySubTab === "care_of" && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
+                <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
+                      <Building className="w-4 h-4 text-purple-600" />
+                      Care-Of & Principal Corporate Ledgers (Warranty & FOC Billed)
+                    </h3>
+                    <p className="text-[11px] text-[#71717A] mt-0.5">
+                      Corporate affiliate work orders and brand warranty claims where the customer pays PKR 0 (FOC) and revenue is received directly from the company.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-purple-900 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">
+                      {(partiesData.careOf || []).reduce((acc: number, c: any) => acc + (c.focJobsCount || 0), 0)} Total FOC Orders
+                    </span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
+                        <th className="py-2.5 px-4">Company / Partner Name</th>
+                        <th className="py-2.5 px-4">Contact Person / Phone</th>
+                        <th className="py-2.5 px-4 text-center">Orders & FOC Status</th>
+                        <th className="py-2.5 px-4 text-right">Total Invoiced</th>
+                        <th className="py-2.5 px-4 text-right">Total Received</th>
+                        <th className="py-2.5 px-4 text-right">Outstanding Balance</th>
+                        <th className="py-2.5 px-4 text-center">Status</th>
+                        <th className="py-2.5 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E4E4E7]">
+                      {(partiesData.careOf || [])
+                        .filter(
+                          (c: any) =>
+                            (c.companyName || "").toLowerCase().includes(partySearch.toLowerCase()) ||
+                            (c.contactPerson || "").toLowerCase().includes(partySearch.toLowerCase()) ||
+                            (c.phone || "").includes(partySearch)
+                        )
+                        .map((co: any) => (
+                          <tr key={co.id} className="hover:bg-[#FAFAFA] transition">
+                            <td className="py-3 px-4">
+                              <span className="font-bold text-[#18181B] block">{co.companyName}</span>
+                              <span className="text-[10px] text-[#71717A]">Corporate Partner Account</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-medium text-[#18181B] block">{co.contactPerson || "—"}</span>
+                              <span className="font-mono text-[11px] text-[#71717A]">{co.phone || "—"}</span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="inline-flex items-center gap-1.5 flex-wrap justify-center">
+                                <span className="font-mono font-bold text-xs text-[#18181B] bg-zinc-100 px-2 py-0.5 rounded">
+                                  {co.jobsCount} Orders
+                                </span>
+                                {co.focJobsCount > 0 && (
+                                  <span className="font-bold text-[10px] bg-purple-100 text-purple-900 border border-purple-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3 text-purple-700" />
+                                    {co.focJobsCount} FOC
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono text-[#71717A]">
+                              {formatCurrency(co.totalBilled)}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono text-emerald-700 font-semibold">
+                              {formatCurrency(co.totalPaid)}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <span
+                                className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
+                                  co.balanceDue > 0
+                                    ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                    : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                }`}
+                              >
+                                {formatCurrency(co.balanceDue)}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {co.balanceDue > 0 ? (
+                                <span className="text-amber-700 font-bold text-[11px]">Due</span>
+                              ) : (
+                                <span className="text-emerald-700 font-bold text-[11px]">Settled</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenCareOfStatement(co)}
+                                className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-[11px] inline-flex items-center gap-1.5 transition shadow-xs"
+                              >
+                                <FileText className="w-3 h-3" /> View Orders & Settle
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      {(!partiesData.careOf || partiesData.careOf.length === 0) && (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-[#71717A]">
+                            No Care-Of or corporate partner accounts found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-VIEW C: TECHNICIAN HISAAB */}
           {partySubTab === "technicians" && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
@@ -1507,8 +1774,24 @@ export default function AccountsPage() {
 
                       return (
                         <tr key={job.id} className="hover:bg-[#FAFAFA] transition">
-                          <td className="py-3 px-4 font-mono font-bold text-[#0D7A5F]">{job.jobNumber}</td>
-                          <td className="py-3 px-4 font-medium text-[#18181B]">{job.customer?.name}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-[#0D7A5F]">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{job.jobNumber}</span>
+                              {job.isFoc && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                                  FOC
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-medium text-[#18181B]">
+                            <div>{job.customer?.name}</div>
+                            {job.isFoc && (
+                              <span className="text-[10px] text-purple-700 font-semibold block">
+                                c/o {job.careOfParty?.companyName || "Corporate Partner"}
+                              </span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-[#52525B]">{job.assignedTechnician?.name || "Unassigned"}</td>
                           <td className="py-3 px-4 text-center">
                             <StatusBadge status={job.status} />
@@ -1519,8 +1802,21 @@ export default function AccountsPage() {
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B]">
-                            {formatCurrency(net)}
+                          <td className="py-3 px-4 text-right">
+                            {job.isFoc ? (
+                              <div>
+                                <span className="font-mono font-bold text-purple-700 block">
+                                  PKR 0 <span className="text-[10px] font-normal text-[#71717A]">(Cust FOC)</span>
+                                </span>
+                                <span className="text-[10px] font-mono text-[#71717A]">
+                                  Co: {formatCurrency(net)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="font-mono font-bold text-[#18181B]">
+                                {formatCurrency(net)}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right">
                             <button
@@ -2079,6 +2375,15 @@ export default function AccountsPage() {
                     <Download className="w-3.5 h-3.5" />
                     Export CSV
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleRebalanceLedger}
+                    disabled={isRebalancing}
+                    className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-[#0D7A5F] inline-flex items-center gap-1.5 transition shadow-2xs disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                    {isRebalancing ? "Rebalancing..." : "Rebalance & Fund Ledger"}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2145,6 +2450,34 @@ export default function AccountsPage() {
                 </p>
               </div>
             </div>
+
+            {/* Abnormal Negative Balances Alert Banner */}
+            {coaTree.some((r: any) => r.balance < 0) && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-4 animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-900">
+                      Unfunded Ledger Balances Detected
+                    </h4>
+                    <p className="text-[11px] text-amber-800 mt-0.5">
+                      Operational payouts were recorded prior to initial capital deposits (causing cash overdrafts) or vendor payouts were posted without bills.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRebalanceLedger}
+                  disabled={isRebalancing}
+                  className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs whitespace-nowrap shadow-xs inline-flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {isRebalancing ? "Funding Ledger..." : "Auto-Fund & Rebalance"}
+                </button>
+              </div>
+            )}
 
             {/* Tree View Controls */}
             {coaViewMode === "tree" ? (
@@ -2361,9 +2694,20 @@ export default function AccountsPage() {
                             </div>
 
                             <div className="flex items-center gap-4 text-right shrink-0">
-                              <span className="font-mono font-bold text-xs text-[#18181B]">
-                                {formatCurrency(node.balance)}
-                              </span>
+                              {node.balance < 0 ? (
+                                <div className="text-right">
+                                  <span className="font-mono font-bold text-xs text-rose-600 block">
+                                    ({formatCurrency(Math.abs(node.balance))})
+                                  </span>
+                                  <span className="text-[9px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1 py-0.2 rounded inline-block">
+                                    {node.type === "asset" ? "Overdrawn / Unfunded" : "Abnormal Debit"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="font-mono font-bold text-xs text-[#18181B]">
+                                  {formatCurrency(node.balance)}
+                                </span>
+                              )}
 
                               {node.level === 4 ? (
                                 <button
@@ -2500,8 +2844,21 @@ export default function AccountsPage() {
                               <td className="py-2.5 px-4 text-right font-mono text-[#71717A]">
                                 {acc.entriesCount || 0}
                               </td>
-                              <td className="py-2.5 px-4 text-right font-mono font-bold text-[#18181B]">
-                                {formatCurrency(acc.balance)}
+                              <td className="py-2.5 px-4 text-right">
+                                {acc.balance < 0 ? (
+                                  <div>
+                                    <span className="font-mono font-bold text-xs text-rose-600 block">
+                                      ({formatCurrency(Math.abs(acc.balance))})
+                                    </span>
+                                    <span className="text-[9px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1 py-0.2 rounded inline-block">
+                                      {acc.type === "asset" ? "Overdrawn" : "Abnormal"}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="font-mono font-bold text-xs text-[#18181B]">
+                                    {formatCurrency(acc.balance)}
+                                  </span>
+                                )}
                               </td>
                               <td className="py-2.5 px-4 text-right">
                                 {acc.level === 4 ? (
@@ -2773,6 +3130,150 @@ export default function AccountsPage() {
                         </td>
                         <td className="p-2.5 text-right font-mono font-bold text-amber-800">
                           {formatCurrency(st.balance)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DRAWER 1.5: CARE-OF / CORPORATE PARTNER STATEMENT OF ACCOUNT */}
+      {/* ========================================================================= */}
+      {selectedCareOf && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-end bg-black/40 backdrop-blur-xs animate-in fade-in"
+          role="dialog"
+        >
+          <div className="bg-white w-full max-w-2xl h-full p-6 space-y-4 shadow-2xl border-l border-[#E4E4E7] overflow-y-auto text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Building className="w-4 h-4 text-purple-600" />
+                  <h3 className="text-sm font-bold text-[#18181B]">{selectedCareOf.companyName}</h3>
+                  <span className="text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 px-2 py-0.5 rounded-full">
+                    Corporate Partner
+                  </span>
+                </div>
+                <p className="text-xs text-[#71717A] mt-0.5">
+                  Contact: {selectedCareOf.contactPerson || "—"} • Phone: {selectedCareOf.phone || "—"}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedCareOf(null)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 p-3.5 bg-[#FAFAFA] rounded-xl border border-[#E4E4E7]">
+              <div>
+                <span className="text-[10px] text-[#71717A] uppercase font-bold block">Total Invoiced</span>
+                <span className="text-sm font-bold font-mono text-[#18181B]">
+                  {formatCurrency(selectedCareOf.totalBilled || 0)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#71717A] uppercase font-bold block">Total Received</span>
+                <span className="text-sm font-bold font-mono text-emerald-700">
+                  {formatCurrency(selectedCareOf.totalPaid || 0)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#71717A] uppercase font-bold block">Balance Due</span>
+                <span className="text-sm font-bold font-mono text-amber-700">
+                  {formatCurrency(selectedCareOf.balanceDue || 0)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-xs text-[#18181B]">Chronological Work Orders & Settlements</span>
+              <span className="text-[11px] text-[#71717A]">
+                Click <strong>"+ Add Payment"</strong> on any order to record corporate receipt
+              </span>
+            </div>
+
+            <div className="overflow-x-auto border border-[#E4E4E7] rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] bg-[#F4F4F5]">
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Ref #</th>
+                    <th className="p-2.5">Description & FOC</th>
+                    <th className="p-2.5 text-right">Debit (Invoiced)</th>
+                    <th className="p-2.5 text-right">Credit (Paid)</th>
+                    <th className="p-2.5 text-right">Running Due</th>
+                    <th className="p-2.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E4E4E7]">
+                  {careOfStatementLoading ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-[#71717A]">
+                        Loading corporate statement...
+                      </td>
+                    </tr>
+                  ) : careOfStatement.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-[#71717A]">
+                        No billing or settlement entries found for this partner.
+                      </td>
+                    </tr>
+                  ) : (
+                    careOfStatement.map((st, i) => (
+                      <tr key={i} className="hover:bg-[#FAFAFA]">
+                        <td className="p-2.5 font-mono text-[11px] text-[#71717A]">{formatDateTime(st.date)}</td>
+                        <td className="p-2.5 font-mono font-bold text-[#0D7A5F]">{st.refNumber}</td>
+                        <td className="p-2.5 text-[#18181B]">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {st.isFoc && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200 shadow-2xs">
+                                FOC
+                              </span>
+                            )}
+                            <span>{st.description}</span>
+                          </div>
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-[#18181B]">
+                          {st.debit > 0 ? formatCurrency(st.debit) : "—"}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
+                          {st.credit > 0 ? formatCurrency(st.credit) : "—"}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-amber-800">
+                          {formatCurrency(st.balance)}
+                        </td>
+                        <td className="p-2.5 text-right">
+                          {st.jobId && st.debit > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenJobPayment(
+                                  {
+                                    id: st.jobId,
+                                    jobNumber: st.refNumber,
+                                    amount: st.debit,
+                                    isFoc: st.isFoc,
+                                    balanceDue: st.debit,
+                                  },
+                                  selectedCareOf.companyName
+                                )
+                              }
+                              className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 rounded text-[10px] font-bold inline-flex items-center gap-1 transition shadow-2xs"
+                              title="Record payment against this work order"
+                            >
+                              <DollarSign className="w-3 h-3 text-purple-700" />
+                              Add Payment
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-[#A1A1AA]">Receipt</span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -3093,6 +3594,141 @@ export default function AccountsPage() {
                   className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs"
                 >
                   Confirm & Generate Receipt
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: RECORD JOB / FOC SETTLEMENT PAYMENT */}
+      {/* ========================================================================= */}
+      {showJobPaymentModal && selectedJobForPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-[#E4E4E7] text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                  <span>Record Payment on Job</span>
+                  <span className="font-mono text-[#0D7A5F]">{selectedJobForPayment.jobNumber}</span>
+                  {selectedJobForPayment.isFoc && (
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                      FOC Company Billing
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-[#71717A] mt-0.5">
+                  Post client or principal company settlement directly to General Ledger.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowJobPaymentModal(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {selectedJobForPayment.isFoc && (
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl space-y-1">
+                <span className="font-bold text-purple-900 text-xs block">
+                  Corporate / Care-Of FOC Work Order
+                </span>
+                <p className="text-[11px] text-purple-700 leading-relaxed">
+                  The end customer was charged PKR 0. This settlement payment is received from{" "}
+                  <strong>{selectedJobForPayment.careOfCompany || selectedJobForPayment.careOfParty?.companyName || "the Principal Company"}</strong>.
+                </p>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitJobPayment} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-[#F4F4F5] rounded-xl border border-[#E4E4E7]">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] block">Billable Value</span>
+                  <span className="font-mono font-bold text-sm text-[#18181B]">
+                    {formatCurrency(Number(selectedJobForPayment.billableValue || selectedJobForPayment.totalAmount || 0))}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] block">Remaining Balance</span>
+                  <span className="font-mono font-bold text-sm text-[#0D7A5F]">
+                    {formatCurrency(Number(selectedJobForPayment.balanceDue || 0))}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Payment Amount (PKR) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={jobPaymentAmount}
+                  onChange={(e) => setJobPaymentAmount(e.target.value)}
+                  className="w-full bg-white p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm focus:border-[#0D7A5F] focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Payment Method</label>
+                  <select
+                    value={jobPaymentMethod}
+                    onChange={(e) => setJobPaymentMethod(e.target.value)}
+                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
+                  >
+                    <option value="bank_transfer">Online Bank Transfer</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="cash">Cash on Hand</option>
+                    <option value="card">Debit / Credit Card</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Deposit To Vault / Bank</label>
+                  <select
+                    value={jobPaymentAccount}
+                    onChange={(e) => setJobPaymentAccount(e.target.value)}
+                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
+                  >
+                    {cashAccounts.map((account: any) => (
+                      <option key={account.id || account.code} value={account.code}>
+                        {account.code} — {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Reference Notes / Bank Receipt #</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Meezan Online Ref #TRX-91823"
+                  value={jobPaymentNotes}
+                  onChange={(e) => setJobPaymentNotes(e.target.value)}
+                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs focus:border-[#0D7A5F] focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setShowJobPaymentModal(false)}
+                  disabled={isSubmittingJobPayment}
+                  className="px-3 py-1.5 text-xs text-[#71717A] hover:text-[#18181B]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingJobPayment}
+                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {isSubmittingJobPayment ? "Posting..." : "Confirm & Post GL Receipt"}
                 </button>
               </div>
             </form>
@@ -3567,6 +4203,22 @@ export default function AccountsPage() {
             ) : null}
 
             <form onSubmit={handleSubmitSettlement} className="space-y-4">
+              {settlementJob.isFoc && (
+                <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-xs text-purple-900 flex items-start gap-2.5">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-200 text-purple-800 uppercase tracking-wider shrink-0 mt-0.5">
+                    FOC Order
+                  </span>
+                  <div>
+                    <p className="font-semibold text-purple-900">
+                      Free of Charge (Corporate / Care-Of Contract)
+                    </p>
+                    <p className="text-[11px] text-purple-700 mt-0.5">
+                      End customer <strong>{settlementJob.customer?.name}</strong> pays <strong>PKR 0</strong> at completion. All billing and settlement are reconciled directly with the principal company ({settlementJob.careOfParty?.companyName || "Care-Of Company"}).
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Part A: Customer Payment */}
               <div className="bg-[#FAFAFA] p-3.5 rounded-xl border border-[#E4E4E7] space-y-2.5">
                 <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider block">

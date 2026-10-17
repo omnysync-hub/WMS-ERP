@@ -17,7 +17,7 @@ import {
  * Security:
  * - Strictly requires ADMIN_HR_ROLES via resolveCaller() (no self-service).
  * - Admin supplies password directly in request body.
- * - Password length & strength validated (min 6 chars).
+ * - Password length & strength validated (min 8 chars, no edge spaces).
  * - Password hashed and stored in mobilePasswordHash.
  * - Plaintext password is NOT returned in response body.
  * - Rejects if mobile login already active (admin must use reset-password instead).

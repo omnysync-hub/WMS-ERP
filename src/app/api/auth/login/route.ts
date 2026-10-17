@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loginRateLimit } from "@/lib/rateLimit";
 import {
   createErpSession,
   requestIp,
@@ -7,6 +8,13 @@ import {
 } from "@/lib/auth/webAuth";
 
 export async function POST(request: NextRequest) {
+  const rl = loginRateLimit("erp", request.headers);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: `Too many sign-in attempts from this network. Try again in ${Math.ceil(rl.retryAfterSeconds / 60)} minute(s).`, code: "RATE_LIMITED" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
   try {
     const body = await request.json().catch(() => ({}));
     const login = String(body.login || "").trim();

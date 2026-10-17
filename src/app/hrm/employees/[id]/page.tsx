@@ -150,8 +150,8 @@ export default function EmployeeProfilePage() {
 
   const handleSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formPassword || formPassword.trim().length < 6) {
-      setMobileActionError("Password must be at least 6 characters long.");
+    if (!formPassword || formPassword.length < 8) {
+      setMobileActionError("Password must be at least 8 characters long.");
       return;
     }
 
@@ -1596,7 +1596,7 @@ export default function EmployeeProfilePage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={mobileActionLoading || formPassword.trim().length < 6}
+                  disabled={mobileActionLoading || formPassword.length < 8}
                   className="px-5 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
                 >
                   {mobileActionLoading ? (

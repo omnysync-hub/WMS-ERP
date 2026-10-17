@@ -7,6 +7,8 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AuditService } from "@/lib/services/AuditService";
 
 export async function GET(req: NextRequest) {
+  const gate = await requireJobsPermission(req, ["inventory.view_stock", "inventory.storekeeper_queue", "jobs.issue_stock"]);
+  if (gate.error) return gate.error;
   try {
     const { searchParams } = new URL(req.url);
     const view = searchParams.get("view"); // "products", "requests", "returns", "purchasing", "pos"

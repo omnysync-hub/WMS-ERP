@@ -46,6 +46,7 @@ import {
   Download,
   Maximize2,
   Printer,
+  Sparkles,
 } from "lucide-react";
 import ImageLightboxModal, { downloadImageFile } from "@/components/modals/ImageLightboxModal";
 import { realtimeSync } from "@/lib/realtimeSync";
@@ -103,13 +104,6 @@ export default function JobDetailPage() {
     inventoryReturned: false,
   });
 
-  // Accountant clearing technician expense
-  const [clearExpenseModalOpen, setClearExpenseModalOpen] = useState(false);
-  const [selectedClaimToClear, setSelectedClaimToClear] = useState<any>(null);
-  const [disbursingAccountCode, setDisbursingAccountCode] = useState("1000");
-  const [clearanceMode, setClearanceMode] = useState<"full" | "partial">("full");
-  const [partialAmountToPay, setPartialAmountToPay] = useState<string>("");
-  const [expensePaymentNotes, setExpensePaymentNotes] = useState<string>("");
 
   // Action Side Drawers
   const [issueStockDrawerOpen, setIssueStockDrawerOpen] = useState(false);
@@ -130,77 +124,6 @@ export default function JobDetailPage() {
 
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Accountant Expense Clearance Handler (Bulk / All Pending or Specific)
-  const handleClearExpense = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const pendingClaims = (job.expenseClaims || []).filter((c: any) => c.status === "pending");
-    const totalPending = pendingClaims.reduce((s: number, c: any) => s + c.amount, 0);
-    const targetMax = selectedClaimToClear ? selectedClaimToClear.amount : totalPending;
-
-    if (targetMax <= 0) {
-      alert("There are no pending expenses to clear.");
-      return;
-    }
-
-    const amountToDisburse =
-      clearanceMode === "partial" ? Number(partialAmountToPay) : targetMax;
-
-    if (!amountToDisburse || amountToDisburse <= 0) {
-      alert("Please enter a valid disbursement amount greater than 0");
-      return;
-    }
-    if (amountToDisburse > targetMax) {
-      alert(`Disbursement amount cannot exceed pending balance of ${formatCurrency(targetMax)}`);
-      return;
-    }
-
-    try {
-      setIsProcessing(true);
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "clear_expense",
-          claimId: selectedClaimToClear?.id,
-          actor: `${currentPersona.name} (${currentPersona.designation})`,
-          disbursingAccountCode,
-          amountToPay: amountToDisburse,
-          paymentNotes: expensePaymentNotes,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error);
-      }
-      setClearExpenseModalOpen(false);
-
-      if (amountToDisburse < targetMax) {
-        const remaining = targetMax - amountToDisburse;
-        setSuccessMsg(
-          `Partial disbursement of ${formatCurrency(amountToDisburse)} posted to General Ledger. Remaining balance of ${formatCurrency(remaining)} stays pending on this job to be cleared afterwards.`
-        );
-      } else {
-        setSuccessMsg(
-          `Technician expenses of ${formatCurrency(targetMax)} fully cleared and posted to General Ledger.`
-        );
-      }
-
-      fetchJob();
-
-      realtimeSync.publish("EXPENSE_APPROVED", {
-        jobId: job.id,
-        jobNumber: job.jobNumber,
-        technicianId: job.assignedTechnicianId,
-        actor: currentPersona.name,
-        message: `Accountant ${currentPersona.name} cleared ${formatCurrency(amountToDisburse)} field expenses on Job #${job.jobNumber}`,
-      });
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   // Open Issue Inventory drawer
   const openIssueInventoryModal = (reqItem?: any) => {
@@ -517,6 +440,12 @@ export default function JobDetailPage() {
         badge={
           !isStorekeeper ? (
             <div className="flex items-center gap-2">
+              {job.isFoc && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-purple-100 text-purple-900 px-2.5 py-0.5 rounded-full border border-purple-300 shadow-2xs">
+                  <Sparkles className="w-3 h-3 text-purple-700" />
+                  FOC Order (Company Billed)
+                </span>
+              )}
               {job.finalizedAt && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-[#F4F4F5] text-[#3F3F46] px-2.5 py-0.5 rounded-full border border-[#E4E4E7]">
                   <Lock className="w-3 h-3 text-[#71717A]" />
@@ -758,6 +687,22 @@ export default function JobDetailPage() {
                 <p className="text-[#71717A] text-[11px] uppercase font-semibold">Service Site Address</p>
                 <p className="text-[#27272A] font-medium mt-0.5 leading-relaxed">{job.customer?.addressText}</p>
               </div>
+
+              {job.isFoc && (
+                <div className="sm:col-span-2 p-3 bg-purple-50/80 border border-purple-200 rounded-lg flex items-start gap-2.5">
+                  <div className="w-7 h-7 rounded-md bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs shrink-0 border border-purple-200">
+                    FOC
+                  </div>
+                  <div>
+                    <span className="font-bold text-xs text-purple-950 block">
+                      Free of Charge (FOC) Work Order
+                    </span>
+                    <span className="text-[11px] text-purple-800 leading-relaxed block mt-0.5">
+                      Customer pays <strong>PKR 0</strong> at completion. Services and parts are billed directly to <strong>{job.careOfParty?.companyName || "the principal company"}</strong> and settled in Accounts.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {!isStorekeeper && job.careOfParty && (
                 <div className="sm:col-span-2 p-3 bg-emerald-50/60 border border-emerald-200/60 rounded-lg">
@@ -1644,7 +1589,7 @@ export default function JobDetailPage() {
             );
           })()}
 
-          {/* Settlements & Field Expenses (Masked if lacks financial permission or restricted role) */}
+          {/* Field Settlements & Customer Collections (Masked if lacks financial permission or restricted role) */}
           {canViewFinancials && !isRestrictedRole && (
             <div className="space-y-6">
               {/* 3. SECTION: FIELD SETTLEMENT & CUSTOMER COLLECTIONS */}
@@ -1838,167 +1783,6 @@ export default function JobDetailPage() {
                 );
               })()}
 
-              {/* 4. SECTION: TECHNICIAN FIELD EXPENSES */}
-              {(() => {
-                const claims = job.expenseClaims || [];
-                const totalClaimed = claims.reduce((s: number, c: any) => s + c.amount, 0);
-                const totalPaid = claims.filter((c: any) => c.status === "paid").reduce((s: number, c: any) => s + c.amount, 0);
-                const totalPending = claims.filter((c: any) => c.status === "pending").reduce((s: number, c: any) => s + c.amount, 0);
-                const pendingClaimsCount = claims.filter((c: any) => c.status === "pending").length;
-
-                const openClearanceModalForJob = () => {
-                  setSelectedClaimToClear(null);
-                  setClearanceMode("full");
-                  setPartialAmountToPay(String(totalPending));
-                  setExpensePaymentNotes("");
-                  setDisbursingAccountCode("1000");
-                  setClearExpenseModalOpen(true);
-                };
-
-                return (
-                  <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-                    <div className="px-5 py-2.5 bg-amber-50/50 border-b border-amber-100/80 flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2">
-                        <Receipt className="w-4 h-4 text-amber-700" />
-                        <span className="text-xs font-bold text-amber-950 uppercase tracking-wider">
-                          4. Technician Field Expenses ({claims.length})
-                        </span>
-                        <span className="text-[10px] text-amber-700 hidden sm:inline">
-                          • Fuel, transit, diagnostic parts & field out-of-pocket claims
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="flex items-center gap-1.5 text-xs font-mono font-medium">
-                          <span className="bg-zinc-100 text-zinc-700 border border-zinc-200 px-2 py-0.5 rounded text-[11px]">
-                            Claimed: <strong>{formatCurrency(totalClaimed)}</strong>
-                          </span>
-                          <span className="bg-emerald-100/70 text-emerald-900 border border-emerald-200 px-2 py-0.5 rounded text-[11px]">
-                            Cleared: <strong>{formatCurrency(totalPaid)}</strong>
-                          </span>
-                          <span className={cn(
-                            "px-2 py-0.5 rounded text-[11px] font-bold border",
-                            totalPending > 0 ? "bg-amber-100 text-amber-900 border-amber-300" : "bg-zinc-100 text-zinc-500 border-zinc-200"
-                          )}>
-                            Pending Due: {formatCurrency(totalPending)}
-                          </span>
-                        </div>
-                        {totalPending > 0 && (isAccountant || isAdmin) && (
-                          <button
-                            type="button"
-                            onClick={openClearanceModalForJob}
-                            className="px-3 py-1 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-xs inline-flex items-center gap-1.5"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Clear Expenses ({formatCurrency(totalPending)})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
-                            <th className="py-2.5 px-4">Expense Description & Note</th>
-                            <th className="py-2.5 px-4">Claim Date</th>
-                            <th className="py-2.5 px-4 text-right">Claimed Amount</th>
-                            <th className="py-2.5 px-4 text-center">Status</th>
-                            <th className="py-2.5 px-4">Disbursement & Settlement Info</th>
-                            <th className="py-2.5 px-4 text-right">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#E4E4E7]">
-                          {claims.length > 0 ? (
-                            claims.map((c: any) => {
-                              const isPartialPending = c.status === "pending" && c.note?.includes("[Remaining Balance");
-                              return (
-                                <tr key={c.id} className="hover:bg-[#FAFAFA] transition">
-                                  <td className="py-3 px-4 font-medium text-[#18181B]">
-                                    <div>{c.note || "Field Out-of-pocket Expense"}</div>
-                                  </td>
-                                  <td className="py-3 px-4 text-[#71717A] whitespace-nowrap">
-                                    {formatDateTime(c.createdAt)}
-                                  </td>
-                                  <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B] whitespace-nowrap">
-                                    {formatCurrency(c.amount)}
-                                  </td>
-                                  <td className="py-3 px-4 text-center whitespace-nowrap">
-                                    {isPartialPending ? (
-                                      <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                                        Remaining Balance Pending
-                                      </span>
-                                    ) : (
-                                      <StatusBadge status={c.status} />
-                                    )}
-                                  </td>
-                                  <td className="py-3 px-4 text-[11px] text-[#52525B]">
-                                    {c.status === "paid" && c.paidAt ? (
-                                      <span className="text-emerald-800 font-medium flex items-center gap-1">
-                                        ✓ Cleared &amp; Disbursed: {formatDateTime(c.paidAt)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-amber-800 italic">Pending Accounts Clearance</span>
-                                    )}
-                                  </td>
-                                  <td className="py-3 px-4 text-right whitespace-nowrap">
-                                    {c.status === "pending" && (isAccountant || isAdmin) ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSelectedClaimToClear(c);
-                                          setClearanceMode("full");
-                                          setPartialAmountToPay(String(c.amount));
-                                          setExpensePaymentNotes("");
-                                          setDisbursingAccountCode("1000");
-                                          setClearExpenseModalOpen(true);
-                                        }}
-                                        className="px-2.5 py-1 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-2xs inline-flex items-center gap-1"
-                                      >
-                                        <CheckCircle2 className="w-3 h-3" />
-                                        Clear Claim
-                                      </button>
-                                    ) : (
-                                      <span className="text-[#A1A1AA] text-[11px]">—</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          ) : (
-                            <tr>
-                              <td colSpan={6} className="py-8 text-center text-[#71717A] text-xs italic bg-white">
-                                No field expenses claimed for this job.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Action Bar at bottom when expenses are pending */}
-                    {totalPending > 0 && (isAccountant || isAdmin) && (
-                      <div className="px-5 py-3 border-t border-amber-200 bg-amber-50/60 flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-bold text-amber-950">
-                            Outstanding Technician Expenses: {formatCurrency(totalPending)}
-                          </p>
-                          <p className="text-[10px] text-amber-800">
-                            Clear in full or disburse partial amount available now.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={openClearanceModalForJob}
-                          className="px-3.5 py-1.5 text-xs font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg transition shadow-xs inline-flex items-center gap-1.5"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Clear Expenses ({formatCurrency(totalPending)})
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
             </div>
           )}
 
@@ -2345,259 +2129,6 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* ACCOUNTANT CLEAR EXPENSE MODAL */}
-      {clearExpenseModalOpen && (() => {
-        const pendingClaims = (job.expenseClaims || []).filter((c: any) => c.status === "pending");
-        const totalPendingExpenses = pendingClaims.reduce((s: number, c: any) => s + c.amount, 0);
-        const maxPayable = selectedClaimToClear ? selectedClaimToClear.amount : totalPendingExpenses;
-
-        return (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="bg-white rounded-xl max-w-lg w-full p-6 space-y-4 shadow-xl border border-[#E4E4E7] text-xs max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                <div>
-                  <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                    <Receipt className="w-4 h-4 text-[#0D7A5F]" />
-                    Clear Technician Field Expenses
-                  </h3>
-                  <p className="text-[11px] text-[#71717A] mt-0.5">
-                    Select payment source and disburse in full or in partial instalments.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setClearExpenseModalOpen(false)}
-                  className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Expense Summary Header */}
-              <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] text-emerald-800 uppercase font-bold block">
-                      {selectedClaimToClear ? "Individual Claim Balance" : "Total Pending Expenses Due"}
-                    </span>
-                    <span className="font-mono text-xl font-black text-emerald-950">
-                      {formatCurrency(maxPayable)}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                    {selectedClaimToClear ? "Single Claim" : `${pendingClaims.length} Claims Pending`}
-                  </span>
-                </div>
-
-                {/* Itemized List */}
-                {!selectedClaimToClear && pendingClaims.length > 0 && (
-                  <div className="pt-2 border-t border-emerald-200/60 space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                    <span className="text-[10px] font-bold text-emerald-900 uppercase block">
-                      Breakdown of Pending Claims:
-                    </span>
-                    {pendingClaims.map((c: any) => (
-                      <div
-                        key={c.id}
-                        className="flex items-center justify-between bg-white/80 p-1.5 rounded border border-emerald-200/50 text-[11px]"
-                      >
-                        <span className="text-[#3F3F46] truncate max-w-[280px]" title={c.note}>
-                          • {c.note}
-                        </span>
-                        <span className="font-mono font-bold text-[#18181B] shrink-0 ml-2">
-                          {formatCurrency(c.amount)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {selectedClaimToClear && (
-                  <p className="text-[11px] text-[#52525B] leading-relaxed">
-                    <strong>Claim Note:</strong> {selectedClaimToClear.note}
-                  </p>
-                )}
-              </div>
-
-              <form onSubmit={handleClearExpense} className="space-y-4">
-                {/* Payment Source Selection */}
-                <div>
-                  <label className="font-bold text-[#18181B] block mb-1">
-                    Disbursing Source (Payment Account) *
-                  </label>
-                  <select
-                    value={disbursingAccountCode}
-                    onChange={(e) => setDisbursingAccountCode(e.target.value)}
-                    className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-semibold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-                  >
-                    <option value="1000">1000 — Cash on Hand / Main Drawer (Cash Box)</option>
-                    <option value="1010">1010 — Operating Bank Account (Meezan Bank)</option>
-                    <option value="1011">1011 — Secondary Corporate Bank (HBL)</option>
-                    <option value="1020">1020 — Petty Cash Float (Store / Emergency Float)</option>
-                    <option value="2100">2100 — Technician Payable Clearing (Owed to Technician)</option>
-                  </select>
-                  <p className="text-[10px] text-[#71717A] mt-1 font-mono">
-                    GL Impact: Dr 6100 (Technician Travel & Expenses) | Cr {disbursingAccountCode}
-                  </p>
-                </div>
-
-                {/* Settlement Mode: Full vs Partial */}
-                <div>
-                  <label className="font-bold text-[#18181B] block mb-1.5">
-                    Clearance Type *
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setClearanceMode("full");
-                        setPartialAmountToPay(String(maxPayable));
-                      }}
-                      className={cn(
-                        "p-2.5 rounded-xl border text-left transition font-semibold",
-                        clearanceMode === "full"
-                          ? "border-[#0D7A5F] bg-[#0D7A5F]/10 text-[#0D7A5F] ring-1 ring-[#0D7A5F]"
-                          : "border-[#E4E4E7] bg-white text-[#71717A] hover:border-[#D4D4D8]"
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold">Clear Whole Amount</span>
-                        <span className="text-[10px] font-mono">100%</span>
-                      </div>
-                      <p className="text-[10px] text-[#71717A] mt-0.5">
-                        Pay full {formatCurrency(maxPayable)} now.
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setClearanceMode("partial");
-                        const half = Math.round(maxPayable / 2);
-                        setPartialAmountToPay(String(half));
-                      }}
-                      className={cn(
-                        "p-2.5 rounded-xl border text-left transition font-semibold",
-                        clearanceMode === "partial"
-                          ? "border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-600"
-                          : "border-[#E4E4E7] bg-white text-[#71717A] hover:border-[#D4D4D8]"
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold">Partial Clearance</span>
-                        <span className="text-[10px] font-bold text-amber-700">Constrained</span>
-                      </div>
-                      <p className="text-[10px] text-[#71717A] mt-0.5">
-                        Pay available funds; clear remainder afterwards.
-                      </p>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Partial Amount Input & Breakdown */}
-                {clearanceMode === "partial" && (
-                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2.5 animate-in fade-in duration-150">
-                    <div>
-                      <label className="text-[11px] font-bold text-amber-950 block mb-1">
-                        Amount to Disburse Now (PKR) *
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max={maxPayable}
-                        value={partialAmountToPay}
-                        onChange={(e) => setPartialAmountToPay(e.target.value)}
-                        placeholder="e.g. 3000"
-                        className="w-full bg-white p-2 rounded-lg border border-amber-300 font-mono font-bold text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                        required
-                      />
-                    </div>
-
-                    {/* Quick percentage shortcuts */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] text-amber-800 font-semibold">Quick Set:</span>
-                      {[0.25, 0.5, 0.75].map((pct) => (
-                        <button
-                          key={pct}
-                          type="button"
-                          onClick={() => setPartialAmountToPay(String(Math.round(maxPayable * pct)))}
-                          className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 text-[10px] font-bold text-amber-900 border border-amber-300 transition"
-                        >
-                          {pct * 100}% ({formatCurrency(Math.round(maxPayable * pct))})
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Real-time Math Summary */}
-                    {Number(partialAmountToPay) > 0 && (
-                      <div className="pt-2 border-t border-amber-200/80 flex items-center justify-between text-[11px]">
-                        <div>
-                          <span className="text-amber-800 block">Disbursing Now:</span>
-                          <strong className="font-mono font-bold text-emerald-800">
-                            {formatCurrency(Number(partialAmountToPay))}
-                          </strong>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-amber-800 block">Remaining Afterwards:</span>
-                          <strong className="font-mono font-bold text-rose-800">
-                            {formatCurrency(Math.max(0, maxPayable - Number(partialAmountToPay)))}
-                          </strong>
-                        </div>
-                      </div>
-                    )}
-
-                    <p className="text-[10px] text-amber-800 italic leading-snug">
-                      ℹ️ The remaining balance of {formatCurrency(Math.max(0, maxPayable - (Number(partialAmountToPay) || 0)))} will automatically stay as pending expenses on this job so you can clear it whenever more funds become available.
-                    </p>
-                  </div>
-                )}
-
-                {/* Reference / Notes */}
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">
-                    Disbursement Reference / Notes (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={expensePaymentNotes}
-                    onChange={(e) => setExpensePaymentNotes(e.target.value)}
-                    placeholder="e.g. Cash Voucher #402, Raast Ref, or Cheque Number"
-                    className="w-full bg-[#F4F4F5] p-2 rounded-lg border border-[#D4D4D8] text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
-                  />
-                </div>
-
-                {/* Footer Actions */}
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                  <button
-                    type="button"
-                    onClick={() => setClearExpenseModalOpen(false)}
-                    className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={
-                      isProcessing ||
-                      (clearanceMode === "partial" && (!Number(partialAmountToPay) || Number(partialAmountToPay) <= 0 || Number(partialAmountToPay) > maxPayable))
-                    }
-                    className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:bg-[#D4D4D8] text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1.5"
-                  >
-                    {isProcessing
-                      ? "Posting to GL..."
-                      : clearanceMode === "partial"
-                      ? `Disburse Partial ${formatCurrency(Number(partialAmountToPay) || 0)}`
-                      : `Disburse Full ${formatCurrency(maxPayable)}`}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ISSUE WAREHOUSE STOCK DRAWER */}
       <IssueWarehouseStockDrawer

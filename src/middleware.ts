@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
+import { stampActorHeaders, stripActorHeaders } from "@/lib/auth/actorHeaders";
 
 export const runtime = "nodejs";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/neon"];
 
 function isPublic(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -15,7 +16,12 @@ function isPublic(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (isPublic(request) && pathname !== "/login") return NextResponse.next();
+  if (isPublic(request) && pathname !== "/login") {
+    // Never forward client-supplied internal actor headers, even on public routes.
+    const headers = new Headers(request.headers);
+    stripActorHeaders(headers);
+    return NextResponse.next({ request: { headers } });
+  }
 
   const authorization = request.headers.get("authorization") || "";
   if (pathname.startsWith("/api/") && authorization.startsWith("Bearer ")) {
@@ -24,10 +30,12 @@ export async function middleware(request: NextRequest) {
       const caller = await resolveCaller(request);
       if (!caller) return NextResponse.json({ error: "Invalid or expired mobile session." }, { status: 401 });
       const headers = new Headers(request.headers);
-      headers.set("x-workman-authenticated", "1");
-      headers.set("x-actor-role", String(caller.role || "technician").toLowerCase());
-      headers.set("x-actor-name", caller.name || "Mobile user");
-      headers.set("x-user-id", caller.id);
+      stampActorHeaders(headers, {
+        id: caller.id,
+        role: String(caller.role || "technician").toLowerCase(),
+        name: caller.name || "Mobile user",
+        overrides: {},
+      });
       return NextResponse.next({ request: { headers } });
     } catch {
       return NextResponse.json({ error: "Could not verify the mobile session." }, { status: 503 });
@@ -42,7 +50,11 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!auth) {
-    if (pathname === "/login") return NextResponse.next();
+    if (pathname === "/login") {
+      const headers = new Headers(request.headers);
+      stripActorHeaders(headers);
+      return NextResponse.next({ request: { headers } });
+    }
     if (pathname.startsWith("/api/")) {
       const response = NextResponse.json({ error: "Your session has ended. Please sign in again.", code: "UNAUTHENTICATED" }, { status: 401 });
       clearErpSessionCookie(response);
@@ -106,13 +118,20 @@ export async function middleware(request: NextRequest) {
   }
 
   const headers = new Headers(request.headers);
-  headers.set("x-workman-authenticated", "1");
-  headers.set("x-actor-role", auth.user.role);
-  headers.set("x-actor-name", auth.user.name);
-  headers.set("x-user-id", auth.user.id);
+  stampActorHeaders(headers, {
+    id: auth.user.id,
+    role: auth.user.role,
+    name: auth.user.name,
+    overrides: auth.user.permissionOverrides || {},
+  });
   return NextResponse.next({ request: { headers } });
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  // API routes are ALWAYS matched (even "/api/x/abc.png"), so handlers never run without
+  // middleware stripping and re-signing the internal actor headers.
+  matcher: [
+    "/api/:path*",
+    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
 };

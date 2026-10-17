@@ -161,13 +161,13 @@ export class SubLedgerService {
       prisma.journalLine.findMany({
         where: {
           accountId: arAccount.id,
-          journalEntry: { status: { in: ["posted", "reversal"] } },
+          journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
         },
       }),
       prisma.journalLine.findMany({
         where: {
           accountId: apAccount.id,
-          journalEntry: { status: { in: ["posted", "reversal"] } },
+          journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
         },
       }),
     ]);

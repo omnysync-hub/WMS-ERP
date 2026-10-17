@@ -1,10 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { requireJobsPermission, requireOfficePermission } from "@/lib/auth/erpActor";
 import { FeedbackService } from "@/lib/services/FeedbackService";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const gate = await requireOfficePermission(req, ["jobs.feedback", "jobs.reports", "jobs.verify"]);
+  if (gate.error) return gate.error;
   try {
     const queue = await FeedbackService.getFeedbackQueue();
     const allFeedbackCalls = await prisma.feedbackCall.findMany({

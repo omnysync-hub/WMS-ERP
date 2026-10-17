@@ -1,0 +1,288 @@
+@import "leaflet/dist/leaflet.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --dark-shell: #18181B;
+    --dark-surface: #27272A;
+    --dark-border: #2E2E32;
+    --dark-text: #E4E4E7;
+    --dark-muted: #A1A1AA;
+    --brand-accent: #0D7A5F;
+    --content-bg: #F7F7F8;
+    --card-bg: #FFFFFF;
+    --hairline: #EDEDED;
+  }
+
+  body {
+    background-color: var(--dark-shell);
+    color: #18181B;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Universal high-contrast visible focus rings (WCAG AA compliant) */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0D7A5F;
+  }
+}
+
+/* Reduced motion preference support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Toast entrance animation */
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast-in {
+  animation: toastSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Universal System-Wide Icon Input Protection: Prevents overlapping placeholder and typed text */
+.pl-8\.5,
+input[class*="pl-8.5"] {
+  padding-left: 2.25rem !important;
+}
+
+.relative > svg.lucide[class*="left-"] ~ input[class*="pl-8"],
+.relative > svg.lucide[class*="left-"] ~ input[class*="pl-7"],
+.relative > svg.lucide[class*="left-"] ~ input:not([class*="pl-"]) {
+  padding-left: 2.25rem;
+}
+
+/* Custom quiet scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D4D4D8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #A1A1AA;
+}
+
+/* Minimalist floating cards (borderless, gentle elevation, elevated on #F7F7F8) */
+.erp-card {
+  background: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.035), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+/* Subtle hairline borders only where separation is truly required */
+.hairline-border {
+  border-color: #EDEDED;
+}
+
+.hairline-b {
+  border-bottom: 1px solid #EDEDED;
+}
+
+.hairline-t {
+  border-top: 1px solid #EDEDED;
+}
+
+.table-row-dense {
+  height: 40px;
+}
+
+/* Leaflet Custom DivIcon Clean Reset */
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* ========================================================================= */
+/* Pixel-Perfect PDF & Physical Print Optimizations                          */
+/* ========================================================================= */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 8mm 10mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #18181B !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Universal neutralization of AppShell dark wrappers & height caps */
+  .h-screen,
+  .min-h-screen,
+  .h-full,
+  .min-h-full,
+  .overflow-hidden,
+  .overflow-y-auto {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Completely strip dark layout background colors */
+  .bg-\[\#18181B\],
+  .bg-\[\#27272A\],
+  .bg-\[\#F7F7F8\],
+  .bg-\[\#0A0B0E\],
+  .bg-\[\#0b1714\],
+  .bg-black,
+  .bg-black\/60 {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  #main-content {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Hide app chrome, sidebars, navigation, action buttons, modals, toasts */
+  header,
+  nav,
+  aside,
+  footer,
+  button,
+  .no-print,
+  .drawer-header-actions,
+  .toast-viewport {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Neutralize drawer backdrop when printing */
+  .drawer-backdrop {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    width: 100% !important;
+    height: auto !important;
+    inset: auto !important;
+    z-index: auto !important;
+  }
+
+  /* Neutralize drawer container */
+  [role="dialog"] {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  [role="dialog"] > div {
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Hide drawer header and drawer footer during print */
+  [role="dialog"] > div > div:first-child,
+  [role="dialog"] > div > div:last-child {
+    display: none !important;
+  }
+
+  /* Allow the scrollable body to expand fully for multi-page print */
+  [role="dialog"] > div > div.overflow-y-auto {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+  }
+
+  /* Force printable document to display */
+  .printable-document {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #18181B !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  /* Force background colors and borders to print accurately */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Table and page-break rules */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  tr, td, th {
+    page-break-inside: avoid !important;
+  }
+
+  .page-break-inside-avoid {
+    page-break-inside: avoid !important;
+  }
+
+  .page-break-before {
+    page-break-before: always !important;
+  }
+
+  .page-break-after {
+    page-break-after: always !important;
+  }
+}

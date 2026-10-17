@@ -2,6 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { readSignedActor } from "@/lib/auth/actorHeaders";
 
 /**
  * Maximum failed attempts before brute-force account lockout.
@@ -16,18 +17,25 @@ export const MOBILE_LOGIN_LOCKOUT_MINUTES = 15;
 /**
  * Minimum required characters for a mobile login password.
  */
-export const MIN_PASSWORD_LENGTH = 6;
+export const MIN_PASSWORD_LENGTH = 8;
 
 /**
- * Validates that a password satisfies the minimum strength criteria (length >= 6).
+ * Validates a NEW mobile password: at least 8 characters, no leading/trailing spaces
+ * (passwords are no longer trimmed, so edge spaces would be a silent trap), max 128.
+ * Existing (older, shorter) passwords keep working at login; this applies when one is set/changed.
  */
 export function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
   if (!password || typeof password !== "string") {
     return { valid: false, error: "Password is required." };
   }
-  const trimmed = password.trim();
-  if (trimmed.length < MIN_PASSWORD_LENGTH) {
+  if (password !== password.trim()) {
+    return { valid: false, error: "Password cannot start or end with a space." };
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
     return { valid: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.` };
+  }
+  if (password.length > 128) {
+    return { valid: false, error: "Password cannot be longer than 128 characters." };
   }
   return { valid: true };
 }
@@ -36,7 +44,8 @@ export function validatePasswordStrength(password: string): { valid: boolean; er
  * Securely hashes a password using bcrypt with 10 salt rounds.
  */
 export async function hashPassword(password: string): Promise<string> {
-  return await bcrypt.hash(password.trim(), 10);
+  // Hash exactly what the user typed (no trimming).
+  return await bcrypt.hash(password, 10);
 }
 
 /**
@@ -44,7 +53,10 @@ export async function hashPassword(password: string): Promise<string> {
  */
 export async function comparePassword(password: string, hash: string): Promise<boolean> {
   if (!password || !hash) return false;
-  return await bcrypt.compare(password.trim(), hash);
+  if (await bcrypt.compare(password, hash)) return true;
+  // Legacy fallback: hashes created before this change were made from the TRIMMED password.
+  const trimmed = password.trim();
+  return trimmed !== password && trimmed.length > 0 ? bcrypt.compare(trimmed, hash) : false;
 }
 
 /**
@@ -223,14 +235,13 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
   // 2. Headers are trusted only when this application's middleware has
   // authenticated the web session and stamped the request. Direct client
   // supplied identity/role headers must never become an authenticated actor.
-  const middlewareAuthenticated = req.headers.get("x-workman-authenticated") === "1";
-  if (!callerId && middlewareAuthenticated) {
-    callerId = req.headers.get("x-employee-id") || req.headers.get("x-user-id");
+  // Signature check: only middleware (holding the server secret) can produce these.
+  const signedActor = readSignedActor(req.headers);
+  if (!callerId && signedActor) {
+    callerId = signedActor.id;
   }
 
-  const headerRole = middlewareAuthenticated
-    ? req.headers.get("x-actor-role") || req.headers.get("x-user-role")
-    : null;
+  const headerRole = signedActor ? signedActor.role : null;
   if (headerRole) {
     callerRole = headerRole.toLowerCase();
   }
@@ -254,7 +265,7 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
 
   if (!callerEmp) {
     // Check if caller is an authorized ERP administrative persona by role
-    const actorName = req.headers.get("x-actor-name") || "Administrator";
+    const actorName = signedActor?.name || "Administrator";
     if (callerRole && ADMIN_HR_ROLES.includes(callerRole)) {
       return {
         id: callerId,

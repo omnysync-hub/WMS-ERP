@@ -963,6 +963,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   },
 
   manager: {
+    "projects.approve_change_order": true,
     "jobs.view_directory": true,
     "jobs.view_financials": true,
     "jobs.reports": true,

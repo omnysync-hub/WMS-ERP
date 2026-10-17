@@ -299,7 +299,7 @@ export class BankReconciliationService {
     const journalLines = await prisma.journalLine.findMany({
       where: {
         accountId: account.id,
-        journalEntry: { status: { in: ["posted", "reversal"] } },
+        journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
       },
     });
 

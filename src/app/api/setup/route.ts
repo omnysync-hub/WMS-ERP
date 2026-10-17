@@ -518,28 +518,34 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Check if an existing opening balance voucher was posted; if so, reverse it first to maintain append-only ledger
-      const existingOpening = await prisma.journalEntry.findFirst({
-        where: { refType: "opening_balance", status: "posted" },
-      });
-
-      if (existingOpening) {
-        await AccountsPostingService.reverseEntry({
-          journalEntryId: existingOpening.id,
-          reversedBy: postedBy,
-          reason: "Superseded by updated opening balance submission in Setup Wizard",
-        });
-      }
-
-      const openingVoucher = await AccountsPostingService.post({
-        date: targetDate,
-        memo: `[GO-LIVE OPENING BALANCES] Initial Balances as of ${targetDate.toISOString().slice(0, 10)}`,
-        refType: "opening_balance",
-        refId: "GO_LIVE",
-        postedBy,
-        bypassPeriodLock: true,
-        lines: validLines,
-      });
+      // Reverse the previous opening voucher (if any) and post the new one in ONE transaction,
+      // so a failure can never leave the books with no opening balances.
+      const openingVoucher = await prisma.$transaction(
+        async (tx) => {
+          const existingOpening = await tx.journalEntry.findFirst({
+            where: { refType: "opening_balance", status: "posted" },
+          });
+          if (existingOpening) {
+            await AccountsPostingService.reverseEntry({
+              journalEntryId: existingOpening.id,
+              reversedBy: postedBy,
+              reason: "Superseded by updated opening balance submission in Setup Wizard",
+              tx,
+            });
+          }
+          return AccountsPostingService.post({
+            date: targetDate,
+            memo: `[GO-LIVE OPENING BALANCES] Initial Balances as of ${targetDate.toISOString().slice(0, 10)}`,
+            refType: "opening_balance",
+            refId: "GO_LIVE",
+            postedBy,
+            bypassPeriodLock: true,
+            lines: validLines,
+            tx,
+          });
+        },
+        { maxWait: 10000, timeout: 30000 }
+      );
 
       return NextResponse.json({
         success: true,

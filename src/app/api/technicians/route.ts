@@ -1,8 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
+import { requireOfficePermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const gate = await requireOfficePermission(req, "jobs.view_directory");
+  if (gate.error) return gate.error;
   try {
     const technicians = await prisma.employee.findMany({
       where: { role: "technician", active: true },

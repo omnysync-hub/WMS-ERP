@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
+import { validateReceiptUrl } from "@/lib/receiptUrl";
 
 export async function POST(
   req: NextRequest,
@@ -44,7 +45,14 @@ export async function POST(
       return NextResponse.json({ error: "Select an active expense category configured in Accounting Onboarding." }, { status: 400 });
     }
 
-    if (isMobileTechnician) {
+    const receipt = validateReceiptUrl(receiptUrl);
+    if (!receipt.ok) {
+      return NextResponse.json({ error: receipt.error }, { status: 400 });
+    }
+
+    // Every claim (mobile or ERP-entered on a technician's behalf) must be for a job that
+    // technician is actually assigned to.
+    {
       const assignedJob = await prisma.job.findFirst({
         where: {
           id: params.id,
@@ -61,7 +69,12 @@ export async function POST(
       });
       if (!assignedJob) {
         return NextResponse.json(
-          { error: "You can only log expenses for jobs assigned to you" },
+          {
+            error: isMobileTechnician
+              ? "You can only log expenses for jobs assigned to you"
+              : "This technician is not assigned to this job",
+            code: "PERMISSION_DENIED",
+          },
           { status: 403 }
         );
       }
@@ -74,7 +87,7 @@ export async function POST(
         amount: numericAmount,
         note: cleanNote || "Job expense",
         category: cleanCategory,
-        receiptUrl: receiptUrl || null,
+        receiptUrl: receipt.value,
         status: "pending",
       },
     });

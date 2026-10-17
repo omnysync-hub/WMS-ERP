@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { loginRateLimit } from "@/lib/rateLimit";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { AuditService } from "@/lib/services/AuditService";
@@ -20,6 +21,13 @@ import {
  */
 
 export async function POST(req: NextRequest) {
+  const rl = loginRateLimit("mobile", req.headers);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: `Too many sign-in attempts from this network. Try again in ${Math.ceil(rl.retryAfterSeconds / 60)} minute(s).`, code: "RATE_LIMITED" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
   try {
     const body = await req.json();
     const { phone, email, employeeId, username, password, pin, deviceId, deviceName } = body;
@@ -59,15 +67,28 @@ export async function POST(req: NextRequest) {
         where: { id: employeeId },
       });
     } else if (phone) {
-      const cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
-      employee = await prisma.employee.findFirst({
-        where: {
-          phone: {
-            contains: cleanPhone.slice(-7), // Matches last 7 digits to tolerate country code variations
-          },
-          active: true,
-        },
+      // Exact match on a canonical phone form (no more "last 7 digits contains").
+      const wanted = canonicalPhone(String(phone));
+      if (!wanted) {
+        return NextResponse.json({ error: "Enter your full mobile number." }, { status: 400 });
+      }
+      // Stored numbers use mixed formatting ("0300-123 4567", "+92 300…"), so compare canonically
+      // in code over the (small) active-staff list, then load the single match.
+      const candidates = await prisma.employee.findMany({
+        where: { active: true, phone: { not: "" } },
+        select: { id: true, phone: true },
       });
+      const matchIds = candidates.filter((c) => canonicalPhone(c.phone || "") === wanted).map((c) => c.id);
+      const matches = matchIds.length === 1
+        ? [await prisma.employee.findUnique({ where: { id: matchIds[0] } })].filter(Boolean)
+        : matchIds;
+      if (matches.length > 1) {
+        return NextResponse.json(
+          { error: "This mobile number is linked to more than one employee. Sign in with your employee ID or email, or ask HR to fix the duplicate." },
+          { status: 409 }
+        );
+      }
+      employee = (matches[0] as typeof employee) ?? null;
     } else if (email) {
       employee = await prisma.employee.findFirst({
         where: {
@@ -132,7 +153,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Cryptographic Password verification
-    const isPasswordValid = await comparePassword(credentialInput.trim(), employee.mobilePasswordHash);
+    const isPasswordValid = await comparePassword(credentialInput, employee.mobilePasswordHash);
 
     if (!isPasswordValid) {
       const nextFailedAttempts = (employee.failedLoginAttempts || 0) + 1;
@@ -362,4 +383,16 @@ export async function DELETE(req: NextRequest) {
   });
 
   return NextResponse.json({ success: true });
+}
+
+/**
+ * Canonical Pakistani-style phone: digits only, "0092…" / "92…" / "3…" -> "03…".
+ * Returns null for inputs too short to identify one person (< 10 digits).
+ */
+function canonicalPhone(raw: string): string | null {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("92") && d.length === 12) d = "0" + d.slice(2);
+  else if (d.length === 10 && d.startsWith("3")) d = "0" + d;
+  return d.length >= 10 ? d : null;
 }

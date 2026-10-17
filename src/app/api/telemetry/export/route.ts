@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { pktTodayStart } from "@/lib/pktTime";
 
 export async function GET(req: NextRequest) {
   try {
@@ -47,8 +48,7 @@ export async function GET(req: NextRequest) {
     }
 
     const now = new Date();
-    const defaultStart = new Date(now);
-    defaultStart.setHours(0, 0, 0, 0);
+    const defaultStart = pktTodayStart(now); // PKT midnight
 
     const start = startDateParam ? new Date(startDateParam) : defaultStart;
     const end = endDateParam ? new Date(endDateParam) : now;

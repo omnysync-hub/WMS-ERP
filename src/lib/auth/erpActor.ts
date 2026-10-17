@@ -9,6 +9,7 @@
  * - UI must send the same headers on every /api/procurement call; server still enforces.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { readSignedActor } from "@/lib/auth/actorHeaders";
 import {
   DEFAULT_ROLE_PERMISSIONS,
   resolveProcurementPermissionKeys,
@@ -18,31 +19,20 @@ export interface ErpActor {
   id: string;
   role: string;
   name: string;
+  /** Per-user permission overrides from ErpUser.permissionOverrides (web sessions only). */
+  overrides?: Record<string, boolean>;
 }
 
+const ANONYMOUS: ErpActor = { id: "anonymous", role: "anonymous", name: "Unauthenticated", overrides: {} };
+
+/**
+ * Actor from middleware-stamped headers. Only accepted when the HMAC signature verifies,
+ * so a request that somehow skipped middleware cannot forge a role.
+ */
 export function resolveErpActorFromRequest(req: NextRequest): ErpActor {
-  if (req.headers.get("x-workman-authenticated") !== "1") {
-    return { id: "anonymous", role: "anonymous", name: "Unauthenticated" };
-  }
-  const role = (
-    req.headers.get("x-actor-role") ||
-    req.headers.get("x-user-role") ||
-    ""
-  )
-    .trim()
-    .toLowerCase();
-
-  const name =
-    req.headers.get("x-actor-name") ||
-    req.headers.get("x-user-name") ||
-    "ERP User";
-
-  const id =
-    req.headers.get("x-user-id") ||
-    req.headers.get("x-employee-id") ||
-    `demo-${role || "anonymous"}`;
-
-  return { id, role: role || "anonymous", name };
+  const signed = readSignedActor(req.headers);
+  if (!signed) return { ...ANONYMOUS };
+  return { id: signed.id, role: signed.role || "anonymous", name: signed.name || "ERP User", overrides: signed.overrides || {} };
 }
 
 export function roleHasPermission(role: string, permissionKey: string): boolean {
@@ -62,6 +52,20 @@ export function roleHasPermission(role: string, permissionKey: string): boolean 
   }
 
   return false;
+}
+
+/**
+ * Role defaults + per-user overrides. An explicit override on the key (or one of its aliases)
+ * wins: false revokes, true grants. Admin always passes (the last-admin guard protects lockout).
+ */
+export function actorHasPermission(actor: Pick<ErpActor, "role" | "overrides">, permissionKey: string): boolean {
+  const r = (actor.role || "").toLowerCase();
+  if (r === "admin") return true;
+  const overrides = actor.overrides || {};
+  const keys = resolveProcurementPermissionKeys(permissionKey);
+  if (keys.some((k) => overrides[k] === false)) return false;
+  if (keys.some((k) => overrides[k] === true)) return true;
+  return roleHasPermission(r, permissionKey);
 }
 
 /**
@@ -86,7 +90,7 @@ export function requireProcurementPermission(
     };
   }
 
-  if (!roleHasPermission(actor.role, permissionKey)) {
+  if (!actorHasPermission(actor, permissionKey)) {
     return {
       actor,
       error: NextResponse.json(
@@ -123,7 +127,7 @@ export function requireAnyProcurementPermission(
     };
   }
 
-  const allowed = permissionKeys.some((k) => roleHasPermission(actor.role, k));
+  const allowed = permissionKeys.some((k) => actorHasPermission(actor, k));
   if (!allowed) {
     return {
       actor,
@@ -164,7 +168,7 @@ export function requirePermission(
     };
   }
 
-  if (!roleHasPermission(actor.role, permissionKey)) {
+  if (!actorHasPermission(actor, permissionKey)) {
     return {
       actor,
       error: NextResponse.json(
@@ -216,7 +220,8 @@ export async function resolveJobsActor(
         actor: {
           id: caller.id,
           role: (caller.role || "anonymous").toLowerCase(),
-          name: caller.name || req.headers.get("x-actor-name") || "Mobile User",
+          name: caller.name || "Mobile User",
+          overrides: {},
         },
         viaMobileToken: true,
       };
@@ -263,7 +268,7 @@ export async function requireJobsPermission(
   }
 
   const keys = Array.isArray(permissionKey) ? permissionKey : [permissionKey];
-  if (!keys.some((k) => roleHasPermission(actor.role, k))) {
+  if (!keys.some((k) => actorHasPermission(actor, k))) {
     return {
       actor,
       error: NextResponse.json(
@@ -279,4 +284,26 @@ export async function requireJobsPermission(
   }
 
   return { actor };
+}
+
+/**
+ * Office-staff gate: the permission(s) AND not a field technician. Used for directory/list
+ * endpoints that expose all customers/technicians and must not be readable from the mobile app.
+ */
+export async function requireOfficePermission(
+  req: NextRequest,
+  permissionKey: string | string[]
+): Promise<GateResult> {
+  const gate = await requireJobsPermission(req, permissionKey);
+  if (gate.error) return gate;
+  if ((gate.actor.role || "").toLowerCase() === "technician") {
+    return {
+      actor: gate.actor,
+      error: NextResponse.json(
+        { error: "Forbidden: this list is not available to technicians.", code: "PERMISSION_DENIED" },
+        { status: 403 }
+      ),
+    };
+  }
+  return gate;
 }

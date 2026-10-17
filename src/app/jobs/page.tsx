@@ -568,6 +568,14 @@ export default function JobsListPage() {
                   From {parent.jobNumber}
                 </Link>
               )}
+              {row.isFoc && (
+                <span
+                  className="text-[10px] font-bold text-purple-900 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs"
+                  title="Free of Charge Order (Company Billed)"
+                >
+                  FOC Order
+                </span>
+              )}
             </div>
             {!isStorekeeper && row.careOfParty && (
               <div className="pt-0.5">
@@ -1230,23 +1238,6 @@ export default function JobsListPage() {
             onExport={() => alert("Exporting jobs list...")}
           />
 
-          {/* Quick Technician Field Expenses Link Banner for Accounting & Administration */}
-          {canViewFinancials && !isStorekeeper && (
-            <div className="p-3 bg-amber-50/70 border border-amber-200/90 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-              <div className="flex items-center gap-2 text-amber-950">
-                <Receipt className="w-4 h-4 text-amber-700 shrink-0" />
-                <span>
-                  <strong>Technician Daily Field Expenses:</strong> Review on-site fuel, food, and material claims logged from mobile app across in-progress jobs. Reconcile full or instalment payouts.
-                </span>
-              </div>
-              <Link
-                href="/jobs/expenses"
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition inline-flex items-center gap-1.5 shrink-0 shadow-2xs text-xs"
-              >
-                <span>Open Field Expenses Clearance &rarr;</span>
-              </Link>
-            </div>
-          )}
 
           {/* Warehouse Storekeeper vs General / Dispatcher / Accountant KPI Dashboard Cards */}
           {isStorekeeper ? (

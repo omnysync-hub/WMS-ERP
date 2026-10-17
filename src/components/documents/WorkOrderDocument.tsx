@@ -128,6 +128,11 @@ export default function WorkOrderDocument({ job, onClose }: WorkOrderDocumentPro
             <div className="text-zinc-600 font-mono">
               Contact: {job.customer?.phone || "—"}
             </div>
+            {job.isFoc && (
+              <div className="text-[11px] text-purple-900 font-bold bg-purple-50 border border-purple-200 p-1.5 rounded mt-1">
+                FREE OF CHARGE (FOC): Customer Payable = PKR 0. Billed to {job.careOfParty?.companyName || "Principal Partner"}.
+              </div>
+            )}
             {job.careOfParty && (
               <div className="text-[11px] text-purple-900 font-medium pt-1 border-t border-zinc-200">
                 Care-Of: {job.careOfParty.companyName} ({job.careOfParty.personName})

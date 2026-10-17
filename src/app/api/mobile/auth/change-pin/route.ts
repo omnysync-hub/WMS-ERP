@@ -17,7 +17,7 @@ import {
  * Security:
  * - Requires a valid mobile session token or authenticated employee credentials.
  * - Requires verification of current password to prevent unauthorized changes.
- * - Enforces minimum length >= 6.
+ * - Enforces minimum length >= 8.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const isCurrentValid = await comparePassword(currentInput.trim(), employee.mobilePasswordHash);
+      const isCurrentValid = await comparePassword(currentInput, employee.mobilePasswordHash);
       if (!isCurrentValid) {
         return NextResponse.json(
           { error: "Incorrect current password." },
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Prevent re-using the exact same password
-      const isSame = await comparePassword(String(newInput).trim(), employee.mobilePasswordHash);
+      const isSame = await comparePassword(String(newInput), employee.mobilePasswordHash);
       if (isSame) {
         return NextResponse.json(
           { error: "New password must be different from your current password." },

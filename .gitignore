@@ -58,3 +58,4 @@ Thumbs.db
 
 # Deployment platforms
 .vercel
+.neon

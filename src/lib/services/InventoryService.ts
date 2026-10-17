@@ -149,6 +149,32 @@ export class InventoryService {
    * Requires a resolvable product; unmatched items fail with a clear error instead of
    * being marked acknowledged with no stock movement.
    */
+  /**
+   * How many units of `productId` can still be returned from `jobId`:
+   * issued to the job (stock ledger "job_consumption", keyed by job id or its inventory-request ids)
+   * minus every return already filed for that job+product (pending or acknowledged).
+   */
+  static async getReturnableQty(
+    db: Prisma.TransactionClient | typeof prisma,
+    jobId: string,
+    productId: string,
+    excludeReturnId?: string
+  ) {
+    const requests = await db.inventoryRequest.findMany({ where: { jobId }, select: { id: true } });
+    const refIds = [jobId, ...requests.map((r) => r.id)];
+    const issued = await db.stockLedger.aggregate({
+      where: { productId, refType: "job_consumption", direction: "out", refId: { in: refIds } },
+      _sum: { qty: true },
+    });
+    const returned = await db.stockReturn.aggregate({
+      where: { jobId, productId, ...(excludeReturnId ? { id: { not: excludeReturnId } } : {}) },
+      _sum: { qtyReturned: true },
+    });
+    const issuedQty = Number(issued._sum.qty) || 0;
+    const returnedQty = Number(returned._sum.qtyReturned) || 0;
+    return { issuedQty, returnedQty, returnable: Math.max(0, Math.round((issuedQty - returnedQty) * 1000) / 1000) };
+  }
+
   static async acknowledgeStockReturn(
     stockReturnId: string,
     storeKeeperName: string,
@@ -183,6 +209,15 @@ export class InventoryService {
 
       const qty = Number(stockReturn.qtyReturned) || 0;
       if (qty <= 0) throw new Error("Stock return quantity must be greater than zero.");
+
+      // Cap: cannot restock more than was issued to this job (minus other returns).
+      const cap = await InventoryService.getReturnableQty(tx, stockReturn.jobId, product.id, stockReturn.id);
+      if (qty > cap.returnable + 1e-9) {
+        throw new Error(
+          `Cannot acknowledge return of ${qty}x '${product.name}': only ${cap.returnable} unit(s) are returnable for this job ` +
+            `(issued ${cap.issuedQty}, already returned/filed ${cap.returnedQty}).`
+        );
+      }
 
       // Claim the row first (guards concurrent double-acknowledge)
       const claimed = await tx.stockReturn.updateMany({
