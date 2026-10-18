@@ -13,6 +13,7 @@ import ReverseJournalEntryModal from "@/components/accounts/ReverseJournalEntryM
 import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import CoaManagerModal from "@/components/accounts/CoaManagerModal";
 import StatementOfAccountsTab from "@/components/accounts/StatementOfAccountsTab";
+import SideDrawer from "@/components/ui/SideDrawer";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
 import {
@@ -161,9 +162,7 @@ export default function AccountsPage() {
   // Expenses & Outflows state
   const [expenses, setExpenses] = useState<any[]>([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
-  const [newExpenseType, setNewExpenseType] = useState<"company" | "technician">("company");
   const [newExpensePayee, setNewExpensePayee] = useState("");
-  const [newExpenseTechId, setNewExpenseTechId] = useState("");
   const [newExpenseAccount, setNewExpenseAccount] = useState("6100");
   const [newExpenseDisbursing, setNewExpenseDisbursing] = useState("1000");
   const [newExpenseAmount, setNewExpenseAmount] = useState("");
@@ -750,9 +749,8 @@ export default function AccountsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "add_expense",
-          payeeType: newExpenseType,
-          payeeName: newExpensePayee || (newExpenseType === "technician" ? "Technician Field Claim" : "Operations"),
-          technicianId: newExpenseType === "technician" ? newExpenseTechId : undefined,
+          payeeType: "company",
+          payeeName: newExpensePayee || "Operations",
           expenseAccountCode: newExpenseAccount,
           disbursingAccountCode: newExpenseDisbursing,
           amount: Number(newExpenseAmount),
@@ -3202,160 +3200,136 @@ export default function AccountsPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: ADD EXPENSE VOUCHER */}
+      {/* DRAWER: ADD EXPENSE VOUCHER */}
       {/* ========================================================================= */}
-      {showAddExpenseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-[#E4E4E7] text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
-                <TrendingDown className="w-4 h-4 text-rose-600" />
-                Record Expense Voucher
-              </h3>
-              <button onClick={() => setShowAddExpenseModal(false)} className="text-[#71717A]">
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleAddExpense} className="space-y-3.5">
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Expense Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewExpenseType("company")}
-                    className={`py-2 rounded-lg font-bold border text-xs ${
-                      newExpenseType === "company"
-                        ? "bg-[#18181B] text-white border-black"
-                        : "bg-white text-[#71717A] border-[#D4D4D8]"
-                    }`}
-                  >
-                    Company Expense
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewExpenseType("technician")}
-                    className={`py-2 rounded-lg font-bold border text-xs ${
-                      newExpenseType === "technician"
-                        ? "bg-[#18181B] text-white border-black"
-                        : "bg-white text-[#71717A] border-[#D4D4D8]"
-                    }`}
-                  >
-                    Technician Field Claim
-                  </button>
-                </div>
-              </div>
-
-              {newExpenseType === "technician" ? (
-                <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Technician *</label>
-                  <select
-                    value={newExpenseTechId}
-                    onChange={(e) => setNewExpenseTechId(e.target.value)}
-                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
-                    required
-                  >
-                    <option value="">Select Technician...</option>
-                    {partiesData.technicians.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.phone})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Payee / Beneficiary</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Shell Petrol Station, DEWA Electricity, Office Supplies"
-                    value={newExpensePayee}
-                    onChange={(e) => setNewExpensePayee(e.target.value)}
-                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs"
-                    required
-                  />
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Expense Account (Debit)</label>
-                  <select
-                    value={newExpenseAccount}
-                    onChange={(e) => setNewExpenseAccount(e.target.value)}
-                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
-                  >
-                    {(accountingConfig?.expenseCategories || []).map((item: any) => item.account && <option key={item.id || item.code} value={item.account.code}>{item.account.code} — {item.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Payment Source (Credit)</label>
-                  <select
-                    value={newExpenseDisbursing}
-                    onChange={(e) => setNewExpenseDisbursing(e.target.value)}
-                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
-                  >
-                    {cashAccounts.map((account: any) => <option key={account.id || account.code} value={account.code}>{account.code} — {account.name}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={newExpenseAmount}
-                    onChange={(e) => setNewExpenseAmount(e.target.value)}
-                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-[#71717A] block mb-1">Receipt / Invoice Ref #</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. REC-8921"
-                    value={newExpenseRef}
-                    onChange={(e) => setNewExpenseRef(e.target.value)}
-                    className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Memo / Description</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Emergency copper tubing purchased on job site"
-                  value={newExpenseMemo}
-                  onChange={(e) => setNewExpenseMemo(e.target.value)}
-                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddExpenseModal(false)}
-                  className="px-3 py-1.5 text-xs text-[#71717A]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs"
-                >
-                  Post Expense to General Ledger
-                </button>
-              </div>
-            </form>
+      <SideDrawer
+        isOpen={showAddExpenseModal}
+        onClose={() => setShowAddExpenseModal(false)}
+        width="max-w-md"
+        title={
+          <div className="flex items-center gap-2">
+            <TrendingDown className="w-4 h-4 text-rose-600" />
+            <span>Record Expense Voucher</span>
           </div>
-        </div>
-      )}
+        }
+        subtitle="Post a verified business operating expense directly to General Ledger."
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setShowAddExpenseModal(false)}
+              className="px-3.5 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B] transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="add-expense-form"
+              className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5" />
+              Post Expense to General Ledger
+            </button>
+          </div>
+        }
+      >
+        <form id="add-expense-form" onSubmit={handleAddExpense} className="space-y-4 text-xs">
+          <div>
+            <label className="text-xs font-semibold text-[#18181B] block mb-1">
+              Payee / Beneficiary *
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Shell Petrol Station, DEWA Electricity, Office Supplies"
+              value={newExpensePayee}
+              onChange={(e) => setNewExpensePayee(e.target.value)}
+              className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                Expense Account (Debit)
+              </label>
+              <select
+                value={newExpenseAccount}
+                onChange={(e) => setNewExpenseAccount(e.target.value)}
+                className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs font-semibold focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+              >
+                {(accountingConfig?.expenseCategories || []).map(
+                  (item: any) =>
+                    item.account && (
+                      <option key={item.id || item.code} value={item.account.code}>
+                        {item.account.code} — {item.name}
+                      </option>
+                    )
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                Payment Source (Credit)
+              </label>
+              <select
+                value={newExpenseDisbursing}
+                onChange={(e) => setNewExpenseDisbursing(e.target.value)}
+                className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs font-semibold focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+              >
+                {cashAccounts.map((account: any) => (
+                  <option key={account.id || account.code} value={account.code}>
+                    {account.code} — {account.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                Amount (PKR) *
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                placeholder="0.00"
+                value={newExpenseAmount}
+                onChange={(e) => setNewExpenseAmount(e.target.value)}
+                className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] font-mono font-bold text-sm focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                Receipt / Invoice Ref #
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. REC-8921"
+                value={newExpenseRef}
+                onChange={(e) => setNewExpenseRef(e.target.value)}
+                className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs font-mono focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#18181B] block mb-1">
+              Memo / Description
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Emergency copper tubing purchased on job site"
+              value={newExpenseMemo}
+              onChange={(e) => setNewExpenseMemo(e.target.value)}
+              className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
+            />
+          </div>
+        </form>
+      </SideDrawer>
 
       {/* ========================================================================= */}
       {/* MODAL: RECORD CUSTOMER PAYMENT */}
