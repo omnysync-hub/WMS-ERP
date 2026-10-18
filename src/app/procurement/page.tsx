@@ -295,8 +295,8 @@ function ProcurementPageContent() {
     if (activeRole === "storekeeper") {
       return [
         { key: "my-prs", label: "My Requisitions", value: myPrs.length, tab: "prs", hint: "Draft & open requisitions", icon: FileText },
-        { key: "await-grn", label: "Awaiting Receipt", value: posAwaitingGrn.length, tone: posAwaitingGrn.length ? "amber" : "slate", tab: "grns", hint: "POs awaiting delivery", icon: PackageCheck },
-        { key: "grns", label: "GRNs Logged", value: grns.length, tab: "grns", hint: "Completed goods receipts", icon: Boxes },
+        { key: "await-grn", label: "Awaiting Receipt", value: posAwaitingGrn.length, tone: posAwaitingGrn.length ? "amber" : "slate", tab: "grns", filter: "awaiting_delivery", hint: "POs awaiting delivery", icon: PackageCheck },
+        { key: "grns", label: "GRNs Logged", value: grns.length, tab: "grns", filter: "completed_grns", hint: "Completed goods receipts", icon: Boxes },
       ];
     }
     if (activeRole === "purchasing") {
@@ -612,6 +612,8 @@ function ProcurementPageContent() {
                 pos={pos}
                 onRefresh={loadAllData}
                 presetPoForGrn={presetPoForGrn}
+                queueFilter={queueFilter}
+                onClearQueueFilter={() => setQueueFilter(null)}
               />
             )}
 

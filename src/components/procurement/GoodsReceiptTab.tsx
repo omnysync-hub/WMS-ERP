@@ -15,6 +15,10 @@ import {
   Eye,
   Hash,
   Printer,
+  Truck,
+  Boxes,
+  FileText,
+  Check,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import {
@@ -34,6 +38,8 @@ interface GoodsReceiptTabProps {
   pos: any[];
   onRefresh: () => void;
   presetPoForGrn?: any | null;
+  queueFilter?: string | null;
+  onClearQueueFilter?: () => void;
 }
 
 export default function GoodsReceiptTab({
@@ -41,11 +47,27 @@ export default function GoodsReceiptTab({
   pos,
   onRefresh,
   presetPoForGrn,
+  queueFilter,
+  onClearQueueFilter,
 }: GoodsReceiptTabProps) {
   const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
-  const canCreateGrn = hasPermission("procurement.grn.create");
-  const isStorekeeper = currentRole === "storekeeper";
+  const canCreateGrn =
+    hasPermission("procurement.grn.create") ||
+    activeRole === "admin" ||
+    currentRole === "storekeeper" ||
+    activeRole === "storekeeper";
+  const isStorekeeper = currentRole === "storekeeper" || activeRole === "storekeeper";
   const [search, setSearch] = useState("");
+
+  const [subView, setSubView] = useState<"awaiting" | "grns">(() => {
+    if (queueFilter === "completed_grns") return "grns";
+    return "awaiting";
+  });
+
+  useEffect(() => {
+    if (queueFilter === "awaiting_delivery") setSubView("awaiting");
+    if (queueFilter === "completed_grns") setSubView("grns");
+  }, [queueFilter]);
 
   // Create GRN Modal State
   const [showCreateModal, setShowCreateModal] = useState(Boolean(presetPoForGrn));
@@ -83,6 +105,51 @@ export default function GoodsReceiptTab({
   const [formError, setFormError] = useState("");
 
   const [viewingPoDrawer, setViewingPoDrawer] = useState<any | null>(null);
+
+  /** POs that are approved and dispatched / sent to vendor and awaiting delivery */
+  const awaitingPos = React.useMemo(() => {
+    return pos.filter((p) => {
+      const st = (p.status || "").toLowerCase();
+      if (["cancelled", "canceled", "closed", "draft"].includes(st)) return false;
+      const isApprovedOrSent = [
+        "approved",
+        "sent",
+        "sent_to_vendor",
+        "partially_received",
+      ].includes(st);
+      if (!isApprovedOrSent) return false;
+      const items = p.items || [];
+      if (items.length === 0) return true;
+      const totalOrdered = items.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+      const totalReceived = items.reduce((s: number, i: any) => s + (Number(i.quantityReceived) || 0), 0);
+      return totalOrdered > totalReceived;
+    });
+  }, [pos]);
+
+  const filteredAwaitingPos = React.useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return awaitingPos;
+    return awaitingPos.filter((p) => {
+      const poNumMatch = p.poNumber?.toLowerCase().includes(q);
+      const supplierMatch = p.supplierName?.toLowerCase().includes(q);
+      const addrMatch = p.shippingAddress?.toLowerCase().includes(q);
+      const itemMatch = (p.items || []).some(
+        (it: any) =>
+          it.description?.toLowerCase().includes(q) ||
+          it.itemCode?.toLowerCase().includes(q) ||
+          it.product?.name?.toLowerCase().includes(q) ||
+          it.product?.sku?.toLowerCase().includes(q)
+      );
+      return poNumMatch || supplierMatch || addrMatch || itemMatch;
+    });
+  }, [awaitingPos, search]);
+
+  const handleStartGrnForPo = (po: any) => {
+    setViewingPoDrawer(null);
+    handlePoSelect(po.id);
+    setShowCreateModal(true);
+    setFormError("");
+  };
 
   /** Open POs with remaining qty — GRN is always against a PO */
   const openPosForReceipt = pos.filter((p) => {
@@ -195,6 +262,7 @@ export default function GoodsReceiptTab({
       }
 
       setShowCreateModal(false);
+      setSubView("grns");
       onRefresh();
     } catch (err: any) {
       setFormError(err.message || "Failed to process Goods Receipt");
@@ -216,6 +284,73 @@ export default function GoodsReceiptTab({
 
   return (
     <div className="space-y-4">
+      {/* Sub-View Switcher: Awaiting Delivery vs Completed GRNs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] w-fit">
+          <button
+            type="button"
+            onClick={() => {
+              setSubView("awaiting");
+              onClearQueueFilter?.();
+            }}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer",
+              subView === "awaiting"
+                ? "bg-white text-[#0D7A5F] shadow-2xs font-bold"
+                : "text-[#71717A] hover:text-[#18181B]"
+            )}
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>POs Awaiting Delivery</span>
+            <span
+              className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold",
+                subView === "awaiting"
+                  ? "bg-[#0D7A5F] text-white"
+                  : "bg-[#E4E4E7] text-[#71717A]"
+              )}
+            >
+              {awaitingPos.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSubView("grns");
+              onClearQueueFilter?.();
+            }}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer",
+              subView === "grns"
+                ? "bg-white text-[#0D7A5F] shadow-2xs font-bold"
+                : "text-[#71717A] hover:text-[#18181B]"
+            )}
+          >
+            <Boxes className="w-3.5 h-3.5" />
+            <span>Logged Goods Receipts (GRNs)</span>
+            <span
+              className={cn(
+                "text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold",
+                subView === "grns"
+                  ? "bg-[#0D7A5F] text-white"
+                  : "bg-[#E4E4E7] text-[#71717A]"
+              )}
+            >
+              {grns.length}
+            </span>
+          </button>
+        </div>
+
+        {subView === "awaiting" && (
+          <div className="text-xs text-[#71717A] flex items-center gap-2">
+            <span>
+              <strong>{awaitingPos.length}</strong> purchase order(s) dispatched to vendors awaiting warehouse delivery.
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Controls Bar */}
       <div className="sticky top-0 z-20 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white border border-[#EDEDED] p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2.5 flex-1">
@@ -223,7 +358,11 @@ export default function GoodsReceiptTab({
             <Search className="w-4 h-4 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search GRN #, PO #, supplier, warehouse..."
+              placeholder={
+                subView === "awaiting"
+                  ? "Search PO #, supplier, line items, warehouse..."
+                  : "Search GRN #, PO #, supplier, warehouse..."
+              }
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#D4D4D8] rounded-lg text-xs text-[#18181B] placeholder-[#A1A1AA] focus:outline-none focus:ring-1 focus:ring-[#0D7A5F]"
@@ -234,21 +373,212 @@ export default function GoodsReceiptTab({
         <button
           onClick={() => {
             const firstPo = pos.find(
-              (p) => p.status === "sent_to_vendor" || p.status === "partially_received" || p.status === "approved"
+              (p) =>
+                p.status === "sent_to_vendor" ||
+                p.status === "partially_received" ||
+                p.status === "approved"
             );
             if (firstPo) handlePoSelect(firstPo.id);
             setShowCreateModal(true);
             setFormError("");
           }}
-          className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
+          className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           Receive Goods Note (GRN)
         </button>
       </div>
 
-      {/* GRN Table */}
-      <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
+      {subView === "awaiting" ? (
+        /* Awaiting Delivery POs Table */
+        <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-[#EDEDED] bg-[#F8FAFC] text-[#71717A] font-mono text-[11px] uppercase tracking-wider">
+                  <th className="py-3 px-4">Purchase Order & Date</th>
+                  <th className="py-3 px-3">Supplier Name</th>
+                  <th className="py-3 px-3">Expected Delivery</th>
+                  <th className="py-3 px-3">Warehouse Destination</th>
+                  <th className="py-3 px-3">Stock Fulfillment</th>
+                  <th className="py-3 px-3">Order Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
+                {filteredAwaitingPos.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-0">
+                      <ProcurementEmptyState
+                        title="No purchase orders awaiting delivery"
+                        description={
+                          search
+                            ? "No awaiting purchase orders matched your search query."
+                            : "All approved purchase orders have either been fully received into warehouse stock or none are currently dispatched."
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAwaitingPos.map((po) => {
+                    const items = po.items || [];
+                    const totalOrdered = items.reduce(
+                      (s: number, i: any) => s + (Number(i.quantity) || 0),
+                      0
+                    );
+                    const totalReceived = items.reduce(
+                      (s: number, i: any) => s + (Number(i.quantityReceived) || 0),
+                      0
+                    );
+                    const pendingUnits = Math.max(0, totalOrdered - totalReceived);
+                    const percentReceived =
+                      totalOrdered > 0
+                        ? Math.min(100, Math.round((totalReceived / totalOrdered) * 100))
+                        : 0;
+                    const pendingLines = items.filter(
+                      (it: any) =>
+                        (Number(it.quantity) || 0) > (Number(it.quantityReceived) || 0)
+                    ).length;
+                    const isOverdue =
+                      po.expectedDeliveryDate &&
+                      new Date(po.expectedDeliveryDate) < new Date() &&
+                      pendingUnits > 0;
+
+                    return (
+                      <tr
+                        key={po.id}
+                        className="hover:bg-[#F8FAFC] transition-colors group cursor-pointer"
+                        onClick={() => setViewingPoDrawer(po)}
+                      >
+                        <td className="py-3 px-4">
+                          <div className="font-mono font-bold text-[#18181B] group-hover:text-[#0D7A5F] transition-colors flex items-center gap-1.5">
+                            {po.poNumber}
+                            {po.poType && po.poType !== "standard" && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 font-mono uppercase">
+                                {po.poType}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-[#A1A1AA] font-mono">
+                            {new Date(po.poDate || po.createdAt).toLocaleDateString()} •{" "}
+                            {items.length} line item(s)
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-[#18181B]">{po.supplierName}</div>
+                          {po.vendor?.phone ? (
+                            <div className="text-[10px] text-[#71717A] font-mono">
+                              {po.vendor.phone}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-[#71717A] font-mono">
+                              Terms: {po.paymentTerms || "Net 30"}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 font-mono text-[11px]">
+                          {po.expectedDeliveryDate ? (
+                            <div>
+                              <div className="text-[#18181B] font-medium">
+                                {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                              </div>
+                              {isOverdue ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                                  <AlertTriangle className="w-3 h-3 text-rose-600" /> Overdue
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                  <Clock className="w-3 h-3 text-emerald-600" /> On Schedule
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[#A1A1AA] text-xs">Standard Lead Time</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-[#71717A]">
+                          <div className="flex items-center gap-1.5">
+                            <Warehouse className="w-3.5 h-3.5 text-[#71717A] shrink-0" />
+                            <span className="truncate max-w-[150px]">
+                              {po.shippingAddress || "Central Warehouse"}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <div className="w-36">
+                            <div className="flex justify-between text-[10px] font-mono mb-1">
+                              <span className="text-[#71717A]">
+                                {totalReceived} / {totalOrdered} units
+                              </span>
+                              <span className="text-[#18181B] font-bold">
+                                {percentReceived}%
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 bg-[#F4F4F5] rounded-full overflow-hidden border border-[#EDEDED]">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all duration-300",
+                                  percentReceived === 100
+                                    ? "bg-emerald-500"
+                                    : percentReceived > 0
+                                    ? "bg-amber-500"
+                                    : "bg-zinc-300"
+                                )}
+                                style={{ width: `${percentReceived}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-[#71717A] block mt-0.5">
+                              {pendingLines} item(s) pending
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <ProcurementStatusBadge status={po.status} />
+                        </td>
+
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setViewingPoDrawer(po);
+                              }}
+                              title="View Purchase Order Details"
+                              className="p-1.5 rounded-lg bg-white hover:bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B] border border-[#D4D4D8] transition cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartGrnForPo(po);
+                              }}
+                              title="Log Inward Goods Receipt Note"
+                              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-2xs transition cursor-pointer"
+                            >
+                              <PackageCheck className="w-3.5 h-3.5" />
+                              Log GRN
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* GRN Table (Logged Goods Receipts) */
+        <div className="bg-white border border-[#EDEDED] rounded-xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead className="sticky top-0 z-10">
@@ -365,6 +695,7 @@ export default function GoodsReceiptTab({
           </table>
         </div>
       </div>
+    )}
 
       {/* Receive Goods Note (GRN) Modal */}
       <SideDrawer
@@ -742,6 +1073,365 @@ export default function GoodsReceiptTab({
             onClose={() => setPrintableGrn(null)}
           />
         )}
+      </SideDrawer>
+
+      {/* DRAWER: VIEW PURCHASE ORDER & ITEM FULFILLMENT DETAILS */}
+      <SideDrawer
+        isOpen={Boolean(viewingPoDrawer)}
+        onClose={() => setViewingPoDrawer(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Truck className="w-4 h-4 text-[#0D7A5F]" />
+            <span className="font-bold text-[#18181B] text-sm">
+              Purchase Order • {viewingPoDrawer?.poNumber}
+            </span>
+          </div>
+        }
+        subtitle="Expected vendor delivery, ordered line items, and warehouse receipt status."
+        width="max-w-3xl"
+        footer={
+          viewingPoDrawer && (
+            <div className="flex items-center justify-between w-full">
+              <button
+                type="button"
+                onClick={() => setViewingPoDrawer(null)}
+                className="px-4 py-2 border border-zinc-300 rounded-lg text-xs font-semibold text-zinc-700 hover:bg-zinc-100 transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStartGrnForPo(viewingPoDrawer)}
+                className="inline-flex items-center gap-2 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                <PackageCheck className="w-4 h-4" />
+                <span>Log Goods Receipt (GRN) for this PO</span>
+              </button>
+            </div>
+          )
+        }
+      >
+        {viewingPoDrawer && (() => {
+          const po = viewingPoDrawer;
+          const items = po.items || [];
+          const totalOrdered = items.reduce(
+            (s: number, i: any) => s + (Number(i.quantity) || 0),
+            0
+          );
+          const totalReceived = items.reduce(
+            (s: number, i: any) => s + (Number(i.quantityReceived) || 0),
+            0
+          );
+          const pendingUnits = Math.max(0, totalOrdered - totalReceived);
+          const percent =
+            totalOrdered > 0
+              ? Math.min(100, Math.round((totalReceived / totalOrdered) * 100))
+              : 0;
+          const isOverdue =
+            po.expectedDeliveryDate &&
+            new Date(po.expectedDeliveryDate) < new Date() &&
+            pendingUnits > 0;
+          const relatedGrns = grns.filter(
+            (g) => g.poId === po.id || g.po?.poNumber === po.poNumber
+          );
+
+          return (
+            <div className="space-y-5 text-xs text-[#18181B] pb-6">
+              {/* Top Overview Cards Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-[#F8FAFC] rounded-xl border border-[#EDEDED]">
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A] uppercase">
+                    Vendor / Supplier
+                  </span>
+                  <span className="font-bold text-[#18181B] block mt-0.5">
+                    {po.supplierName}
+                  </span>
+                  {po.vendor?.phone && (
+                    <span className="text-[11px] text-[#71717A] font-mono block">
+                      {po.vendor.phone}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A] uppercase">
+                    PO Date & Type
+                  </span>
+                  <span className="font-semibold text-[#18181B] block mt-0.5">
+                    {new Date(po.poDate || po.createdAt).toLocaleDateString()}
+                  </span>
+                  <span className="text-[10px] font-mono text-[#71717A] uppercase">
+                    {po.poType || "Standard"}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A] uppercase">
+                    Expected Delivery
+                  </span>
+                  {po.expectedDeliveryDate ? (
+                    <div>
+                      <span className="font-semibold text-[#18181B] block mt-0.5">
+                        {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                      </span>
+                      {isOverdue ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
+                          <AlertTriangle className="w-3 h-3 text-rose-600" /> Overdue
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
+                          <Clock className="w-3 h-3 text-emerald-600" /> On Schedule
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[#71717A] block mt-0.5">Standard Lead Time</span>
+                  )}
+                </div>
+
+                <div>
+                  <span className="block text-[10px] font-mono text-[#71717A] uppercase">
+                    Order Status
+                  </span>
+                  <div className="mt-1">
+                    <ProcurementStatusBadge status={po.status} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Delivery Address & Terms */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                <div>
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase block">
+                    Receiving Destination
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Warehouse className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span className="font-medium text-zinc-800">
+                      {po.shippingAddress || "Central Warehouse - Lahore"}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase block">
+                    Payment & Delivery Terms
+                  </span>
+                  <span className="font-medium text-zinc-800 mt-1 block">
+                    {po.paymentTerms || "Net 30 Days"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Fulfillment Progress Bar */}
+              <div className="p-3.5 bg-white border border-[#EDEDED] rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-[#18181B]">
+                    Warehouse Inward Fulfillment
+                  </span>
+                  <span className="font-mono font-bold text-xs text-[#0D7A5F]">
+                    {percent}% Complete
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden border border-zinc-200">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all duration-300",
+                      percent === 100
+                        ? "bg-emerald-500"
+                        : percent > 0
+                        ? "bg-amber-500"
+                        : "bg-zinc-300"
+                    )}
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+                <div className="grid grid-cols-3 text-center pt-1 border-t border-zinc-100">
+                  <div>
+                    <span className="text-[10px] text-zinc-500 uppercase block font-mono">
+                      Ordered
+                    </span>
+                    <strong className="text-sm font-mono text-zinc-900">
+                      {totalOrdered} units
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 uppercase block font-mono">
+                      Received So Far
+                    </span>
+                    <strong className="text-sm font-mono text-emerald-700">
+                      {totalReceived} units
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-500 uppercase block font-mono">
+                      Pending Receipt
+                    </span>
+                    <strong
+                      className={cn(
+                        "text-sm font-mono",
+                        pendingUnits > 0 ? "text-amber-700" : "text-zinc-500"
+                      )}
+                    >
+                      {pendingUnits} units
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Line Items Table */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#18181B]">
+                    Ordered Items & Quantities ({items.length} lines)
+                  </span>
+                  <span className="text-[11px] text-[#71717A]">
+                    Inspect ordered vs received quantities
+                  </span>
+                </div>
+                <div className="border border-[#EDEDED] rounded-xl overflow-hidden bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
+                      <tr>
+                        <th className="py-2.5 px-3">#</th>
+                        <th className="py-2.5 px-3">Item Description / SKU</th>
+                        <th className="py-2.5 px-3 text-right">Ordered</th>
+                        <th className="py-2.5 px-3 text-right">Received</th>
+                        <th className="py-2.5 px-3 text-right">Pending</th>
+                        <th className="py-2.5 px-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EDEDED] text-[#18181B]">
+                      {items.map((it: any, idx: number) => {
+                        const ord = Number(it.quantity) || 0;
+                        const rec = Number(it.quantityReceived) || 0;
+                        const pend = Math.max(0, ord - rec);
+                        return (
+                          <tr key={it.id || idx} className="hover:bg-[#F8FAFC]">
+                            <td className="py-2.5 px-3 font-mono text-zinc-400">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-semibold text-zinc-900">
+                                {it.description || it.product?.name || "Item"}
+                              </div>
+                              {(it.itemCode || it.product?.sku) && (
+                                <div className="text-[10px] font-mono text-zinc-500">
+                                  SKU: {it.itemCode || it.product?.sku}
+                                </div>
+                              )}
+                              {it.deliverySchedule && (
+                                <div className="text-[10px] text-zinc-500 italic mt-0.5">
+                                  Schedule: {it.deliverySchedule}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-medium">
+                              {ord} {it.unit || "unit"}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
+                              {rec} {it.unit || "unit"}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold">
+                              {pend > 0 ? (
+                                <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                                  {pend} {it.unit || "unit"}
+                                </span>
+                              ) : (
+                                <span className="text-zinc-400">0</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {pend === 0 ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                  <Check className="w-3 h-3 text-emerald-600" /> Complete
+                                </span>
+                              ) : rec > 0 ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                  Partial
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                                  Awaiting
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Prior Goods Receipts Section */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-[#18181B] block">
+                  Logged Inward Receipts for this Order ({relatedGrns.length})
+                </span>
+                {relatedGrns.length > 0 ? (
+                  <div className="border border-[#EDEDED] rounded-xl overflow-hidden bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#F8FAFC] text-[#71717A] font-mono text-[10px] uppercase border-b border-[#EDEDED]">
+                        <tr>
+                          <th className="py-2 px-3">GRN #</th>
+                          <th className="py-2 px-3">Date</th>
+                          <th className="py-2 px-3">Received By</th>
+                          <th className="py-2 px-3">Delivery Challan</th>
+                          <th className="py-2 px-3 text-right">Units Received</th>
+                          <th className="py-2 px-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EDEDED]">
+                        {relatedGrns.map((g) => {
+                          const gUnits = (g.items || []).reduce(
+                            (acc: number, i: any) =>
+                              acc + (Number(i.quantityReceived) || 0),
+                            0
+                          );
+                          return (
+                            <tr key={g.id} className="hover:bg-[#F8FAFC]">
+                              <td className="py-2 px-3 font-mono font-bold text-[#0D7A5F]">
+                                {g.grnNumber}
+                              </td>
+                              <td className="py-2 px-3 text-zinc-600">
+                                {new Date(
+                                  g.receivedDate || g.createdAt
+                                ).toLocaleDateString()}
+                              </td>
+                              <td className="py-2 px-3 text-zinc-800">{g.receivedBy}</td>
+                              <td className="py-2 px-3 font-mono text-zinc-600">
+                                {g.deliveryChallan || "—"}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-zinc-900">
+                                {gUnits}
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setViewingPoDrawer(null);
+                                    setViewingGrn(g);
+                                  }}
+                                  className="text-[11px] font-semibold text-[#0D7A5F] hover:underline cursor-pointer"
+                                >
+                                  View GRN
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-center text-zinc-500 text-xs">
+                    No inward goods receipts have been logged against this purchase order yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </SideDrawer>
     </div>
   );
