@@ -108,7 +108,7 @@ export default function AccountsPage() {
   }, []);
 
   // Sub-tabs for Party Ledgers
-  const [partySubTab, setPartySubTab] = useState<"customers" | "care_of" | "technicians" | "vendors">("customers");
+  const [partySubTab, setPartySubTab] = useState<"customers" | "care_of" | "vendors">("customers");
 
   // Data states
   const [pendingDiscounts, setPendingDiscounts] = useState<any[]>([]);
@@ -1264,16 +1264,6 @@ export default function AccountsPage() {
                 )}
               </button>
               <button
-                onClick={() => setPartySubTab("technicians")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                  partySubTab === "technicians"
-                    ? "bg-white text-[#18181B] shadow-xs"
-                    : "text-[#71717A] hover:text-[#18181B]"
-                }`}
-              >
-                Technicians (Hisaab Netted)
-              </button>
-              <button
                 onClick={() => setPartySubTab("vendors")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   partySubTab === "vendors"
@@ -1491,167 +1481,6 @@ export default function AccountsPage() {
                   </table>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* SUB-VIEW C: TECHNICIAN HISAAB */}
-          {partySubTab === "technicians" && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-                <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                      Technician Running Hisaab Balances
-                    </h3>
-                    <p className="text-[11px] text-[#71717A] mt-0.5">
-                      Single netted balance: Advances (+ owed to co.) balanced against verified expenses (- co. owes tech).
-                    </p>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                        <th className="py-2.5 px-4">Technician</th>
-                        <th className="py-2.5 px-4">Phone</th>
-                        <th className="py-2.5 px-4 text-right">Total Advances</th>
-                        <th className="py-2.5 px-4 text-right">Expenses Pending</th>
-                        <th className="py-2.5 px-4 text-right">Netted Running Balance</th>
-                        <th className="py-2.5 px-4 text-center">Status</th>
-                        <th className="py-2.5 px-4 text-right">Hisaab Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E4E4E7]">
-                      {partiesData.technicians
-                        .filter((t) => t.name.toLowerCase().includes(partySearch.toLowerCase()))
-                        .map((tech) => {
-                          const isSelected = selectedTechId === tech.id;
-                          return (
-                            <tr
-                              key={tech.id}
-                              onClick={() => handleSelectTech(isSelected ? "" : tech.id)}
-                              className={`cursor-pointer transition ${
-                                isSelected ? "bg-emerald-50/50" : "hover:bg-[#FAFAFA]"
-                              }`}
-                            >
-                              <td className="py-3 px-4">
-                                <span className="font-bold text-[#18181B] block">{tech.name}</span>
-                                <span className="text-[10px] text-[#71717A]">{tech.email}</span>
-                              </td>
-                              <td className="py-3 px-4 font-mono text-[#52525B]">{tech.phone}</td>
-                              <td className="py-3 px-4 text-right font-mono text-[#71717A]">
-                                {formatCurrency(tech.totalAdvances)}
-                              </td>
-                              <td className="py-3 px-4 text-right font-mono text-[#71717A]">
-                                {formatCurrency(tech.totalExpensesOwed)}
-                              </td>
-                              <td className="py-3 px-4 text-right">
-                                <span
-                                  className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
-                                    tech.netBalance > 0
-                                      ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                      : tech.netBalance < 0
-                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                      : "bg-[#F4F4F5] text-[#71717A] border border-[#E4E4E7]"
-                                  }`}
-                                >
-                                  {formatCurrency(Math.abs(tech.netBalance))}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 text-center text-[11px] font-semibold">
-                                {tech.netBalance > 0 ? (
-                                  <span className="text-rose-600">Owes Co.</span>
-                                ) : tech.netBalance < 0 ? (
-                                  <span className="text-emerald-600">Co. Owes Tech</span>
-                                ) : (
-                                  <span className="text-[#71717A]">Settled Clean</span>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedTechId(tech.id);
-                                      setShowAdvanceModal(true);
-                                    }}
-                                    className="px-2 py-1 bg-[#F4F4F5] hover:bg-[#E4E4E7] rounded text-[11px] font-bold text-[#18181B] transition"
-                                  >
-                                    + Advance
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setDrawerTechId(tech.id);
-                                      setShowExpenseDrawer(true);
-                                    }}
-                                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 rounded text-[11px] font-bold text-[#0D7A5F] transition"
-                                  >
-                                    + Expense
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Technician Detailed Hisaab Drawer */}
-              {selectedTechId && (
-                <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-3 animate-in fade-in">
-                  <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
-                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                      Individual Transaction Ledger for Selected Technician
-                    </h3>
-                    <button
-                      onClick={() => setSelectedTechId("")}
-                      className="text-xs font-bold text-[#0D7A5F] hover:underline"
-                    >
-                      Close Ledger View
-                    </button>
-                  </div>
-
-                  {detailedTechEntries.length === 0 ? (
-                    <p className="text-xs text-[#71717A] py-4 text-center">No ledger entries recorded.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                            <th className="py-2 px-3">Date</th>
-                            <th className="py-2 px-3">Entry Type</th>
-                            <th className="py-2 px-3">Notes & Reference</th>
-                            <th className="py-2 px-3 text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#E4E4E7]">
-                          {detailedTechEntries.map((e) => (
-                            <tr key={e.id} className="hover:bg-[#FAFAFA]">
-                              <td className="py-2 px-3 text-[#71717A] font-mono text-[11px]">
-                                {formatDateTime(e.date)}
-                              </td>
-                              <td className="py-2 px-3 capitalize font-bold text-[#18181B]">
-                                {e.type.replace("_", " ")}
-                              </td>
-                              <td className="py-2 px-3 text-[#52525B]">{e.notes || "—"}</td>
-                              <td className="py-2 px-3 text-right font-mono font-bold">
-                                <span className={e.isAdvance ? "text-rose-600" : "text-emerald-600"}>
-                                  {e.isAdvance ? "+" : "-"}
-                                  {formatCurrency(e.amount)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
@@ -3736,63 +3565,7 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* MODAL: DISBURSE TECH ADVANCE */}
-      {/* ========================================================================= */}
-      {showAdvanceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3.5 shadow-2xl border border-[#E4E4E7] text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-              <h3 className="text-sm font-bold text-[#18181B]">Disburse Technician Advance</h3>
-              <button onClick={() => setShowAdvanceModal(false)} className="text-[#71717A]">
-                ✕
-              </button>
-            </div>
 
-            <form onSubmit={handleGiveAdvance} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Advance Amount *</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  value={advanceAmount}
-                  onChange={(e) => setAdvanceAmount(e.target.value)}
-                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] font-mono font-bold text-sm"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#71717A] block mb-1">Disbursement Purpose</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Fuel float for Ras Al Khaimah job"
-                  value={advanceNotes}
-                  onChange={(e) => setAdvanceNotes(e.target.value)}
-                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanceModal(false)}
-                  className="px-3 py-1.5 text-xs text-[#71717A]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs"
-                >
-                  Disburse & Update Hisaab
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* MODAL: DISBURSE VENDOR PAYMENT */}
