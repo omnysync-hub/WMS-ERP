@@ -33,6 +33,6 @@ export const DEVELOPMENT_DEMO_USERS = [
 ] as const;
 
 export function demoLoginEnabled() {
-  return true;
+  return process.env.ENABLE_DEMO_LOGIN === "true";
 }
 

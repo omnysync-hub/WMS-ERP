@@ -23,7 +23,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
   if (body.name !== undefined) {
     const name = String(body.name).trim();
-    if (name.length < 2 || name.length > 100) return NextResponse.json({ error: "Enter a valid full name." }, { status: 400 });
+    if (name.length > 0 && (name.length < 2 || name.length > 100)) {
+      return NextResponse.json({ error: "Full name must be between 2 and 100 characters if provided." }, { status: 400 });
+    }
     data.name = name;
   }
   if (body.username !== undefined) {

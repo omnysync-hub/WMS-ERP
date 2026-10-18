@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const password = String(body.password || "");
   const role = String(body.role || "").trim().toLowerCase();
   const passwordError = validateErpPassword(password);
-  if (name.length < 2 || name.length > 100) return NextResponse.json({ error: "Enter a valid full name." }, { status: 400 });
+  if (name.length > 0 && (name.length < 2 || name.length > 100)) return NextResponse.json({ error: "Full name must be between 2 and 100 characters if provided." }, { status: 400 });
   if (!/^[a-z0-9][a-z0-9._-]{2,39}$/.test(username)) return NextResponse.json({ error: "Username must be 3–40 characters using letters, numbers, dot, dash, or underscore." }, { status: 400 });
   if (!/^\S+@\S+\.\S+$/.test(email)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   if (!isKnownErpRole(role)) return NextResponse.json({ error: "Select a valid system role." }, { status: 400 });

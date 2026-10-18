@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [rememberLogin, setRememberLogin] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const demoEnabled = true;
+  const demoEnabled = false;
   const roleLabels = useMemo(() => Object.fromEntries(ERP_ROLE_OPTIONS.map((role) => [role.key, role.label])), []);
 
   async function performLogin(usernameToUse: string, passwordToUse: string) {

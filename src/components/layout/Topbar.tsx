@@ -493,14 +493,14 @@ export default function Topbar({
               className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#27272A] transition text-left focus-visible:outline-none"
             >
               <div className={`w-7 h-7 rounded-full ${currentPersona.badgeColor} flex items-center justify-center text-xs font-bold shrink-0 shadow-xs`}>
-                  {activeUser.avatar || currentPersona.avatar}
+                  {activeUser.avatar || activeUser.username?.slice(0, 2).toUpperCase() || currentPersona.avatar}
               </div>
               <div className="hidden md:block">
                 <p className="text-xs font-semibold text-[#E4E4E7] leading-none">
-                  {activeUser.name}
+                  {activeUser.name || activeUser.username || currentPersona.name}
                 </p>
                 <p className="text-[10px] text-emerald-400 font-medium leading-none mt-1">
-                  {activeUser.designation}
+                  {activeUser.designation || currentPersona.designation}
                 </p>
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-[#A1A1AA]" />
@@ -516,10 +516,10 @@ export default function Topbar({
                   <div className="px-3 pb-2.5 border-b border-[#EDEDED]">
                     <div className="flex items-center gap-2">
                       <div className={`w-6 h-6 rounded-md ${currentPersona.badgeColor} flex items-center justify-center text-[10px] font-bold shrink-0`}>
-                        {activeUser.avatar || currentPersona.avatar}
+                        {activeUser.avatar || activeUser.username?.slice(0, 2).toUpperCase() || currentPersona.avatar}
                       </div>
                       <div className="overflow-hidden">
-                        <p className="font-bold text-[#18181B] truncate">{activeUser.name}</p>
+                        <p className="font-bold text-[#18181B] truncate">{activeUser.name || activeUser.username || currentPersona.name}</p>
                         <p className="text-[10px] text-[#71717A] truncate">{activeUser.email}</p>
                       </div>
                     </div>

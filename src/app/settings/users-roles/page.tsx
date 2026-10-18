@@ -31,6 +31,10 @@ import {
   Sparkles,
   User,
   Filter,
+  KeyRound,
+  Copy,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 export default function UsersAndRolesSettingsPage() {
@@ -91,6 +95,47 @@ export default function UsersAndRolesSettingsPage() {
     setTimeout(() => setNotification(""), 4000);
   };
 
+  // Quick Reset Password Modal State
+  const [resetPasswordUser, setResetPasswordUser] = useState<SystemUser | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetShowPassword, setResetShowPassword] = useState(true);
+  const [resetCopied, setResetCopied] = useState(false);
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+
+  const generateCompliantPassword = () => {
+    const chars = "abcdefghjkmnpqrstuvwxyz";
+    const uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const numbers = "23456789";
+    let rand = "";
+    for (let i = 0; i < 4; i++) rand += chars[Math.floor(Math.random() * chars.length)];
+    const up = uppers[Math.floor(Math.random() * uppers.length)] + uppers[Math.floor(Math.random() * uppers.length)];
+    const num = numbers[Math.floor(Math.random() * numbers.length)] + numbers[Math.floor(Math.random() * numbers.length)];
+    return `Workman#${up}${rand}${num}!`;
+  };
+
+  const handleOpenResetPassword = (user: SystemUser) => {
+    setResetPasswordUser(user);
+    setResetPasswordValue(generateCompliantPassword());
+    setResetShowPassword(true);
+    setResetCopied(false);
+  };
+
+  const handlePerformResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordUser || !resetPasswordValue.trim()) return;
+    setResetSubmitting(true);
+    try {
+      await updateUser(resetPasswordUser.id, { password: resetPasswordValue.trim() });
+      notify(`Password for @${resetPasswordUser.username} successfully updated!`);
+      setResetPasswordUser(null);
+      setResetPasswordValue("");
+    } catch (err: any) {
+      alert(err instanceof Error ? err.message : "Failed to reset password");
+    } finally {
+      setResetSubmitting(false);
+    }
+  };
+
   const handleOpenAddUser = () => {
     setEditingUser(null);
     setFormName("");
@@ -119,8 +164,8 @@ export default function UsersAndRolesSettingsPage() {
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formUsername.trim() || !formEmail.trim()) {
-      return alert("Name, username, and email are required");
+    if (!formUsername.trim() || !formEmail.trim()) {
+      return alert("Username and email are required");
     }
     if (!editingUser && !formPassword) {
       return alert("Set a temporary password for the new user");
@@ -132,36 +177,34 @@ export default function UsersAndRolesSettingsPage() {
     try {
       if (editingUser) {
         await updateUser(editingUser.id, {
-        name: formName.trim(),
-        email: formEmail.trim(),
-        username: formUsername.trim(),
-        role: formRole,
-        designation: formDesignation.trim(),
-        department: formDepartment.trim(),
-        status: formStatus,
-        badgeColor,
-        ...(formPassword ? { password: formPassword } : {}),
-      });
-        notify(`User '${formName}' updated successfully`);
+          name: formName.trim(),
+          email: formEmail.trim(),
+          username: formUsername.trim(),
+          role: formRole,
+          designation: formDesignation.trim(),
+          department: formDepartment.trim(),
+          status: formStatus,
+          badgeColor,
+          ...(formPassword ? { password: formPassword } : {}),
+        });
+        notify(`User '@${formUsername}' updated successfully`);
       } else {
         await createUser({
-        name: formName.trim(),
-        email: formEmail.trim(),
-        username: formUsername.trim(),
-        role: formRole,
-        designation: formDesignation.trim(),
-        department: formDepartment.trim(),
-        status: formStatus,
-        avatar: formName
-          .split(" ")
-          .map((n) => n[0])
-          .join("")
-          .slice(0, 2)
-          .toUpperCase(),
-        badgeColor,
-        password: formPassword,
-      });
-        notify(`New user '${formName}' created successfully`);
+          name: formName.trim(),
+          email: formEmail.trim(),
+          username: formUsername.trim(),
+          role: formRole,
+          designation: formDesignation.trim(),
+          department: formDepartment.trim(),
+          status: formStatus,
+          avatar: (formName.trim()
+            ? formName.split(" ").map((n) => n[0]).join("").slice(0, 2)
+            : formUsername.slice(0, 2)
+          ).toUpperCase(),
+          badgeColor,
+          password: formPassword,
+        });
+        notify(`New user '@${formUsername}' created successfully`);
       }
       setShowAddUserModal(false);
     } catch (error) {
@@ -416,11 +459,15 @@ export default function UsersAndRolesSettingsPage() {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2.5">
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-xs ${u.badgeColor}`}>
-                            {u.avatar || u.name[0]}
+                            {u.avatar || (u.name ? u.name[0] : u.username.slice(0, 2).toUpperCase())}
                           </div>
                           <div>
                             <div className="font-bold text-[#18181B] flex items-center gap-1.5">
-                              {u.name}
+                              {u.name || (
+                                <span className="text-[#71717A] font-normal italic">
+                                  {u.designation || "Staff User"}
+                                </span>
+                              )}
                               {u.id === activeUser.id && (
                                 <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-[#0D7A5F]/10 text-[#0D7A5F]">
                                   YOU
@@ -486,20 +533,31 @@ export default function UsersAndRolesSettingsPage() {
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
+                            type="button"
+                            onClick={() => handleOpenResetPassword(u)}
+                            className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition text-[11px] font-bold inline-flex items-center gap-1 shadow-2xs"
+                            title={`Reset password for @${u.username}`}
+                          >
+                            <KeyRound className="w-3 h-3 text-amber-600" />
+                            <span>Reset Password</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleOpenEditUser(u)}
-                            className="p-1 rounded text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5] transition"
-                            title="Edit User"
+                            className="p-1.5 rounded-md text-[#71717A] hover:text-[#18181B] hover:bg-[#F4F4F5] border border-[#E4E4E7] transition"
+                            title="Edit User Profile & Credentials"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           {u.role !== "admin" && (
                             <button
+                              type="button"
                               onClick={() => {
-                                if (confirm(`Are you sure you want to delete user ${u.name}?`)) {
+                                if (confirm(`Are you sure you want to delete user @${u.username}?`)) {
                                   deleteUser(u.id).catch((error) => alert(error.message));
                                 }
                               }}
-                              className="p-1 rounded text-[#71717A] hover:text-rose-600 hover:bg-rose-50 transition"
+                              className="p-1.5 rounded-md text-[#71717A] hover:text-rose-600 hover:bg-rose-50 border border-[#E4E4E7] hover:border-rose-200 transition"
                               title="Delete User"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -717,7 +775,7 @@ export default function UsersAndRolesSettingsPage() {
         title={
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-[#0D7A5F]" />
-            <span>{editingUser ? `Edit User: ${editingUser.name}` : "Create New ERP User Account"}</span>
+            <span>{editingUser ? `Edit User: @${editingUser.username}` : "Create New ERP User Account"}</span>
           </div>
         }
         subtitle="Configure login username, assigned role, and initial account status"
@@ -744,11 +802,10 @@ export default function UsersAndRolesSettingsPage() {
         <form id="user-form" onSubmit={handleSaveUser} className="space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Full Name *</label>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Full Name (Optional / Blank)</label>
               <input
                 type="text"
-                required
-                placeholder="e.g. Asad Mehmood"
+                placeholder="e.g. Asad Mehmood (or leave blank)"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
@@ -992,6 +1049,111 @@ export default function UsersAndRolesSettingsPage() {
             />
           </div>
         </form>
+      </SideDrawer>
+
+      {/* QUICK RESET PASSWORD DRAWER */}
+      <SideDrawer
+        isOpen={Boolean(resetPasswordUser)}
+        onClose={() => setResetPasswordUser(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-amber-600" />
+            <span>Reset Password: @{resetPasswordUser?.username}</span>
+          </div>
+        }
+        subtitle={`Generate or enter a new secure password for this user account (${resetPasswordUser?.email || "No email"})`}
+        width="max-w-md"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setResetPasswordUser(null)}
+              className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="reset-password-form"
+              disabled={resetSubmitting || !resetPasswordValue.trim()}
+              className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition disabled:opacity-50"
+            >
+              {resetSubmitting ? "Updating…" : "Apply New Password"}
+            </button>
+          </div>
+        }
+      >
+        {resetPasswordUser && (
+          <form id="reset-password-form" onSubmit={handlePerformResetPassword} className="space-y-4 text-xs">
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 space-y-1">
+              <div className="font-bold flex items-center justify-between">
+                <span>Account: @{resetPasswordUser.username}</span>
+                <span className="font-mono text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-200 font-bold">
+                  {resetPasswordUser.role}
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-700">
+                Updating this password will invalidate all active web sessions for this account immediately.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[11px] font-mono text-[#71717A]">
+                  New Password *
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const generated = generateCompliantPassword();
+                    setResetPasswordValue(generated);
+                    setResetShowPassword(true);
+                  }}
+                  className="text-[11px] font-semibold text-[#0D7A5F] hover:underline inline-flex items-center gap-1"
+                >
+                  <Sparkles className="w-3 h-3 text-[#0D7A5F]" />
+                  <span>Generate Strong Password</span>
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  type={resetShowPassword ? "text" : "password"}
+                  required
+                  autoComplete="new-password"
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 pr-20 text-xs font-mono text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(resetPasswordValue);
+                      setResetCopied(true);
+                      setTimeout(() => setResetCopied(false), 2000);
+                    }}
+                    className="p-1 text-[#71717A] hover:text-[#18181B] hover:bg-slate-100 rounded"
+                    title="Copy Password to Clipboard"
+                  >
+                    {resetCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetShowPassword(!resetShowPassword)}
+                    className="p-1 text-[#71717A] hover:text-[#18181B] hover:bg-slate-100 rounded"
+                    title={resetShowPassword ? "Hide password" : "Show password"}
+                  >
+                    {resetShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <p className="text-[10px] text-[#71717A] mt-1.5">
+                Must be at least 10 characters with uppercase, lowercase, numeric, and special characters.
+              </p>
+            </div>
+          </form>
+        )}
       </SideDrawer>
     </div>
   );
