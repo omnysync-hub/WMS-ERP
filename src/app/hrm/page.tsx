@@ -1787,26 +1787,6 @@ function HrmPayrollContent() {
                 </div>
               )}
             </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setCandidateDefaultStage("Applied");
-                  setShowAddCandidateDrawer(true);
-                }}
-                className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                Add Candidate
-              </button>
-              <button
-                onClick={() => setShowNewRequisitionDrawer(true)}
-                className="h-8 px-3 rounded-lg bg-white border border-[#E4E4E7] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5 text-[#71717A]" />
-                Raise Requisition
-              </button>
-            </div>
           </div>
 
           {atsView === "requisitions" ? (
