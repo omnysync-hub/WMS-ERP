@@ -256,6 +256,34 @@ export default function EmployeeProfilePage() {
     }
   };
 
+  const handleResetDevice = async () => {
+    if (
+      !confirm(
+        "Reset the registered mobile phone binding for this employee? This will allow them to log in on a new device immediately."
+      )
+    ) {
+      return;
+    }
+    try {
+      setMobileActionLoading(true);
+      setMobileActionError(null);
+      const res = await fetch(`/api/employees/${employeeId}/mobile-login/reset-device`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to reset device binding");
+      }
+      setNotification("Device binding released successfully. The technician can now sign in on their phone.");
+      await loadEmployee();
+    } catch (err: any) {
+      setMobileActionError(err.message);
+    } finally {
+      setMobileActionLoading(false);
+    }
+  };
+
   // Toggle Onboarding Item
   const handleToggleOnboarding = async (itemId: string, currentStatus: boolean) => {
     try {
@@ -828,7 +856,7 @@ export default function EmployeeProfilePage() {
               </div>
 
               {/* Metric Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                 <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
                   <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider">
                     Provisioning & Identifier
@@ -867,6 +895,30 @@ export default function EmployeeProfilePage() {
                     {employee.mobilePasswordSetAt
                       ? `Configured ${formatDateTime(employee.mobilePasswordSetAt)}`
                       : "No credentials assigned yet"}
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                  <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider">
+                    Bound Mobile Phone
+                  </span>
+                  <p className="font-semibold text-[#18181B] mt-1 text-sm">
+                    {employee.mobileDeviceId ? (
+                      <span className="text-amber-700 font-bold flex items-center gap-1 truncate">
+                        <Smartphone className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        {employee.mobileDeviceLabel || "Device Bound"}
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700 font-bold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        Unbound / Available
+                      </span>
+                    )}
+                  </p>
+                  <span className="text-[10px] text-[#94A3B8] block mt-1 truncate">
+                    {employee.mobileDeviceId
+                      ? `ID: ${employee.mobileDeviceId.slice(0, 14)}...`
+                      : "Next phone that signs in binds automatically"}
                   </span>
                 </div>
 
@@ -918,6 +970,19 @@ export default function EmployeeProfilePage() {
                       <RefreshCw className="w-3.5 h-3.5" />
                       Reset Password
                     </button>
+
+                    {employee.mobileDeviceId && (
+                      <button
+                        type="button"
+                        disabled={mobileActionLoading}
+                        onClick={handleResetDevice}
+                        className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                        title="Unbind existing phone so technician can sign in on a new device"
+                      >
+                        <Smartphone className="w-3.5 h-3.5 text-amber-600" />
+                        Reset Bound Device
+                      </button>
+                    )}
 
                     {employee.mobileLoginActive ? (
                       <button

@@ -94,6 +94,9 @@ export async function POST(
         mobilePasswordSetAt: now,
         failedLoginAttempts: 0,
         lockedUntil: null,
+        mobileDeviceId: null,
+        mobileDeviceLabel: null,
+        mobileSessionId: null,
       },
     });
 
