@@ -571,9 +571,17 @@ export default function JobsListPage() {
               {row.isFoc && (
                 <span
                   className="text-[10px] font-bold text-purple-900 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs"
-                  title="Free of Charge Order (Company Billed)"
+                  title="FOC — referred by an external company (company pays later)"
                 >
-                  FOC Order
+                  {Number(row.focAmountReceived) > 0 ? "FOC · paid" : "FOC · awaiting co."}
+                </span>
+              )}
+              {!row.isFoc && row.paymentCollectionMode === "office" && (
+                <span
+                  className="text-[10px] font-bold text-sky-900 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1 shadow-2xs"
+                  title="Payment collected by office / accounts (technician collects nothing)"
+                >
+                  Office collect
                 </span>
               )}
             </div>

@@ -271,14 +271,14 @@ export default function Sidebar({
       href: "/customers",
       icon: Users,
       roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
-      perm: "customers.view_directory",
+      perm: "jobs.view_directory",
     },
     {
       label: "Care-Of Parties",
       href: "/jobs/care-of",
       icon: Building,
       roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
-      perm: "care_of.view",
+      perm: "jobs.view_directory|jobs.manage",
     },
   ];
 
@@ -293,12 +293,10 @@ export default function Sidebar({
     ) {
       return false;
     }
-    const hasRole = item.roles.includes(activeRole);
-    if (!hasRole && !item.perm) return false;
-    if (item.perm) {
-      return hasRole || hasPermission(item.perm);
-    }
-    return hasRole;
+    // When a permission is defined it decides (so role edits / overrides are respected);
+    // the role list is only used for items that have no permission key.
+    if (item.perm) return item.perm.split("|").some((p: string) => hasPermission(p));
+    return item.roles.includes(activeRole);
   });
 
   // Dedicated HRM Accordion Sub-Items
@@ -396,6 +394,7 @@ export default function Sidebar({
     { label: "Customer 360°", href: "/customers", icon: Users, roles: ["admin", "accountant", "dispatcher", "call_center", "cashier", "auditor", "manager", "purchasing"] },
     { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"] },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
+    { label: "Tax Report", href: "/accounts/tax-report", icon: CreditCard, roles: ["admin", "accountant", "manager", "auditor"], perm: "accounts.financial_reports|settings.taxes" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
     { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "auditor"] },
     { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"], perm: "audit.view_logs" },
@@ -407,12 +406,8 @@ export default function Sidebar({
         if (isStorekeeper && item.href === "/customers") return false;
         if (activeRole === "dispatcher" && item.href === "/inventory") return false;
         // Check role inclusion or granular permission
-        const hasRole = item.roles.includes(activeRole);
-        if (!hasRole && !item.perm) return false;
-        if (item.perm) {
-          return hasRole || hasPermission(item.perm);
-        }
-        return hasRole;
+        if (item.perm) return item.perm.split("|").some((p: string) => hasPermission(p));
+        return item.roles.includes(activeRole);
       });
 
   const preAccountsOperations = operationsItems.filter((item) =>
@@ -437,6 +432,7 @@ export default function Sidebar({
     { label: "Bank Reconciliation", tab: "bankrec", icon: Building },
     { label: "Fixed Assets & Depr", tab: "fixedassets", icon: Layers },
     { label: "Sub-Ledger Drift & Aging", tab: "subledgers", icon: ArrowLeftRight },
+    { label: "FOC Company Payments", tab: "foc", icon: Building },
   ];
 
   const hasAccountsAccess =
@@ -465,6 +461,13 @@ export default function Sidebar({
       perm: "settings.accounting",
     },
     {
+      label: "Tax Settings",
+      href: "/settings/taxes",
+      icon: CreditCard,
+      roles: ["admin", "accountant", "manager"],
+      perm: "settings.taxes|settings.accounting",
+    },
+    {
       label: "Stock Units Settings",
       href: "/settings/stock-units",
       icon: Layers,
@@ -476,18 +479,16 @@ export default function Sidebar({
       href: "/settings/users-roles",
       icon: ShieldCheck,
       roles: ["admin", "auditor"],
-      perm: "settings.manage_users",
+      perm: "settings.manage_users|settings.manage_roles",
     },
   ];
 
   const settingsSubItems = allSettingsSubItems.filter((item) => {
     if (activeRole === "admin") return true;
-    const hasRole = item.roles.includes(activeRole);
-    if (!hasRole && !item.perm) return false;
-    if (item.perm) {
-      return hasRole || hasPermission(item.perm);
-    }
-    return hasRole;
+    // When a permission is defined it decides (so role edits / overrides are respected);
+    // the role list is only used for items that have no permission key.
+    if (item.perm) return item.perm.split("|").some((p: string) => hasPermission(p));
+    return item.roles.includes(activeRole);
   });
 
   const hasSettingsAccess = settingsSubItems.length > 0;

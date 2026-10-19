@@ -106,15 +106,25 @@ model JournalLine {
 }
 
 model Invoice {
-  id            String   @id @default(uuid())
-  invoiceNumber String   @unique
-  jobId         String?
-  projectId     String?
-  customerId    String?
-  customerName  String
-  amount        Float
-  status        String   @default("unpaid") // unpaid, paid, cancelled
-  createdAt     DateTime @default(now())
+  id             String   @id @default(uuid())
+  invoiceNumber  String   @unique
+  jobId          String?
+  projectId      String?
+  customerId     String?
+  customerName   String
+  amount         Float // total the customer pays (includes tax when tax applies)
+  status         String   @default("unpaid") // unpaid, paid, cancelled
+  createdAt      DateTime @default(now())
+  /// Tax snapshot taken when the invoice is raised (Settings > Taxes). taxApplied=false on
+  /// invoices created before tax support, so re-finalizing them never adds tax.
+  taxApplied     Boolean  @default(false)
+  subtotal       Float? // price before discount and tax
+  discountAmount Float    @default(0)
+  taxCode        String?
+  taxName        String?
+  taxRate        Float    @default(0)
+  taxInclusive   Boolean  @default(false)
+  taxAmount      Float    @default(0)
 }
 
 model Quotation {
@@ -143,6 +153,10 @@ model Customer {
   projects              Project[]
   customerLedgerEntries CustomerLedgerEntry[]
   createdAt             DateTime              @default(now())
+  /// Tax registration (Settings > Taxes). Exempt customers are never charged sales tax.
+  taxExempt             Boolean               @default(false)
+  ntnNumber             String?
+  strnNumber            String?
 }
 
 model CareOfParty {
@@ -163,42 +177,79 @@ model CareOfParty {
 // ==========================================
 
 model Job {
-  id                   String                   @id @default(uuid())
-  jobNumber            String                   @unique
-  customerId           String
-  customer             Customer                 @relation(fields: [customerId], references: [id])
-  careOfPartyId        String?
-  careOfParty          CareOfParty?             @relation(fields: [careOfPartyId], references: [id])
-  manualJobNumber      String?
-  jobType              String // installation, maintenance, repair, inspection
-  remarks              String?
+  id                    String                   @id @default(uuid())
+  jobNumber             String                   @unique
+  customerId            String
+  customer              Customer                 @relation(fields: [customerId], references: [id])
+  careOfPartyId         String?
+  careOfParty           CareOfParty?             @relation(fields: [careOfPartyId], references: [id])
+  manualJobNumber       String?
+  jobType               String // installation, maintenance, repair, inspection
+  remarks               String?
   /// JSON array of completion proof photos (data URLs or https URLs) from field tech
-  completionPhotos     String?
-  status               String                   @default("Created") // Created, Assigned, Accepted, InProgress, Paused, AwaitingFeedback, CompletedPendingVerification, Finalized, Verified, TechnicianReassigned
-  assignedTechnicianId String?
-  assignedTechnician   Employee?                @relation(fields: [assignedTechnicianId], references: [id])
+  completionPhotos      String?
+  status                String                   @default("Created") // Created, Assigned, Accepted, InProgress, Paused, AwaitingFeedback, CompletedPendingVerification, Finalized, Verified, TechnicianReassigned
+  assignedTechnicianId  String?
+  assignedTechnician    Employee?                @relation(fields: [assignedTechnicianId], references: [id])
   /// Mid-job reassignment: new job sets parentJobId / reassignedFromJobId; old job status -> TechnicianReassigned
-  parentJobId          String?
-  parentJob            Job?                     @relation("JobReassignmentTree", fields: [parentJobId], references: [id])
-  childJobs            Job[]                    @relation("JobReassignmentTree")
-  reassignedFromJobId  String?
-  isFoc                Boolean                  @default(false)
-  discountAmount       Float                    @default(0)
-  discountReason       String?
-  qualityFlag          String? // clean, disputed
-  verifiedChecklist    String? // JSON of checked items
-  createdAt            DateTime                 @default(now())
-  finalizedAt          DateTime?
-  verifiedAt           DateTime?
-  items                JobItem[]
-  statusHistory        JobStatusHistory[]
-  inventoryRequests    InventoryRequest[]
-  stockReturns         StockReturn[]
-  expenseClaims        JobExpenseClaim[]
-  hisaabSettlements    HisaabSettlement[]
-  feedbackCalls        FeedbackCall[]
-  locationPings        TechnicianLocationPing[]
-  assignments          JobAssignment[]
+  parentJobId           String?
+  parentJob             Job?                     @relation("JobReassignmentTree", fields: [parentJobId], references: [id])
+  childJobs             Job[]                    @relation("JobReassignmentTree")
+  reassignedFromJobId   String?
+  isFoc                 Boolean                  @default(false)
+  /// FOC = job referred by an external company (careOfParty). Customer pays 0, technician collects 0,
+  /// no revenue at finalize; revenue is recognised when the accountant records the company's payment.
+  focReason             String?
+  focApprovedBy         String?
+  focApprovedAt         DateTime?
+  /// Total received from the referring company for this FOC job (sum of foc_payment journal entries)
+  focAmountReceived     Float                    @default(0)
+  focPaymentReceivedAt  DateTime?
+  focPaymentRef         String?
+  /// Who collects payment: "technician" (field collection, default/legacy) | "office" (accountant receipt; tech collects nothing)
+  paymentCollectionMode String                   @default("technician")
+  discountAmount        Float                    @default(0)
+  discountReason        String?
+  qualityFlag           String? // clean, disputed
+  verifiedChecklist     String? // JSON of checked items
+  createdAt             DateTime                 @default(now())
+  finalizedAt           DateTime?
+  verifiedAt            DateTime?
+  items                 JobItem[]
+  statusHistory         JobStatusHistory[]
+  inventoryRequests     InventoryRequest[]
+  stockReturns          StockReturn[]
+  expenseClaims         JobExpenseClaim[]
+  hisaabSettlements     HisaabSettlement[]
+  feedbackCalls         FeedbackCall[]
+  locationPings         TechnicianLocationPing[]
+  assignments           JobAssignment[]
+  discountRequests      JobDiscountRequest[]
+}
+
+/// Technician (mobile) discount request -> manager/accountant approval (jobs.approve_discount).
+/// Approved amount is added to Job.discountAmount before finalize.
+model JobDiscountRequest {
+  id              String    @id @default(uuid())
+  jobId           String
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  itemId          String?
+  discountType    String // percent | amount
+  discountValue   Float
+  /// PKR amount computed at request time (re-computed against current gross on approval)
+  requestedAmount Float
+  approvedAmount  Float?
+  reason          String
+  status          String    @default("pending") // pending, approved, rejected, cancelled
+  requestedById   String?
+  requestedByName String
+  decidedBy       String?
+  decidedAt       DateTime?
+  decisionNote    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([jobId, status])
+  @@index([status])
 }
 
 model JobItem {
@@ -566,32 +617,41 @@ model GoodsReceiptItem {
 }
 
 model SupplierInvoice {
-  id               String                @id @default(uuid())
-  invoiceNumber    String
-  referenceNumber  String                @unique
-  vendorId         String
-  vendor           Vendor                @relation(fields: [vendorId], references: [id])
-  poId             String?
-  po               PurchaseOrder?        @relation(fields: [poId], references: [id])
-  grnId            String?
-  grn              GoodsReceipt?         @relation(fields: [grnId], references: [id])
-  invoiceDate      DateTime              @default(now())
-  dueDate          DateTime?
-  subtotal         Float                 @default(0)
-  taxAmount        Float                 @default(0)
-  totalAmount      Float                 @default(0)
-  matchStatus      String                @default("pending_match") // pending_match, matched, discrepancy, approved_for_payment, paid
-  priceVariance    Float                 @default(0)
-  quantityVariance Float                 @default(0)
-  matchNotes       String?
-  approvedBy       String?
-  approvedAt       DateTime?
-  paidAmount       Float                 @default(0)
-  paymentStatus    String                @default("unpaid") // unpaid, partially_paid, paid
-  journalEntryId   String?
-  items            SupplierInvoiceItem[]
-  payments         SupplierPayment[]
-  createdAt        DateTime              @default(now())
+  id                String                @id @default(uuid())
+  invoiceNumber     String
+  referenceNumber   String                @unique
+  vendorId          String
+  vendor            Vendor                @relation(fields: [vendorId], references: [id])
+  poId              String?
+  po                PurchaseOrder?        @relation(fields: [poId], references: [id])
+  grnId             String?
+  grn               GoodsReceipt?         @relation(fields: [grnId], references: [id])
+  invoiceDate       DateTime              @default(now())
+  dueDate           DateTime?
+  subtotal          Float                 @default(0)
+  taxAmount         Float                 @default(0)
+  totalAmount       Float                 @default(0)
+  /// Bill-level discount: type percent|amount, value as entered, discountAmount = PKR applied
+  /// (after line discounts, before tax). subtotal = sum(net lines) - discountAmount.
+  discountType      String?
+  discountValue     Float                 @default(0)
+  discountAmount    Float                 @default(0)
+  /// Sum of line-level discounts (already deducted inside each lineTotal)
+  lineDiscountTotal Float                 @default(0)
+  /// Gross before any discount (sum billedQuantity x billedUnitPrice)
+  grossAmount       Float                 @default(0)
+  matchStatus       String                @default("pending_match") // pending_match, matched, discrepancy, approved_for_payment, paid
+  priceVariance     Float                 @default(0)
+  quantityVariance  Float                 @default(0)
+  matchNotes        String?
+  approvedBy        String?
+  approvedAt        DateTime?
+  paidAmount        Float                 @default(0)
+  paymentStatus     String                @default("unpaid") // unpaid, partially_paid, paid
+  journalEntryId    String?
+  items             SupplierInvoiceItem[]
+  payments          SupplierPayment[]
+  createdAt         DateTime              @default(now())
 }
 
 model SupplierInvoiceItem {
@@ -611,6 +671,9 @@ model SupplierInvoiceItem {
   grnQuantity     Float?
   lineTotal       Float
   variance        Float              @default(0)
+  /// Optional line-level discount (percent of line gross); discountAmount = PKR off this line
+  discountPercent Float              @default(0)
+  discountAmount  Float              @default(0)
 }
 
 model SupplierPayment {
@@ -819,6 +882,8 @@ model CompanySettings {
   invoiceNextNumber           Int       @default(1)
   invoiceNumberPadding        Int       @default(4)
   taxRules                    Json      @default("[]")
+  /// Tax rules "what should happen" (lib/tax/taxConfig.ts TaxPolicy). {} = defaults (no tax).
+  taxPolicy                   Json      @default("{}")
   paymentMethods              Json      @default("[]")
   agingBuckets                Json      @default("[30,60,90]")
   expenseCategories           Json      @default("[]")
@@ -897,6 +962,33 @@ model ErpUser {
   sessions            ErpSession[]
 
   @@index([role, status])
+}
+
+/// Role definitions managed from Settings > Users & Roles.
+/// System roles (admin, manager, ...) keep their built-in defaults in lib/permissions.ts; a row here
+/// stores the admin's edits to those defaults. Custom roles (isSystem = false) store their full grant map.
+model ErpRole {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  label       String
+  description String   @default("")
+  isSystem    Boolean  @default(false)
+  permissions Json     @default("{}")
+  badgeColor  String   @default("bg-indigo-600 text-white")
+  createdBy   String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Small shared configuration lists edited from Settings (job types, equipment/brand/model
+/// dropdowns, stock units). Previously these lived only in each browser's localStorage.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }
 
 model ErpSession {

@@ -47,6 +47,10 @@ export default function SetupWizardPage() {
   const [settings, setSettings] = useState<any>(null);
   const [periods, setPeriods] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [openingSetup, setOpeningSetup] = useState<{
+    equityAccount: { code: string; name: string } | null;
+    autoAccounts: { code: string; name: string; source: string; amount: number; side: "debit" | "credit" }[];
+  }>({ equityAccount: null, autoAccounts: [] });
   const [tbStatus, setTbStatus] = useState<any>({ totalDebits: 0, totalCredits: 0, variance: 0, isInBalance: true });
   const [counts, setCounts] = useState<any>({ customers: 0, vendors: 0, products: 0 });
   const [mappingCompleteness, setMappingCompleteness] = useState<MappingCompleteness | null>(null);
@@ -83,6 +87,7 @@ export default function SetupWizardPage() {
         setSettings(data.settings);
         setPeriods(data.periods || []);
         setAccounts(data.accounts || []);
+        setOpeningSetup(data.openingSetup || { equityAccount: null, autoAccounts: [] });
         setTbStatus(data.trialBalanceStatus);
         setCounts(data.counts || {});
         setMappingCompleteness(data.mappingCompleteness || null);
@@ -107,7 +112,11 @@ export default function SetupWizardPage() {
         }
         if (data.openingVoucher?.lines) {
           for (const line of data.openingVoucher.lines) {
-            if (line.account?.code && line.account.code !== "3900") {
+            const autoCodes = new Set<string>([
+              ...(data.openingSetup?.autoAccounts || []).map((a: any) => a.code),
+              data.openingSetup?.equityAccount?.code,
+            ].filter(Boolean));
+            if (line.account?.code && !autoCodes.has(line.account.code)) {
               initialBal[line.account.code] = {
                 debit: line.debit > 0 ? String(line.debit) : "",
                 credit: line.credit > 0 ? String(line.credit) : "",
@@ -267,23 +276,39 @@ export default function SetupWizardPage() {
     }
   };
 
+  // Control accounts filled from party balances and the balancing equity account are not typed in.
+  const skipCodes = useMemo(
+    () =>
+      new Set<string>(
+        [...openingSetup.autoAccounts.map((a) => a.code), openingSetup.equityAccount?.code || ""].filter(Boolean)
+      ),
+    [openingSetup]
+  );
+
   const calculatedTotals = useMemo(() => {
     let debits = 0;
     let credits = 0;
+    for (const auto of openingSetup.autoAccounts) {
+      if (!auto.amount) continue;
+      if (auto.side === "debit") debits += Math.abs(auto.amount);
+      else credits += Math.abs(auto.amount);
+    }
     for (const code in openingBalances) {
+      if (skipCodes.has(code)) continue;
       const d = parseFloat(openingBalances[code]?.debit) || 0;
       const c = parseFloat(openingBalances[code]?.credit) || 0;
       debits += d;
       credits += c;
     }
     const diff = Math.round((debits - credits) * 100) / 100;
+    const eq = openingSetup.equityAccount ? `${openingSetup.equityAccount.code} ${openingSetup.equityAccount.name}` : "Opening Balance Equity";
     return {
       totalDebits: Math.round(debits * 100) / 100,
       totalCredits: Math.round(credits * 100) / 100,
       difference: diff,
-      equityOffsetSide: diff > 0 ? "Credit Opening Balance Equity" : diff < 0 ? "Debit Opening Balance Equity" : "Zero (Exact Balance)",
+      equityOffsetSide: diff > 0 ? `Credit ${eq}` : diff < 0 ? `Debit ${eq}` : "Zero (Exact Balance)",
     };
-  }, [openingBalances]);
+  }, [openingBalances, openingSetup, skipCodes]);
 
   const handlePostOpeningBalances = async () => {
     try {
@@ -291,11 +316,14 @@ export default function SetupWizardPage() {
       setErrorMsg("");
       const rows = [];
       for (const code in openingBalances) {
+        if (skipCodes.has(code)) continue;
         const d = parseFloat(openingBalances[code]?.debit) || 0;
         const c = parseFloat(openingBalances[code]?.credit) || 0;
+        if (d < 0 || c < 0) throw new Error(`Account ${code}: amounts cannot be negative.`);
         if (d > 0 || c > 0) rows.push({ accountCode: code, debit: d, credit: c });
       }
-      if (rows.length === 0) throw new Error("Please enter at least one opening balance.");
+      if (rows.length === 0 && !openingSetup.autoAccounts.some((a) => a.amount))
+        throw new Error("Please enter at least one opening balance.");
 
       const res = await fetch("/api/setup", {
         method: "POST",
@@ -789,6 +817,28 @@ export default function SetupWizardPage() {
               </div>
             </div>
 
+            {openingSetup.autoAccounts.length > 0 && (
+              <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs space-y-1">
+                <div className="font-bold text-sky-950">Filled automatically from Party Opening Balances</div>
+                {openingSetup.autoAccounts.map((a) => (
+                  <div key={a.code} className="flex justify-between text-sky-900">
+                    <span>
+                      {a.code} {a.name} <span className="text-sky-700">({a.source})</span>
+                    </span>
+                    <span className="font-mono font-bold">
+                      {a.amount ? `${a.side === "debit" ? "Dr" : "Cr"} ${formatCurrency(Math.abs(a.amount))}` : "0"}
+                    </span>
+                  </div>
+                ))}
+                <div className="text-[11px] text-sky-800">
+                  To change these, edit the customer / supplier / employee balances in the Party Opening Balances step.
+                  {openingSetup.equityAccount
+                    ? ` Any difference is posted to ${openingSetup.equityAccount.code} ${openingSetup.equityAccount.name}.`
+                    : ""}
+                </div>
+              </div>
+            )}
+
             <div className="max-h-96 overflow-y-auto border border-[#E4E4E7] rounded-xl">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -802,7 +852,7 @@ export default function SetupWizardPage() {
                 </thead>
                 <tbody className="divide-y divide-[#E4E4E7]">
                   {accounts
-                    .filter((a) => a.code !== "3900")
+                    .filter((a) => !skipCodes.has(a.code))
                     .map((acc) => {
                       const isNormalDebit = ["asset", "expense", "contra_revenue"].includes(acc.type);
                       return (

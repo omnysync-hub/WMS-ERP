@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { MobilePushService } from "@/lib/services/MobilePushService";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
+import { requireOfficePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
@@ -66,6 +67,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    // Only office staff who dispatch work may push requests to technicians' phones.
+    const gate = await requireOfficePermission(req, ["dispatch.assign_job", "jobs.reassign_tech", "hrm.manage_employees"]);
+    if (gate.error) return gate.error;
     const body = await req.json();
     const {
       recipientId,
@@ -89,9 +93,10 @@ export async function POST(req: NextRequest) {
 
     const request = await MobilePushService.sendAppRequest({
       recipientId,
-      senderId,
-      senderName: senderName || "Dispatcher",
-      senderRole: senderRole || "dispatcher",
+      // Sender is always the signed-in user (never trusted from the request body).
+      senderId: gate.actor.id || senderId,
+      senderName: gate.actor.name || senderName || "Dispatcher",
+      senderRole: gate.actor.role || senderRole || "dispatcher",
       type,
       title,
       body: messageBody,

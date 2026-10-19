@@ -59,3 +59,7 @@ Thumbs.db
 # Deployment platforms
 .vercel
 .neon
+
+# Local scratch, backups and reports
+/scratch/
+*backup-2026*/

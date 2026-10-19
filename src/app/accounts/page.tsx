@@ -9,6 +9,7 @@ import FinancialStatementsTab from "@/components/accounts/FinancialStatementsTab
 import BankReconciliationTab from "@/components/accounts/BankReconciliationTab";
 import FixedAssetsTab from "@/components/accounts/FixedAssetsTab";
 import SubLedgerReconciliationTab from "@/components/accounts/SubLedgerReconciliationTab";
+import FocPaymentsTab from "@/components/accounts/FocPaymentsTab";
 import ReverseJournalEntryModal from "@/components/accounts/ReverseJournalEntryModal";
 import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import CoaManagerModal from "@/components/accounts/CoaManagerModal";
@@ -74,6 +75,7 @@ export default function AccountsPage() {
     | "bankrec"
     | "fixedassets"
     | "subledgers"
+    | "foc"
   >("ledgers");
 
   // Sync tab with URL query parameter (?tab=...)
@@ -97,6 +99,7 @@ export default function AccountsPage() {
             "bankrec",
             "fixedassets",
             "subledgers",
+            "foc",
           ].includes(tab)
         ) {
           setActiveTab(tab as any);
@@ -202,33 +205,6 @@ export default function AccountsPage() {
   const [coaSearch, setCoaSearch] = useState("");
   const [coaLevelFilter, setCoaLevelFilter] = useState<"ALL" | "1" | "2" | "3" | "4">("ALL");
   const [coaTypeFilter, setCoaTypeFilter] = useState<string>("ALL");
-  const [isRebalancing, setIsRebalancing] = useState(false);
-
-  const handleRebalanceLedger = async () => {
-    if (
-      !confirm(
-        "This will inject initial Owner Capital into Meezan Bank and align baseline vendor payables to eliminate negative overdrafts and unallocated balances across the General Ledger. Proceed?"
-      )
-    ) {
-      return;
-    }
-    try {
-      setIsRebalancing(true);
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "rebalance_ledger", actorName: "Fatima Noor (Accountant)" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to rebalance ledger");
-      setActionSuccessMsg(data.message || "Ledger successfully rebalanced. All account balances are now positive and funded.");
-      loadData();
-    } catch (err: any) {
-      setActionErrorMsg(err.message || "Failed to rebalance ledger");
-    } finally {
-      setIsRebalancing(false);
-    }
-  };
   const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(
     new Set(["1000-GRP", "1100", "2000-GRP", "2100-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
   );
@@ -493,7 +469,18 @@ export default function AccountsPage() {
   const handleApproveDiscount = async (discount: any, overrideAmount?: number) => {
     try {
       const amountToApprove = overrideAmount !== undefined ? overrideAmount : discount.requestedDiscount;
-      const res = await fetch("/api/accounts", {
+      // Technician percent/fixed requests go through the jobs approval workflow (jobs.approve_discount)
+      const res = discount.requestId
+        ? await fetch(`/api/jobs/${discount.jobId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "approve_discount_request",
+              requestId: discount.requestId,
+              approvedAmount: overrideAmount !== undefined ? overrideAmount : undefined,
+            }),
+          })
+        : await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -530,7 +517,17 @@ export default function AccountsPage() {
 
   const handleRejectDiscount = async (discount: any) => {
     try {
-      const res = await fetch("/api/accounts", {
+      const res = discount.requestId
+        ? await fetch(`/api/jobs/${discount.jobId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "reject_discount_request",
+              requestId: discount.requestId,
+              note: "Discount declined by accounting department",
+            }),
+          })
+        : await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -858,7 +855,7 @@ export default function AccountsPage() {
     const fieldReport = (job.hisaabSettlements || []).find(
       (h: any) => h.status === "field_reported"
     );
-    if (job.isFoc) {
+    if (job.isFoc || job.paymentCollectionMode === "office") {
       setAmountCollected("0");
       setCustomerPaymentMeans("unmarked");
     } else if (fieldReport) {
@@ -918,7 +915,9 @@ export default function AccountsPage() {
         const qty = item.quantityActual ?? item.quantityPlanned;
         expected += qty * item.unitRate;
       }
-      const finalExpected = Math.max(0, expected - (settlementJob.discountAmount || 0));
+      // FOC / office-collected: technician is expected to hand over nothing
+      const techCollects = !settlementJob.isFoc && settlementJob.paymentCollectionMode !== "office";
+      const finalExpected = techCollects ? Math.max(0, expected - (settlementJob.discountAmount || 0)) : 0;
 
       const pendingClaimIds = (settlementJob.expenseClaims || [])
         .filter((c: any) => !selectedPaidExpenses.includes(c.id))
@@ -2202,15 +2201,6 @@ export default function AccountsPage() {
                     <Download className="w-3.5 h-3.5" />
                     Export CSV
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleRebalanceLedger}
-                    disabled={isRebalancing}
-                    className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-[#0D7A5F] inline-flex items-center gap-1.5 transition shadow-2xs disabled:opacity-50"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                    {isRebalancing ? "Rebalancing..." : "Rebalance & Fund Ledger"}
-                  </button>
                 </div>
               </div>
             </div>
@@ -2290,19 +2280,13 @@ export default function AccountsPage() {
                       Unfunded Ledger Balances Detected
                     </h4>
                     <p className="text-[11px] text-amber-800 mt-0.5">
-                      Operational payouts were recorded prior to initial capital deposits (causing cash overdrafts) or vendor payouts were posted without bills.
+                      Some accounts have an unusual (negative) balance. This usually means opening balances were not entered, or a payment was posted before its bill or deposit.
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleRebalanceLedger}
-                  disabled={isRebalancing}
-                  className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs whitespace-nowrap shadow-xs inline-flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  {isRebalancing ? "Funding Ledger..." : "Auto-Fund & Rebalance"}
-                </button>
+                <span className="text-[11px] font-semibold text-amber-900 whitespace-nowrap">
+                  Fix with Setup &gt; Opening Balances or a manual journal
+                </span>
               </div>
             )}
 
@@ -2860,6 +2844,7 @@ export default function AccountsPage() {
       {/* ENTERPRISE TAB 11: SUB-LEDGER DRIFT & AGING */}
       {/* ========================================================================= */}
       {activeTab === "subledgers" && <SubLedgerReconciliationTab />}
+      {activeTab === "foc" && <FocPaymentsTab />}
 
       {/* ========================================================================= */}
       {/* DRAWER 1: CUSTOMER STATEMENT OF ACCOUNT */}
@@ -3077,7 +3062,7 @@ export default function AccountsPage() {
                           {formatCurrency(st.balance)}
                         </td>
                         <td className="p-2.5 text-right">
-                          {st.jobId && st.debit > 0 ? (
+                          {st.jobId && (st.debit > 0 || st.focAwaiting) ? (
                             <button
                               type="button"
                               onClick={() =>
@@ -3087,7 +3072,8 @@ export default function AccountsPage() {
                                     jobNumber: st.refNumber,
                                     amount: st.debit,
                                     isFoc: st.isFoc,
-                                    balanceDue: st.debit,
+                                    // FOC: amount unknown until received — accountant enters it
+                                    balanceDue: st.isFoc ? "" : st.debit,
                                   },
                                   selectedCareOf.companyName
                                 )

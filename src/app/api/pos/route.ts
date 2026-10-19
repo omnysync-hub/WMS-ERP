@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { AuditService } from "@/lib/services/AuditService";
+import { SubLedgerService } from "@/lib/services/SubLedgerService";
+import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
+import { computeTax, findRate } from "@/lib/tax/taxConfig";
 import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -195,8 +198,27 @@ export async function POST(req: NextRequest) {
       calculatedSubtotal = Math.round(calculatedSubtotal * 100) / 100;
 
       const numDiscount = Math.max(0, Math.min(Number(discountAmount) || 0, calculatedSubtotal));
-      const numTax = Math.max(0, Number(taxAmount) || 0);
-      const computedTotal = Math.round((calculatedSubtotal - numDiscount + numTax) * 100) / 100;
+      // Tax is worked out here from Settings > Taxes (the client's figure is only a preview).
+      const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
+      const posRate = taxPolicy.pos.rateCode
+        ? findRate(taxRates, taxPolicy.pos.rateCode)
+        : (() => {
+            const sales = taxRates.filter((r) => r.active && r.type !== "withholding" && ["sales", "both"].includes(r.appliesTo));
+            return sales.find((r) => r.isDefault) || sales[0] || null;
+          })();
+      const wantsTax =
+        taxPolicy.pos.mode === "always" ||
+        (taxPolicy.pos.mode === "cashier" && (body.applyTax === true || (body.applyTax === undefined && Number(taxAmount) > 0)));
+      const posTax = computeTax({
+        gross: calculatedSubtotal,
+        discount: numDiscount,
+        ratePercent: wantsTax && posRate ? posRate.rate : 0,
+        inclusive: taxPolicy.pos.pricesIncludeTax,
+        applyAfterDiscount: taxPolicy.pos.applyAfterDiscount,
+        rounding: taxPolicy.rounding,
+      });
+      const numTax = posTax.tax;
+      const computedTotal = posTax.total;
       if (computedTotal <= 0 || Math.abs(parsedTotal - computedTotal) > 0.01) {
         return NextResponse.json(
           { error: "The cart total changed. Refresh the cart and try checkout again.", totalAmount: computedTotal },
@@ -217,6 +239,34 @@ export async function POST(req: NextRequest) {
         if (tendered < computedTotal - 0.01) {
           return NextResponse.json(
             { error: `Amount tendered ($${tendered}) is less than total amount due ($${computedTotal}).` },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Credit sales put the amount on a customer's account, so the customer must exist in the master.
+      let creditCustomer: { id: string; name: string } | null = null;
+      if (paymentMethod === "credit") {
+        const phone = typeof customerPhone === "string" ? customerPhone.trim() : "";
+        if (body.customerId) {
+          creditCustomer = await prisma.customer.findUnique({ where: { id: String(body.customerId) }, select: { id: true, name: true } });
+        } else if (phone) {
+          creditCustomer = await prisma.customer.findFirst({ where: { phone }, select: { id: true, name: true } });
+        }
+        if (!creditCustomer) {
+          return NextResponse.json(
+            { error: "Credit sale needs a registered customer (select the customer or enter their saved phone number)." },
+            { status: 400 }
+          );
+        }
+      }
+      let taxAccount: { id: string } | null = null;
+      if (numTax > 0) {
+        try {
+          taxAccount = await TaxSettingsService.accountFor(posRate!, "sales_tax_payable");
+        } catch {
+          return NextResponse.json(
+            { error: `Sales tax was added but the account role "${posRate?.accountRole || "sales_tax_payable"}" is not mapped. Map it in Accounts > Account Mapping first.` },
             { status: 400 }
           );
         }
@@ -316,15 +366,31 @@ export async function POST(req: NextRequest) {
           if (cashPortion > 0) revenueLines.push({ accountId: cashAccount.id, debit: cashPortion, credit: 0 });
           if (cardPortion > 0) revenueLines.push({ accountId: bankAccount.id, debit: cardPortion, credit: 0 });
         }
-        revenueLines.push({ accountId: revenueAccount.id, debit: 0, credit: computedTotal });
+        // Revenue = total less sales tax; the tax collected is a liability (sales_tax_payable).
+        const revenueNet = Math.round((computedTotal - (taxAccount ? numTax : 0)) * 100) / 100;
+        revenueLines.push({ accountId: revenueAccount.id, debit: 0, credit: revenueNet });
+        if (taxAccount && numTax > 0) revenueLines.push({ accountId: taxAccount.id, debit: 0, credit: numTax });
 
-        await AccountsPostingService.post({
+        const saleJournal = await AccountsPostingService.post({
           memo: `POS Counter Sale #${saleNumber} (${paymentMethod.toUpperCase()}) - ${typeof customerName === "string" ? customerName : "Walk-in Customer"}`,
           refType: "pos_sale",
           refId: createdSale.id,
           lines: revenueLines,
           tx,
         });
+
+        if (creditCustomer) {
+          await SubLedgerService.recordCustomerEntry({
+            customerId: creditCustomer.id,
+            entryType: "invoice",
+            documentNumber: saleNumber,
+            journalEntryId: saleJournal.id,
+            debit: computedTotal,
+            credit: 0,
+            notes: `POS credit sale ${saleNumber}`,
+            tx,
+          });
+        }
 
         const roundedCost = Math.round(costSum * 100) / 100;
         if (roundedCost > 0) {

@@ -108,6 +108,13 @@ export interface DetailedJobReportItem {
   grossSubtotal: number;
   discountAmount: number;
   netBilled: number;
+  /** FOC = referred by an external company; customer billed 0, revenue = company payment received */
+  isFoc: boolean;
+  focCompany?: string | null;
+  focAmountReceived: number;
+  focPaymentStatus: "awaiting_company_payment" | "received" | null;
+  focReason?: string | null;
+  paymentCollectionMode: string;
   estimatedProfitMargin: number;
   // Timestamps & Lifecycle Milestones
   timestamps: JobTimestampMilestones;
@@ -458,6 +465,12 @@ export class JobReportService {
 
     let totalRevenue = 0;
     let totalDiscounts = 0;
+    let focJobsCount = 0;
+    let focMaterialCost = 0;
+    let focPendingCount = 0;
+    let focReceivedCount = 0;
+    let focReceivedTotal = 0;
+    const focByCompany = new Map<string, { company: string; pending: number; received: number; receivedAmount: number }>();
     let totalMaterialCost = 0;
     let totalExpenses = 0;
     let totalCashCollected = 0;
@@ -502,10 +515,39 @@ export class JobReportService {
         };
       });
 
-      const discount = job.discountAmount || 0;
-      const netBilled = Math.max(0, grossSubtotal - discount);
-      totalRevenue += grossSubtotal;
-      totalDiscounts += discount;
+      // FOC (referred by an external company): customer is billed nothing; revenue is only what the
+      // company has actually paid (recorded by the accountant). Material cost still counts.
+      const isFocJob = Boolean(job.isFoc);
+      // Legacy FOC company payments were recorded as posted hisaab settlements (old record_job_payment)
+      const legacyFocReceived = isFocJob
+        ? (job.hisaabSettlements || [])
+            .filter((h) => h.status === "posted")
+            .reduce((sum, h) => sum + (h.amountReceivedByAccountant || 0), 0)
+        : 0;
+      const focReceived = (job.focAmountReceived || 0) + legacyFocReceived;
+      if (isFocJob) {
+        focJobsCount++;
+        const companyName = job.careOfParty?.companyName || "Unlinked company";
+        const agg = focByCompany.get(companyName) || { company: companyName, pending: 0, received: 0, receivedAmount: 0 };
+        if (focReceived > 0) {
+          agg.received++;
+          agg.receivedAmount += focReceived;
+          focReceivedCount++;
+          focReceivedTotal += focReceived;
+        } else {
+          agg.pending++;
+          focPendingCount++;
+        }
+        focByCompany.set(companyName, agg);
+      }
+      const discount = isFocJob ? 0 : job.discountAmount || 0;
+      const netBilled = isFocJob ? focReceived : Math.max(0, grossSubtotal - discount);
+      if (isFocJob) {
+        totalRevenue += focReceived;
+      } else {
+        totalRevenue += grossSubtotal;
+        totalDiscounts += discount;
+      }
 
       // 3. Process Issued Materials & Stock Returns
       const issuedMaterials: IssuedMaterialItem[] = [];
@@ -527,6 +569,7 @@ export class JobReportService {
         const lineCost = netConsumed * unitCost;
 
         jobMaterialCost += lineCost;
+        if (isFocJob) focMaterialCost += lineCost;
 
         issuedMaterials.push({
           id: req.id,
@@ -668,6 +711,12 @@ export class JobReportService {
         grossSubtotal,
         discountAmount: discount,
         netBilled,
+        isFoc: Boolean(job.isFoc),
+        focCompany: job.isFoc ? job.careOfParty?.companyName ?? null : null,
+        focAmountReceived: focReceived,
+        focPaymentStatus: job.isFoc ? (focReceived > 0 ? "received" : "awaiting_company_payment") : null,
+        focReason: job.focReason ?? null,
+        paymentCollectionMode: job.paymentCollectionMode || "technician",
         estimatedProfitMargin: profitMargin,
         timestamps,
       };
@@ -820,6 +869,12 @@ export class JobReportService {
         grossMargin: grossMarginTotal,
         totalCashCollected,
         totalBalanceDue,
+        focJobsCount,
+        focMaterialCost,
+        focPendingCount,
+        focReceivedCount,
+        focReceivedTotal,
+        focByCompany: Array.from(focByCompany.values()),
       },
       materialsBreakdown: Array.from(materialAggregator.values()).sort(
         (a, b) => b.totalIssued - a.totalIssued

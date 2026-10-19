@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { SubLedgerService } from "./SubLedgerService";
+import { TaxSettingsService } from "../tax/TaxSettingsService";
+import { findRate } from "../tax/taxConfig";
 
 export interface PostVendorPaymentParams {
   vendorId: string;
@@ -64,11 +66,20 @@ export class TaxService {
       postedBy = "Accountant",
     } = params;
 
+    // Settings > Taxes: WHT can be switched off, and a default WHT rate covers suppliers with no own %.
+    const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
+    const defaultWht = findRate(taxRates, taxPolicy.wht.defaultRateCode, paymentDate);
+
     return prisma.$transaction(async (tx) => {
       const vendor = await tx.vendor.findUnique({ where: { id: vendorId } });
       if (!vendor) throw new Error("Vendor not found");
 
-      const taxCalc = this.calculateWht(grossAmount, vendor.whtRate, vendor.whtExempt);
+      const effectiveWhtRate = !taxPolicy.wht.deductOnSupplierPayments
+        ? 0
+        : vendor.whtRate > 0
+          ? vendor.whtRate
+          : defaultWht?.rate || 0;
+      const taxCalc = this.calculateWht(grossAmount, effectiveWhtRate, vendor.whtExempt);
       const apAccount = await AccountMappingService.resolveAccount({
         transactionType: "vendor_payment_payable",
         prismaClient: tx,

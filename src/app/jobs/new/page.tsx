@@ -255,6 +255,8 @@ export default function NewJobIntakePage() {
   // Care-Of Subcontract Toggle & Autocomplete
   const [isCareOf, setIsCareOf] = useState(false);
   const [isFoc, setIsFoc] = useState(false);
+  const [focReason, setFocReason] = useState("");
+  const [paymentCollectionMode, setPaymentCollectionMode] = useState<"technician" | "office">("technician");
   const [careOfParties, setCareOfParties] = useState<any[]>([]);
   const [selectedCareOfPartyId, setSelectedCareOfPartyId] = useState<string | null>(null);
   const [careOfCompanyName, setCareOfCompanyName] = useState("");
@@ -784,6 +786,8 @@ export default function NewJobIntakePage() {
         careOfPersonName: isCareOf ? careOfPersonName.trim() : null,
         manualJobNumber: isCareOf ? manualJobNumber : null,
         isFoc,
+        focReason: isFoc ? focReason.trim() : undefined,
+        paymentCollectionMode: isFoc ? "technician" : paymentCollectionMode,
         jobType: effectiveJobType.trim(),
         remarks: isFoc ? `[FOC: Company Billed] ${fullRemarks}`.trim() : fullRemarks,
         assignedTechnicianId: effectivePrimaryId,
@@ -1429,7 +1433,38 @@ export default function NewJobIntakePage() {
                       The customer will be charged <strong>PKR 0</strong>. In the accounting workstation, this work order will be marked as <strong>FOC</strong> under the company's ledger so the finance team can record company receipts.
                       {!isCareOf && " Please specify the Company/Brand details below."}
                     </p>
+                    <p className="text-[11px] text-purple-800 leading-relaxed">
+                      The company&apos;s payment amount is entered by Accounts when it is received (revenue is booked then).
+                    </p>
+                    <div className="pt-2">
+                      <input
+                        value={focReason}
+                        onChange={(e) => setFocReason(e.target.value)}
+                        placeholder="FOC note / warranty or claim reference (optional)"
+                        className="w-full h-8 px-2 rounded-lg border border-purple-300 bg-white text-xs"
+                      />
+                    </div>
                   </div>
+                </div>
+              )}
+
+              {/* Payment collection mode (non-FOC) */}
+              {!isFoc && (
+                <div className="p-3 bg-white border border-[#E4E4E7] rounded-xl text-xs flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="font-bold text-[#18181B]">Payment collection</p>
+                    <p className="text-[11px] text-[#71717A]">
+                      Office collection: the technician app shows &quot;No collection&quot; and hisaab expects PKR 0; accounts records the receipt.
+                    </p>
+                  </div>
+                  <select
+                    value={paymentCollectionMode}
+                    onChange={(e) => setPaymentCollectionMode(e.target.value === "office" ? "office" : "technician")}
+                    className="h-8 px-2 rounded-lg border border-[#D4D4D8] bg-white text-xs"
+                  >
+                    <option value="technician">Technician collects on site</option>
+                    <option value="office">Office / accountant collects</option>
+                  </select>
                 </div>
               )}
 

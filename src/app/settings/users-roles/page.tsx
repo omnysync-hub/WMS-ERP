@@ -38,8 +38,6 @@ import {
 } from "lucide-react";
 
 export default function UsersAndRolesSettingsPage() {
-  const roleDisplayName = (role: string, fallback?: string) =>
-    ERP_ROLE_OPTIONS.find((item) => item.key === role)?.label || fallback || role.replace(/_/g, " ");
   const {
     activeRole,
     currentRole,
@@ -50,6 +48,9 @@ export default function UsersAndRolesSettingsPage() {
     toggleRolePermission,
     createRole,
     deleteRole,
+    resetRolePermissions,
+    roleDefinitions,
+    hasPermission,
     users,
     activeUser,
     setActiveUserId,
@@ -59,6 +60,43 @@ export default function UsersAndRolesSettingsPage() {
     deleteUser,
     setUserPermissionOverride,
   } = useRole();
+  const roleDisplayName = (role: string, fallback?: string) =>
+    roleDefinitions.find((item) => item.key === role)?.label ||
+    ERP_ROLE_OPTIONS.find((item) => item.key === role)?.label ||
+    fallback ||
+    role.replace(/_/g, " ");
+  const canManageRoles = activeRole === "admin" || hasPermission("settings.manage_roles");
+  const canManageUsers = activeRole === "admin" || hasPermission("settings.manage_users");
+  // Technicians sign in via the mobile app; only web roles can be assigned to ERP users.
+  const assignableRoles = availablePersonas.filter((p) => p.role !== "technician");
+  const [overrideUser, setOverrideUser] = useState<SystemUser | null>(null);
+  const [overrideDraft, setOverrideDraft] = useState<Record<string, boolean>>({});
+  const [savingOverrides, setSavingOverrides] = useState(false);
+  const openOverrides = (user: SystemUser) => {
+    setOverrideUser(user);
+    setOverrideDraft({ ...(user.permissionOverrides || {}) });
+  };
+  const saveOverrides = async () => {
+    if (!overrideUser) return;
+    setSavingOverrides(true);
+    try {
+      await updateUser(overrideUser.id, { permissionOverrides: overrideDraft });
+      notify(`Permission overrides saved for @${overrideUser.username}`);
+      setOverrideUser(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not save overrides");
+    } finally {
+      setSavingOverrides(false);
+    }
+  };
+  const runRoleChange = async (fn: () => Promise<void>, success: string) => {
+    try {
+      await fn();
+      notify(success);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not save the role");
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<"users" | "roles" | "overrides">("users");
   const [selectedRoleKey, setSelectedRoleKey] = useState<string>("storekeeper");
@@ -212,11 +250,14 @@ export default function UsersAndRolesSettingsPage() {
     }
   };
 
-  const handleCreateRoleSubmit = (e: React.FormEvent) => {
+  const handleCreateRoleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanKey = newRoleKey.trim().toLowerCase().replace(/\s+/g, "_");
+    const cleanKey = newRoleKey.trim().toLowerCase().replace(/[\s-]+/g, "_");
     if (!cleanKey || !newRoleName.trim()) {
       return alert("Role key and display name are required");
+    }
+    if (!/^[a-z][a-z0-9_]{2,39}$/.test(cleanKey)) {
+      return alert("Role key must be 3-40 characters: lowercase letters, numbers and underscores, starting with a letter.");
     }
 
     if (availablePersonas.some((p) => p.role === cleanKey)) {
@@ -225,7 +266,8 @@ export default function UsersAndRolesSettingsPage() {
 
     const clonedPermissions = rolePermissions[cloneFromRole] || {};
 
-    createRole(
+    try {
+    await createRole(
       {
         id: `role-${cleanKey}-${Date.now().toString().slice(-4)}`,
         name: newRoleName.trim(),
@@ -240,6 +282,9 @@ export default function UsersAndRolesSettingsPage() {
       },
       clonedPermissions
     );
+    } catch (error) {
+      return alert(error instanceof Error ? error.message : "Could not create the role");
+    }
 
     setSelectedRoleKey(cleanKey);
     setShowCreateRoleModal(false);
@@ -249,15 +294,13 @@ export default function UsersAndRolesSettingsPage() {
   const handleEnableAllForGroup = (roleKey: string, groupKeys: string[]) => {
     const patch: Record<string, boolean> = {};
     groupKeys.forEach((k) => (patch[k] = true));
-    updateRolePermissions(roleKey, patch);
-    notify(`All sub-parts enabled for ${roleKey}`);
+    void runRoleChange(() => updateRolePermissions(roleKey, patch), `All sub-parts enabled for ${roleKey}`);
   };
 
   const handleDisableAllForGroup = (roleKey: string, groupKeys: string[]) => {
     const patch: Record<string, boolean> = {};
     groupKeys.forEach((k) => (patch[k] = false));
-    updateRolePermissions(roleKey, patch);
-    notify(`All sub-parts disabled for ${roleKey}`);
+    void runRoleChange(() => updateRolePermissions(roleKey, patch), `All sub-parts disabled for ${roleKey}`);
   };
 
   const filteredUsers = users.filter((u) => {
@@ -541,6 +584,17 @@ export default function UsersAndRolesSettingsPage() {
                             <KeyRound className="w-3 h-3 text-amber-600" />
                             <span>Reset Password</span>
                           </button>
+                          {canManageUsers && (
+                            <button
+                              type="button"
+                              onClick={() => openOverrides(u)}
+                              className="px-2.5 py-1 rounded-md bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-300 transition text-[11px] font-bold inline-flex items-center gap-1"
+                              title={`Per-user permission overrides for @${u.username}`}
+                            >
+                              <Sliders className="w-3 h-3" />
+                              <span>Permissions{u.permissionOverrides && Object.keys(u.permissionOverrides).length ? ` (${Object.keys(u.permissionOverrides).length})` : ""}</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleOpenEditUser(u)}
@@ -637,6 +691,51 @@ export default function UsersAndRolesSettingsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-[#71717A] mt-1">{persona?.description}</p>
+                  {selectedRoleKey === "admin" && (
+                    <p className="text-[11px] text-purple-800 mt-1 font-semibold">
+                      Administrator always has every permission and cannot be edited.
+                    </p>
+                  )}
+                  {(() => {
+                    const def = roleDefinitions.find((r) => r.key === selectedRoleKey);
+                    if (!def) return null;
+                    return (
+                      <div className="flex items-center gap-2 mt-2 text-[11px]">
+                        <span className="text-[#71717A]">
+                          {def.userCount ?? 0} user(s){def.updatedBy ? ` · last changed by ${def.updatedBy}` : ""}
+                        </span>
+                        {def.isSystem && def.customized && canManageRoles && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Reset '${def.label}' to its built-in permissions?`)) {
+                                void runRoleChange(() => resetRolePermissions(def.key), `${def.label} reset to defaults`);
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100 font-semibold"
+                          >
+                            Reset to defaults
+                          </button>
+                        )}
+                        {!def.isSystem && canManageRoles && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Delete the custom role '${def.label}'? Users must be moved off it first.`)) {
+                                void runRoleChange(async () => {
+                                  await deleteRole(def.key);
+                                  setSelectedRoleKey("manager");
+                                }, `Role '${def.label}' deleted`);
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100 font-semibold"
+                          >
+                            Delete role
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -744,8 +843,14 @@ export default function UsersAndRolesSettingsPage() {
                             </span>
                             <button
                               type="button"
-                              onClick={() => toggleRolePermission(selectedRoleKey, perm.key)}
-                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              disabled={selectedRoleKey === "admin" || !canManageRoles}
+                              onClick={() =>
+                                void runRoleChange(
+                                  () => toggleRolePermission(selectedRoleKey, perm.key),
+                                  `${perm.label} ${isGranted ? "blocked" : "allowed"} for ${roleDisplayName(selectedRoleKey)}`
+                                )
+                              }
+                              className={`disabled:opacity-50 disabled:cursor-not-allowed relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                                 isGranted ? "bg-[#0D7A5F]" : "bg-slate-300"
                               }`}
                               aria-label={`Toggle ${perm.label}`}
@@ -860,7 +965,7 @@ export default function UsersAndRolesSettingsPage() {
                 onChange={(val) => setFormRole(val as any)}
                 placeholder="Select Role"
                 searchPlaceholder="Search role..."
-                options={availablePersonas.map((p) => ({
+                options={assignableRoles.map((p) => ({
                   value: p.role,
                   label: roleDisplayName(p.role, p.name),
                   subLabel: p.role,
@@ -1153,6 +1258,104 @@ export default function UsersAndRolesSettingsPage() {
               </p>
             </div>
           </form>
+        )}
+      </SideDrawer>
+      {/* PER-USER PERMISSION OVERRIDES */}
+      <SideDrawer
+        isOpen={Boolean(overrideUser)}
+        onClose={() => setOverrideUser(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-[#0D7A5F]" />
+            <span>Permission overrides: @{overrideUser?.username}</span>
+          </div>
+        }
+        subtitle={
+          overrideUser
+            ? `Role: ${roleDisplayName(overrideUser.role)}. "Role default" follows the role; Allow/Deny applies to this user only.`
+            : ""
+        }
+        width="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-between gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setOverrideDraft({})}
+              className="px-3 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+            >
+              Clear all overrides
+            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setOverrideUser(null)}
+                className="px-4 py-2 rounded-lg border border-[#D4D4D8] text-xs text-[#71717A] hover:bg-[#F4F4F5]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingOverrides || overrideUser?.role === "admin"}
+                onClick={() => void saveOverrides()}
+                className="px-4 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {savingOverrides ? "Saving..." : "Save overrides"}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        {overrideUser && (
+          <div className="space-y-4 text-xs">
+            {overrideUser.role === "admin" && (
+              <p className="p-2 rounded bg-purple-50 border border-purple-200 text-purple-900">
+                Administrators always have every permission; overrides do not apply.
+              </p>
+            )}
+            {PERMISSION_GROUPS.map((group) => (
+              <div key={group.id} className="border border-[#E4E4E7] rounded-lg overflow-hidden">
+                <div className="px-3 py-2 bg-[#FAFAFA] font-bold text-[#18181B]">{group.name}</div>
+                <div className="divide-y divide-[#F4F4F5]">
+                  {group.permissions.map((perm) => {
+                    const roleValue = Boolean(rolePermissions[overrideUser.role]?.[perm.key]) || overrideUser.role === "admin";
+                    const value = overrideDraft[perm.key];
+                    const setValue = (next: boolean | undefined) =>
+                      setOverrideDraft((current) => {
+                        const copy = { ...current };
+                        if (next === undefined) delete copy[perm.key];
+                        else copy[perm.key] = next;
+                        return copy;
+                      });
+                    return (
+                      <div key={perm.key} className="px-3 py-2 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-[#18181B]">{perm.label}</div>
+                          <div className="text-[10px] font-mono text-[#A1A1AA]">
+                            {perm.key} · role: {roleValue ? "allowed" : "blocked"}
+                          </div>
+                        </div>
+                        <select
+                          value={value === undefined ? "" : value ? "allow" : "deny"}
+                          onChange={(e) => setValue(e.target.value === "" ? undefined : e.target.value === "allow")}
+                          className={`h-7 px-2 rounded border text-[11px] ${
+                            value === undefined
+                              ? "border-[#D4D4D8] bg-white"
+                              : value
+                                ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                : "border-rose-300 bg-rose-50 text-rose-800"
+                          }`}
+                        >
+                          <option value="">Role default</option>
+                          <option value="allow">Allow</option>
+                          <option value="deny">Deny</option>
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </SideDrawer>
     </div>

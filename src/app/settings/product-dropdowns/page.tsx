@@ -1,4 +1,5 @@
 "use client";
+import { pushSharedSetting } from "@/lib/sharedSettings";
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
@@ -135,6 +136,11 @@ export default function ProductDropdownSettingsPage() {
       localStorage.setItem("custom_equipment_types", JSON.stringify(nextEquip));
       localStorage.setItem("custom_hvac_brands", JSON.stringify(nextBrands));
       localStorage.setItem("custom_hvac_models", JSON.stringify(nextModels));
+      Promise.all([
+        pushSharedSetting("custom_equipment_types", nextEquip),
+        pushSharedSetting("custom_hvac_brands", nextBrands),
+        pushSharedSetting("custom_hvac_models", nextModels),
+      ]).catch((err) => alert(err.message));
       window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new CustomEvent("custom_equipment_types_updated", { detail: nextEquip }));
       window.dispatchEvent(new CustomEvent("custom_hvac_brands_updated", { detail: nextBrands }));

@@ -439,36 +439,30 @@ export class InventoryService {
 
     const effectiveCost = unitCost !== undefined && unitCost > 0 ? unitCost : product.costPrice;
 
-    // 1. Increment product stockQuantity
-    const updatedProduct = await prisma.product.update({
-      where: { id: productId },
-      data: {
-        stockQuantity: { increment: quantity },
-        costPrice: effectiveCost,
-      },
-    });
-
-    // 2. Add Stock Ledger entry
-    const ledger = await prisma.stockLedger.create({
-      data: {
-        productId,
-        qty: quantity,
-        direction: "in",
-        refType: "stock_in",
-        notes: notes || `Direct stock added (${source || "Warehouse Restock"})`,
-      },
-    });
-
-    // 3. Post to Accounts: Debit Inventory Asset, Credit Cash / Bank via AccountMappingService
-    try {
-      const inventoryAccount = await AccountMappingService.resolveAccount({
-        transactionType: "stock_in_asset",
-        });
-      const cashAccount = await AccountMappingService.resolveAccount({
-        transactionType: "stock_in_disbursing",
+    // Stock quantity, stock ledger and the GL entry are saved together: if the journal cannot be
+    // posted (e.g. account not mapped) the stock is not changed either, so stock and GL never drift.
+    return prisma.$transaction(async (tx) => {
+      const updatedProduct = await tx.product.update({
+        where: { id: productId },
+        data: {
+          stockQuantity: { increment: quantity },
+          costPrice: effectiveCost,
+        },
       });
-      const totalVal = Math.round(quantity * effectiveCost);
+      const ledger = await tx.stockLedger.create({
+        data: {
+          productId,
+          qty: quantity,
+          direction: "in",
+          refType: "stock_in",
+          notes: notes || `Direct stock added (${source || "Warehouse Restock"})`,
+        },
+      });
+      // Debit Inventory Asset (stock_in_asset), Credit Cash / Bank (stock_in_disbursing)
+      const totalVal = Math.round(quantity * effectiveCost * 100) / 100;
       if (totalVal > 0) {
+        const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "stock_in_asset", prismaClient: tx });
+        const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "stock_in_disbursing", prismaClient: tx });
         await AccountsPostingService.post({
           memo: `Inventory stock inward for ${quantity}x ${product.name} (${source || "Direct Restock"})`,
           refType: "stock_in",
@@ -477,13 +471,11 @@ export class InventoryService {
             { accountId: inventoryAccount.id, debit: totalVal, credit: 0 },
             { accountId: cashAccount.id, debit: 0, credit: totalVal },
           ],
+          tx,
         });
       }
-    } catch (e) {
-      console.warn("Could not post ledger for manual stock add:", e);
-    }
-
-    return { product: updatedProduct, ledger };
+      return { product: updatedProduct, ledger };
+    });
   }
 
   /**
@@ -502,7 +494,8 @@ export class InventoryService {
     const existing = await prisma.product.findUnique({ where: { sku: params.sku } });
     if (existing) throw new Error(`Product with SKU '${params.sku}' already exists.`);
 
-    const product = await prisma.product.create({
+    return prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
       data: {
         sku: params.sku,
         name: params.name,
@@ -515,7 +508,7 @@ export class InventoryService {
     });
 
     if (product.stockQuantity > 0) {
-      await prisma.stockLedger.create({
+      await tx.stockLedger.create({
         data: {
           productId: product.id,
           qty: product.stockQuantity,
@@ -525,32 +518,26 @@ export class InventoryService {
         },
       });
 
-      // Post to accounts: Debit Inventory Asset, Credit Owner Capital via AccountMappingService
-      try {
-        const inventoryAccount = await AccountMappingService.resolveAccount({
-          transactionType: "opening_stock_asset",
-            });
-        const capitalAccount = await AccountMappingService.resolveAccount({
-          transactionType: "opening_stock_equity",
+      // Debit Inventory Asset (opening_stock_asset), Credit Opening Equity (opening_stock_equity)
+      const totalVal = Math.round(product.stockQuantity * product.costPrice * 100) / 100;
+      if (totalVal > 0) {
+        const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_asset", prismaClient: tx });
+        const capitalAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_equity", prismaClient: tx });
+        await AccountsPostingService.post({
+          memo: `Initial opening inventory asset for ${product.name} (${product.sku})`,
+          refType: "opening_stock",
+          refId: product.id,
+          lines: [
+            { accountId: inventoryAccount.id, debit: totalVal, credit: 0 },
+            { accountId: capitalAccount.id, debit: 0, credit: totalVal },
+          ],
+          tx,
         });
-        const totalVal = Math.round(product.stockQuantity * product.costPrice);
-        if (totalVal > 0) {
-          await AccountsPostingService.post({
-            memo: `Initial opening inventory asset for ${product.name} (${product.sku})`,
-            refType: "opening_stock",
-            refId: product.id,
-            lines: [
-              { accountId: inventoryAccount.id, debit: totalVal, credit: 0 },
-              { accountId: capitalAccount.id, debit: 0, credit: totalVal },
-            ],
-          });
-        }
-      } catch (e) {
-        console.warn("Could not post opening stock entry:", e);
       }
     }
 
     return product;
+    });
   }
 
   /**
@@ -574,8 +561,9 @@ export class InventoryService {
 
     const effectiveCost = unitCost !== undefined && unitCost > 0 ? unitCost : product.costPrice;
 
+    return prisma.$transaction(async (tx) => {
     // 1. Increment product stockQuantity and update cost price
-    const updatedProduct = await prisma.product.update({
+    const updatedProduct = await tx.product.update({
       where: { id: productId },
       data: {
         stockQuantity: { increment: quantity },
@@ -585,7 +573,7 @@ export class InventoryService {
 
     // 2. Add Stock Ledger entry
     const entryDate = openingDate ? new Date(openingDate) : new Date();
-    const ledger = await prisma.stockLedger.create({
+    const ledger = await tx.stockLedger.create({
       data: {
         productId,
         qty: quantity,
@@ -597,14 +585,10 @@ export class InventoryService {
     });
 
     // 3. Post to Accounts: Debit 1200 (Inventory Asset), Credit 3000 (Owner Capital / Equity) via AccountMappingService
-    try {
-      const inventoryAccount = await AccountMappingService.resolveAccount({
-        transactionType: "opening_stock_asset",
-        });
-      const capitalAccount = await AccountMappingService.resolveAccount({
-        transactionType: "opening_stock_equity",
-      });
-      const totalVal = Math.round(quantity * effectiveCost);
+    {
+      const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_asset", prismaClient: tx });
+      const capitalAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_equity", prismaClient: tx });
+      const totalVal = Math.round(quantity * effectiveCost * 100) / 100;
       if (totalVal > 0) {
         await AccountsPostingService.post({
           memo: `Opening inventory balance for ${quantity}x ${product.name} (${product.sku})`,
@@ -614,13 +598,14 @@ export class InventoryService {
             { accountId: inventoryAccount.id, debit: totalVal, credit: 0 },
             { accountId: capitalAccount.id, debit: 0, credit: totalVal },
           ],
+          date: entryDate,
+          tx,
         });
       }
-    } catch (e) {
-      console.warn("Could not post opening stock journal entry:", e);
     }
 
     return { product: updatedProduct, ledger };
+    });
   }
 }
 

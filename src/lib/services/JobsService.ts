@@ -6,6 +6,8 @@ import { SubLedgerService } from "./SubLedgerService";
 import { DocumentSequenceService } from "./DocumentSequenceService";
 import { MobilePushService } from "./MobilePushService";
 import { AuditService } from "./AuditService";
+import { TaxSettingsService } from "../tax/TaxSettingsService";
+import { computeTax, jobTaxRate } from "../tax/taxConfig";
 import type { Prisma } from "@prisma/client";
 import {
   JOB_REASSIGNABLE_STATUSES,
@@ -827,6 +829,22 @@ export class JobsService {
       throw new Error("Cannot complete: Payment means must be cash, online, cheque, or unmarked.");
     }
 
+    // FOC jobs and office-collected jobs: the technician must not take any money.
+    const technicianCollects = JobsService.technicianCollectsPayment(job);
+    if (!technicianCollects) {
+      const attempted =
+        completionDetails?.paymentMeans && completionDetails.paymentMeans !== "unmarked"
+          ? Number(completionDetails?.paymentAmount) || 0
+          : 0;
+      if (attempted > 0) {
+        throw new Error(
+          job.isFoc
+            ? "Cannot complete: this is a Free-of-Charge (FOC) job. No payment should be collected from the customer."
+            : "Cannot complete: payment for this job is collected by the office/accounts. Do not collect cash — submit with no payment."
+        );
+      }
+    }
+
     // Proof-of-work photos are mandatory (server-side; mobile no longer offers "Finish without")
     // Cap + keep only image-ish strings (data: or http) - avoid blowing the row with junk
     const photos = (completionDetails?.photos ?? [])
@@ -851,7 +869,11 @@ export class JobsService {
       if (completionDetails.workingRemarks) {
         parts.push(`Field Work Execution: ${completionDetails.workingRemarks}`);
       }
-      if (completionDetails.paymentMeans) {
+      if (!technicianCollects) {
+        parts.push(
+          `Customer Payment: Not collected by technician (${job.isFoc ? "FOC job" : "office/accounts collection"})`
+        );
+      } else if (completionDetails.paymentMeans) {
         const meansLabel =
           completionDetails.paymentMeans === "unmarked"
             ? "Unmarked / Unpaid (Pending)"
@@ -869,7 +891,7 @@ export class JobsService {
 
     const means = completionDetails?.paymentMeans;
     const collected =
-      means && means !== "unmarked" ? Number(completionDetails?.paymentAmount) || 0 : 0;
+      technicianCollects && means && means !== "unmarked" ? Number(completionDetails?.paymentAmount) || 0 : 0;
 
     await prisma.$transaction(async (tx) => {
       // Status guard: only one completion wins (double-tap / offline replay safe)
@@ -904,12 +926,9 @@ export class JobsService {
           completionDetails?.technicianEmployeeId || job.assignedTechnicianId || "";
         if (techId) {
           const items = await tx.jobItem.findMany({ where: { jobId } });
-          let expected = 0;
-          for (const it of items) {
-            const qty = it.quantityActual ?? it.quantityPlanned;
-            expected += qty * it.unitRate;
-          }
-          expected = Math.max(0, expected - (job.discountAmount || 0));
+          // Amount due = lines - discount (+ sales tax when Settings > Taxes charges it on jobs)
+          const t = JobsService.computeJobTotals({ items, discountAmount: job.discountAmount });
+          const expected = (await TaxSettingsService.forJob(job, t.gross, t.discount, tx)).total;
 
           await tx.hisaabSettlement.create({
             data: {
@@ -1175,6 +1194,414 @@ export class JobsService {
     return updated;
   }
 
+
+  /** Technician collects from the customer only for normal (non-FOC) technician-collection jobs. */
+  static technicianCollectsPayment(job: { isFoc?: boolean | null; paymentCollectionMode?: string | null }) {
+    return !job.isFoc && (job.paymentCollectionMode || "technician") !== "office";
+  }
+
+  /**
+   * Billing options: FOC flag (job referred by an external company) / reason and payment collection mode.
+   * Caller (route) enforces jobs.edit_job, and jobs.approve_foc whenever the FOC flag changes.
+   */
+  static async setBillingOptions(
+    jobId: string,
+    opts: {
+      isFoc?: boolean;
+      focReason?: string;
+      careOfPartyId?: string | null;
+      paymentCollectionMode?: string;
+    },
+    actorName: string
+  ) {
+    const job = await prisma.job.findUnique({ where: { id: jobId }, include: { hisaabSettlements: true } });
+    if (!job) throw new Error("Job not found");
+    if (job.finalizedAt || ["Finalized", "Verified", "Cancelled", "TechnicianReassigned"].includes(job.status)) {
+      throw new Error("Job is finalized/closed. Billing options can no longer be changed.");
+    }
+
+    const nextIsFoc = opts.isFoc ?? job.isFoc;
+    const nextCareOf = opts.careOfPartyId !== undefined ? opts.careOfPartyId || null : job.careOfPartyId;
+    const nextMode = opts.paymentCollectionMode ?? job.paymentCollectionMode ?? "technician";
+    if (!["technician", "office"].includes(nextMode)) {
+      throw new Error("paymentCollectionMode must be 'technician' or 'office'.");
+    }
+    if (nextIsFoc && !nextCareOf) {
+      throw new Error("An FOC job must be linked to the referring company (Care-Of party).");
+    }
+    if (nextCareOf && nextCareOf !== job.careOfPartyId) {
+      const party = await prisma.careOfParty.findUnique({ where: { id: nextCareOf }, select: { id: true } });
+      if (!party) throw new Error("Referring company (Care-Of party) not found.");
+    }
+    const focChanged = nextIsFoc !== job.isFoc;
+    const reason = (opts.focReason ?? "").trim();
+    if (focChanged && nextIsFoc && reason.length < 3) {
+      throw new Error("A reason is required to mark a job as FOC.");
+    }
+    if (focChanged && !nextIsFoc && (job.focAmountReceived || 0) > 0) {
+      throw new Error("A company payment is already recorded on this FOC job; it cannot be un-marked.");
+    }
+
+    // Technician already reported collecting cash: can't switch to a no-collection mode silently.
+    const techCollectsNext = !nextIsFoc && nextMode !== "office";
+    if (!techCollectsNext) {
+      const reported = job.hisaabSettlements.filter((h) => (h.amountCollected || 0) > 0);
+      if (reported.length > 0) {
+        throw new Error(
+          "The technician has already reported a field collection for this job. Settle/clear it in hisaab before switching to FOC or office collection."
+        );
+      }
+    }
+
+    const now = new Date();
+    const updated = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        isFoc: nextIsFoc,
+        careOfPartyId: nextCareOf,
+        paymentCollectionMode: nextMode,
+        ...(focChanged ? { focReason: reason || null, focApprovedBy: actorName, focApprovedAt: now } : {}),
+      },
+    });
+
+    await this.logStatusChange(jobId, job.status, job.status, actorName, {
+      action: "billing_options_changed",
+      before: { isFoc: job.isFoc, careOfPartyId: job.careOfPartyId, paymentCollectionMode: job.paymentCollectionMode },
+      after: { isFoc: nextIsFoc, careOfPartyId: nextCareOf, paymentCollectionMode: nextMode },
+      reason: reason || undefined,
+    });
+
+    if (job.assignedTechnicianId && (focChanged || nextMode !== job.paymentCollectionMode)) {
+      MobilePushService.sendAppRequest({
+        recipientId: job.assignedTechnicianId,
+        senderName: actorName,
+        senderRole: "office",
+        type: "GENERAL_MESSAGE",
+        title: `Billing updated — ${job.jobNumber}`,
+        body: techCollectsNext
+          ? "Collect payment from the customer as usual."
+          : nextIsFoc
+            ? "This job is FOC (referred by a company). Do not collect any payment from the customer."
+            : "Office will collect payment for this job. Do not collect cash.",
+        priority: "high",
+        actionRequired: false,
+        payload: { jobId, isFoc: nextIsFoc, paymentCollectionMode: nextMode },
+      }).catch((e) => console.error("[JobsService] billing push failed:", e));
+    }
+
+    return updated;
+  }
+
+  /**
+   * Accountant records the referring company's payment for an FOC job (amount only known now).
+   * Receipt-time revenue recognition: Dr Cash/Bank, Cr Job Revenue (job_revenue_sales).
+   * Legacy FOC jobs whose finalize already booked revenue + AR (old company-billed behaviour):
+   * Cr AR (job_revenue_receivable) instead, so revenue is never double counted.
+   * Caller enforces accounts.general_ledger or jobs.approve_foc.
+   */
+  static async recordFocPayment(
+    jobId: string,
+    input: {
+      amount: number;
+      receivingAccountCode?: string | null;
+      receivedDate?: string | Date | null;
+      reference?: string | null;
+      notes?: string | null;
+      paymentMethod?: string | null;
+    },
+    actorName: string
+  ) {
+    const amount = Math.round((Number(input.amount) || 0) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Payment amount must be greater than zero.");
+    const job = await prisma.job.findUnique({ where: { id: jobId }, include: { careOfParty: true, customer: true } });
+    if (!job) throw new Error("Job not found");
+    if (!job.isFoc) throw new Error("This is not an FOC job. Use the normal customer receipt instead.");
+    if (["Cancelled", "TechnicianReassigned"].includes(job.status)) {
+      throw new Error(`Job is ${job.status}; FOC payment cannot be recorded on it.`);
+    }
+    const receivedAt = input.receivedDate ? new Date(input.receivedDate) : new Date();
+    if (Number.isNaN(receivedAt.getTime())) throw new Error("Invalid payment date.");
+    if (receivedAt.getTime() > Date.now() + 24 * 3600 * 1000) throw new Error("Payment date cannot be in the future.");
+    const reference = (input.reference || "").trim();
+    const company = job.careOfParty?.companyName || "Referring company";
+    const method = (input.paymentMethod || "bank_transfer").toString();
+
+    // Settings > Taxes "tax FOC company payments": the payment is treated as tax-inclusive.
+    const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
+    const focRate = taxPolicy.jobs.taxFocPayments
+      ? jobTaxRate(taxPolicy, taxRates, { jobType: job.jobType, careOfPartyId: job.careOfPartyId, customerTaxExempt: false, isFoc: false }, receivedAt)
+      : null;
+    const focTax = focRate
+      ? computeTax({ gross: amount, ratePercent: focRate.rate, inclusive: true, applyAfterDiscount: true, rounding: taxPolicy.rounding }).tax
+      : 0;
+    const focTaxAccount = focRate && focTax > 0 ? await TaxSettingsService.accountFor(focRate, "sales_tax_payable") : null;
+
+    return prisma.$transaction(async (tx) => {
+      const cashAcc = input.receivingAccountCode
+        ? await tx.account.findUnique({ where: { code: String(input.receivingAccountCode) } })
+        : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving", prismaClient: tx });
+      if (!cashAcc || !cashAcc.isActive || cashAcc.type !== "asset" || cashAcc.level < 4) {
+        throw new Error("Receiving account must be an active level-4 asset (cash/bank) account.");
+      }
+      const legacyRevenue = await tx.journalEntry.count({
+        where: { refType: "job_revenue", refId: job.id, status: "posted" },
+      });
+      const creditAcc = legacyRevenue > 0
+        ? await AccountMappingService.resolveAccount({
+            transactionType: "job_revenue_receivable",
+            categoryScope: job.jobType,
+            prismaClient: tx,
+          })
+        : await AccountMappingService.resolveAccount({
+            transactionType: "job_revenue_sales",
+            categoryScope: job.jobType,
+            prismaClient: tx,
+          });
+
+      const journal = await AccountsPostingService.post({
+        date: receivedAt,
+        memo: `FOC payment from ${company} for Job ${job.jobNumber}${reference ? ` (ref ${reference})` : ""} via ${method.toUpperCase()}${input.notes ? ` — ${input.notes}` : ""}`,
+        refType: "foc_payment",
+        refId: job.id,
+        postedBy: actorName,
+        lines: [
+          { accountId: cashAcc.id, debit: amount, credit: 0 },
+          { accountId: creditAcc.id, debit: 0, credit: Math.round((amount - (focTaxAccount && legacyRevenue === 0 ? focTax : 0)) * 100) / 100 },
+          ...(focTaxAccount && legacyRevenue === 0 ? [{ accountId: focTaxAccount.id, debit: 0, credit: focTax }] : []),
+        ],
+        tx,
+      });
+
+      const totalReceived = Math.round(((job.focAmountReceived || 0) + amount) * 100) / 100;
+      await tx.job.update({
+        where: { id: job.id },
+        data: {
+          focAmountReceived: totalReceived,
+          focPaymentReceivedAt: receivedAt,
+          focPaymentRef: reference || job.focPaymentRef,
+        },
+      });
+
+      await tx.jobStatusHistory.create({
+        data: {
+          jobId: job.id,
+          fromStatus: job.status,
+          toStatus: job.status,
+          changedBy: actorName,
+          metaJson: JSON.stringify({
+            action: "foc_payment_recorded",
+            company,
+            careOfPartyId: job.careOfPartyId,
+            amount,
+            totalReceived,
+            receivedAt: receivedAt.toISOString(),
+            reference: reference || null,
+            paymentMethod: method,
+            receivingAccount: cashAcc.code,
+            creditedTo: legacyRevenue > 0 ? "receivable (legacy revenue already booked)" : "revenue",
+            journalEntryId: journal.id,
+          }),
+        },
+      });
+
+      return { journal, totalReceived, creditedTo: legacyRevenue > 0 ? "receivable" : "revenue" };
+    }, TX_OPTS);
+  }
+
+  // ------------------------------------------------------------------
+  // Technician discount requests (percent / fixed) -> approval workflow
+  // ------------------------------------------------------------------
+
+  private static discountBase(
+    job: { items: { id: string; quantityActual: number | null; quantityPlanned: number; unitRate: number }[]; discountAmount?: number | null },
+    itemId?: string | null
+  ) {
+    const { gross, net } = this.computeJobTotals(job);
+    if (itemId) {
+      const it = job.items.find((i) => i.id === itemId);
+      if (!it) throw new Error("Item not found on job.");
+      const lineGross = Math.round((it.quantityActual ?? it.quantityPlanned) * it.unitRate * 100) / 100;
+      return { base: lineGross, gross, net };
+    }
+    return { base: gross, gross, net };
+  }
+
+  /** PKR amount for a percent/fixed discount, validated against limits. */
+  static computeRequestedDiscount(
+    discountType: string,
+    discountValue: number,
+    base: number,
+    netRemaining: number
+  ) {
+    const value = Number(discountValue);
+    if (!Number.isFinite(value) || value <= 0) throw new Error("Discount value must be greater than zero.");
+    let amount: number;
+    if (discountType === "percent") {
+      if (value > 100) throw new Error("Discount percentage must be between 0 and 100.");
+      amount = (base * value) / 100;
+    } else if (discountType === "amount") {
+      if (value > base + 0.005) {
+        throw new Error(`Discount (PKR ${value}) cannot exceed the amount it applies to (PKR ${base}).`);
+      }
+      amount = value;
+    } else {
+      throw new Error("discountType must be 'percent' or 'amount'.");
+    }
+    amount = Math.round(amount * 100) / 100;
+    if (amount > netRemaining + 0.005) {
+      throw new Error(
+        `Discount (PKR ${amount}) exceeds the remaining amount due on this job (PKR ${netRemaining}).`
+      );
+    }
+    if (amount <= 0) throw new Error("Computed discount is zero — nothing to request.");
+    return amount;
+  }
+
+  static async requestJobDiscount(
+    jobId: string,
+    input: { discountType: string; discountValue: number; reason: string; itemId?: string | null; technicianId?: string | null },
+    actorName: string
+  ) {
+    const job = await prisma.job.findUnique({ where: { id: jobId }, include: { items: true } });
+    if (!job) throw new Error("Job not found");
+    if (job.finalizedAt || ["Finalized", "Verified", "Cancelled", "TechnicianReassigned"].includes(job.status)) {
+      throw new Error("Job is finalized/closed. Discounts can no longer be requested.");
+    }
+    if (!["Accepted", "InProgress", "Paused", "AwaitingFeedback", "CompletedPendingVerification"].includes(job.status)) {
+      throw new Error(`Discounts cannot be requested while the job is '${job.status}'.`);
+    }
+    if (job.isFoc) throw new Error("This is a Free-of-Charge job — there is nothing to discount.");
+    const reason = (input.reason || "").trim();
+    if (reason.length < 3) throw new Error("Please give a reason for the discount.");
+
+    const pending = await prisma.jobDiscountRequest.findFirst({ where: { jobId, status: "pending" } });
+    if (pending) throw new Error("A discount request is already pending for this job. Wait for the office decision.");
+
+    const { base, net } = this.discountBase(job, input.itemId);
+    const amount = this.computeRequestedDiscount(input.discountType, Number(input.discountValue), base, net);
+
+    const request = await prisma.jobDiscountRequest.create({
+      data: {
+        jobId,
+        itemId: input.itemId || null,
+        discountType: input.discountType,
+        discountValue: Number(input.discountValue),
+        requestedAmount: amount,
+        reason,
+        status: "pending",
+        requestedById: input.technicianId || null,
+        requestedByName: actorName,
+      },
+    });
+
+    await this.logStatusChange(jobId, job.status, job.status, actorName, {
+      action: "discount_requested",
+      requestId: request.id,
+      itemId: input.itemId || null,
+      discountType: input.discountType,
+      discountValue: Number(input.discountValue),
+      requestedAmount: amount,
+      reason,
+    });
+
+    return request;
+  }
+
+  static async decideDiscountRequest(
+    jobId: string,
+    requestId: string,
+    decision: "approve" | "reject",
+    actorName: string,
+    opts?: { note?: string; overrideAmount?: number | null }
+  ) {
+    const now = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      const request = await tx.jobDiscountRequest.findUnique({ where: { id: requestId } });
+      if (!request || request.jobId !== jobId) throw new Error("Discount request not found for this job.");
+      if (request.status !== "pending") throw new Error(`Discount request is already ${request.status}.`);
+      const job = await tx.job.findUnique({ where: { id: jobId }, include: { items: true } });
+      if (!job) throw new Error("Job not found");
+      if (job.finalizedAt) throw new Error("Job is finalized and locked.");
+
+      if (decision === "reject") {
+        const claimed = await tx.jobDiscountRequest.updateMany({
+          where: { id: requestId, status: "pending" },
+          data: { status: "rejected", decidedBy: actorName, decidedAt: now, decisionNote: opts?.note || null },
+        });
+        if (claimed.count === 0) throw new Error("Discount request was already decided.");
+        return { job, request, amount: 0 };
+      }
+
+      const { base, net } = this.discountBase(job, request.itemId);
+      let amount: number;
+      if (opts?.overrideAmount !== undefined && opts?.overrideAmount !== null && String(opts.overrideAmount) !== "") {
+        amount = this.computeRequestedDiscount("amount", Number(opts.overrideAmount), base, net);
+      } else {
+        amount = this.computeRequestedDiscount(request.discountType, request.discountValue, base, net);
+      }
+
+      const claimed = await tx.jobDiscountRequest.updateMany({
+        where: { id: requestId, status: "pending" },
+        data: {
+          status: "approved",
+          approvedAmount: amount,
+          decidedBy: actorName,
+          decidedAt: now,
+          decisionNote: opts?.note || null,
+        },
+      });
+      if (claimed.count === 0) throw new Error("Discount request was already decided.");
+
+      const label =
+        request.discountType === "percent" ? `${request.discountValue}%` : `PKR ${request.discountValue}`;
+      const newDiscount = Math.round(((job.discountAmount || 0) + amount) * 100) / 100;
+      const reasonText = `${label} (PKR ${amount}) — ${request.reason}`;
+      await tx.job.update({
+        where: { id: jobId },
+        data: {
+          discountAmount: newDiscount,
+          discountReason: job.discountReason ? `${job.discountReason}; ${reasonText}` : reasonText,
+        },
+      });
+      return { job, request, amount };
+    }, TX_OPTS);
+
+    const { job, request, amount } = result;
+    const updatedJob = await prisma.job.findUnique({ where: { id: jobId }, include: { items: true } });
+    const net = updatedJob ? this.computeJobTotals(updatedJob).net : 0;
+
+    await this.logStatusChange(jobId, job.status, job.status, actorName, {
+      action: decision === "approve" ? "discount_request_approved" : "discount_request_rejected",
+      requestId,
+      discountType: request.discountType,
+      discountValue: request.discountValue,
+      requestedAmount: request.requestedAmount,
+      approvedAmount: decision === "approve" ? amount : undefined,
+      note: opts?.note || undefined,
+      newNetTotal: net,
+    });
+
+    const techId = request.requestedById || job.assignedTechnicianId;
+    if (techId) {
+      MobilePushService.sendAppRequest({
+        recipientId: techId,
+        senderName: actorName,
+        senderRole: "office",
+        type: "DISCOUNT_DECISION",
+        title: `Discount ${decision === "approve" ? "approved" : "declined"} — ${job.jobNumber}`,
+        body:
+          decision === "approve"
+            ? `PKR ${amount} off. New amount due PKR ${net}.`
+            : `Request declined${opts?.note ? `: ${opts.note}` : ""}. Amount due stays PKR ${net}.`,
+        priority: "high",
+        actionRequired: false,
+        payload: { jobId, requestId, decision, approvedAmount: amount, amountDue: net },
+      }).catch((e) => console.error("[JobsService] discount decision push failed:", e));
+    }
+
+    return prisma.jobDiscountRequest.findUnique({ where: { id: requestId } });
+  }
+
   /** Billable totals from ACTUAL quantities (planned as fallback) minus job-level discount. */
   static computeJobTotals(job: {
     items: { quantityActual: number | null; quantityPlanned: number; unitRate: number }[];
@@ -1213,8 +1640,29 @@ export class JobsService {
     if (job.status !== "CompletedPendingVerification") {
       throw new Error(`Job must be 'CompletedPendingVerification' to finalize.`);
     }
+    const pendingDiscountRequests = await prisma.jobDiscountRequest.count({
+      where: { jobId, status: "pending" },
+    });
+    if (pendingDiscountRequests > 0) {
+      throw new Error(
+        `Job ${job.jobNumber} has ${pendingDiscountRequests} pending discount request(s). Approve or reject them before finalizing.`
+      );
+    }
 
-    const { gross, discount, net: finalAmount } = this.computeJobTotals(job);
+    const { gross, discount } = this.computeJobTotals(job);
+    // FOC (referred by an external company): amount unknown at finalize -> no revenue, no AR,
+    // invoice 0/paid. Revenue is recognised when the company payment is recorded (recordFocPayment).
+    // Material cost was already expensed to COGS when stock was issued.
+    const trueFoc = Boolean(job.isFoc);
+
+    // Sales tax (Settings > Taxes). Re-finalizing reuses the invoice's tax snapshot, so jobs
+    // invoiced before tax was switched on never gain tax. FOC jobs: no customer charge, no tax.
+    const taxRes = trueFoc ? null : await TaxSettingsService.forJob(job, gross, discount);
+    const taxAmount = taxRes?.tax || 0;
+    const finalAmount = taxRes ? taxRes.total : Math.round((gross - discount) * 100) / 100;
+    const revenueGross = taxRes ? taxRes.revenueGross : gross;
+    const taxAccount =
+      taxAmount > 0 && taxRes?.rate ? await TaxSettingsService.accountFor(taxRes.rate, "sales_tax_payable") : null;
 
     // Resolve accounts via AccountMappingService (read-only, before the write transaction)
     const arAccount = await AccountMappingService.resolveAccount({
@@ -1234,13 +1682,18 @@ export class JobsService {
         : null;
 
     const postingLines: { accountId: string; debit: number; credit: number }[] = [];
-    if (discount > 0 && discountAccount) {
+    if (trueFoc) {
+      // no revenue posting
+    } else if (discount > 0 && discountAccount) {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
       postingLines.push({ accountId: discountAccount.id, debit: discount, credit: 0 });
-      postingLines.push({ accountId: revAccount.id, debit: 0, credit: gross });
+      postingLines.push({ accountId: revAccount.id, debit: 0, credit: revenueGross });
     } else {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
-      postingLines.push({ accountId: revAccount.id, debit: 0, credit: finalAmount });
+      postingLines.push({ accountId: revAccount.id, debit: 0, credit: Math.round((finalAmount - taxAmount) * 100) / 100 });
+    }
+    if (!trueFoc && taxAccount && taxAmount > 0) {
+      postingLines.push({ accountId: taxAccount.id, debit: 0, credit: taxAmount });
     }
     const hasAmount = postingLines.some((l) => l.debit > 0 || l.credit > 0);
 
@@ -1288,11 +1741,24 @@ export class JobsService {
             0
           ) * 100
         ) / 100;
-      const expectedGross = discount > 0 && discountAccount ? gross : finalAmount;
-      const glUnchanged =
-        activeRevenue.length > 0 &&
-        Math.abs(bookedNet - finalAmount) < 0.005 &&
-        Math.abs(bookedGross - expectedGross) < 0.005;
+      const expectedGross =
+        discount > 0 && discountAccount ? revenueGross : Math.round((finalAmount - taxAmount) * 100) / 100;
+      const bookedTax = taxAccount
+        ? Math.round(
+            activeRevenue.reduce(
+              (sum, je) => sum + je.lines.filter((l) => l.accountId === taxAccount.id).reduce((a, l) => a + (l.credit - l.debit), 0),
+              0
+            ) * 100
+          ) / 100
+        : 0;
+      // FOC: never touch GL here (legacy FOC jobs may carry old revenue/AR that a company payment
+      // already settled — leave it as is; new FOC jobs have none).
+      const glUnchanged = trueFoc
+        ? true
+        : activeRevenue.length > 0 &&
+          Math.abs(bookedNet - finalAmount) < 0.005 &&
+          Math.abs(bookedGross - expectedGross) < 0.005 &&
+          Math.abs(bookedTax - taxAmount) < 0.005;
 
       let reversedEntryIds: string[] = [];
       let revenueEntryId: string | null = activeRevenue[0]?.id ?? null;
@@ -1337,6 +1803,14 @@ export class JobsService {
             customerName: job.customer.name,
             amount: job.isFoc ? 0 : finalAmount,
             status: job.isFoc ? "paid" : "unpaid",
+            taxApplied: true,
+            subtotal: gross,
+            discountAmount: discount,
+            taxCode: taxAmount > 0 ? taxRes?.rate?.code ?? null : null,
+            taxName: taxAmount > 0 ? taxRes?.rate?.name ?? null : null,
+            taxRate: taxAmount > 0 ? taxRes?.ratePercent ?? 0 : 0,
+            taxInclusive: taxAmount > 0 ? Boolean(taxRes?.inclusive) : false,
+            taxAmount,
           },
         });
 
@@ -1356,7 +1830,7 @@ export class JobsService {
         const invoiceDelta = Math.round((finalAmount - (existingInvoice.amount || 0)) * 100) / 100;
         await tx.invoice.update({
           where: { id: existingInvoice.id },
-          data: { amount: finalAmount },
+          data: { amount: finalAmount, subtotal: gross, discountAmount: discount, taxAmount },
         });
         if (invoiceDelta !== 0) {
           await SubLedgerService.recordCustomerEntry({
@@ -1389,6 +1863,7 @@ export class JobsService {
             gross,
             discount,
             reFinalize: Boolean(existingInvoice) || activeRevenue.length > 0,
+            isFoc: job.isFoc,
             invoiceAmountBefore,
             glUnchanged,
             reversedEntryIds,
@@ -2223,7 +2698,16 @@ export class JobsService {
       const q = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
       total += q * it.unitRate;
     }
-    const net = Math.max(0, total - (freshJob.discountAmount || 0));
+    const grossTotal = Math.round(total * 100) / 100;
+    const disc = Math.round(Math.min(Math.max(0, freshJob.discountAmount || 0), grossTotal) * 100) / 100;
+    // Sales tax per Settings > Taxes (an existing invoice keeps its own tax snapshot)
+    const taxRes = freshJob.isFoc ? null : await TaxSettingsService.forJob(freshJob, grossTotal, disc);
+    const net = freshJob.isFoc ? 0 : taxRes ? taxRes.total : Math.max(0, grossTotal - disc);
+    const taxFields = {
+      subtotal: grossTotal,
+      discountAmount: disc,
+      taxAmount: taxRes?.tax || 0,
+    };
 
     const invoiceNum = customInvoiceNumber?.trim() || `INV-${freshJob.jobNumber}`;
 
@@ -2244,6 +2728,7 @@ export class JobsService {
           jobId: freshJob.id,
           customerId: freshJob.customerId,
           customerName: freshJob.customer.name,
+          ...(existing.taxApplied ? taxFields : {}),
         },
       });
       return updated;
@@ -2257,6 +2742,12 @@ export class JobsService {
         customerName: freshJob.customer.name,
         amount: net,
         status: "unpaid",
+        taxApplied: true,
+        ...taxFields,
+        taxCode: taxFields.taxAmount > 0 ? taxRes?.rate?.code ?? null : null,
+        taxName: taxFields.taxAmount > 0 ? taxRes?.rate?.name ?? null : null,
+        taxRate: taxFields.taxAmount > 0 ? taxRes?.ratePercent ?? 0 : 0,
+        taxInclusive: taxFields.taxAmount > 0 ? Boolean(taxRes?.inclusive) : false,
       },
     });
 
@@ -2359,6 +2850,11 @@ export class JobsService {
     if (amount <= 0) {
       throw new Error("Amount received must be greater than zero.");
     }
+    if (!job.isFoc && job.paymentCollectionMode === "office") {
+      throw new Error(
+        `Job ${job.jobNumber} is office-collected: the technician holds no cash for it. Record the customer receipt via Accounts (office receipt) instead.`
+      );
+    }
 
     const depositAccount = options?.depositAccount || "Cash on Hand (Office Safe)";
     const notes = options?.notes || `Cash collection handed over to Accounts (${actor}) from technician`;
@@ -2400,8 +2896,8 @@ export class JobsService {
           },
         });
       } else {
-        const { net } = JobsService.computeJobTotals(job);
-        const expected = options?.amountExpected || net;
+        const t = JobsService.computeJobTotals(job);
+        const expected = options?.amountExpected || (await TaxSettingsService.forJob(job, t.gross, t.discount, tx)).total;
         const techId = options?.technicianId || job.assignedTechnicianId || "technician";
         saved = await tx.hisaabSettlement.create({
           data: {
@@ -2452,13 +2948,13 @@ export class JobsService {
         });
       }
 
-      if (job.customerId && gl.delta > 0 && !job.isFoc) {
+      if (job.customerId && gl.delta !== 0 && !job.isFoc) {
         await SubLedgerService.recordCustomerEntry({
           customerId: job.customerId,
           entryType: "payment",
           documentNumber: `REC-${job.jobNumber}`,
-          debit: 0,
-          credit: gl.delta,
+          debit: gl.delta < 0 ? Math.abs(gl.delta) : 0,
+          credit: gl.delta > 0 ? gl.delta : 0,
           notes: `Customer collection handed over by technician for Job ${job.jobNumber} (${depositAccount})`,
           tx,
         });
@@ -2485,6 +2981,150 @@ export class JobsService {
     }, TX_OPTS);
 
     return settlement;
+  }
+
+  /**
+   * Office / accountant receipt for an office-collected job (paymentCollectionMode "office").
+   * Dr Cash/Bank (chosen level-4 asset or customer_payment_receiving) / Cr AR (customer_payment_receivable),
+   * customer sub-ledger payment, invoice status -> partially_paid / paid. Technician ledger untouched.
+   * Requires the job to be finalized (the invoice + AR exist); outstanding = invoice - receipts.
+   */
+  static async recordOfficeJobReceipt(
+    jobId: string,
+    amountReceived: number,
+    actorName: string,
+    opts?: { receivingAccountCode?: string | null; paymentMethod?: string; notes?: string | null; whtAmount?: number | null }
+  ) {
+    const amount = Math.round((Number(amountReceived) || 0) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Receipt amount must be greater than zero.");
+    // WHT the customer deducted (Settings > Taxes): settles the invoice too, booked as WHT receivable.
+    const whtDeducted = Math.round((Number(opts?.whtAmount) || 0) * 100) / 100;
+    if (whtDeducted < 0) throw new Error("WHT deducted cannot be negative.");
+    if (whtDeducted > 0 && !(await TaxSettingsService.load()).policy.wht.allowOnCustomerReceipts) {
+      throw new Error("Recording customer-deducted WHT is switched off in Settings > Taxes.");
+    }
+    const settled = Math.round((amount + whtDeducted) * 100) / 100;
+    const job = await prisma.job.findUnique({ where: { id: jobId }, include: { customer: true } });
+    if (!job) throw new Error("Job not found");
+    if (job.isFoc) throw new Error("This is an FOC job — record the referring company's payment with 'Record FOC payment'.");
+    const invoice = await prisma.invoice.findFirst({ where: { jobId }, orderBy: { createdAt: "desc" } });
+    if (!invoice) {
+      throw new Error(
+        `Job ${job.jobNumber} has no invoice yet. Finalize the job first (that books the receivable), then record the office receipt.`
+      );
+    }
+    if (invoice.status === "paid") throw new Error(`Invoice ${invoice.invoiceNumber} is already fully paid.`);
+    const paymentMethod = (opts?.paymentMethod || "bank_transfer").toString();
+
+    return prisma.$transaction(async (tx) => {
+      const prior = await tx.journalEntry.findMany({
+        where: { refType: "customer_payment", refId: invoice.id, status: "posted" },
+        include: { lines: true },
+      });
+      const alreadyPaid = prior.reduce((sum, je) => {
+        const arLine = je.lines.find((l) => l.credit > 0);
+        return sum + (arLine?.credit || 0);
+      }, 0);
+      const outstanding = Math.round((invoice.amount - alreadyPaid) * 100) / 100;
+      if (settled > outstanding + 0.01) {
+        throw new Error(
+          `Receipt (PKR ${settled}) exceeds the outstanding balance (PKR ${outstanding}) of invoice ${invoice.invoiceNumber}.`
+        );
+      }
+
+      const cashAcc = opts?.receivingAccountCode
+        ? await tx.account.findUnique({ where: { code: String(opts.receivingAccountCode) } })
+        : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving", prismaClient: tx });
+      if (!cashAcc || !cashAcc.isActive || cashAcc.type !== "asset" || cashAcc.level < 4) {
+        throw new Error("Receiving account must be an active level-4 asset (cash/bank) account.");
+      }
+      const arAcc = await AccountMappingService.resolveAccount({
+        transactionType: "customer_payment_receivable",
+        prismaClient: tx,
+      });
+      const memo =
+        opts?.notes ||
+        `Office receipt for Job ${job.jobNumber} / ${invoice.invoiceNumber} via ${paymentMethod.toUpperCase()} (${job.customer?.name || "Customer"})`;
+      const journal = await AccountsPostingService.post({
+        memo,
+        refType: "customer_payment",
+        refId: invoice.id,
+        postedBy: actorName,
+        lines: [
+          { accountId: cashAcc.id, debit: amount, credit: 0 },
+          ...(whtDeducted > 0
+            ? [{ accountId: (await AccountMappingService.resolveAccount({ transactionType: "wht_receivable", prismaClient: tx })).id, debit: whtDeducted, credit: 0 }]
+            : []),
+          { accountId: arAcc.id, debit: 0, credit: settled },
+        ],
+        tx,
+      });
+
+      const totalNowPaid = Math.round((alreadyPaid + settled) * 100) / 100;
+      const fullyPaid = totalNowPaid >= invoice.amount - 0.01;
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { status: fullyPaid ? "paid" : "partially_paid" },
+      });
+
+      if (job.customerId) {
+        await SubLedgerService.recordCustomerEntry({
+          customerId: job.customerId,
+          entryType: "payment",
+          documentNumber: invoice.invoiceNumber,
+          journalEntryId: journal.id,
+          debit: 0,
+          credit: settled,
+          notes: `Office receipt (${paymentMethod}) for Job ${job.jobNumber}${whtDeducted > 0 ? ` incl. WHT PKR ${whtDeducted} deducted by customer` : ""}`,
+          tx,
+        });
+      }
+
+      await tx.jobStatusHistory.create({
+        data: {
+          jobId,
+          fromStatus: job.status,
+          toStatus: job.status,
+          changedBy: actorName,
+          metaJson: JSON.stringify({
+            action: "office_receipt_recorded",
+            amount,
+            paymentMethod,
+            invoiceNumber: invoice.invoiceNumber,
+            journalEntryId: journal.id,
+            outstandingAfter: Math.max(0, Math.round((invoice.amount - totalNowPaid) * 100) / 100),
+          }),
+        },
+      });
+
+      return {
+        journal,
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceAmount: invoice.amount,
+        paidToDate: totalNowPaid,
+        outstanding: Math.max(0, Math.round((invoice.amount - totalNowPaid) * 100) / 100),
+        status: fullyPaid ? "paid" : "partially_paid",
+      };
+    }, TX_OPTS);
+  }
+
+  /** Invoice outstanding for a job (invoice amount minus posted customer receipts). */
+  static async getJobReceivableStatus(jobId: string) {
+    const invoice = await prisma.invoice.findFirst({ where: { jobId }, orderBy: { createdAt: "desc" } });
+    if (!invoice) return null;
+    const prior = await prisma.journalEntry.findMany({
+      where: { refType: "customer_payment", refId: invoice.id, status: "posted" },
+      include: { lines: true },
+    });
+    const paid = prior.reduce((sum, je) => sum + (je.lines.find((l) => l.credit > 0)?.credit || 0), 0);
+    return {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceAmount: invoice.amount,
+      paid: Math.round(paid * 100) / 100,
+      outstanding: Math.max(0, Math.round((invoice.amount - paid) * 100) / 100),
+      status: invoice.status,
+    };
   }
 }
 

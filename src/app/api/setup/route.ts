@@ -18,6 +18,34 @@ import {
 const clean = (value: unknown) => String(value ?? "").trim();
 const roundMoney = (value: unknown) => Math.round(Number(value) * 100) / 100;
 
+/**
+ * Control accounts whose opening balance comes from the party opening balances (sub-ledgers), so the
+ * GL control always equals the sum of the parties: AR = customers, AP = suppliers, advances = employees.
+ */
+async function resolveOpeningControlAccounts() {
+  const safe = async (transactionType: string) => {
+    try {
+      return await AccountMappingService.resolveAccount({ transactionType });
+    } catch {
+      return null;
+    }
+  };
+  const [ar, ap, advances, equity] = await Promise.all([
+    safe("ar_control"),
+    safe("ap_control"),
+    safe("advance_granted_receivable"),
+    safe("opening_balance_equity"),
+  ]);
+  return { ar, ap, advances, equity };
+}
+
+async function partyOpeningTotals() {
+  const rows = await prisma.partyOpeningBalance.findMany();
+  const sum = (type: string, sign: 1 | -1) =>
+    roundMoney(rows.filter((r) => r.partyType === type).reduce((s, r) => s + sign * (r.debit - r.credit), 0));
+  return { customers: sum("customer", 1), vendors: sum("vendor", -1), employees: sum("employee", 1) };
+}
+
 async function recalculateCustomerLedger(tx: any, customerId: string) {
   const entries = await tx.customerLedgerEntry.findMany({
     where: { customerId },
@@ -86,9 +114,12 @@ export async function GET(req: NextRequest) {
 
     // 4. Check if Opening Balance has been posted
     const openingVoucher = await prisma.journalEntry.findFirst({
-      where: { refType: "opening_balance" },
+      where: { refType: "opening_balance", status: "posted" },
+      orderBy: { createdAt: "desc" },
       include: { lines: { include: { account: true } } },
     });
+    const openingControls = await resolveOpeningControlAccounts();
+    const openingPartyTotals = await partyOpeningTotals();
 
     // 5. Counts for master data
     const [customerCount, vendorCount, productCount, employeeCount] = await Promise.all([
@@ -136,6 +167,15 @@ export async function GET(req: NextRequest) {
       accounts: leafAccounts,
       allAccounts: accounts,
       openingVoucher,
+      openingSetup: {
+        equityAccount: openingControls.equity ? { code: openingControls.equity.code, name: openingControls.equity.name } : null,
+        // These are filled automatically from the party opening balances step.
+        autoAccounts: [
+          openingControls.ar && { code: openingControls.ar.code, name: openingControls.ar.name, source: "Customer balances", amount: openingPartyTotals.customers, side: openingPartyTotals.customers >= 0 ? "debit" : "credit" },
+          openingControls.ap && { code: openingControls.ap.code, name: openingControls.ap.name, source: "Supplier balances", amount: openingPartyTotals.vendors, side: openingPartyTotals.vendors >= 0 ? "credit" : "debit" },
+          openingControls.advances && { code: openingControls.advances.code, name: openingControls.advances.name, source: "Employee advance balances", amount: openingPartyTotals.employees, side: openingPartyTotals.employees >= 0 ? "debit" : "credit" },
+        ].filter(Boolean),
+      },
       mappingCompleteness,
       trialBalanceStatus: {
         totalDebits: tb.totalDebits,
@@ -183,6 +223,21 @@ export async function POST(req: NextRequest) {
     if (gate.error) return gate.error;
     const body = await req.json();
     const { action } = body;
+
+    // Opening balances define the books; once go-live is complete they must not be silently replaced.
+    if (action === "post_opening_balances" || action === "save_party_opening_balances") {
+      const live = await prisma.companySettings.findFirst({ select: { isSetupCompleted: true } });
+      if (live?.isSetupCompleted && body.confirmAfterGoLive !== true) {
+        return NextResponse.json(
+          {
+            error:
+              "Go-live is already complete. Changing opening balances now would rewrite posted history; post a dated adjusting journal instead (or resend with confirmAfterGoLive: true if you really must).",
+            code: "AFTER_GO_LIVE",
+          },
+          { status: 409 }
+        );
+      }
+    }
 
     // STEP 1: SAVE COMPANY PROFILE & SEED FISCAL YEAR
     if (action === "save_company") {
@@ -266,6 +321,9 @@ export async function POST(req: NextRequest) {
         inclusive: Boolean(item.inclusive),
         isDefault: Boolean(item.isDefault),
         active: item.active !== false,
+        // Keep the extra fields edited in Settings > Taxes
+        ...(typeof item.effectiveFrom === "string" && item.effectiveFrom ? { effectiveFrom: item.effectiveFrom } : {}),
+        ...(typeof item.accountRole === "string" && item.accountRole ? { accountRole: item.accountRole } : {}),
       }));
       const paymentMethods: PaymentMethodConfig[] = (Array.isArray(body.paymentMethods) ? body.paymentMethods : []).map((item: any, index: number): PaymentMethodConfig => ({
         id: clean(item.id) || `payment-${index + 1}`,
@@ -297,7 +355,7 @@ export async function POST(req: NextRequest) {
       if (agingBuckets.length !== 3 || !agingBuckets.every((item: number) => Number.isInteger(item) && item > 0) || !(agingBuckets[0] < agingBuckets[1] && agingBuckets[1] < agingBuckets[2])) {
         return NextResponse.json({ error: "Enter exactly three increasing aging cutoffs, such as 30, 60, and 90 days." }, { status: 400 });
       }
-      if (!taxRules.length || taxRules.some((item: any) => !item.name || !item.code || !["sales_tax", "withholding", "other"].includes(item.type) || !["sales", "purchases", "both"].includes(item.appliesTo) || !Number.isFinite(item.rate) || item.rate < 0 || item.rate > 100)) {
+      if (!taxRules.length || taxRules.some((item: any) => !item.name || !item.code || !["sales_tax", "services_tax", "withholding", "other"].includes(item.type) || !["sales", "purchases", "both"].includes(item.appliesTo) || !Number.isFinite(item.rate) || item.rate < 0 || item.rate > 100)) {
         return NextResponse.json({ error: "Add at least one complete tax rule with a rate from 0 to 100%." }, { status: 400 });
       }
       if (!paymentMethods.length || paymentMethods.some((item: any) => !item.name || !item.code || !["cash", "bank", "card", "cheque", "digital", "credit", "split"].includes(item.kind))) {
@@ -458,19 +516,36 @@ export async function POST(req: NextRequest) {
         await tx.companySettings.update({ where: { id: settings.id }, data: { partyBalancesCompleted: true } });
         return created;
       });
-      return NextResponse.json({ success: true, partyOpeningBalances: saved, message: saved.length ? `${saved.length} party opening balance(s) saved to their sub-ledgers.` : "Confirmed that customer, vendor, and employee opening balances are zero." });
+      return NextResponse.json({ success: true, partyOpeningBalances: saved, message: saved.length ? `${saved.length} party opening balance(s) saved to their sub-ledgers. Now post (or re-post) the GL opening balances so the AR/AP control accounts pick up these totals.` : "Confirmed that customer, vendor, and employee opening balances are zero." });
     }
 
     // STEP 2: POST OPENING BALANCES (OFFSET TO 3900 EQUITY)
     if (action === "post_opening_balances") {
-      const { balances, goLiveDate, postedBy = "Accountant" } = body;
+      const { balances, goLiveDate } = body;
+      const postedBy = gate.actor.name || "Accountant";
       // balances: Array of { accountCode: string, debit: number, credit: number }
 
-      if (!balances || !Array.isArray(balances) || balances.length === 0) {
+      if (!Array.isArray(balances)) {
         return NextResponse.json({ error: "No opening balance rows provided." }, { status: 400 });
       }
+      const controls = await resolveOpeningControlAccounts();
+      const partyTotals = await partyOpeningTotals();
+      // Stock entered through Inventory > Opening Stock is already in the GL; don't let it be entered twice.
+      const stockOpeningPosted = await prisma.journalEntry.count({ where: { refType: "opening_stock", status: "posted" } });
+      let stockAccountId: string | null = null;
+      if (stockOpeningPosted) {
+        try {
+          stockAccountId = (await AccountMappingService.resolveAccount({ transactionType: "opening_stock_asset" })).id;
+        } catch {
+          stockAccountId = null;
+        }
+      }
+      const autoAccountIds = new Set([controls.ar?.id, controls.ap?.id, partyTotals.employees ? controls.advances?.id : undefined].filter(Boolean) as string[]);
 
       const targetDate = goLiveDate ? new Date(goLiveDate) : new Date();
+      if (Number.isNaN(targetDate.getTime())) {
+        return NextResponse.json({ error: "Go-live date is invalid." }, { status: 400 });
+      }
 
       // Ensure Opening Balance Equity is resolved via AccountMappingService
       const equityOffsetAcc = await AccountMappingService.resolveAccount({ transactionType: "opening_balance_equity" });
@@ -480,11 +555,34 @@ export async function POST(req: NextRequest) {
       const validLines: Array<{ accountId: string; debit: number; credit: number }> = [];
 
       for (const b of balances) {
-        const d = Number(b.debit) || 0;
-        const c = Number(b.credit) || 0;
+        const d = roundMoney(b.debit || 0);
+        const c = roundMoney(b.credit || 0);
+        if (!Number.isFinite(d) || !Number.isFinite(c) || d < 0 || c < 0) {
+          return NextResponse.json({ error: `Account ${b.accountCode}: amounts must be zero or positive numbers.` }, { status: 400 });
+        }
+        if (d > 0 && c > 0) {
+          return NextResponse.json({ error: `Account ${b.accountCode}: enter either a debit or a credit, not both.` }, { status: 400 });
+        }
         if (d === 0 && c === 0) continue;
 
         const acc = await AccountsPostingService.getAccountByCode(b.accountCode);
+        if (autoAccountIds.has(acc.id)) {
+          return NextResponse.json(
+            {
+              error: `${acc.code} ${acc.name} is filled automatically from the customer/supplier/employee opening balances. Enter those per party in the Party Opening Balances step instead.`,
+            },
+            { status: 400 }
+          );
+        }
+        if (stockAccountId && acc.id === stockAccountId) {
+          return NextResponse.json(
+            { error: `${acc.code} ${acc.name}: opening stock was already posted item-by-item from Inventory > Opening Stock. Do not enter it again here.` },
+            { status: 400 }
+          );
+        }
+        if (controls.equity && acc.id === controls.equity.id) {
+          return NextResponse.json({ error: `${acc.code} ${acc.name} receives the balancing difference automatically; leave it blank.` }, { status: 400 });
+        }
         validLines.push({
           accountId: acc.id,
           debit: d,
@@ -495,11 +593,27 @@ export async function POST(req: NextRequest) {
         totalCredits += c;
       }
 
+      // Control accounts = totals of the party opening balances (keeps GL and sub-ledgers tied).
+      const addAuto = (accountId: string | undefined, amount: number, normalDebit: boolean) => {
+        if (!accountId || !amount) return;
+        const debitSide = normalDebit ? amount > 0 : amount < 0;
+        const value = roundMoney(Math.abs(amount));
+        validLines.push({ accountId, debit: debitSide ? value : 0, credit: debitSide ? 0 : value });
+        if (debitSide) totalDebits += value;
+        else totalCredits += value;
+      };
+      if (partyTotals.customers && !controls.ar) return NextResponse.json({ error: "Map 'ar_control' before posting customer opening balances." }, { status: 400 });
+      if (partyTotals.vendors && !controls.ap) return NextResponse.json({ error: "Map 'ap_control' before posting supplier opening balances." }, { status: 400 });
+      if (partyTotals.employees && !controls.advances) return NextResponse.json({ error: "Map 'advance_granted_receivable' before posting employee advance balances." }, { status: 400 });
+      addAuto(controls.ar?.id, partyTotals.customers, true);
+      addAuto(controls.ap?.id, partyTotals.vendors, false);
+      addAuto(controls.advances?.id, partyTotals.employees, true);
+
       if (validLines.length === 0) {
         return NextResponse.json({ error: "All entered opening balances are zero." }, { status: 400 });
       }
 
-      // Compute difference to offset into 3900 Opening Balance Equity
+      // Difference goes to the account mapped as opening_balance_equity (default 3900)
       const difference = Math.round((totalDebits - totalCredits) * 100) / 100;
 
       if (difference > 0) {
@@ -551,7 +665,7 @@ export async function POST(req: NextRequest) {
         success: true,
         openingVoucher,
         equityOffsetAmount: Math.abs(difference),
-        message: `Opening balance voucher #${openingVoucher.id} posted. Net offset of PKR ${Math.abs(difference).toLocaleString()} placed into 3900 Opening Balance Equity.`,
+        message: `Opening balance voucher #${openingVoucher.id} posted. Net difference of PKR ${Math.abs(difference).toLocaleString()} placed into ${equityOffsetAcc.code} ${equityOffsetAcc.name}.`,
       });
     }
 
@@ -873,7 +987,10 @@ export async function POST(req: NextRequest) {
         { transactionType: "pos_sale_cash", accountCode: "1000" },
         { transactionType: "pos_sale_bank", accountCode: "1010" },
         { transactionType: "pos_sale_receivable", accountCode: "1100" },
-        { transactionType: "pos_sale_revenue", accountCode: "4000" },
+        { transactionType: "pos_sale_revenue", accountCode: "4002" },
+        { transactionType: "sales_tax_payable", accountCode: "2210" },
+        { transactionType: "input_tax_receivable", accountCode: "1160" },
+        { transactionType: "wht_receivable", accountCode: "1170" },
         { transactionType: "cashbook_contra_revenue", accountCode: "4000" },
         { transactionType: "cashbook_contra_expense", accountCode: "6200" },
         { transactionType: "settlement_collection_vault", accountCode: "1000" },

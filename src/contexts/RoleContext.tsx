@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { installErpActorFetch, type ErpActorSnapshot } from "@/lib/erpActorFetch";
+import { SHARED_SETTING_PERMISSIONS, syncSharedSettingsFromServer } from "@/lib/sharedSettings";
 import { ShieldCheck, Lock } from "lucide-react";
 
 export type BuiltInRoleType =
@@ -168,6 +169,21 @@ export const ERP_PERSONAS: Record<RoleType, Persona> = {
 };
 
 import { DEFAULT_ROLE_PERMISSIONS, roleMapHasPermission } from "@/lib/permissions";
+
+/** Role as returned by /api/roles (server is the source of truth). */
+export interface RoleDefinitionView {
+  key: string;
+  label: string;
+  description: string;
+  isSystem: boolean;
+  isLocked: boolean;
+  badgeColor: string;
+  permissions: Record<string, boolean>;
+  customized: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  userCount?: number;
+}
 
 export interface SystemUser {
   id: string;
@@ -342,10 +358,13 @@ interface RoleContextType {
   // Granular Permission Engine
   hasPermission: (permissionKey: string) => boolean;
   rolePermissions: Record<string, Record<string, boolean>>;
-  updateRolePermissions: (roleKey: string, permissions: Record<string, boolean>) => void;
-  toggleRolePermission: (roleKey: string, permKey: string) => void;
-  createRole: (role: Persona, initialPermissions?: Record<string, boolean>) => void;
-  deleteRole: (roleKey: string) => void;
+  roleDefinitions: RoleDefinitionView[];
+  updateRolePermissions: (roleKey: string, permissions: Record<string, boolean>) => Promise<void>;
+  toggleRolePermission: (roleKey: string, permKey: string) => Promise<void>;
+  createRole: (role: Persona, initialPermissions?: Record<string, boolean>) => Promise<void>;
+  deleteRole: (roleKey: string) => Promise<void>;
+  resetRolePermissions: (roleKey: string) => Promise<void>;
+  refreshRoles: () => Promise<void>;
 
   // System Users Management
   users: SystemUser[];
@@ -362,91 +381,105 @@ const RoleContext = createContext<RoleContextType | undefined>(undefined);
 
 export function RoleProvider({ children }: { children: React.ReactNode }) {
   const [activeRole, setActiveRoleState] = useState<RoleType>("admin");
-  const [customRoles, setCustomRoles] = useState<Record<string, Persona>>({});
-  const [rolePermissions, setRolePermissions] = useState<Record<string, Record<string, boolean>>>(DEFAULT_ROLE_PERMISSIONS);
+  const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinitionView[]>([]);
+  const [effectivePermissions, setEffectivePermissions] = useState<Record<string, boolean> | null>(null);
   const [users, setUsers] = useState<SystemUser[]>(DEFAULT_USERS);
   const [activeUserId, setActiveUserIdState] = useState<string>("usr-admin-01");
   const [sessionReady, setSessionReady] = useState(false);
 
-  // Load from local storage
+  const loadAdminData = async (perms: Record<string, boolean> | null, role: string) => {
+    const canAdmin = role === "admin" || Boolean(perms?.["settings.manage_users"] || perms?.["settings.manage_roles"]);
+    if (!canAdmin) return;
+    const [usersResponse, rolesResponse] = await Promise.all([
+      fetch("/api/users", { cache: "no-store" }),
+      fetch("/api/roles", { cache: "no-store" }),
+    ]);
+    if (usersResponse.ok) {
+      const usersData = await usersResponse.json();
+      if (Array.isArray(usersData.users)) setUsers(usersData.users);
+    }
+    if (rolesResponse.ok) {
+      const rolesData = await rolesResponse.json();
+      if (Array.isArray(rolesData.roles)) setRoleDefinitions(rolesData.roles);
+    }
+  };
+
+  const refreshSession = async (initial = false) => {
+    const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
+    if (!sessionResponse.ok) {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      return;
+    }
+    const sessionData = await sessionResponse.json();
+    const sessionUser = sessionData.user as SystemUser;
+    if (!sessionUser) return;
+    const perms = (sessionData.effectivePermissions || null) as Record<string, boolean> | null;
+    setActiveRoleState(sessionUser.role);
+    setActiveUserIdState(sessionUser.id);
+    setEffectivePermissions(perms);
+    setUsers((current) => {
+      const others = current.filter((u) => u.id !== sessionUser.id && !DEFAULT_USERS.some((d) => d.id === u.id));
+      return [sessionUser, ...others];
+    });
+    if (initial) {
+      await loadAdminData(perms, sessionUser.role);
+      // Shared settings lists come from the server so every user/device sees the same values.
+      const can = (key: string) =>
+        sessionUser.role === "admin" || (SHARED_SETTING_PERMISSIONS[key] || []).some((k) => Boolean(perms?.[k]));
+      await syncSharedSettingsFromServer(can).catch(() => undefined);
+    }
+  };
+
+  // Load the signed-in user, their server-computed permissions, and (for administrators) users + roles.
+  // Role and permission definitions live on the server; nothing is kept in browser storage.
   useEffect(() => {
+    let cancelled = false;
     try {
-      const savedCustomRoles = localStorage.getItem("workman_custom_roles");
-      if (savedCustomRoles) {
-        setCustomRoles(JSON.parse(savedCustomRoles));
-      }
-
-      const savedPermissions = localStorage.getItem("workman_role_permissions");
-      if (savedPermissions) {
-        // Merge with defaults so newly added procurement.* keys are not stuck false/undefined
-        const parsed = JSON.parse(savedPermissions) as Record<string, Record<string, boolean>>;
-        const merged: Record<string, Record<string, boolean>> = { ...DEFAULT_ROLE_PERMISSIONS };
-        for (const [roleKey, perms] of Object.entries(parsed)) {
-          merged[roleKey] = { ...(DEFAULT_ROLE_PERMISSIONS[roleKey] || {}), ...perms };
-          // Prefer default for brand-new keys that were absent in the saved blob
-          const defaults = DEFAULT_ROLE_PERMISSIONS[roleKey] || {};
-          for (const [pk, pv] of Object.entries(defaults)) {
-            if (perms[pk] === undefined) {
-              merged[roleKey][pk] = pv;
-            }
-          }
-        }
-        // Ensure new roles (purchasing/manager) exist even if absent from saved blob
-        for (const roleKey of Object.keys(DEFAULT_ROLE_PERMISSIONS)) {
-          if (!merged[roleKey]) merged[roleKey] = DEFAULT_ROLE_PERMISSIONS[roleKey];
-        }
-        // Strictly ensure financial & invoice permissions remain false for operational dispatcher & CSR roles
-        if (merged.dispatcher) {
-          merged.dispatcher["jobs.view_financials"] = false;
-          merged.dispatcher["jobs.add_service"] = false;
-          merged.dispatcher["jobs.generate_invoice"] = false;
-        }
-        if (merged.call_center) {
-          merged.call_center["jobs.view_financials"] = false;
-          merged.call_center["jobs.add_service"] = false;
-          merged.call_center["jobs.generate_invoice"] = false;
-        }
-        if (merged.accountant) {
-          merged.accountant["jobs.stock_return"] = false;
-        }
-        setRolePermissions(merged);
-      }
-
-    } catch (e) {
+      localStorage.removeItem("workman_custom_roles");
+      localStorage.removeItem("workman_role_permissions");
+    } catch {
       // ignore
     }
-
-    let cancelled = false;
     (async () => {
       try {
-        const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
-        if (!sessionResponse.ok) {
-          window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
-          return;
-        }
-        const sessionData = await sessionResponse.json();
-        const sessionUser = sessionData.user as SystemUser;
-        if (cancelled || !sessionUser) return;
-        setActiveRoleState(sessionUser.role);
-        setActiveUserIdState(sessionUser.id);
-        setUsers([sessionUser]);
-
-        if (sessionUser.role === "admin") {
-          const usersResponse = await fetch("/api/users", { cache: "no-store" });
-          if (usersResponse.ok) {
-            const usersData = await usersResponse.json();
-            if (!cancelled && Array.isArray(usersData.users)) setUsers(usersData.users);
-          }
-        }
+        await refreshSession(true);
         if (!cancelled) setSessionReady(true);
       } catch {
         if (!cancelled) window.location.assign("/login");
       }
     })();
+    // Pick up permission changes made by an administrator without needing to sign in again.
+    const onFocus = () => {
+      refreshSession(false).catch(() => undefined);
+    };
+    window.addEventListener("focus", onFocus);
+    const timer = window.setInterval(onFocus, 60000);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const customRoles: Record<string, Persona> = {};
+  for (const def of roleDefinitions) {
+    if (def.isSystem) continue;
+    customRoles[def.key] = {
+      id: `role-${def.key}`,
+      name: def.label,
+      role: def.key,
+      designation: def.label,
+      department: "",
+      email: "",
+      avatar: def.key.slice(0, 2).toUpperCase(),
+      badgeColor: def.badgeColor,
+      description: def.description || `Custom role ${def.label}`,
+      primaryModules: [],
+    };
+  }
+  const rolePermissions: Record<string, Record<string, boolean>> = { ...DEFAULT_ROLE_PERMISSIONS };
+  for (const def of roleDefinitions) rolePermissions[def.key] = def.permissions;
 
   const allPersonasMap: Record<string, Persona> = {
     ...ERP_PERSONAS,
@@ -483,86 +516,87 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     if (userId === activeUserId) setActiveUserIdState(userId);
   };
 
-  // Granular Permission Engine Check
+  // Granular Permission Engine Check (UI only; the server enforces the same map on every API call)
   const hasPermission = (permissionKey: string): boolean => {
-    // 1. If active user is suspended, block all permissions
-    if (activeUser?.status === "suspended") {
-      return false;
-    }
-
-    // 2. Check user-specific override if defined (exact key or aliases)
-    if (activeUser?.permissionOverrides) {
-      const overrides = activeUser.permissionOverrides;
-      if (overrides[permissionKey] !== undefined) {
-        return overrides[permissionKey];
-      }
-    }
-
-    // 3. Role-level map with legacy <-> fine-grained procurement aliases
-    const roleMap = rolePermissions[activeRole];
-    if (roleMapHasPermission(roleMap, permissionKey, activeRole === "admin")) {
-      return true;
-    }
-
-    // 4. Default for admin is true; others default to false
-    if (activeRole === "admin") {
-      return true;
-    }
-
-    return false;
+    if (activeUser?.status === "suspended") return false;
+    if (activeRole === "admin") return true;
+    if (effectivePermissions) return roleMapHasPermission(effectivePermissions, permissionKey);
+    // Fallback before the session has loaded: built-in defaults + user overrides
+    const overrides = activeUser?.permissionOverrides || {};
+    if (overrides[permissionKey] !== undefined) return overrides[permissionKey];
+    return roleMapHasPermission(rolePermissions[activeRole], permissionKey);
   };
 
-  const updateRolePermissions = (roleKey: string, newPerms: Record<string, boolean>) => {
-    const updated = {
-      ...rolePermissions,
-      [roleKey]: {
-        ...(rolePermissions[roleKey] || {}),
-        ...newPerms,
+  const applyRole = (role: RoleDefinitionView) => {
+    setRoleDefinitions((current) => {
+      const exists = current.some((r) => r.key === role.key);
+      const userCount = current.find((r) => r.key === role.key)?.userCount;
+      return exists
+        ? current.map((r) => (r.key === role.key ? { ...role, userCount } : r))
+        : [...current, { ...role, userCount: 0 }];
+    });
+  };
+
+  const refreshRoles = async () => {
+    const response = await fetch("/api/roles", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (Array.isArray(data.roles)) setRoleDefinitions(data.roles);
+  };
+
+  const roleRequest = async (url: string, init: RequestInit, fallback: string) => {
+    const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || fallback);
+    return data;
+  };
+
+  const updateRolePermissions = async (roleKey: string, newPerms: Record<string, boolean>) => {
+    const data = await roleRequest(
+      `/api/roles/${encodeURIComponent(roleKey)}`,
+      { method: "PATCH", body: JSON.stringify({ permissions: newPerms }) },
+      "Could not save role permissions."
+    );
+    if (data.role) applyRole(data.role);
+    if (roleKey === activeRole) await refreshSession(false);
+  };
+
+  const toggleRolePermission = async (roleKey: string, permKey: string) => {
+    const currentVal = rolePermissions[roleKey]?.[permKey] ?? roleKey === "admin";
+    await updateRolePermissions(roleKey, { [permKey]: !currentVal });
+  };
+
+  const resetRolePermissions = async (roleKey: string) => {
+    const data = await roleRequest(
+      `/api/roles/${encodeURIComponent(roleKey)}`,
+      { method: "PATCH", body: JSON.stringify({ reset: true }) },
+      "Could not reset this role."
+    );
+    if (data.role) applyRole(data.role);
+    if (roleKey === activeRole) await refreshSession(false);
+  };
+
+  const createRole = async (role: Persona, initialPermissions?: Record<string, boolean>) => {
+    const data = await roleRequest(
+      "/api/roles",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          key: role.role,
+          label: role.name,
+          description: role.description,
+          badgeColor: role.badgeColor,
+          permissions: initialPermissions || {},
+        }),
       },
-    };
-    setRolePermissions(updated);
-    try {
-      localStorage.setItem("workman_role_permissions", JSON.stringify(updated));
-    } catch (e) {
-      // ignore
-    }
+      "Could not create the role."
+    );
+    if (data.role) applyRole(data.role);
   };
 
-  const toggleRolePermission = (roleKey: string, permKey: string) => {
-    const currentVal = rolePermissions[roleKey]?.[permKey] ?? (roleKey === "admin");
-    updateRolePermissions(roleKey, { [permKey]: !currentVal });
-  };
-
-  const createRole = (role: Persona, initialPermissions?: Record<string, boolean>) => {
-    const updatedCustom = {
-      ...customRoles,
-      [role.role]: role,
-    };
-    setCustomRoles(updatedCustom);
-    try {
-      localStorage.setItem("workman_custom_roles", JSON.stringify(updatedCustom));
-    } catch (e) {
-      // ignore
-    }
-
-    if (initialPermissions) {
-      updateRolePermissions(role.role, initialPermissions);
-    }
-  };
-
-  const deleteRole = (roleKey: string) => {
-    if (ERP_PERSONAS[roleKey as RoleType]) {
-      alert("Built-in system roles cannot be deleted");
-      return;
-    }
-    const updatedCustom = { ...customRoles };
-    delete updatedCustom[roleKey];
-    setCustomRoles(updatedCustom);
-    try {
-      localStorage.setItem("workman_custom_roles", JSON.stringify(updatedCustom));
-    } catch (e) {
-      // ignore
-    }
+  const deleteRole = async (roleKey: string) => {
+    await roleRequest(`/api/roles/${encodeURIComponent(roleKey)}`, { method: "DELETE" }, "Could not delete the role.");
+    setRoleDefinitions((current) => current.filter((r) => r.key !== roleKey));
   };
 
   // User Management
@@ -629,10 +663,13 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         isModulePrimary,
         hasPermission,
         rolePermissions,
+        roleDefinitions,
         updateRolePermissions,
         toggleRolePermission,
         createRole,
         deleteRole,
+        resetRolePermissions,
+        refreshRoles,
         users,
         activeUser,
         setActiveUserId,

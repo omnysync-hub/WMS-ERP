@@ -99,6 +99,15 @@ export class AccountsPostingService {
       );
     }
 
+    // 0. Idempotency: the same key always returns the entry that was already posted.
+    if (idempotencyKey) {
+      const existing = await db.journalEntry.findUnique({
+        where: { idempotencyKey },
+        include: { lines: { include: { account: true } } },
+      });
+      if (existing) return existing;
+    }
+
     // 1. Validate Fiscal Period Lock
     let targetFiscalPeriodId: string | null = null;
     if (!bypassPeriodLock) {
@@ -129,6 +138,13 @@ export class AccountsPostingService {
       }
       if (!account.isActive) {
         throw new Error(`Posting rejected: Account '${account.name}' (${account.code}) is inactive/disabled.`);
+      }
+      // Header/group accounts only roll up their children; postings must go to a leaf account.
+      const childCount = await db.account.count({ where: { parentId: account.id } });
+      if (childCount > 0) {
+        throw new Error(
+          `Posting rejected: '${account.name}' (${account.code}) is a group account with ${childCount} sub-account(s). Post to one of its sub-accounts.`
+        );
       }
     }
 

@@ -157,21 +157,40 @@ export async function createErpSession(
   return { token, expiresAt };
 }
 
-export function setErpSessionCookie(response: NextResponse, token: string) {
+/**
+ * Should the session cookie carry the `Secure` flag?
+ * Browsers silently DROP a Secure cookie set over plain http, so login "succeeds" but the
+ * next request has no session and bounces back to /login. Follow the real request protocol:
+ *  - COOKIE_SECURE=true|false env overrides everything;
+ *  - otherwise Secure only when the request arrived over https (direct, or via a proxy that
+ *    sends X-Forwarded-Proto: https, e.g. nginx `proxy_set_header X-Forwarded-Proto $scheme;`).
+ * When the site moves to HTTPS the flag turns on automatically.
+ */
+export function shouldUseSecureCookie(request?: Pick<NextRequest, "headers" | "nextUrl"> | null) {
+  const override = (process.env.COOKIE_SECURE || "").trim().toLowerCase();
+  if (override === "true" || override === "1") return true;
+  if (override === "false" || override === "0") return false;
+  if (!request) return process.env.NODE_ENV === "production";
+  const forwardedProto = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  if (forwardedProto) return forwardedProto === "https";
+  return request.nextUrl?.protocol === "https:";
+}
+
+export function setErpSessionCookie(response: NextResponse, token: string, request?: NextRequest) {
   response.cookies.set(ERP_SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(request),
     path: "/",
     maxAge: ERP_SESSION_MAX_AGE_SECONDS,
   });
 }
 
-export function clearErpSessionCookie(response: NextResponse) {
+export function clearErpSessionCookie(response: NextResponse, request?: NextRequest) {
   response.cookies.set(ERP_SESSION_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(request),
     path: "/",
     maxAge: 0,
   });
@@ -255,7 +274,8 @@ export async function verifyErpLogin(login: string, password: string) {
 }
 
 export function requestIp(request: NextRequest) {
-  return (request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "")
+  // Prefer X-Real-IP (set by nginx / Vercel to the actual peer, not client-spoofable).
+  return (request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for") || "")
     .split(",")[0]
     .trim();
 }

@@ -16,6 +16,7 @@ import TaxInvoiceDrawer from "@/components/drawers/TaxInvoiceDrawer";
 import WorkOrderDrawer from "@/components/drawers/WorkOrderDrawer";
 import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianCashDrawer";
 import JobRemarksCard from "@/components/jobs/JobRemarksCard";
+import JobBillingDiscountPanel from "@/components/jobs/JobBillingDiscountPanel";
 import { cn, formatCurrency, formatDateTime, formatJobType, isServiceItem } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -1584,6 +1585,10 @@ export default function JobDetailPage() {
               </div>
             );
           })()}
+
+          {canViewFinancials && !isRestrictedRole && (
+            <JobBillingDiscountPanel job={job} onChanged={fetchJob} />
+          )}
 
           {/* Field Settlements & Customer Collections (Masked if lacks financial permission or restricted role) */}
           {canViewFinancials && !isRestrictedRole && (

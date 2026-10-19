@@ -1,4 +1,5 @@
 "use client";
+import { pushSharedSetting } from "@/lib/sharedSettings";
 
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
@@ -90,6 +91,7 @@ export default function JobTypesSettingsPage() {
   const persistJobTypes = (next: string[], actionNotice: string) => {
     try {
       localStorage.setItem("custom_job_types", JSON.stringify(next));
+      pushSharedSetting("custom_job_types", next).catch((err) => setErrorMessage(err.message));
       window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new CustomEvent("custom_job_types_updated", { detail: next }));
       setJobTypes(next);

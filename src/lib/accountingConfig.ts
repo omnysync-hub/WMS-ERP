@@ -2,12 +2,14 @@ export type TaxRule = {
   id: string;
   name: string;
   code: string;
-  type: "sales_tax" | "withholding" | "other";
+  type: "sales_tax" | "services_tax" | "withholding" | "other";
   rate: number;
   appliesTo: "sales" | "purchases" | "both";
   inclusive: boolean;
   isDefault: boolean;
   active: boolean;
+  effectiveFrom?: string | null;
+  accountRole?: string | null;
 };
 
 export type PaymentMethodConfig = {

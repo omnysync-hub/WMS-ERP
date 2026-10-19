@@ -5,12 +5,46 @@ import { buildChartOfAccountsTree } from "@/lib/constants/chartOfAccountsHierarc
 
 export class FinancialReportingService {
   /**
+   * Accounts that belong to the same group as the accounts mapped to the given transaction types
+   * (the mapped account's parent group, or the account itself). Returns null when nothing is mapped,
+   * so callers can fall back to the legacy code-prefix rule.
+   */
+  private static async mappedGroupMembers(transactionTypes: string[]): Promise<Set<string> | null> {
+    const mappings = await prisma.accountMapping.findMany({
+      where: { transactionType: { in: transactionTypes } },
+      select: { accountId: true },
+    });
+    if (!mappings.length) return null;
+    const all = await prisma.account.findMany({ select: { id: true, parentId: true, level: true } });
+    const byId = new Map(all.map((a) => [a.id, a]));
+    const roots = new Set<string>();
+    for (const m of mappings) {
+      const acc = byId.get(m.accountId);
+      const parent = acc?.parentId ? byId.get(acc.parentId) : undefined;
+      // Use the parent group only when it is a sub-category/control (level >= 2), never a top-level class.
+      roots.add(parent && parent.level >= 2 ? parent.id : m.accountId);
+    }
+    const members = new Set<string>();
+    for (const a of all) {
+      let cur: string | null | undefined = a.id;
+      for (let depth = 0; cur && depth < 10; depth++) {
+        if (roots.has(cur)) {
+          members.add(a.id);
+          break;
+        }
+        cur = byId.get(cur)?.parentId;
+      }
+    }
+    return members;
+  }
+
+  /**
    * Generate Full 4-Level Trial Balance as of a specific date.
    * Pulls all posted journal lines, groups by account, and rolls up from Level 4 to Level 1.
    */
   static async getTrialBalance(asOfDate: Date = new Date()) {
+    // Include deactivated accounts too: their historical postings still belong in the TB/BS.
     const accounts = await prisma.account.findMany({
-      where: { isActive: true },
       include: {
         journalLines: {
           where: {
@@ -27,7 +61,9 @@ export class FinancialReportingService {
     let totalDebits = 0;
     let totalCredits = 0;
 
-    const accountsWithBalance = accounts.map((acc) => {
+    const accountsWithBalance = accounts
+      .filter((acc) => acc.isActive || acc.journalLines.length > 0)
+      .map((acc) => {
       let balance = 0;
       let accountDebitSum = 0;
       let accountCreditSum = 0;
@@ -51,6 +87,7 @@ export class FinancialReportingService {
         code: acc.code,
         name: acc.name,
         type: acc.type,
+        isActive: acc.isActive,
         debitTotal: Math.round(accountDebitSum * 100) / 100,
         creditTotal: Math.round(accountCreditSum * 100) / 100,
         balance: Math.round(balance * 100) / 100,
@@ -105,8 +142,11 @@ export class FinancialReportingService {
     const totalLiabilitiesAndEquity = Math.round((totalLiabilities + totalEquity) * 100) / 100;
     const accountingEquationDifference = Math.round((totalAssets - totalLiabilitiesAndEquity) * 100) / 100;
 
-    const currentAssetsList = assetAccounts.filter((a) => !a.code.startsWith("15"));
-    const fixedAssetsList = assetAccounts.filter((a) => a.code.startsWith("15"));
+    // Fixed assets = the group of the account mapped to fixed_asset_cost (fallback: legacy 15xx codes).
+    const fixedGroup = await this.mappedGroupMembers(["fixed_asset_cost"]);
+    const isFixed = (a: { id: string; code: string }) => (fixedGroup ? fixedGroup.has(a.id) : a.code.startsWith("15"));
+    const currentAssetsList = assetAccounts.filter((a) => !isFixed(a));
+    const fixedAssetsList = assetAccounts.filter((a) => isFixed(a));
     const currentAssetsTotal = Math.round(currentAssetsList.reduce((s, a) => s + a.balance, 0) * 100) / 100;
     const fixedAssetsTotal = Math.round(fixedAssetsList.reduce((s, a) => s + a.balance, 0) * 100) / 100;
 
@@ -157,9 +197,9 @@ export class FinancialReportingService {
           date: { gte: fromDate, lte: toDate },
           status: { in: ["posted", "reversed", "reversal"] },
         },
+        // Deactivated accounts keep their history in the P&L for the period.
         account: {
           type: { in: ["revenue", "contra_revenue", "expense"] },
-          isActive: true,
         },
       },
       include: {
@@ -167,12 +207,12 @@ export class FinancialReportingService {
       },
     });
 
-    const accountMap = new Map<string, { code: string; name: string; type: string; balance: number }>();
+    const accountMap = new Map<string, { id: string; code: string; name: string; type: string; balance: number }>();
 
     for (const line of journalLines) {
       const acc = line.account;
       if (!accountMap.has(acc.code)) {
-        accountMap.set(acc.code, { code: acc.code, name: acc.name, type: acc.type, balance: 0 });
+        accountMap.set(acc.code, { id: acc.id, code: acc.code, name: acc.name, type: acc.type, balance: 0 });
       }
 
       const item = accountMap.get(acc.code)!;
@@ -186,8 +226,12 @@ export class FinancialReportingService {
     const accountsList = Array.from(accountMap.values());
 
     const revenueAccounts = accountsList.filter((a) => a.type === "revenue" || a.type === "contra_revenue");
-    const cogsAccounts = accountsList.filter((a) => a.code.startsWith("5"));
-    const opexAccounts = accountsList.filter((a) => a.type === "expense" && !a.code.startsWith("5"));
+    // COGS = expense accounts in the group of the mapped cost-of-sales accounts (fallback: legacy 5xxx codes).
+    const cogsGroup = await this.mappedGroupMembers(["inventory_cogs_expense", "inventory_return_cogs"]);
+    const isCogs = (a: { id: string; code: string; type: string }) =>
+      a.type === "expense" && (cogsGroup ? cogsGroup.has(a.id) : a.code.startsWith("5"));
+    const cogsAccounts = accountsList.filter((a) => isCogs(a));
+    const opexAccounts = accountsList.filter((a) => a.type === "expense" && !isCogs(a));
 
     const totalGrossRevenue = Math.round(
       revenueAccounts.reduce((sum, a) => sum + (a.type === "contra_revenue" ? -a.balance : a.balance), 0) * 100
@@ -245,10 +289,10 @@ export class FinancialReportingService {
       } catch {
         return await prisma.account.findFirst({
           where: {
-            OR: [
-              { code: { startsWith: fallbackCode } },
-              { type: fallbackType },
-            ],
+            // Fallback by legacy code only. Matching "any account of this type" would pick a random
+            // asset/liability and silently mis-state the cash flow.
+            code: fallbackCode,
+            type: fallbackType,
             isActive: true,
           },
         });

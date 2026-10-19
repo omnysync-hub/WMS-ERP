@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
+import { computeTax, findRate, normalizeTaxPolicy, normalizeTaxRates } from "@/lib/tax/taxConfig";
 
 interface ProductItem {
   id: string;
@@ -74,6 +75,7 @@ export default function PosTerminalPage() {
   const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [accountingConfig, setAccountingConfig] = useState<any>(null);
+  const [taxSettings, setTaxSettings] = useState<any>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -147,6 +149,12 @@ export default function PosTerminalPage() {
         setPastSessions(regData.pastSessions || []);
       }
       if (configRes.ok) setAccountingConfig(configData);
+      try {
+        const taxRes = await fetch("/api/settings/taxes", { cache: "no-store" });
+        if (taxRes.ok) setTaxSettings(await taxRes.json());
+      } catch {
+        /* tax settings optional: falls back to the setup tax rules */
+      }
     } catch (e) {
       console.error("Failed to load POS data:", e);
     } finally {
@@ -318,16 +326,31 @@ export default function PosTerminalPage() {
     return itemsDiscount + orderDisc;
   }, [cart, cartSubtotal, orderDiscountType, orderDiscountValue]);
 
-  const taxAmount = useMemo(() => {
-    if (!applyGstTax) return 0;
-    const taxableAmount = Math.max(0, cartSubtotal - (orderDiscountType === "percent" ? (cartSubtotal * orderDiscountValue) / 100 : orderDiscountValue));
-    const configured = (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo) && rule.isDefault)
-      || (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo));
-    return Math.round(taxableAmount * ((Number(configured?.rate) || 0) / 100) * 100) / 100;
-  }, [applyGstTax, cartSubtotal, orderDiscountType, orderDiscountValue, accountingConfig]);
+  // Tax per Settings > Taxes (POS). The server recalculates the same way and rejects a mismatch.
+  const posTaxPolicy = useMemo(() => normalizeTaxPolicy(taxSettings?.policy).pos, [taxSettings]);
+  const taxRounding = useMemo(() => normalizeTaxPolicy(taxSettings?.policy).rounding, [taxSettings]);
+  const activeSalesTax = useMemo(() => {
+    const rates = normalizeTaxRates(taxSettings?.rates ?? accountingConfig?.taxRules);
+    if (posTaxPolicy.rateCode) return findRate(rates, posTaxPolicy.rateCode);
+    const sales = rates.filter((r) => r.active && r.type !== "withholding" && ["sales", "both"].includes(r.appliesTo));
+    return sales.find((r) => r.isDefault) || sales[0] || null;
+  }, [taxSettings, accountingConfig, posTaxPolicy]);
+  const taxApplies = posTaxPolicy.mode === "always" || (posTaxPolicy.mode === "cashier" && applyGstTax);
+  const itemsDiscountTotal = useMemo(() => cart.reduce((sum, item) => sum + item.discount, 0), [cart]);
+  const posTaxCalc = useMemo(
+    () =>
+      computeTax({
+        gross: cartSubtotal + itemsDiscountTotal,
+        discount: totalDiscount,
+        ratePercent: taxApplies ? Number(activeSalesTax?.rate) || 0 : 0,
+        inclusive: posTaxPolicy.pricesIncludeTax,
+        applyAfterDiscount: posTaxPolicy.applyAfterDiscount,
+        rounding: taxRounding,
+      }),
+    [cartSubtotal, itemsDiscountTotal, totalDiscount, taxApplies, activeSalesTax, posTaxPolicy, taxRounding]
+  );
+  const taxAmount = posTaxCalc.tax;
 
-  const activeSalesTax = (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo) && rule.isDefault)
-    || (accountingConfig?.taxRules || []).find((rule: any) => rule.active && rule.type === "sales_tax" && ["sales", "both"].includes(rule.appliesTo));
   const defaultBank = (accountingConfig?.financialAccounts || []).find((account: any) => account.isDefault && account.kind === "bank")
     || (accountingConfig?.financialAccounts || []).find((account: any) => account.kind === "bank");
   const configuredPaymentTabs = (accountingConfig?.paymentMethods || [])
@@ -343,13 +366,7 @@ export default function PosTerminalPage() {
     .filter(Boolean)
     .filter((item: any, index: number, items: any[]) => items.findIndex((candidate) => candidate.id === item.id) === index);
 
-  const grandTotal = useMemo(() => {
-    const afterOrderDisc =
-      orderDiscountType === "percent"
-        ? cartSubtotal - (cartSubtotal * Math.min(100, Math.max(0, orderDiscountValue))) / 100
-        : Math.max(0, cartSubtotal - orderDiscountValue);
-    return Math.max(0, Math.round((afterOrderDisc + taxAmount) * 100) / 100);
-  }, [cartSubtotal, orderDiscountType, orderDiscountValue, taxAmount]);
+  const grandTotal = posTaxCalc.total;
 
   // Checkout Initiation
   const handleOpenCheckout = () => {
@@ -399,6 +416,7 @@ export default function PosTerminalPage() {
         subtotal: cartSubtotal,
         discountAmount: totalDiscount,
         taxAmount,
+        applyTax: taxApplies,
         totalAmount: grandTotal,
         customerName: selectedCustomer.name || "Walk-in Customer",
         customerPhone: selectedCustomer.phone || null,
@@ -924,8 +942,10 @@ export default function PosTerminalPage() {
                     </button>
                   </div>
 
+                  {posTaxPolicy.mode !== "off" && (
                   <button
                     type="button"
+                    disabled={posTaxPolicy.mode === "always"}
                     onClick={() => setApplyGstTax(!applyGstTax)}
                     className={cn(
                       "flex items-center justify-between px-2.5 py-1 rounded-lg border text-xs font-semibold transition",
@@ -934,11 +954,12 @@ export default function PosTerminalPage() {
                         : "bg-[#F9FAFB] border-[#E4E4E7] text-[#71717A]"
                     )}
                   >
-                    <span>16% GST:</span>
+                    <span>{activeSalesTax ? `${activeSalesTax.code} ${activeSalesTax.rate}%` : "Tax"}:</span>
                     <span className="font-mono font-bold">
-                      {applyGstTax ? formatCurrency(taxAmount) : "Exempt"}
+                      {taxApplies ? formatCurrency(taxAmount) : "Not charged"}
                     </span>
                   </button>
+                  )}
                 </div>
 
                 {/* Subtotal, Discount & Grand Total Breakdown */}
@@ -953,10 +974,10 @@ export default function PosTerminalPage() {
                       <span className="font-mono">-{formatCurrency(totalDiscount)}</span>
                     </div>
                   )}
-                  {applyGstTax && (
+                  {taxApplies && taxAmount > 0 && (
                     <div className="flex justify-between text-emerald-700 font-medium">
-                      <span>{activeSalesTax?.name || "Sales Tax"} ({Number(activeSalesTax?.rate) || 0}%):</span>
-                      <span className="font-mono">+{formatCurrency(taxAmount)}</span>
+                      <span>{activeSalesTax?.name || "Sales Tax"} ({Number(activeSalesTax?.rate) || 0}%{posTaxPolicy.pricesIncludeTax ? ", included" : ""}):</span>
+                      <span className="font-mono">{posTaxPolicy.pricesIncludeTax ? "" : "+"}{formatCurrency(taxAmount)}</span>
                     </div>
                   )}
 

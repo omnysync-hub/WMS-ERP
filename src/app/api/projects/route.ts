@@ -1,4 +1,6 @@
 export const dynamic = "force-dynamic";
+import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
+import { computeTax, findRate } from "@/lib/tax/taxConfig";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
@@ -199,6 +201,21 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Sales tax on progress bills (Settings > Taxes). The contract/progress figure stays tax-free.
+      const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
+      const projectRate =
+        taxPolicy.projects.enabled && !project.customer?.taxExempt ? findRate(taxRates, taxPolicy.projects.rateCode) : null;
+      const projectTax = computeTax({
+        gross: invoiceAmount,
+        ratePercent: projectRate?.rate || 0,
+        inclusive: taxPolicy.projects.pricesIncludeTax,
+        applyAfterDiscount: true,
+        rounding: taxPolicy.rounding,
+      });
+      const projectTaxAccount =
+        projectTax.tax > 0 && projectRate ? await TaxSettingsService.accountFor(projectRate, "sales_tax_payable") : null;
+      const billedTotal = projectTax.total;
+
       let invoice;
       try {
       invoice = await prisma.$transaction(async (tx) => {
@@ -238,8 +255,15 @@ export async function POST(req: NextRequest) {
             projectId,
             customerId: project.customerId,
             customerName: project.customer?.name || "Client",
-            amount: invoiceAmount,
+            amount: billedTotal,
             status: "unpaid",
+            taxApplied: true,
+            subtotal: invoiceAmount,
+            taxAmount: projectTax.tax,
+            taxRate: projectTax.tax > 0 ? projectTax.ratePercent : 0,
+            taxCode: projectTax.tax > 0 ? projectRate?.code ?? null : null,
+            taxName: projectTax.tax > 0 ? projectRate?.name ?? null : null,
+            taxInclusive: projectTax.tax > 0 ? projectTax.inclusive : false,
           },
         });
 
@@ -273,8 +297,9 @@ export async function POST(req: NextRequest) {
           idempotencyKey: milestoneId ? `project_milestone_bill:${milestoneId}` : null,
           postedBy: "Project Billing System",
           lines: [
-            { accountId: arAccount.id, debit: invoiceAmount, credit: 0 },
-            { accountId: revAccount.id, debit: 0, credit: invoiceAmount },
+            { accountId: arAccount.id, debit: billedTotal, credit: 0 },
+            { accountId: revAccount.id, debit: 0, credit: Math.round((billedTotal - (projectTaxAccount ? projectTax.tax : 0)) * 100) / 100 },
+            ...(projectTaxAccount ? [{ accountId: projectTaxAccount.id, debit: 0, credit: projectTax.tax }] : []),
           ],
           tx,
         });
@@ -283,7 +308,7 @@ export async function POST(req: NextRequest) {
           entryType: "invoice",
           documentNumber: invoiceNumber,
           journalEntryId: entry.id,
-          debit: invoiceAmount,
+          debit: billedTotal,
           credit: 0,
           notes: `Progress billing invoice for Project: ${project.name}`,
           tx,

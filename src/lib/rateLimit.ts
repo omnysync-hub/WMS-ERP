@@ -27,14 +27,25 @@ export function rateLimitHit(key: string, limit: number, windowMs: number) {
   return { allowed, remaining: Math.max(0, limit - bucket.count), retryAfterSeconds: Math.ceil((bucket.resetAt - now) / 1000) };
 }
 
-/** Client IP as seen by Vercel's edge (first x-forwarded-for hop), falling back to x-real-ip. */
+/**
+ * Client IP. Prefer X-Real-IP: nginx (`proxy_set_header X-Real-IP $remote_addr;`) and Vercel set
+ * it to the real peer, while the FIRST X-Forwarded-For hop can be forged by the client.
+ */
 export function clientIp(headers: Headers) {
+  const real = headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const fwd = headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0].trim() || "unknown";
-  return headers.get("x-real-ip")?.trim() || "unknown";
+  return "unknown";
 }
 
-/** 10 sign-in attempts per IP per 5 minutes, per login surface. */
+/**
+ * 10 sign-in attempts per IP per 5 minutes, per login surface.
+ * If the proxy forwards no client IP at all, every user would share ONE bucket and lock each
+ * other out, so the shared "unknown" bucket gets a much larger allowance (configure nginx!).
+ */
 export function loginRateLimit(surface: "erp" | "mobile", headers: Headers) {
-  return rateLimitHit(`login:${surface}:${clientIp(headers)}`, 10, 5 * 60 * 1000);
+  const ip = clientIp(headers);
+  const limit = ip === "unknown" ? 100 : 10;
+  return rateLimitHit(`login:${surface}:${ip}`, limit, 5 * 60 * 1000);
 }

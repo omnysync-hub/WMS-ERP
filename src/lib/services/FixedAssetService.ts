@@ -92,7 +92,15 @@ export class FixedAssetService {
 
     // 2. Calculate depreciation per asset
     let totalDepreciationAmount = 0;
-    const assetUpdates = [];
+    const assetUpdates: Array<{
+      assetId: string;
+      actualDepr: number;
+      newAccum: number;
+      newBook: number;
+      isFullyDepreciated: boolean;
+      assetName: string;
+      assetNumber: string;
+    }> = [];
 
     for (const asset of eligibleAssets) {
       const depreciableBase = Math.max(0, asset.acquisitionCost - asset.salvageValue);
@@ -135,30 +143,35 @@ export class FixedAssetService {
     const deprExpenseAcc = await AccountMappingService.resolveAccount({ transactionType: "depreciation_expense" });
     const accumDeprAcc = await AccountMappingService.resolveAccount({ transactionType: "accumulated_depreciation" });
 
-    const journal = await AccountsPostingService.post({
-      date: new Date(),
-      memo: `Monthly Fixed Asset Depreciation Run — Period ${period} (${assetUpdates.length} Assets)`,
-      refType: "asset_depreciation",
-      refId: period,
-      postedBy,
-      lines: [
-        { accountId: deprExpenseAcc.id, debit: Math.round(totalDepreciationAmount * 100) / 100, credit: 0 },
-        { accountId: accumDeprAcc.id, debit: 0, credit: Math.round(totalDepreciationAmount * 100) / 100 },
-      ],
-    });
-
-    // 4. Update assets in database
-    for (const u of assetUpdates) {
-      await prisma.fixedAsset.update({
-        where: { id: u.assetId },
-        data: {
-          accumulatedDepreciation: u.newAccum,
-          bookValue: u.newBook,
-          lastDepreciationPeriod: period,
-          status: u.isFullyDepreciated ? "fully_depreciated" : "active",
-        },
+    // Journal + asset register updates are saved together; the idempotency key stops a second run
+    // for the same period from posting depreciation twice.
+    const journal = await prisma.$transaction(async (tx) => {
+      const je = await AccountsPostingService.post({
+        date: new Date(),
+        memo: `Monthly Fixed Asset Depreciation Run — Period ${period} (${assetUpdates.length} Assets)`,
+        refType: "asset_depreciation",
+        refId: period,
+        postedBy,
+        lines: [
+          { accountId: deprExpenseAcc.id, debit: Math.round(totalDepreciationAmount * 100) / 100, credit: 0 },
+          { accountId: accumDeprAcc.id, debit: 0, credit: Math.round(totalDepreciationAmount * 100) / 100 },
+        ],
+        idempotencyKey: `asset_depreciation:${period}`,
+        tx,
       });
-    }
+      for (const u of assetUpdates) {
+        await tx.fixedAsset.update({
+          where: { id: u.assetId },
+          data: {
+            accumulatedDepreciation: u.newAccum,
+            bookValue: u.newBook,
+            lastDepreciationPeriod: period,
+            status: u.isFullyDepreciated ? "fully_depreciated" : "active",
+          },
+        });
+      }
+      return je;
+    });
 
     // 5. Log Financial Audit
     await prisma.financialAuditLog.create({

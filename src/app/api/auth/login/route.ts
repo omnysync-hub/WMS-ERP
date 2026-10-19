@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       deviceLabel: String(body.deviceLabel || "Web browser"),
     });
     const response = NextResponse.json({ user: result.user });
-    setErpSessionCookie(response, session.token);
+    setErpSessionCookie(response, session.token, request);
     response.headers.set("Cache-Control", "no-store");
     return response;
   } catch (error) {

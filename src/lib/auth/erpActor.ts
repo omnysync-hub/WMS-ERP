@@ -216,12 +216,16 @@ export async function resolveJobsActor(
           ),
         };
       }
+      // Middleware already verified this token and signed the role's effective overrides
+      // (including role edits from Settings); reuse them when they belong to this caller.
+      const signed = readSignedActor(req.headers);
+      const role = (caller.role || "anonymous").toLowerCase();
       return {
         actor: {
           id: caller.id,
-          role: (caller.role || "anonymous").toLowerCase(),
+          role,
           name: caller.name || "Mobile User",
-          overrides: {},
+          overrides: signed && signed.id === caller.id && signed.role === role ? signed.overrides || {} : {},
         },
         viaMobileToken: true,
       };

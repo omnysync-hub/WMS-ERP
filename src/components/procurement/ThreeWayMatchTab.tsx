@@ -31,6 +31,7 @@ import { printDocument } from "@/lib/printUtils";
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 import toast from "@/lib/toast";
+import { computeSupplierBillTotals } from "@/lib/procurement/billDiscount";
 
 interface ThreeWayMatchTabProps {
   invoices: any[];
@@ -86,6 +87,9 @@ export default function ThreeWayMatchTab({
     return d.toISOString().split("T")[0];
   });
   const [taxAmount, setTaxAmount] = useState("0");
+  // Supplier bill discount (bill-level percent / fixed amount; optional per-line %)
+  const [billDiscountType, setBillDiscountType] = useState<"" | "percent" | "amount">("");
+  const [billDiscountValue, setBillDiscountValue] = useState("0");
   const [matchNotes, setMatchNotes] = useState("");
 
   const [billedItems, setBilledItems] = useState<
@@ -99,6 +103,7 @@ export default function ThreeWayMatchTab({
       grnQuantity: number;
       billedQuantity: number;
       billedUnitPrice: number;
+      discountPercent?: number;
     }[]
   >([]);
 
@@ -202,16 +207,29 @@ export default function ThreeWayMatchTab({
     setBilledItems(updated);
   };
 
-  const calculatedSubtotal = billedItems.reduce(
-    (sum, it) => sum + (Number(it.billedQuantity) || 0) * (Number(it.billedUnitPrice) || 0),
-    0
-  );
+  // Same math as the server (net of line + bill discounts). Invalid input -> error shown, submit blocked.
+  let billTotals: ReturnType<typeof computeSupplierBillTotals> | null = null;
+  let billTotalsError = "";
+  try {
+    billTotals = computeSupplierBillTotals({
+      items: billedItems,
+      discountType: billDiscountType || null,
+      discountValue: Number(billDiscountValue) || 0,
+      taxAmount: Number(taxAmount) || 0,
+    });
+  } catch (err: any) {
+    billTotalsError = err.message || "Invalid discount";
+  }
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     if (!canCreateInvoice) { alert("Missing permission: procurement.invoice.create"); return; }
     e.preventDefault();
     if (!vendorId || !invoiceNumber.trim()) {
       setFormError("Please enter invoice number and select a vendor.");
+      return;
+    }
+    if (billTotalsError) {
+      setFormError(billTotalsError);
       return;
     }
 
@@ -233,6 +251,8 @@ export default function ThreeWayMatchTab({
           invoiceDate,
           dueDate,
           taxAmount: Number(taxAmount) || 0,
+          discountType: billDiscountType || undefined,
+          discountValue: billDiscountType ? Number(billDiscountValue) || 0 : 0,
           matchNotes,
           items: billedItems,
         }),
@@ -339,6 +359,8 @@ export default function ThreeWayMatchTab({
             if (firstPo) handlePoSelect(firstPo.id);
             setShowCreateModal(true);
             setFormError("");
+            setBillDiscountType("");
+            setBillDiscountValue("0");
           }}
           className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
         >
@@ -523,9 +545,9 @@ export default function ThreeWayMatchTab({
         footer={
           <div className="flex items-center justify-between w-full">
             <div className="text-xs">
-              <span className="text-[#71717A]">Gross Payable: </span>
+              <span className="text-[#71717A]">Net Payable: </span>
               <span className="font-bold font-mono text-emerald-700 text-sm">
-                {formatCurrency(calculatedSubtotal + (Number(taxAmount) || 0))}
+                {formatCurrency(billTotals ? billTotals.totalAmount : 0)}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -693,6 +715,35 @@ export default function ThreeWayMatchTab({
                     placeholder="0"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
+                    Supplier Bill Discount
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={billDiscountType}
+                      onChange={(e) => setBillDiscountType(e.target.value as "" | "percent" | "amount")}
+                      className="bg-white border border-[#D4D4D8] rounded-lg px-2 py-1.5 text-xs"
+                    >
+                      <option value="">None</option>
+                      <option value="percent">% of subtotal</option>
+                      <option value="amount">Fixed PKR</option>
+                    </select>
+                    {billDiscountType && (
+                      <input
+                        type="number"
+                        min="0"
+                        max={billDiscountType === "percent" ? 100 : undefined}
+                        step="any"
+                        value={billDiscountValue}
+                        onChange={(e) => setBillDiscountValue(e.target.value)}
+                        className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono outline-none"
+                        placeholder={billDiscountType === "percent" ? "0 - 100" : "PKR"}
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* 3-WAY COMPARISON LINE ITEMS */}
@@ -709,7 +760,8 @@ export default function ThreeWayMatchTab({
                   <div className="space-y-2">
                     {billedItems.map((it, idx) => {
                       const qtyDiff = it.billedQuantity - it.grnQuantity;
-                      const priceDiff = it.billedUnitPrice - it.poUnitPrice;
+                      const priceDiff =
+                        it.billedUnitPrice * (1 - (Number(it.discountPercent) || 0) / 100) - it.poUnitPrice;
                       const hasItemDiscrepancy = qtyDiff > 0.001 || priceDiff > 0.01;
 
                       return (
@@ -735,7 +787,7 @@ export default function ThreeWayMatchTab({
                             )}
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
+                          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 items-end">
                             {/* 1. PO Baseline */}
                             <div className="p-2 bg-white border border-[#EDEDED] rounded-lg">
                               <span className="block text-[9px] font-mono text-[#71717A] mb-0.5">
@@ -801,6 +853,24 @@ export default function ThreeWayMatchTab({
                                 )}
                               />
                             </div>
+
+                            {/* 5. Optional line discount % */}
+                            <div>
+                              <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
+                                Line Disc. %
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="any"
+                                value={it.discountPercent ?? 0}
+                                onChange={(e) =>
+                                  handleItemChange(idx, "discountPercent", Number(e.target.value))
+                                }
+                                className="w-full rounded px-2.5 py-1 text-xs font-mono font-bold outline-none border bg-white border-[#D4D4D8] text-[#18181B]"
+                              />
+                            </div>
                           </div>
 
                           {/* Variance Note */}
@@ -822,13 +892,45 @@ export default function ThreeWayMatchTab({
               </div>
 
               {/* Total Summary */}
-              <div className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl flex items-center justify-between text-xs">
-                <span className="text-[#71717A] font-semibold">
-                  Invoice Gross Total (Subtotal + Tax):
-                </span>
-                <span className="text-base font-extrabold font-mono text-emerald-700">
-                  {formatCurrency(calculatedSubtotal + (Number(taxAmount) || 0))}
-                </span>
+              <div className="p-3 bg-[#F8FAFC] border border-[#EDEDED] rounded-xl text-xs space-y-1">
+                {billTotalsError ? (
+                  <div className="text-rose-600 font-bold">{billTotalsError}</div>
+                ) : billTotals ? (
+                  <>
+                    <div className="flex justify-between text-[#71717A]">
+                      <span>Gross (qty x rate)</span>
+                      <span className="font-mono">{formatCurrency(billTotals.grossAmount)}</span>
+                    </div>
+                    {billTotals.lineDiscountTotal > 0 && (
+                      <div className="flex justify-between text-amber-700">
+                        <span>Line discounts</span>
+                        <span className="font-mono">-{formatCurrency(billTotals.lineDiscountTotal)}</span>
+                      </div>
+                    )}
+                    {billTotals.billDiscount > 0 && (
+                      <div className="flex justify-between text-amber-700">
+                        <span>
+                          Bill discount{billDiscountType === "percent" ? ` (${Number(billDiscountValue) || 0}%)` : ""}
+                        </span>
+                        <span className="font-mono">-{formatCurrency(billTotals.billDiscount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-[#71717A]">
+                      <span>Net subtotal</span>
+                      <span className="font-mono">{formatCurrency(billTotals.subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-[#71717A]">
+                      <span>Tax</span>
+                      <span className="font-mono">{formatCurrency(billTotals.taxAmount)}</span>
+                    </div>
+                  </>
+                ) : null}
+                <div className="flex items-center justify-between pt-1 border-t border-[#EDEDED]">
+                  <span className="text-[#71717A] font-semibold">Net Payable (Net subtotal + Tax):</span>
+                  <span className="text-base font-extrabold font-mono text-emerald-700">
+                    {formatCurrency(billTotals ? billTotals.totalAmount : 0)}
+                  </span>
+                </div>
               </div>
 
               
@@ -940,6 +1042,20 @@ export default function ThreeWayMatchTab({
               <div className="text-[#18181B]">
                 GRN: <span className="font-mono font-semibold">{activeInvoice.grn?.grnNumber || "—"}</span>
               </div>
+              {(activeInvoice.lineDiscountTotal > 0 || activeInvoice.discountAmount > 0) && (
+                <div className="text-[#18181B]">
+                  Gross {formatCurrency(activeInvoice.grossAmount || 0)}
+                  {activeInvoice.lineDiscountTotal > 0 && <> · line disc. -{formatCurrency(activeInvoice.lineDiscountTotal)}</>}
+                  {activeInvoice.discountAmount > 0 && (
+                    <>
+                      {" "}· bill disc.
+                      {activeInvoice.discountType === "percent" ? ` (${activeInvoice.discountValue}%)` : ""} -
+                      {formatCurrency(activeInvoice.discountAmount)}
+                    </>
+                  )}
+                  {" "}· net {formatCurrency(activeInvoice.subtotal || 0)} · tax {formatCurrency(activeInvoice.taxAmount || 0)}
+                </div>
+              )}
               <div className="text-[#18181B]">
                 Total: <span className="font-mono font-bold text-emerald-700">{formatCurrency(activeInvoice.totalAmount || 0)}</span>
               </div>
@@ -952,6 +1068,8 @@ export default function ThreeWayMatchTab({
                       <th className="py-2 px-2">Description</th>
                       <th className="py-2 px-2 text-right">Billed qty</th>
                       <th className="py-2 px-2 text-right">Price</th>
+                      <th className="py-2 px-2 text-right">Disc.</th>
+                      <th className="py-2 px-2 text-right">Net</th>
                       <th className="py-2 px-2 text-right">Var</th>
                     </tr>
                   </thead>
@@ -961,6 +1079,10 @@ export default function ThreeWayMatchTab({
                         <td className="py-1.5 px-2">{it.description}</td>
                         <td className="py-1.5 px-2 text-right font-mono">{it.billedQuantity}</td>
                         <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(it.billedUnitPrice)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">
+                          {it.discountPercent > 0 ? `${it.discountPercent}%` : "—"}
+                        </td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(it.lineTotal || 0)}</td>
                         <td className="py-1.5 px-2 text-right font-mono">{formatCurrency(it.variance || 0)}</td>
                       </tr>
                     ))}

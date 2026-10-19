@@ -182,40 +182,20 @@ export class SubLedgerService {
       apJournalLines.reduce((sum, l) => sum + (l.credit - l.debit), 0) * 100
     ) / 100;
 
-    // 2. Get Sub-Ledger Balances per Party
-    const customers = await prisma.customer.findMany({
-      include: {
-        customerLedgerEntries: {
-          orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
-          take: 1,
-        },
-      },
-    });
-
-    let totalCustomerSubledgerBalance = 0;
-    for (const cust of customers) {
-      if (cust.customerLedgerEntries.length > 0) {
-        totalCustomerSubledgerBalance += cust.customerLedgerEntries[0].runningBalance;
-      }
-    }
-    totalCustomerSubledgerBalance = Math.round(totalCustomerSubledgerBalance * 100) / 100;
-
-    const vendors = await prisma.vendor.findMany({
-      include: {
-        vendorLedgerEntries: {
-          orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
-          take: 1,
-        },
-      },
-    });
-
-    let totalVendorSubledgerBalance = 0;
-    for (const v of vendors) {
-      if (v.vendorLedgerEntries.length > 0) {
-        totalVendorSubledgerBalance += v.vendorLedgerEntries[0].runningBalance;
-      }
-    }
-    totalVendorSubledgerBalance = Math.round(totalVendorSubledgerBalance * 100) / 100;
+    // 2. Sub-ledger totals from the entries themselves (sum of debits/credits), not from the
+    // "latest" running balance, which is wrong whenever an entry is back-dated.
+    const [customerSums, vendorSums, customerCount, vendorCount] = await Promise.all([
+      prisma.customerLedgerEntry.aggregate({ _sum: { debit: true, credit: true } }),
+      prisma.vendorLedgerEntry.aggregate({ _sum: { debit: true, credit: true } }),
+      prisma.customer.count(),
+      prisma.vendor.count(),
+    ]);
+    const customers = { length: customerCount };
+    const vendors = { length: vendorCount };
+    const totalCustomerSubledgerBalance =
+      Math.round(((customerSums._sum.debit || 0) - (customerSums._sum.credit || 0)) * 100) / 100;
+    const totalVendorSubledgerBalance =
+      Math.round(((vendorSums._sum.credit || 0) - (vendorSums._sum.debit || 0)) * 100) / 100;
 
     const arDrift = Math.round((arControlGlBalance - totalCustomerSubledgerBalance) * 100) / 100;
     const apDrift = Math.round((apControlGlBalance - totalVendorSubledgerBalance) * 100) / 100;

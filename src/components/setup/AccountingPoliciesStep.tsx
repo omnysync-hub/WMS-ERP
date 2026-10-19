@@ -85,7 +85,7 @@ export default function AccountingPoliciesStep(props: Props) {
           {taxRules.map((row, index) => <div key={row.id} className="grid md:grid-cols-[1.4fr_.8fr_1fr_.7fr_1fr_auto] gap-2 p-3 rounded-xl border border-[#E4E4E7]">
             <input className={field} value={row.name} onChange={(e) => update(setTaxRules, index, "name", e.target.value)} placeholder="Tax name" />
             <input className={field} value={row.code} onChange={(e) => update(setTaxRules, index, "code", e.target.value.toUpperCase())} placeholder="Code" />
-            <select className={field} value={row.type} onChange={(e) => update(setTaxRules, index, "type", e.target.value)}><option value="sales_tax">Sales tax</option><option value="withholding">Withholding</option><option value="other">Other</option></select>
+            <select className={field} value={row.type} onChange={(e) => update(setTaxRules, index, "type", e.target.value)}><option value="sales_tax">Sales tax</option><option value="services_tax">Services tax (PRA/SRB)</option><option value="withholding">Withholding</option><option value="other">Other</option></select>
             <input className={field} type="number" min={0} max={100} step="0.01" value={row.rate} onChange={(e) => update(setTaxRules, index, "rate", Number(e.target.value))} placeholder="Rate %" />
             <select className={field} value={row.appliesTo} onChange={(e) => update(setTaxRules, index, "appliesTo", e.target.value)}><option value="sales">Sales</option><option value="purchases">Purchases</option><option value="both">Both</option></select>
             <button type="button" onClick={() => setTaxRules((rows) => rows.filter((_, i) => i !== index))} className="p-2 text-rose-600"><Trash2 className="w-4 h-4" /></button>

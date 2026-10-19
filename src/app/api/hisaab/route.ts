@@ -37,6 +37,7 @@ export async function GET() {
 
 import { JobsService, isFieldReportedSettlement } from "@/lib/services/JobsService";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { SubLedgerService } from "@/lib/services/SubLedgerService";
 
 export async function POST(req: NextRequest) {
   const gate = await requireJobsPermission(req, "jobs.collect_payment");
@@ -68,8 +69,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "jobId required" }, { status: 400 });
     }
 
-    const collected = Number(amountCollected) || 0;
-    const expected = Number(amountExpected) || 0;
+    // FOC and office-collected jobs: technician owes nothing — expected 0, no field collection allowed.
+    const jobBilling = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { isFoc: true, paymentCollectionMode: true, jobNumber: true, customerId: true },
+    });
+    if (!jobBilling) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+    const techCollects = JobsService.technicianCollectsPayment(jobBilling);
+    if (!techCollects && (Number(amountCollected) || 0) > 0) {
+      return NextResponse.json(
+        {
+          error: jobBilling.isFoc
+            ? `Job ${jobBilling.jobNumber} is FOC: the technician collects nothing (customer/company payment is recorded separately).`
+            : `Job ${jobBilling.jobNumber} is office-collected: record the customer receipt in Accounts, not in technician hisaab.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const collected = techCollects ? Number(amountCollected) || 0 : 0;
+    const expected = techCollects ? Number(amountExpected) || 0 : 0;
     const isFull = collected >= expected;
     const balanceDue = Math.max(0, expected - collected);
 
@@ -160,7 +181,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (cashAccount && arAccount) {
-        await JobsService.syncSettlementCollectionGL(tx, {
+        const gl = await JobsService.syncSettlementCollectionGL(tx, {
           settlementId: saved.id,
           targetAmount: collected,
           vaultAccountId: cashAccount.id,
@@ -169,6 +190,18 @@ export async function POST(req: NextRequest) {
           postedBy: settledBy,
           refType: "settlement_collection",
         });
+        // Keep the customer's sub-ledger in step with the AR credit just posted (delta only).
+        if (gl.delta !== 0 && jobBilling.customerId && !jobBilling.isFoc) {
+          await SubLedgerService.recordCustomerEntry({
+            customerId: jobBilling.customerId,
+            entryType: "payment",
+            documentNumber: `REC-${jobBilling.jobNumber}`,
+            debit: gl.delta < 0 ? Math.abs(gl.delta) : 0,
+            credit: gl.delta > 0 ? gl.delta : 0,
+            notes: `Field collection confirmed at hisaab for Job ${jobBilling.jobNumber}`,
+            tx,
+          });
+        }
       }
       return saved;
     }, { maxWait: 10000, timeout: 30000 });
@@ -188,7 +221,7 @@ export async function POST(req: NextRequest) {
       if (totalApprovedExpenses > 0) {
         const amountDisbursed =
           partialPayoutAmount !== undefined && partialPayoutAmount !== null && partialPayoutAmount !== ""
-            ? Math.min(Number(partialPayoutAmount), totalApprovedExpenses)
+            ? Math.max(0, Math.min(Number(partialPayoutAmount) || 0, totalApprovedExpenses))
             : totalApprovedExpenses;
 
         const remainingUnpaid = Math.max(0, Math.round((totalApprovedExpenses - amountDisbursed) * 100) / 100);
@@ -200,73 +233,77 @@ export async function POST(req: NextRequest) {
           ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_vault" });
 
-        // Allocate disbursement across claims in creation order (same as clearJobExpenses)
-        let remainingToAllocate = amountDisbursed;
-        for (const claim of claimsToPay) {
-          if (remainingToAllocate <= 0) {
-            // No more funds - claim stays pending for a later clearance
-            break;
+        // Claim updates, the GL entry and the technician ledger are saved together (all or nothing).
+        await prisma.$transaction(async (tx) => {
+          // Allocate disbursement across claims in creation order (same as clearJobExpenses)
+          let remainingToAllocate = amountDisbursed;
+          for (const claim of claimsToPay) {
+            if (remainingToAllocate <= 0) {
+              // No more funds - claim stays pending for a later clearance
+              break;
+            }
+
+            if (remainingToAllocate >= claim.amount) {
+              await tx.jobExpenseClaim.update({
+                where: { id: claim.id },
+                data: { status: "paid", paidAt: new Date() },
+              });
+              remainingToAllocate = Math.round((remainingToAllocate - claim.amount) * 100) / 100;
+            } else {
+              // Partial cover: paid portion vs remaining unpaid claim
+              const partialPaid = remainingToAllocate;
+              const claimRemainder = Math.round((claim.amount - partialPaid) * 100) / 100;
+              const originalNote = claim.note;
+
+              await tx.jobExpenseClaim.update({
+                where: { id: claim.id },
+                data: {
+                  amount: partialPaid,
+                  status: "paid",
+                  paidAt: new Date(),
+                  note: `${originalNote} [Partially Cleared: PKR ${partialPaid.toLocaleString()} via ${disbursingAccount.name} (${disbursingAccount.code}) at hisaab]`,
+                },
+              });
+
+              await tx.jobExpenseClaim.create({
+                data: {
+                  jobId: claim.jobId,
+                  technicianId: claim.technicianId,
+                  amount: claimRemainder,
+                  note: `${originalNote} [Remaining Balance after PKR ${partialPaid.toLocaleString()} partial payout at hisaab]`,
+                  receiptUrl: claim.receiptUrl,
+                  status: "pending",
+                },
+              });
+
+              remainingToAllocate = 0;
+            }
           }
 
-          if (remainingToAllocate >= claim.amount) {
-            await prisma.jobExpenseClaim.update({
-              where: { id: claim.id },
-              data: { status: "paid", paidAt: new Date() },
+          // GL + ledger only for the amount actually disbursed now (remainder stays as pending claims)
+          if (amountDisbursed > 0) {
+            await AccountsPostingService.post({
+              memo: `Technician expense settlement: PKR ${amountDisbursed} disbursed via ${disbursingAccount.name}${isPartial ? ` (PKR ${remainingUnpaid} remains as pending claims)` : ""}`,
+              refType: "tech_expense_settlement",
+              refId: settlement.id,
+              lines: [
+                { accountId: expenseCostingAccount.id, debit: amountDisbursed, credit: 0 },
+                { accountId: disbursingAccount.id, debit: 0, credit: amountDisbursed },
+              ],
+              tx,
             });
-            remainingToAllocate = Math.round((remainingToAllocate - claim.amount) * 100) / 100;
-          } else {
-            // Partial cover: paid portion vs remaining unpaid claim
-            const partialPaid = remainingToAllocate;
-            const claimRemainder = Math.round((claim.amount - partialPaid) * 100) / 100;
-            const originalNote = claim.note;
 
-            await prisma.jobExpenseClaim.update({
-              where: { id: claim.id },
+            await tx.technicianLedgerEntry.create({
               data: {
-                amount: partialPaid,
-                status: "paid",
-                paidAt: new Date(),
-                note: `${originalNote} [Partially Cleared: PKR ${partialPaid.toLocaleString()} via ${disbursingAccount.name} (${disbursingAccount.code}) at hisaab]`,
+                technicianId,
+                type: "expense_paid",
+                amount: amountDisbursed,
+                refJobId: jobId,
+                notes: `Expense reimbursement paid via ${disbursingAccount.name} (${disbursingAccount.code}) at settlement`,
               },
             });
-
-            await prisma.jobExpenseClaim.create({
-              data: {
-                jobId: claim.jobId,
-                technicianId: claim.technicianId,
-                amount: claimRemainder,
-                note: `${originalNote} [Remaining Balance after PKR ${partialPaid.toLocaleString()} partial payout at hisaab]`,
-                receiptUrl: claim.receiptUrl,
-                status: "pending",
-              },
-            });
-
-            remainingToAllocate = 0;
           }
-        }
-
-        // GL + ledger only for the amount actually disbursed now (remainder stays as pending claims)
-        if (amountDisbursed > 0) {
-          await AccountsPostingService.post({
-            memo: `Technician expense settlement: $${amountDisbursed} disbursed via ${disbursingAccount.name}${isPartial ? ` ($${remainingUnpaid} remains as pending claims)` : ""}`,
-            refType: "tech_expense_settlement",
-            refId: settlement.id,
-            lines: [
-              { accountId: expenseCostingAccount.id, debit: amountDisbursed, credit: 0 },
-              { accountId: disbursingAccount.id, debit: 0, credit: amountDisbursed },
-            ],
-          });
-
-          await prisma.technicianLedgerEntry.create({
-            data: {
-              technicianId,
-              type: "expense_paid",
-              amount: amountDisbursed,
-              refJobId: jobId,
-              notes: `Expense reimbursement paid via ${disbursingAccount.name} (${disbursingAccount.code}) at settlement`,
-            },
-          });
-        }
+        });
       }
     }
 

@@ -7,6 +7,7 @@ import { printDocument } from "@/lib/printUtils";
 import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
 import CompanyLetterhead from "@/components/company/CompanyLetterhead";
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
+import { computeTax } from "@/lib/tax/taxConfig";
 
 interface TaxInvoiceDocumentProps {
   job: any;
@@ -59,7 +60,34 @@ export default function TaxInvoiceDocument({
 
   const subtotal = calculatedSubtotal > 0 ? calculatedSubtotal : (job.invoice?.amount || 0);
   const discount = customDiscount !== undefined ? customDiscount : (job.discountAmount || 0);
-  const netPayable = Math.max(0, subtotal - discount);
+  // FOC: customer is charged nothing (company-billed or truly free) — show the waiver explicitly
+  const focWaiver = job?.isFoc ? Math.max(0, subtotal - discount) : 0;
+  // Sales tax: a raised invoice uses its own snapshot; a draft uses the current Settings > Taxes rule
+  // returned by the job API (billingSummary.tax). Old invoices (taxApplied=false) show no tax.
+  const inv = job.invoice;
+  const draftTax = job.billingSummary?.tax;
+  const taxRule =
+    job?.isFoc
+      ? null
+      : inv?.taxApplied
+        ? inv.taxAmount > 0
+          ? { ratePercent: inv.taxRate, inclusive: inv.taxInclusive, name: inv.taxName || inv.taxCode, applyAfterDiscount: draftTax?.applyAfterDiscount ?? true, rounding: draftTax?.rounding ?? { mode: "nearest", decimals: 2 } }
+          : null
+        : !inv && draftTax?.enabled
+          ? draftTax
+          : null;
+  const taxCalc = taxRule
+    ? computeTax({
+        gross: subtotal,
+        discount,
+        ratePercent: Number(taxRule.ratePercent) || 0,
+        inclusive: Boolean(taxRule.inclusive),
+        applyAfterDiscount: taxRule.applyAfterDiscount !== false,
+        rounding: taxRule.rounding || { mode: "nearest", decimals: 2 },
+      })
+    : null;
+  const taxAmount = taxCalc?.tax || 0;
+  const netPayable = taxCalc ? taxCalc.total : Math.max(0, subtotal - discount - focWaiver);
 
   const invoiceDate = job.invoice?.createdAt
     ? new Date(job.invoice.createdAt)
@@ -155,6 +183,13 @@ export default function TaxInvoiceDocument({
             <div className="text-zinc-600">
               Email: {job.customer?.email || "—"}
             </div>
+            {(job.customer?.ntnNumber || job.customer?.strnNumber || job.customer?.taxExempt) && (
+              <div className="text-zinc-600">
+                {job.customer?.ntnNumber ? `NTN: ${job.customer.ntnNumber} ` : ""}
+                {job.customer?.strnNumber ? `STRN: ${job.customer.strnNumber} ` : ""}
+                {job.customer?.taxExempt ? "(Tax exempt)" : ""}
+              </div>
+            )}
             <div className="font-mono text-[10px] text-zinc-500 mt-1">
               Customer ID: {job.customer?.id?.slice(0, 8) || "ACC-CL"}
             </div>
@@ -343,9 +378,19 @@ export default function TaxInvoiceDocument({
                 <span className="font-mono text-rose-600">-{formatCurrency(discount)}</span>
               </div>
             )}
+            {focWaiver > 0 && (
+              <div className="flex justify-between text-purple-800">
+                <span>{`FOC (referred by ${job?.careOfParty?.companyName || "company"}):`}</span>
+                <span className="font-mono">-{formatCurrency(focWaiver)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-zinc-600">
-              <span>Sales Tax / PRA:</span>
-              <span className="font-mono text-zinc-500">Included / 0%</span>
+              <span>
+                {taxCalc
+                  ? `${taxRule?.name || "Sales Tax"} @ ${Number(taxRule?.ratePercent) || 0}%${taxCalc.inclusive ? " (included)" : ""}:`
+                  : "Sales Tax:"}
+              </span>
+              <span className="font-mono text-zinc-700">{taxCalc ? formatCurrency(taxAmount) : "Not charged"}</span>
             </div>
             <div className="flex justify-between font-bold text-base text-zinc-900 border-t-2 border-zinc-900 pt-2 mt-1">
               <span>Net Payable:</span>

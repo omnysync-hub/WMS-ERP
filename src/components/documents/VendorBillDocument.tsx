@@ -18,12 +18,20 @@ export default function VendorBillDocument({
   const docRef = useRef<HTMLDivElement>(null);
   if (!invoice) return null;
 
-  const grossAmount = invoice.amount || invoice.grossAmount || 0;
+  // SupplierInvoice rows carry totalAmount (net of discounts + tax); legacy callers pass amount.
+  const isSupplierBill = invoice.amount === undefined && invoice.totalAmount !== undefined;
+  const lineDiscountTotal = Number(invoice.lineDiscountTotal) || 0;
+  const billDiscount = Number(invoice.discountAmount) || 0;
+  const taxAmount = isSupplierBill ? Number(invoice.taxAmount) || 0 : 0;
+  const grossAmount = isSupplierBill
+    ? Number(invoice.grossAmount) || Number(invoice.subtotal) + lineDiscountTotal + billDiscount || 0
+    : invoice.amount || invoice.grossAmount || 0;
+  const billTotal = isSupplierBill ? Number(invoice.totalAmount) || 0 : grossAmount;
   const whtAmount = invoice.whtAmount || invoice.withholdingTax || 0;
   const netPayable =
     invoice.netPayable !== undefined && invoice.netPayable !== null
       ? invoice.netPayable
-      : Math.max(0, grossAmount - whtAmount);
+      : Math.max(0, billTotal - whtAmount);
 
   const handlePrint = () => {
     if (docRef.current) {
@@ -143,6 +151,7 @@ export default function VendorBillDocument({
                 <th className="py-2.5 px-3 text-right">PO Qty</th>
                 <th className="py-2.5 px-3 text-right">GRN Recv</th>
                 <th className="py-2.5 px-3 text-right">Billed Rate</th>
+                <th className="py-2.5 px-3 text-right">Disc.</th>
                 <th className="py-2.5 px-3 text-right">Total Line Net</th>
               </tr>
             </thead>
@@ -160,13 +169,18 @@ export default function VendorBillDocument({
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-zinc-600">
-                      {it.poQuantity || it.quantity || "—"}
+                      {it.poQuantity || it.quantity || it.billedQuantity || "—"}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">
                       {it.grnQuantity || it.quantity || "—"}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono">
-                      {formatCurrency(it.unitCost || it.rate || 0)}
+                      {formatCurrency(it.unitCost || it.rate || it.billedUnitPrice || 0)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-amber-700">
+                      {Number(it.discountPercent) > 0
+                        ? `${it.discountPercent}% (-${formatCurrency(it.discountAmount || 0)})`
+                        : "—"}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono font-bold text-zinc-900">
                       {formatCurrency(it.lineTotal || (it.quantity || 1) * (it.unitCost || 0))}
@@ -187,6 +201,7 @@ export default function VendorBillDocument({
                   <td className="py-2.5 px-3 text-right font-mono text-zinc-600">Verified</td>
                   <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">100%</td>
                   <td className="py-2.5 px-3 text-right font-mono">{formatCurrency(grossAmount)}</td>
+                  <td className="py-2.5 px-3 text-right font-mono">—</td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold text-zinc-900">
                     {formatCurrency(grossAmount)}
                   </td>
@@ -227,6 +242,32 @@ export default function VendorBillDocument({
               <span>Gross Bill Amount:</span>
               <span className="font-mono font-semibold">{formatCurrency(grossAmount)}</span>
             </div>
+            {lineDiscountTotal > 0 && (
+              <div className="flex justify-between text-zinc-600">
+                <span>Line Discounts:</span>
+                <span className="font-mono text-amber-700">-{formatCurrency(lineDiscountTotal)}</span>
+              </div>
+            )}
+            {billDiscount > 0 && (
+              <div className="flex justify-between text-zinc-600">
+                <span>
+                  Supplier Discount{invoice.discountType === "percent" ? ` (${invoice.discountValue}%)` : ""}:
+                </span>
+                <span className="font-mono text-amber-700">-{formatCurrency(billDiscount)}</span>
+              </div>
+            )}
+            {isSupplierBill && (
+              <div className="flex justify-between text-zinc-600">
+                <span>Sales Tax / GST:</span>
+                <span className="font-mono">{formatCurrency(taxAmount)}</span>
+              </div>
+            )}
+            {isSupplierBill && (
+              <div className="flex justify-between text-zinc-700 font-semibold">
+                <span>Bill Total (AP):</span>
+                <span className="font-mono">{formatCurrency(billTotal)}</span>
+              </div>
+            )}
             {whtAmount > 0 && (
               <div className="flex justify-between text-zinc-600">
                 <span>WHT Deduction:</span>

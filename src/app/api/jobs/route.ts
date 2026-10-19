@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
       careOfPersonName,
       manualJobNumber,
       isFoc,
+      focReason,
+      paymentCollectionMode,
       jobType,
       remarks,
       items,
@@ -135,6 +137,17 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // FOC = referred by an external company: must be linked to that company (Care-Of party).
+    const wantsFoc = Boolean(isFoc);
+    const focReasonText = typeof focReason === "string" ? focReason.trim() : "";
+    if (wantsFoc && !careOfPartyId && !(typeof careOfCompanyName === "string" && careOfCompanyName.trim())) {
+      return NextResponse.json(
+        { error: "An FOC job must name the referring company (Care-Of party)." },
+        { status: 400 }
+      );
+    }
+    const collectionMode = paymentCollectionMode === "office" ? "office" : "technician";
 
     let effectiveCareOfId = careOfPartyId || null;
     if (!effectiveCareOfId && careOfCompanyName && typeof careOfCompanyName === "string" && careOfCompanyName.trim()) {
@@ -170,7 +183,11 @@ export async function POST(req: NextRequest) {
         customerId,
         careOfPartyId: effectiveCareOfId,
         manualJobNumber: manualJobNumber || null,
-        isFoc: Boolean(isFoc),
+        isFoc: wantsFoc,
+        focReason: wantsFoc ? focReasonText || null : null,
+        focApprovedBy: wantsFoc ? createGate.actor.name || null : null,
+        focApprovedAt: wantsFoc ? new Date() : null,
+        paymentCollectionMode: collectionMode,
         jobType,
         remarks: remarks || "",
         status: effectivePrimaryId ? "Assigned" : "Created",

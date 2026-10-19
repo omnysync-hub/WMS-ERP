@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
+import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
-import { requireJobsPermission, resolveJobsActor } from "@/lib/auth/erpActor";
+import { actorHasPermission, requireJobsPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 
 export async function GET(
   req: NextRequest,
@@ -64,6 +65,9 @@ export async function GET(
         feedbackCalls: {
           orderBy: { calledAt: "desc" },
         },
+        discountRequests: {
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
 
@@ -116,7 +120,32 @@ export async function GET(
       });
     }
 
-    return NextResponse.json({ ...job, invoice, customerJobHistory });
+    // Server-side billing summary (same math as finalize) so ERP + app show one amount due.
+    const totals = JobsService.computeJobTotals(job);
+    const taxRes = job.isFoc ? null : await TaxSettingsService.forJob(job as any, totals.gross, totals.discount);
+    const amountDue = taxRes ? taxRes.total : totals.net;
+    const technicianCollects = JobsService.technicianCollectsPayment(job);
+    const receivable = invoice ? await JobsService.getJobReceivableStatus(job.id) : null;
+    const billingSummary = {
+      gross: totals.gross,
+      discount: totals.discount,
+      net: totals.net,
+      customerPays: job.isFoc ? 0 : amountDue,
+      // Sales tax (Settings > Taxes); apps recompute with edited lines using these rules.
+      tax: taxRes ? TaxSettingsService.describe(taxRes) : null,
+      totalWithTax: job.isFoc ? 0 : amountDue,
+      isFoc: job.isFoc,
+      referringCompany: job.careOfParty?.companyName ?? null,
+      focAmountReceived: job.focAmountReceived,
+      focPaymentStatus: job.isFoc ? (job.focAmountReceived > 0 ? "received" : "awaiting_company_payment") : null,
+      paymentCollectionMode: job.paymentCollectionMode,
+      technicianCollects,
+      technicianExpectedCollection: technicianCollects ? amountDue : 0,
+      pendingDiscountRequests: job.discountRequests.filter((r) => r.status === "pending").length,
+      receivable,
+    };
+
+    return NextResponse.json({ ...job, invoice, customerJobHistory, billingSummary });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -138,6 +167,12 @@ const ACTION_PERMISSION: Record<string, string> = {
   complete: "jobs.complete",
   update_item_usage: "jobs.complete",
   request_item_discount: "jobs.request_discount",
+  request_discount: "jobs.request_discount",
+  approve_discount_request: "jobs.approve_discount",
+  reject_discount_request: "jobs.approve_discount",
+  set_billing: "jobs.edit_job",
+  // also allowed with accounts.general_ledger (checked in the handler)
+  record_foc_payment: "jobs.approve_foc",
   give_item_discount: "jobs.discount",
   reject_item_discount: "jobs.discount",
   discount: "jobs.discount",
@@ -167,6 +202,7 @@ const TECH_OWNED_ACTIONS = new Set([
   "complete",
   "update_item_usage",
   "request_item_discount",
+  "request_discount",
   "add_service",
   "record_misplaced_item",
 ]);
@@ -187,7 +223,10 @@ export async function PATCH(
         { status: 400 }
       );
     }
-    const gate = await requireJobsPermission(req, permission);
+    const gate = await requireJobsPermission(
+      req,
+      action === "record_foc_payment" ? ["jobs.approve_foc", "accounts.general_ledger"] : permission
+    );
     if (gate.error) return gate.error;
 
     // History label: explicit body actor (legacy UI/mobile send a display name) or resolved actor
@@ -309,6 +348,82 @@ export async function PATCH(
           Number(payload.discountRequested),
           payload.reason || "Technician on-site request",
           actor
+        );
+        break;
+
+      case "request_discount":
+        result = await JobsService.requestJobDiscount(
+          params.id,
+          {
+            discountType: payload.discountType,
+            discountValue: Number(payload.discountValue),
+            reason: payload.reason,
+            itemId: payload.itemId || null,
+            technicianId: gate.actor.role === "technician" ? gate.actor.id : payload.technicianId || null,
+          },
+          gate.actor.name || actor
+        );
+        break;
+
+      case "approve_discount_request":
+      case "reject_discount_request":
+        if (!payload.requestId) {
+          return NextResponse.json({ error: "requestId required" }, { status: 400 });
+        }
+        result = await JobsService.decideDiscountRequest(
+          params.id,
+          payload.requestId,
+          action === "approve_discount_request" ? "approve" : "reject",
+          gate.actor.name || actor,
+          {
+            note: payload.note || payload.reason,
+            overrideAmount:
+              payload.approvedAmount !== undefined && payload.approvedAmount !== null && payload.approvedAmount !== ""
+                ? Number(payload.approvedAmount)
+                : null,
+          }
+        );
+        break;
+
+      case "set_billing": {
+        const current = await prisma.job.findUnique({
+          where: { id: params.id },
+          select: { isFoc: true },
+        });
+        if (!current) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+        const nextIsFoc = payload.isFoc === undefined ? current.isFoc : Boolean(payload.isFoc);
+        const focChanged = nextIsFoc !== current.isFoc;
+        if (focChanged && !actorHasPermission(gate.actor, "jobs.approve_foc")) {
+          return NextResponse.json(
+            { error: "Forbidden: marking/unmarking FOC requires jobs.approve_foc.", code: "PERMISSION_DENIED" },
+            { status: 403 }
+          );
+        }
+        result = await JobsService.setBillingOptions(
+          params.id,
+          {
+            isFoc: payload.isFoc === undefined ? undefined : Boolean(payload.isFoc),
+            focReason: payload.focReason,
+            careOfPartyId: payload.careOfPartyId,
+            paymentCollectionMode: payload.paymentCollectionMode,
+          },
+          gate.actor.name || actor
+        );
+        break;
+      }
+
+      case "record_foc_payment":
+        result = await JobsService.recordFocPayment(
+          params.id,
+          {
+            amount: Number(payload.amount),
+            receivingAccountCode: payload.receivingAccountCode || null,
+            receivedDate: payload.receivedDate || null,
+            reference: payload.reference || null,
+            notes: payload.notes || null,
+            paymentMethod: payload.paymentMethod || null,
+          },
+          gate.actor.name || actor
         );
         break;
 

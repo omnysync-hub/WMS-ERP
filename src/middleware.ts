@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
 import { stampActorHeaders, stripActorHeaders } from "@/lib/auth/actorHeaders";
+import { signedOverridesFor } from "@/lib/auth/roleStore";
+import { actorHasPermission } from "@/lib/auth/erpActor";
 
 export const runtime = "nodejs";
 
@@ -30,11 +32,13 @@ export async function middleware(request: NextRequest) {
       const caller = await resolveCaller(request);
       if (!caller) return NextResponse.json({ error: "Invalid or expired mobile session." }, { status: 401 });
       const headers = new Headers(request.headers);
+      const mobileRole = String(caller.role || "technician").toLowerCase();
       stampActorHeaders(headers, {
         id: caller.id,
-        role: String(caller.role || "technician").toLowerCase(),
+        role: mobileRole,
         name: caller.name || "Mobile user",
-        overrides: {},
+        // Role edits made in Settings > Users & Roles apply to mobile callers too.
+        overrides: await signedOverridesFor(mobileRole, {}),
       });
       return NextResponse.next({ request: { headers } });
     } catch {
@@ -57,13 +61,13 @@ export async function middleware(request: NextRequest) {
     }
     if (pathname.startsWith("/api/")) {
       const response = NextResponse.json({ error: "Your session has ended. Please sign in again.", code: "UNAUTHENTICATED" }, { status: 401 });
-      clearErpSessionCookie(response);
+      clearErpSessionCookie(response, request);
       return response;
     }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     const response = NextResponse.redirect(loginUrl);
-    clearErpSessionCookie(response);
+    clearErpSessionCookie(response, request);
     return response;
   }
 
@@ -97,7 +101,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/change-password", request.url));
   }
 
-  if (pathname.startsWith("/settings/users-roles") && auth.user.role !== "admin") {
+  // Effective permissions = role (built-in defaults + saved role edits) + this user's overrides.
+  // Read fresh on every request, so role/override changes apply without signing in again.
+  const effectiveOverrides = await signedOverridesFor(auth.user.role, auth.user.permissionOverrides);
+  const can = (key: string) => actorHasPermission({ role: auth.user.role, overrides: effectiveOverrides }, key);
+
+  if (
+    pathname.startsWith("/settings/users-roles") &&
+    !(can("settings.manage_users") || can("settings.manage_roles"))
+  ) {
     const deniedUrl = new URL(getRoleLandingPath(auth.user.role), request.url);
     deniedUrl.searchParams.set("access", "denied");
     return NextResponse.redirect(deniedUrl);
@@ -118,12 +130,23 @@ export async function middleware(request: NextRequest) {
   }
 
   const headers = new Headers(request.headers);
-  stampActorHeaders(headers, {
-    id: auth.user.id,
-    role: auth.user.role,
-    name: auth.user.name,
-    overrides: auth.user.permissionOverrides || {},
-  });
+  try {
+    stampActorHeaders(headers, {
+      id: auth.user.id,
+      role: auth.user.role,
+      name: auth.user.name,
+      overrides: effectiveOverrides,
+    });
+  } catch (err) {
+    // Missing MOBILE_AUTH_SECRET / ERP_HEADER_SECRET: fail loudly instead of a blank 500.
+    console.error("[middleware] Cannot sign actor headers:", err);
+    const message =
+      "Server misconfiguration: set MOBILE_AUTH_SECRET (or ERP_HEADER_SECRET) in the server environment and restart.";
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: message, code: "SERVER_MISCONFIGURED" }, { status: 500 });
+    }
+    return new NextResponse(message, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
   return NextResponse.next({ request: { headers } });
 }
 

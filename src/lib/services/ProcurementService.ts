@@ -2,6 +2,9 @@
  * Enterprise Procurement Service
  * Handles End-to-End Requisition, RFQ/Sourcing, PO, GRN, 3-Way Match & Reports
  */
+import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
+import { findRate, roundTax } from "@/lib/tax/taxConfig";
+import { computeSupplierBillTotals } from "../procurement/billDiscount";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
@@ -157,6 +160,9 @@ export interface CreateSupplierInvoiceInput {
   taxAmount?: number;
   totalAmount?: number;
   matchNotes?: string;
+  /** Bill-level discount: "percent" (0-100 of net line subtotal) or "amount" (PKR, <= net line subtotal) */
+  discountType?: "percent" | "amount" | "" | null;
+  discountValue?: number;
   items: {
     poItemId?: string;
     grnItemId?: string;
@@ -164,8 +170,12 @@ export interface CreateSupplierInvoiceInput {
     description: string;
     billedQuantity: number;
     billedUnitPrice: number;
+    /** Optional line-level discount percent (0-100) */
+    discountPercent?: number;
   }[];
 }
+
+export { computeSupplierBillTotals };
 
 export interface RecordPaymentInput {
   supplierInvoiceId: string;
@@ -1298,7 +1308,6 @@ export class ProcurementService {
 
     const primaryGrn = grnList[0] || null;
 
-    let subtotal = 0;
     let totalQuantityVariance = 0;
     let totalPriceVariance = 0;
     let hasDiscrepancy = false;
@@ -1307,21 +1316,45 @@ export class ProcurementService {
 
     const invoiceItemsData = [];
 
-    for (const item of data.items) {
+    // Discount math (validates percent 0-100 and fixed amount <= subtotal) — throws before any write
+    // Settings > Taxes: optionally work out the bill's sales tax from the configured purchase rate.
+    let billTaxAmount = data.taxAmount;
+    const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
+    if (taxPolicy.procurement.autoCalculate && taxPolicy.procurement.rateCode) {
+      const rate = findRate(taxRates, taxPolicy.procurement.rateCode, data.invoiceDate ? new Date(data.invoiceDate) : new Date());
+      if (rate) {
+        const pre = computeSupplierBillTotals({ items: data.items, discountType: data.discountType, discountValue: data.discountValue, taxAmount: 0 });
+        const base = taxPolicy.procurement.applyAfterDiscount ? pre.subtotal : pre.grossAmount;
+        billTaxAmount = roundTax((base * rate.rate) / 100, taxPolicy.rounding);
+      }
+    }
+    const totals = computeSupplierBillTotals({
+      items: data.items,
+      discountType: data.discountType,
+      discountValue: data.discountValue,
+      taxAmount: billTaxAmount,
+    });
+    // Share of the bill-level discount carried by each net line (for matching at NET cost)
+    const billDiscountFactor = totals.netLines > 0 ? 1 - totals.billDiscount / totals.netLines : 1;
+
+    for (const [idx, item] of data.items.entries()) {
       const poItem = po?.items.find((p) => p.id === item.poItemId);
       const grnItem = allGrnItems.find((g) => g.id === item.grnItemId);
+      const lineCalc = totals.lines[idx];
 
       const billedQty = Number(item.billedQuantity) || 0;
       const billedPrice = Number(item.billedUnitPrice) || 0;
-      const lineTotal = Math.round(billedQty * billedPrice * 100) / 100;
-      subtotal += lineTotal;
+      const lineTotal = lineCalc.net; // net of line discount
 
       const expectedPoPrice = poItem ? poItem.unitCost : billedPrice;
       const expectedGrnQty = grnItem ? grnItem.quantityAccepted : billedQty;
 
-      // Variances
+      // Variances: compare the NET unit cost (after line + allocated bill discount) with the PO price
       const qtyVar = billedQty - expectedGrnQty;
-      const priceVar = Math.round((billedPrice - expectedPoPrice) * billedQty * 100) / 100;
+      const netLineCost = lineTotal * billDiscountFactor;
+      const priceVar = poItem
+        ? Math.round((netLineCost - expectedPoPrice * billedQty) * 100) / 100
+        : 0;
 
       totalQuantityVariance += qtyVar;
       totalPriceVariance += priceVar;
@@ -1342,6 +1375,8 @@ export class ProcurementService {
         grnQuantity: expectedGrnQty,
         lineTotal,
         variance: priceVar,
+        discountPercent: lineCalc.discountPercent,
+        discountAmount: lineCalc.discountAmount,
       });
 
       // Update PO item invoiced quantity
@@ -1353,8 +1388,13 @@ export class ProcurementService {
       }
     }
 
-    const taxAmount = Number(data.taxAmount) || 0;
-    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
+    const { subtotal, taxAmount, totalAmount } = totals;
+    // Non-PO lines carry no PO price; any bill discount on them is still a cost reduction
+    const nonPoBillDiscount = data.items.reduce((sum, item, idx) => {
+      const poItem = po?.items.find((p) => p.id === item.poItemId);
+      return poItem ? sum : sum + totals.lines[idx].net * (1 - billDiscountFactor);
+    }, 0);
+    totalPriceVariance = Math.round((totalPriceVariance - nonPoBillDiscount) * 100) / 100;
 
     const matchStatus = hasDiscrepancy ? "discrepancy" : "matched";
     const grnNotesPrefix = allGrnIds.length > 1
@@ -1377,6 +1417,11 @@ export class ProcurementService {
         subtotal,
         taxAmount,
         totalAmount,
+        grossAmount: totals.grossAmount,
+        lineDiscountTotal: totals.lineDiscountTotal,
+        discountType: totals.discountType,
+        discountValue: totals.discountValue,
+        discountAmount: totals.billDiscount,
         matchStatus,
         priceVariance: totalPriceVariance,
         quantityVariance: totalQuantityVariance,
@@ -1421,87 +1466,96 @@ export class ProcurementService {
     // 1. Post to General Ledger:
     // Debit: 2050 GR/IR Clearing Account (for received PO value cleared)
     // Debit/Credit: 5050 Purchase Price Variance (if price varied from PO)
-    // Credit: 2000 Accounts Payable (for total amount vendor is owed)
-    let journalEntryId: string | null = null;
+    // Credit: 2000 Accounts Payable (for total amount vendor is owed — NET of supplier discounts)
+    // Supplier discounts (line + bill level) are already inside priceVariance (net cost vs PO cost),
+    // so they reduce purchase cost through the vendor_bill_ppv credit; GR/IR clears at PO value.
+    const { policy: taxPolicyForBill } = await TaxSettingsService.load();
+    // GL journal, vendor sub-ledger and invoice status are written in ONE transaction, and the
+    // journal carries an idempotency key, so a double click / retry can never post the bill twice.
     try {
-      const grirAccount = await AccountMappingService.resolveAccount({
-        transactionType: "vendor_bill_clearing",
-      });
-      const apAccount = await AccountMappingService.resolveAccount({
-        transactionType: "vendor_bill_payable",
-      });
-      const ppvAccount = await AccountMappingService.resolveAccount({
-        transactionType: "vendor_bill_ppv",
-      });
+      return await prisma.$transaction(
+        async (tx) => {
+          const fresh = await tx.supplierInvoice.findUnique({ where: { id: invoiceId }, select: { matchStatus: true } });
+          if (fresh && (fresh.matchStatus === "approved_for_payment" || fresh.matchStatus === "paid")) {
+            return tx.supplierInvoice.findUniqueOrThrow({
+              where: { id: invoiceId },
+              include: { vendor: true, items: true, payments: true },
+            });
+          }
+          const grirAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_bill_clearing", prismaClient: tx });
+          const apAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_bill_payable", prismaClient: tx });
+          const ppvAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_bill_ppv", prismaClient: tx });
 
-      const totalPayable = invoice.totalAmount;
-      const priceVariance = invoice.priceVariance; // Positive means invoice > PO (Debit PPV expense)
-      const grirDebit = Math.round((totalPayable - priceVariance) * 100) / 100;
+          const totalPayable = invoice.totalAmount;
+          const priceVariance = invoice.priceVariance; // Positive means invoice > PO (Debit PPV expense)
+          // Sales tax on the bill: claimable input tax (Settings > Taxes) or, if not claimable, a cost.
+          // GR/IR always clears at the tax-free value.
+          const billTax = Math.round((Number(invoice.taxAmount) || 0) * 100) / 100;
+          const inputTaxAccount =
+            billTax > 0 && taxPolicyForBill.procurement.recordInputTax
+              ? await AccountMappingService.resolveAccount({ transactionType: "input_tax_receivable", prismaClient: tx })
+              : null;
+          const grirDebit = Math.round((totalPayable - billTax - priceVariance) * 100) / 100;
 
-      const lines: any[] = [];
-      if (grirDebit > 0) {
-        lines.push({ accountId: grirAccount.id, debit: grirDebit, credit: 0 });
-      }
+          const lines: any[] = [];
+          if (grirDebit > 0) lines.push({ accountId: grirAccount.id, debit: grirDebit, credit: 0 });
+          if (billTax > 0) {
+            lines.push({ accountId: (inputTaxAccount || ppvAccount).id, debit: billTax, credit: 0 });
+          }
+          if (priceVariance > 0.01) {
+            lines.push({ accountId: ppvAccount.id, debit: priceVariance, credit: 0 });
+          } else if (priceVariance < -0.01) {
+            lines.push({ accountId: ppvAccount.id, debit: 0, credit: Math.abs(priceVariance) });
+          }
+          lines.push({ accountId: apAccount.id, debit: 0, credit: totalPayable });
 
-      if (priceVariance > 0.01) {
-        // Price surge: Debit PPV Expense
-        lines.push({ accountId: ppvAccount.id, debit: priceVariance, credit: 0 });
-      } else if (priceVariance < -0.01) {
-        // Price discount: Credit PPV
-        lines.push({ accountId: ppvAccount.id, debit: 0, credit: Math.abs(priceVariance) });
-      }
+          const journal = await AccountsPostingService.post({
+            memo: `3-Way Match Approved: Vendor Bill ${invoice.invoiceNumber} (${invoice.vendor.name}) for PO ${invoice.po?.poNumber || "Direct"}`,
+            refType: "vendor_bill",
+            refId: invoice.id,
+            postedBy: actorName,
+            lines,
+            idempotencyKey: `vendor_bill:${invoice.id}`,
+            tx,
+          });
 
-      lines.push({ accountId: apAccount.id, debit: 0, credit: totalPayable });
+          // Vendor sub-ledger (AP credit)
+          const latestVendorLedger = await tx.vendorLedgerEntry.findFirst({
+            where: { vendorId: invoice.vendorId },
+            orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
+          });
+          const prevBalance = latestVendorLedger?.runningBalance || 0;
+          await tx.vendorLedgerEntry.create({
+            data: {
+              vendorId: invoice.vendorId,
+              postingDate: now,
+              entryType: "bill",
+              documentNumber: invoice.referenceNumber,
+              journalEntryId: journal.id,
+              debit: 0,
+              credit: invoice.totalAmount,
+              runningBalance: Math.round((prevBalance + invoice.totalAmount) * 100) / 100,
+              dueDate: invoice.dueDate,
+              notes: `3-Way Matched Bill ${invoice.invoiceNumber}`,
+            },
+          });
 
-      const journal = await AccountsPostingService.post({
-        memo: `3-Way Match Approved: Vendor Bill ${invoice.invoiceNumber} (${invoice.vendor.name}) for PO ${invoice.po?.poNumber || "Direct"}`,
-        refType: "vendor_bill",
-        refId: invoice.id,
-        postedBy: actorName,
-        lines,
-      });
-
-      journalEntryId = journal.id;
-    } catch (err: any) {
-      throw new Error(
-        `Invoice approval aborted: GL posting failed (${err.message || err}). No AP/status update applied.`
+          return tx.supplierInvoice.update({
+            where: { id: invoiceId },
+            data: {
+              matchStatus: "approved_for_payment",
+              approvedBy: actorName,
+              approvedAt: now,
+              journalEntryId: journal.id,
+            },
+            include: { vendor: true, items: true, payments: true },
+          });
+        },
+        { maxWait: 10000, timeout: 30000 }
       );
+    } catch (err: any) {
+      throw new Error(`Invoice approval aborted: ${err.message || err}. Nothing was posted.`);
     }
-
-    // 2. Post to Vendor Sub-Ledger (Accounts Payable Credit)
-    const latestVendorLedger = await prisma.vendorLedgerEntry.findFirst({
-      where: { vendorId: invoice.vendorId },
-      orderBy: { postingDate: "desc" },
-    });
-    const prevBalance = latestVendorLedger?.runningBalance || 0;
-    const newBalance = prevBalance + invoice.totalAmount;
-
-    await prisma.vendorLedgerEntry.create({
-      data: {
-        vendorId: invoice.vendorId,
-        postingDate: now,
-        entryType: "bill",
-        documentNumber: invoice.referenceNumber,
-        journalEntryId,
-        debit: 0,
-        credit: invoice.totalAmount,
-        runningBalance: newBalance,
-        dueDate: invoice.dueDate,
-        notes: `3-Way Matched Bill ${invoice.invoiceNumber}`,
-      },
-    });
-
-    // 3. Update Invoice Status
-    return await prisma.supplierInvoice.update({
-      where: { id: invoiceId },
-      data: {
-        matchStatus: "approved_for_payment",
-        approvedBy: actorName,
-        approvedAt: now,
-        journalEntryId,
-      },
-      include: { vendor: true, items: true, payments: true },
-    });
   }
 
   static async processVendorBill(data: any, actorName = "Chief Financial Accountant") {
@@ -1525,7 +1579,10 @@ export class ProcurementService {
       throw new Error("Withholding tax amount cannot be negative.");
     }
     if (whtAmount > amountPaid) {
-      throw new Error(`Withholding tax ($${whtAmount}) cannot exceed total payment amount ($${amountPaid}).`);
+      throw new Error(`Withholding tax (PKR ${whtAmount}) cannot exceed total payment amount (PKR ${amountPaid}).`);
+    }
+    if (whtAmount > 0 && !(await TaxSettingsService.load()).policy.wht.deductOnSupplierPayments) {
+      throw new Error("WHT deduction on supplier payments is switched off in Settings > Taxes.");
     }
     const netDisbursed = Math.round((amountPaid - whtAmount) * 100) / 100;
 

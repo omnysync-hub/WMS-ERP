@@ -60,6 +60,18 @@ export default function SettingsHubPage() {
       statText: "GAAP Ledger Engine",
     },
     {
+      title: "Taxes (GST, PST/PRA, WHT)",
+      subtitle: "Tax Rates & Tax Rules",
+      description:
+        "Set tax rates with effective dates, choose what is taxed (job invoices, POS, supplier bills, projects), tax-inclusive pricing, discounts, rounding, FOC/care-of rules, customer exemptions and WHT. Includes the tax report.",
+      href: "/settings/taxes",
+      icon: FileCheck,
+      badge: "Finance & Tax",
+      badgeColor: "bg-rose-50 text-rose-800 border-rose-200",
+      enabled: hasPermission("settings.taxes") || hasPermission("settings.accounting"),
+      statText: "FBR / PRA Ready",
+    },
+    {
       title: "Stock Units & Measurement (UoM)",
       subtitle: "Warehouse Conversion Matrix",
       description:

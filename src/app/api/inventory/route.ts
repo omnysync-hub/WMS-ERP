@@ -5,6 +5,36 @@ import { prisma } from "@/lib/prisma";
 import { InventoryService } from "@/lib/services/InventoryService";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AuditService } from "@/lib/services/AuditService";
+import { AccountMappingService } from "@/lib/services/AccountMappingService";
+import type { Prisma } from "@prisma/client";
+
+/**
+ * Post the GL side of a stock quantity change valued at the product's cost price.
+ * Stock going out (shrinkage, workshop use): Dr inventory_cogs_expense / Cr inventory_cogs_asset.
+ * Stock coming back in (count gain):        Dr inventory_return_asset / Cr inventory_return_cogs.
+ */
+async function postStockValueChange(
+  tx: Prisma.TransactionClient,
+  params: { direction: "in" | "out"; value: number; memo: string; refType: string; refId: string; postedBy: string }
+) {
+  const value = Math.round(params.value * 100) / 100;
+  if (value <= 0) return;
+  const [debitRole, creditRole] =
+    params.direction === "out" ? ["inventory_cogs_expense", "inventory_cogs_asset"] : ["inventory_return_asset", "inventory_return_cogs"];
+  const debitAcc = await AccountMappingService.resolveAccount({ transactionType: debitRole, prismaClient: tx });
+  const creditAcc = await AccountMappingService.resolveAccount({ transactionType: creditRole, prismaClient: tx });
+  await AccountsPostingService.post({
+    memo: params.memo,
+    refType: params.refType,
+    refId: params.refId,
+    postedBy: params.postedBy,
+    lines: [
+      { accountId: debitAcc.id, debit: value, credit: 0 },
+      { accountId: creditAcc.id, debit: 0, credit: value },
+    ],
+    tx,
+  });
+}
 
 export async function GET(req: NextRequest) {
   const gate = await requireJobsPermission(req, [
@@ -339,10 +369,30 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/** Server-side permission per inventory action (any one of the listed keys). */
+const INVENTORY_ACTION_PERMISSIONS: Record<string, string[]> = {
+  acknowledge_return: ["jobs.stock_return", "inventory.storekeeper_queue"],
+  fulfill_request: ["inventory.storekeeper_queue", "jobs.issue_stock"],
+  add_stock: ["inventory.restock"],
+  set_opening_stock: ["inventory.opening_stock"],
+  create_product: ["inventory.restock", "inventory.stock_units"],
+  update_product: ["inventory.restock", "inventory.stock_units"],
+  branch_transfer: ["inventory.branch_transfers"],
+  stock_adjustment: ["inventory.adjustments"],
+  workshop_consumption: ["inventory.workshop_consumption"],
+  checkout_equipment: ["inventory.tool_crib"],
+  return_equipment: ["inventory.tool_crib"],
+};
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, ...payload } = body;
+
+    const required = INVENTORY_ACTION_PERMISSIONS[String(action)];
+    if (!required) return NextResponse.json({ error: `Unknown inventory action: ${action}` }, { status: 400 });
+    const actionGate = await requireJobsPermission(req, required);
+    if (actionGate.error) return actionGate.error;
 
     switch (action) {
       case "acknowledge_return": {
@@ -489,21 +539,37 @@ export async function POST(req: NextRequest) {
         const product = await prisma.product.findUnique({ where: { id: productId } });
         if (!product) throw new Error("Product not found");
         const qtyNum = Math.abs(Number(quantity));
+        if (!qtyNum) return NextResponse.json({ error: "Quantity must be greater than zero" }, { status: 400 });
         const direction = type === "increase" ? "in" : "out";
-        await prisma.product.update({
-          where: { id: productId },
-          data: {
-            stockQuantity: type === "increase" ? { increment: qtyNum } : { decrement: qtyNum },
-          },
-        });
-        const ledger = await prisma.stockLedger.create({
-          data: {
-            productId,
-            qty: qtyNum,
+        if (direction === "out" && product.stockQuantity < qtyNum) {
+          return NextResponse.json({ error: `Cannot reduce below zero. Available: ${product.stockQuantity}` }, { status: 400 });
+        }
+        // Quantity, stock ledger and the inventory value in the GL change together.
+        const ledger = await prisma.$transaction(async (tx) => {
+          await tx.product.update({
+            where: { id: productId },
+            data: {
+              stockQuantity: type === "increase" ? { increment: qtyNum } : { decrement: qtyNum },
+            },
+          });
+          const row = await tx.stockLedger.create({
+            data: {
+              productId,
+              qty: qtyNum,
+              direction,
+              refType: "stock_adjustment",
+              notes: `[Audit Adjustment (${type === "increase" ? "+" : "-"}${qtyNum}): ${reason || "Variance"}] ${notes || ""}`.trim(),
+            },
+          });
+          await postStockValueChange(tx, {
             direction,
+            value: qtyNum * (Number(product.costPrice) || 0),
+            memo: `Stock count adjustment ${direction === "in" ? "+" : "-"}${qtyNum} ${product.name} (${reason || "Variance"})`,
             refType: "stock_adjustment",
-            notes: `[Audit Adjustment (${type === "increase" ? "+" : "-"}${qtyNum}): ${reason || "Variance"}] ${notes || ""}`.trim(),
-          },
+            refId: row.id,
+            postedBy: actionGate.actor.name || "Storekeeper",
+          });
+          return row;
         });
         return NextResponse.json({ success: true, ledger });
       }
@@ -516,18 +582,29 @@ export async function POST(req: NextRequest) {
         if (product.stockQuantity < qtyNum) {
           throw new Error(`Insufficient stock for workshop consumption. Available: ${product.stockQuantity}`);
         }
-        await prisma.product.update({
-          where: { id: productId },
-          data: { stockQuantity: { decrement: qtyNum } },
-        });
-        const ledger = await prisma.stockLedger.create({
-          data: {
-            productId,
-            qty: qtyNum,
+        const ledger = await prisma.$transaction(async (tx) => {
+          await tx.product.update({
+            where: { id: productId },
+            data: { stockQuantity: { decrement: qtyNum } },
+          });
+          const row = await tx.stockLedger.create({
+            data: {
+              productId,
+              qty: qtyNum,
+              direction: "out",
+              refType: "workshop_consumption",
+              notes: `[Workshop Internal: ${workshopUnit || "Fabrication Bench"}] Tech: ${technicianName || "Shop Tech"}. ${notes || ""}`.trim(),
+            },
+          });
+          await postStockValueChange(tx, {
             direction: "out",
+            value: qtyNum * (Number(product.costPrice) || 0),
+            memo: `Workshop consumption ${qtyNum} x ${product.name}`,
             refType: "workshop_consumption",
-            notes: `[Workshop Internal: ${workshopUnit || "Fabrication Bench"}] Tech: ${technicianName || "Shop Tech"}. ${notes || ""}`.trim(),
-          },
+            refId: row.id,
+            postedBy: actionGate.actor.name || "Storekeeper",
+          });
+          return row;
         });
         return NextResponse.json({ success: true, ledger });
       }

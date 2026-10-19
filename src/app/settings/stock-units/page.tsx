@@ -1,4 +1,5 @@
 "use client";
+import { pushSharedSetting } from "@/lib/sharedSettings";
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
@@ -79,6 +80,7 @@ export default function StockUnitsPage() {
   const saveUnits = (newUnits: StockUnit[]) => {
     setUnits(newUnits);
     localStorage.setItem("workman_stock_units", JSON.stringify(newUnits));
+    pushSharedSetting("workman_stock_units", newUnits).catch((err) => alert(err.message));
     window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new CustomEvent("workman_stock_units_updated", { detail: newUnits }));
   };
