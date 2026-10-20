@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     if (!employee) {
       return NextResponse.json(
-        { error: "Employee not found or account is deactivated. Please check credentials." },
+        { error: "No active employee found with this username, phone or email. Check the spelling or ask HR to set up your mobile login.", code: "EMPLOYEE_NOT_FOUND" },
         { status: 401 }
       );
     }
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     // 2. Account general active check
     if (!employee.active) {
       return NextResponse.json(
-        { error: "Account has been suspended or deactivated. Contact HR." },
+        { error: "Your employee account is inactive. Contact HR.", code: "ACCOUNT_INACTIVE" },
         { status: 403 }
       );
     }
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     // 3. Mobile access provisioned and active check
     if (!employee.mobileLoginActive) {
       return NextResponse.json(
-        { error: "Mobile app access is deactivated or not provisioned for this account. Contact HR." },
+        { error: "Mobile app access is not enabled for this account. Ask HR to enable it (HR › Employees › Mobile login).", code: "MOBILE_ACCESS_DISABLED" },
         { status: 403 }
       );
     }
@@ -265,7 +265,8 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Mobile login failed", err);
+    return NextResponse.json({ error: "Sign-in is temporarily unavailable. Please try again." }, { status: 500 });
   }
 }
 

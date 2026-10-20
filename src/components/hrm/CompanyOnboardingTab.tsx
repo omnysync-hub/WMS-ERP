@@ -1,5 +1,6 @@
 "use client";
 
+import MapboxAddressInput from "@/components/maps/MapboxAddressInput";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
@@ -371,7 +372,7 @@ export default function CompanyOnboardingTab() {
             </label>
             <label className="space-y-1.5 text-xs font-semibold text-zinc-700 md:col-span-2">
               Registered address <span className="text-red-500">*</span>
-              <input className={fieldClass} value={profile.addressText} onChange={(event) => updateField("addressText", event.target.value)} placeholder="Complete registered address" />
+              <MapboxAddressInput className={fieldClass} value={profile.addressText} onChange={(v) => updateField("addressText", v)} placeholder="Complete registered address" />
             </label>
             <label className="space-y-1.5 text-xs font-semibold text-zinc-700">
               Company phone <span className="text-red-500">*</span>

@@ -15,6 +15,13 @@ import {
   Map,
   CheckCircle2,
 } from "lucide-react";
+import {
+  MapboxAddressSession,
+  mapboxEnabled,
+  MIN_QUERY_CHARS,
+  SEARCH_DEBOUNCE_MS,
+  type MapboxPlace,
+} from "@/lib/geo/mapboxSearch";
 
 export interface PakistanAddressAutofillProps {
   value: string;
@@ -26,6 +33,8 @@ export interface PakistanAddressAutofillProps {
   required?: boolean;
   showMapPicker?: boolean;
   cityBias?: "lahore" | "karachi" | "islamabad" | "all";
+  /** Optional: receives area/city of a picked Mapbox address (to fill those fields if the form has them). */
+  onPlaceSelected?: (place: MapboxPlace) => void;
 }
 
 export interface AddressSuggestion {
@@ -34,7 +43,8 @@ export interface AddressSuggestion {
   fullAddress: string;
   lat: number;
   lng: number;
-  source: "local" | "photon" | "nominatim";
+  source: "local" | "photon" | "nominatim" | "mapbox";
+  mapboxId?: string;
 }
 
 // Curated Local High-Accuracy Database for Lahore & Pakistan Major Zones
@@ -167,6 +177,7 @@ export default function PakistanAddressAutofill({
   required = true,
   showMapPicker = true,
   cityBias = "lahore",
+  onPlaceSelected,
 }: PakistanAddressAutofillProps) {
   const [addressInput, setAddressInput] = useState(value || "");
   const [currentLat, setCurrentLat] = useState<number>(lat || 31.5204);
@@ -187,6 +198,9 @@ export default function PakistanAddressAutofill({
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const mapboxSessionRef = useRef<MapboxAddressSession | null>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const useMapbox = mapboxEnabled();
 
   // Keep internal address in sync with incoming value
   useEffect(() => {
@@ -218,6 +232,13 @@ export default function PakistanAddressAutofill({
     return { lat: 31.5204, lon: 74.3587 }; // Default Lahore
   }, [cityBias]);
 
+  const getMapboxSession = () => {
+    if (!mapboxSessionRef.current) mapboxSessionRef.current = new MapboxAddressSession();
+    mapboxSessionRef.current.setProximity({ lat: biasCoordinates.lat, lng: biasCoordinates.lon });
+    return mapboxSessionRef.current;
+  };
+  useEffect(() => () => mapboxSessionRef.current?.abort(), []);
+
   // Real-time Pakistan & Lahore Address Autocomplete Search
   const searchAddress = async (query: string) => {
     const q = query.trim();
@@ -226,8 +247,6 @@ export default function PakistanAddressAutofill({
       setIsOpenDropdown(false);
       return;
     }
-
-    setIsLoading(true);
 
     // 1. Instant local match
     const localMatches: AddressSuggestion[] = PAKISTAN_POPULAR_ZONES.filter(
@@ -243,6 +262,40 @@ export default function PakistanAddressAutofill({
       source: "local",
     }));
 
+    // Mapbox (when a token is configured): 3+ characters, 5 results, Pakistan only.
+    if (useMapbox) {
+      if (q.length < MIN_QUERY_CHARS) {
+        setSuggestions(localMatches);
+        setIsOpenDropdown(localMatches.length > 0);
+        setActiveIndex(-1);
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const remote = await getMapboxSession().suggest(q);
+        const mapped: AddressSuggestion[] = remote.map((s) => ({
+          title: s.title,
+          subtitle: s.subtitle,
+          fullAddress: s.fullAddress,
+          lat: NaN,
+          lng: NaN,
+          source: "mapbox",
+          mapboxId: s.mapboxId,
+        }));
+        const combined = [...mapped, ...localMatches].slice(0, 8);
+        setSuggestions(combined);
+        setIsOpenDropdown(combined.length > 0);
+        setActiveIndex(-1);
+        setIsLoading(false);
+        return;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return; // a newer keystroke replaced this request
+        console.warn("Mapbox address search unavailable, using the free engine", err);
+        // fall through to the free engine below
+      }
+    }
+
+    setIsLoading(true);
     try {
       // 2. Query Photon OpenStreetMap Pakistan Engine (Free, Open-Source, Fast)
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(
@@ -330,10 +383,51 @@ export default function PakistanAddressAutofill({
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       searchAddress(val);
-    }, 220);
+    }, useMapbox ? SEARCH_DEBOUNCE_MS : 220);
   };
 
-  const handleSelectSuggestion = (s: AddressSuggestion) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpenDropdown || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      void handleSelectSuggestion(suggestions[activeIndex]);
+    } else if (e.key === "Escape") {
+      setIsOpenDropdown(false);
+      setActiveIndex(-1);
+    }
+  };
+
+  const handleSelectSuggestion = async (picked: AddressSuggestion) => {
+    let s = picked;
+    setActiveIndex(-1);
+    if (picked.source === "mapbox") {
+      setIsOpenDropdown(false);
+      setAddressInput(picked.fullAddress);
+      setIsLoading(true);
+      try {
+        const place = await getMapboxSession().retrieve({
+          mapboxId: picked.mapboxId || "",
+          title: picked.title,
+          subtitle: picked.subtitle,
+          fullAddress: picked.fullAddress,
+        });
+        if (!place) throw new Error("No coordinates for this address");
+        s = { ...picked, fullAddress: place.fullAddress, lat: place.lat, lng: place.lng };
+        onPlaceSelected?.(place);
+      } catch (err) {
+        console.warn("Mapbox could not locate this address; keeping the typed text", err);
+        onChange(picked.fullAddress, currentLat, currentLng);
+        return;
+      } finally {
+        setIsLoading(false);
+      }
+    }
     setAddressInput(s.fullAddress);
     setCurrentLat(s.lat);
     setCurrentLng(s.lng);
@@ -539,6 +633,11 @@ export default function PakistanAddressAutofill({
             required={required}
             value={addressInput}
             onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            role="combobox"
+            aria-expanded={isOpenDropdown}
+            aria-autocomplete="list"
+            autoComplete="off"
             onFocus={() => {
               if (suggestions.length > 0) setIsOpenDropdown(true);
             }}
@@ -566,14 +665,17 @@ export default function PakistanAddressAutofill({
           <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-[#EDEDED] rounded-xl shadow-xl z-40 max-h-64 overflow-y-auto divide-y divide-[#EDEDED] text-xs animate-in fade-in zoom-in-95 duration-100">
             <div className="p-2 bg-[#F9FAFB] text-[10px] font-bold text-[#71717A] uppercase tracking-wider flex items-center justify-between">
               <span>Verified Pakistan / Lahore Locations</span>
-              <span className="text-emerald-700 font-mono">OpenStreetMap Free Engine</span>
+              <span className="text-emerald-700 font-mono">{useMapbox ? "Mapbox" : "OpenStreetMap Free Engine"}</span>
             </div>
             {suggestions.map((s, idx) => (
               <button
                 key={idx}
                 type="button"
                 onClick={() => handleSelectSuggestion(s)}
-                className="w-full text-left p-2.5 hover:bg-emerald-50/60 transition flex items-start justify-between gap-2.5 group"
+                onMouseEnter={() => setActiveIndex(idx)}
+                role="option"
+                aria-selected={idx === activeIndex}
+                className={`w-full text-left p-2.5 hover:bg-emerald-50/60 ${idx === activeIndex ? "bg-emerald-50/80" : ""} transition flex items-start justify-between gap-2.5 group`}
               >
                 <div className="min-w-0">
                   <div className="font-bold text-[#18181B] group-hover:text-[#0D7A5F] truncate">
@@ -584,9 +686,11 @@ export default function PakistanAddressAutofill({
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <span className="text-[10px] font-mono font-bold text-[#0D7A5F] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                    {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
-                  </span>
+                  {Number.isFinite(s.lat) && Number.isFinite(s.lng) && (
+                    <span className="text-[10px] font-mono font-bold text-[#0D7A5F] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
+                    </span>
+                  )}
                 </div>
               </button>
             ))}

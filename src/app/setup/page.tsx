@@ -1,5 +1,6 @@
 "use client";
 
+import MapboxAddressInput from "@/components/maps/MapboxAddressInput";
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
@@ -514,10 +515,9 @@ export default function SetupWizardPage() {
               ))}
               <div className="md:col-span-2">
                 <label className="text-[#71717A] font-semibold block mb-1">Registered Address</label>
-                <input
-                  type="text"
+                <MapboxAddressInput
                   value={addressText}
-                  onChange={(e) => setAddressText(e.target.value)}
+                  onChange={setAddressText}
                   className="w-full bg-[#F9FAFB] border border-[#D4D4D8] rounded-xl p-2.5 text-xs outline-hidden"
                 />
               </div>

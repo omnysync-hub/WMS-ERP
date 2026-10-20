@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
+import { ERP_SESSION_COOKIE, authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
 import { stampActorHeaders, stripActorHeaders } from "@/lib/auth/actorHeaders";
 import { signedOverridesFor } from "@/lib/auth/roleStore";
 import { actorHasPermission } from "@/lib/auth/erpActor";
@@ -46,6 +46,11 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Only clear the session cookie when this request actually carried one. A request sent without a
+  // cookie (e.g. a background call the login page fired just before sign-in finished) must not
+  // wipe the fresh cookie the login response has just set in the browser.
+  const hadSessionCookie = Boolean(request.cookies.get(ERP_SESSION_COOKIE)?.value);
+
   let auth = null;
   try {
     auth = await authenticateErpRequest(request);
@@ -61,13 +66,13 @@ export async function middleware(request: NextRequest) {
     }
     if (pathname.startsWith("/api/")) {
       const response = NextResponse.json({ error: "Your session has ended. Please sign in again.", code: "UNAUTHENTICATED" }, { status: 401 });
-      clearErpSessionCookie(response, request);
+      if (hadSessionCookie) clearErpSessionCookie(response, request);
       return response;
     }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     const response = NextResponse.redirect(loginUrl);
-    clearErpSessionCookie(response, request);
+    if (hadSessionCookie) clearErpSessionCookie(response, request);
     return response;
   }
 
