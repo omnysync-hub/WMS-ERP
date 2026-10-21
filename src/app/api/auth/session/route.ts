@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
+import { ERP_SESSION_COOKIE, authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
 import { effectivePermissionMap, getRoleDefinition, signedOverridesFor } from "@/lib/auth/roleStore";
 
 export async function GET(request: NextRequest) {
-  const auth = await authenticateErpRequest(request);
+  let auth;
+  try {
+    auth = await authenticateErpRequest(request);
+  } catch {
+    // Could not check (DB restarting): not the same as signed out — keep the cookie.
+    return NextResponse.json({ error: "Session check unavailable. Retry.", code: "SESSION_CHECK_UNAVAILABLE" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   if (!auth) {
-    const response = NextResponse.json({ error: "Not signed in." }, { status: 401 });
-    clearErpSessionCookie(response);
+    const response = NextResponse.json({ error: "Not signed in.", code: "UNAUTHENTICATED" }, { status: 401 });
+    if (request.cookies.get(ERP_SESSION_COOKIE)?.value) clearErpSessionCookie(response, request);
     return response;
   }
   // The browser uses this server-computed map for showing/hiding UI; the server enforces the same map.

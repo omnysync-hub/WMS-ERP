@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { syncUserFromEmployee } from "@/lib/hr/userEmployeeLink";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 
@@ -85,6 +86,9 @@ export class HrmService {
           orderBy: { createdAt: "asc" },
         },
         exitInterview: true,
+        erpUser: {
+          select: { id: true, username: true, role: true, status: true, email: true, lastLoginAt: true },
+        },
         finalSettlements: {
           orderBy: { createdAt: "desc" },
         },
@@ -199,10 +203,29 @@ export class HrmService {
     if (bankAccountTitle !== undefined) updatePayload.bankAccountTitle = bankAccountTitle;
     if (bankAccountNumber !== undefined) updatePayload.bankAccountNumber = bankAccountNumber;
     if (bankIban !== undefined) updatePayload.bankIban = bankIban;
+    if (data.active !== undefined) updatePayload.active = Boolean(data.active);
+    if (status !== undefined && updatePayload.active === undefined) {
+      const s = String(status).toLowerCase();
+      if (s === "inactive" || s === "terminated") updatePayload.active = false;
+      else if (s === "active") updatePayload.active = true;
+    }
+    if (updatePayload.reportingManagerId) {
+      if (updatePayload.reportingManagerId === id) throw new Error("An employee cannot report to themselves.");
+      // Walk up the chain to block reporting loops.
+      let cursor: string | null = updatePayload.reportingManagerId;
+      for (let i = 0; cursor && i < 50; i++) {
+        const mgr: { id: string; reportingManagerId: string | null } | null = await prisma.employee.findUnique({ where: { id: cursor }, select: { id: true, reportingManagerId: true } });
+        if (!mgr) throw new Error("The selected reporting manager was not found.");
+        if (mgr.reportingManagerId === id) throw new Error("That reporting manager already reports to this employee (circular chain).");
+        cursor = mgr.reportingManagerId;
+      }
+    }
 
-    const updated = await prisma.employee.update({
-      where: { id },
-      data: updatePayload,
+    // Update the employee and its linked ERP login together (name/email/phone/active status).
+    const updated = await prisma.$transaction(async (tx) => {
+      const emp = await tx.employee.update({ where: { id }, data: updatePayload });
+      await syncUserFromEmployee(tx, emp);
+      return emp;
     });
     const { mobilePasswordHash, ...safeEmployee } = updated;
     return safeEmployee;
@@ -709,14 +732,15 @@ export class HrmService {
       },
     });
 
-    // Set employee status to Inactive (soft deletion)
-    await prisma.employee.update({
+    // Set employee status to Inactive (soft deletion); the linked ERP login is suspended too.
+    const deactivated = await prisma.employee.update({
       where: { id: employee.id },
       data: {
         status: "Inactive",
         active: false,
       },
     });
+    await syncUserFromEmployee(prisma, deactivated).catch((e) => console.error("Linked ERP login not suspended:", e?.message));
 
     return settlement;
   }

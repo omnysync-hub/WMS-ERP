@@ -1307,6 +1307,9 @@ export class ProcurementService {
       : [];
 
     const primaryGrn = grnList[0] || null;
+    if (!data.vendorId && !po?.vendorId) {
+      throw new Error("Choose the supplier for this bill (or link it to a purchase order).");
+    }
 
     let totalQuantityVariance = 0;
     let totalPriceVariance = 0;
@@ -1409,7 +1412,7 @@ export class ProcurementService {
       data: {
         invoiceNumber: data.invoiceNumber.trim(),
         referenceNumber,
-        vendorId: data.vendorId,
+        vendorId: (data.vendorId || po?.vendorId) as string,
         poId: data.poId || null,
         grnId: primaryGrn?.id || data.grnId || null,
         invoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : new Date(),

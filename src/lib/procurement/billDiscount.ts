@@ -36,6 +36,7 @@ export function computeSupplierBillTotals(input: {
   const type = input.discountType === "percent" || input.discountType === "amount" ? input.discountType : null;
   const value = Number(input.discountValue) || 0;
   if (value < 0) throw new Error("Bill discount cannot be negative.");
+  if (value > 0 && !type) throw new Error('Bill discount type must be "percent" or "amount".');
   let billDiscount = 0;
   if (type === "percent") {
     if (value > 100) throw new Error("Bill discount percent must be between 0 and 100.");

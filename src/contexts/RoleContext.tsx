@@ -199,6 +199,10 @@ export interface SystemUser {
   createdAt: string;
   permissionOverrides?: Record<string, boolean>;
   isDemo?: boolean;
+  phone?: string;
+  /** Linked HR employee (Settings › User Accounts ↔ HR). */
+  linkedEmployee?: { id: string; name: string; designation: string | null; department: string; status: string; active: boolean } | null;
+  reportingManager?: { id: string; name: string; designation: string | null } | null;
 }
 
 export const DEFAULT_USERS: SystemUser[] = [
@@ -405,11 +409,24 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshSession = async (initial = false) => {
-    const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
-    if (!sessionResponse.ok) {
+    // Only a real "not signed in" answer (401) sends the user to /login. A network error, 502/503
+    // during a deploy, or any other hiccup keeps the current screen and simply retries later.
+    let sessionResponse: Response | null = null;
+    for (let attempt = 0; attempt < (initial ? 6 : 1); attempt++) {
+      try {
+        sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
+      } catch {
+        sessionResponse = null;
+      }
+      if (sessionResponse && (sessionResponse.ok || sessionResponse.status === 401)) break;
+      if (initial) await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+    }
+    if (!sessionResponse) throw new Error("Session check unavailable (network).");
+    if (sessionResponse.status === 401) {
       window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       return;
     }
+    if (!sessionResponse.ok) throw new Error(`Session check unavailable (${sessionResponse.status}).`);
     const sessionData = await sessionResponse.json();
     const sessionUser = sessionData.user as SystemUser;
     if (!sessionUser) return;
@@ -445,7 +462,8 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         await refreshSession(true);
         if (!cancelled) setSessionReady(true);
       } catch {
-        if (!cancelled) window.location.assign("/login");
+        // Server unreachable even after retries: reload later instead of signing the user out.
+        if (!cancelled) window.setTimeout(() => window.location.reload(), 5000);
       }
     })();
     // Pick up permission changes made by an administrator without needing to sign in again.

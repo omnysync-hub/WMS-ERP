@@ -22,7 +22,8 @@ export class PayrollService {
     }
 
     const employees = await prisma.employee.findMany({
-      where: { active: true },
+      // Only salaried staff get a payslip (ERP-login employees created without a salary are skipped).
+      where: { active: true, salary: { gt: 0 } },
       include: { advances: { where: { status: "approved" } } },
     });
 

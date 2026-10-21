@@ -113,6 +113,7 @@ export default function UsersAndRolesSettingsPage() {
   // New User Form State
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
+  const [formPhone, setFormPhone] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
   const [formRole, setFormRole] = useState<RoleType>("call_center");
@@ -178,6 +179,7 @@ export default function UsersAndRolesSettingsPage() {
     setEditingUser(null);
     setFormName("");
     setFormEmail("");
+    setFormPhone("");
     setFormUsername("");
     setFormPassword("");
     setFormRole("call_center");
@@ -191,6 +193,7 @@ export default function UsersAndRolesSettingsPage() {
     setEditingUser(user);
     setFormName(user.name);
     setFormEmail(user.email);
+    setFormPhone(user.phone || "");
     setFormUsername(user.username);
     setFormPassword("");
     setFormRole(user.role);
@@ -217,6 +220,7 @@ export default function UsersAndRolesSettingsPage() {
         await updateUser(editingUser.id, {
           name: formName.trim(),
           email: formEmail.trim(),
+          phone: formPhone.trim(),
           username: formUsername.trim(),
           role: formRole,
           designation: formDesignation.trim(),
@@ -230,6 +234,7 @@ export default function UsersAndRolesSettingsPage() {
         await createUser({
           name: formName.trim(),
           email: formEmail.trim(),
+          phone: formPhone.trim(),
           username: formUsername.trim(),
           role: formRole,
           designation: formDesignation.trim(),
@@ -531,8 +536,18 @@ export default function UsersAndRolesSettingsPage() {
                       </td>
 
                       <td className="py-3 px-4">
-                        <div className="font-medium text-[#18181B]">{u.designation}</div>
-                        <div className="text-[10px] text-[#71717A]">{u.department}</div>
+                        <div className="font-medium text-[#18181B]">{u.linkedEmployee?.designation || u.designation}</div>
+                        <div className="text-[10px] text-[#71717A]">{u.linkedEmployee?.department || u.department}</div>
+                        {u.linkedEmployee ? (
+                          <a href={`/hrm/employees/${u.linkedEmployee.id}`} className="block text-[10px] text-[#0D7A5F] hover:underline">
+                            HR: {u.linkedEmployee.name}{u.linkedEmployee.active ? "" : " (inactive)"}
+                          </a>
+                        ) : (
+                          <div className="text-[10px] text-amber-700">No HR employee linked</div>
+                        )}
+                        <div className="text-[10px] text-[#71717A]">
+                          Reports to: {u.reportingManager ? u.reportingManager.name : "—"}
+                        </div>
                       </td>
 
                       {/* Instant Toggle Button */}
@@ -954,6 +969,17 @@ export default function UsersAndRolesSettingsPage() {
                 placeholder="asad@company.com"
                 value={formEmail}
                 onChange={(e) => setFormEmail(e.target.value)}
+                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Phone (synced to HR)</label>
+              <input
+                type="tel"
+                placeholder="03001234567"
+                value={formPhone}
+                onChange={(e) => setFormPhone(e.target.value)}
                 className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
               />
             </div>

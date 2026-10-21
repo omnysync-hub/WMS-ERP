@@ -299,6 +299,10 @@ export class AccountsPostingService {
         },
       });
 
+      // 2b. Keep the party sub-ledgers and source documents in step with the GL, so AR/AP control
+      //     accounts still reconcile and invoices/bills show the right status after a reversal.
+      await AccountsPostingService.reverseDocumentEffects(tx, originalEntry, reversalEntry.id, reason, today);
+
       // 3. Log Financial Audit
       await tx.financialAuditLog.create({
         data: {
@@ -319,6 +323,88 @@ export class AccountsPostingService {
       return reversalEntry;
     };
     return outerTx ? write(outerTx) : prisma.$transaction(write);
+  }
+
+  /** Mirror sub-ledger rows and update the source document when a journal entry is reversed. */
+  private static async reverseDocumentEffects(
+    tx: Prisma.TransactionClient,
+    original: { id: string; refType: string; refId: string | null },
+    reversalId: string,
+    reason: string,
+    when: Date
+  ) {
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const note = `Reversal: ${reason}`.slice(0, 250);
+
+    // Source documents first (these can refuse the reversal, which rolls everything back).
+    if (original.refType === "job_revenue" && original.refId) {
+      const invoices = await tx.invoice.findMany({ where: { jobId: original.refId, status: { not: "cancelled" } } });
+      for (const inv of invoices) {
+        const paid = await tx.journalEntry.count({ where: { refType: "customer_payment", refId: inv.id, status: "posted" } });
+        if (paid > 0) {
+          throw new Error(`Reversal rejected: invoice ${inv.invoiceNumber} has customer receipts. Reverse the receipts first.`);
+        }
+        await tx.invoice.update({ where: { id: inv.id }, data: { status: "cancelled" } });
+      }
+    }
+    if (original.refType === "customer_payment" && original.refId) {
+      const inv = await tx.invoice.findUnique({ where: { id: original.refId } });
+      if (inv && inv.status === "paid") await tx.invoice.update({ where: { id: inv.id }, data: { status: "unpaid" } });
+    }
+    if (original.refType === "vendor_bill") {
+      const bill = await tx.supplierInvoice.findFirst({ where: { journalEntryId: original.id } });
+      if (bill) {
+        if ((bill.paidAmount || 0) > 0.005) {
+          throw new Error(`Reversal rejected: bill ${bill.invoiceNumber} has payments. Reverse the supplier payments first.`);
+        }
+        await tx.supplierInvoice.update({ where: { id: bill.id }, data: { matchStatus: "cancelled" } });
+      }
+    }
+    if (original.refType === "vendor_payment" && original.refId) {
+      const pay = await tx.supplierPayment.findUnique({ where: { paymentNumber: original.refId } });
+      if (pay) {
+        const bill = await tx.supplierInvoice.findUnique({ where: { id: pay.supplierInvoiceId } });
+        if (bill) {
+          const paidAmount = Math.max(0, round((bill.paidAmount || 0) - pay.amount));
+          await tx.supplierInvoice.update({
+            where: { id: bill.id },
+            data: {
+              paidAmount,
+              paymentStatus: paidAmount <= 0.005 ? "unpaid" : "partially_paid",
+              ...(bill.matchStatus === "paid" ? { matchStatus: "approved_for_payment" } : {}),
+            },
+          });
+        }
+      }
+    }
+
+    // Party sub-ledgers: post the mirror image of every row the original entry created.
+    const custRows = await tx.customerLedgerEntry.findMany({ where: { journalEntryId: original.id } });
+    const customers = new Set<string>();
+    for (const r of custRows) {
+      await tx.customerLedgerEntry.create({
+        data: { customerId: r.customerId, postingDate: when, entryType: "reversal", documentNumber: `REV-${r.documentNumber}`.slice(0, 80), journalEntryId: reversalId, debit: r.credit, credit: r.debit, runningBalance: 0, notes: note },
+      });
+      customers.add(r.customerId);
+    }
+    for (const customerId of customers) {
+      const rows = await tx.customerLedgerEntry.findMany({ where: { customerId }, orderBy: [{ postingDate: "asc" }, { createdAt: "asc" }, { id: "asc" }] });
+      let bal = 0;
+      for (const row of rows) { bal = round(bal + row.debit - row.credit); await tx.customerLedgerEntry.update({ where: { id: row.id }, data: { runningBalance: bal } }); }
+    }
+    const vendRows = await tx.vendorLedgerEntry.findMany({ where: { journalEntryId: original.id } });
+    const vendors = new Set<string>();
+    for (const r of vendRows) {
+      await tx.vendorLedgerEntry.create({
+        data: { vendorId: r.vendorId, postingDate: when, entryType: "reversal", documentNumber: `REV-${r.documentNumber}`.slice(0, 80), journalEntryId: reversalId, debit: r.credit, credit: r.debit, runningBalance: 0, notes: note },
+      });
+      vendors.add(r.vendorId);
+    }
+    for (const vendorId of vendors) {
+      const rows = await tx.vendorLedgerEntry.findMany({ where: { vendorId }, orderBy: [{ postingDate: "asc" }, { createdAt: "asc" }, { id: "asc" }] });
+      let bal = 0;
+      for (const row of rows) { bal = round(bal + row.credit - row.debit); await tx.vendorLedgerEntry.update({ where: { id: row.id }, data: { runningBalance: bal } }); }
+    }
   }
 
   /**

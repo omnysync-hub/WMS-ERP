@@ -63,3 +63,8 @@ Thumbs.db
 # Local scratch, backups and reports
 /scratch/
 *backup-2026*/
+
+# deploy
+/.next-build/
+/.next-prev/
+/.deploy-lock.sum

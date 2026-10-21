@@ -8,6 +8,7 @@ import { FinancialReportingService } from "@/lib/services/FinancialReportingServ
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { STANDARD_COA_DEFINITIONS } from "@/lib/constants/chartOfAccountsHierarchy";
 import { requirePermission } from "@/lib/auth/erpActor";
+import { careOfReceivableAccountId } from "@/lib/careOfLedger";
 import {
   accountingPolicyReadiness,
   ExpenseCategoryConfig,
@@ -94,7 +95,9 @@ export async function GET(req: NextRequest) {
     }
 
     // 2. Check Fiscal Periods
-    const currentYear = new Date().getFullYear();
+    const currentYear = FiscalPeriodService.fiscalYearFor(new Date(), settings.fiscalYearStartMonth || 7);
+    // Make sure the fiscal year containing today exists (idempotent) so postings land in an open period.
+    await FiscalPeriodService.seedFiscalYear(currentYear, settings.fiscalYearStartMonth || 7);
     const periods = await prisma.fiscalPeriod.findMany({
       where: { fiscalYear: currentYear },
       orderBy: { periodNumber: "asc" },
@@ -295,7 +298,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Seed 12 Fiscal Periods automatically
-      const currentYear = new Date().getFullYear();
+      const currentYear = FiscalPeriodService.fiscalYearFor(new Date(), Number(fiscalYearStartMonth) || 7);
       const periods = await FiscalPeriodService.seedFiscalYear(currentYear, Number(fiscalYearStartMonth) || 7);
 
       return NextResponse.json({
@@ -438,8 +441,16 @@ export async function POST(req: NextRequest) {
     if (action === "save_care_of_setup") {
       const rows = Array.isArray(body.parties) ? body.parties : [];
       for (const item of rows) {
-        if (!clean(item.companyName) || !clean(item.ledgerAccountId)) {
-          return NextResponse.json({ error: "Every care-of party needs a company name and ledger control account." }, { status: 400 });
+        if (!clean(item.companyName)) {
+          return NextResponse.json({ error: "Every care-of party needs a company name." }, { status: 400 });
+        }
+        if (!clean(item.ledgerAccountId)) {
+          // Default to the care-of receivables ledger (1101) when none was chosen.
+          try {
+            item.ledgerAccountId = await careOfReceivableAccountId(prisma);
+          } catch (err: any) {
+            return NextResponse.json({ error: err.message }, { status: 400 });
+          }
         }
         const account = await prisma.account.findUnique({ where: { id: clean(item.ledgerAccountId) } });
         if (!account || !account.isActive || account.level < 4 || account.type !== "asset") {

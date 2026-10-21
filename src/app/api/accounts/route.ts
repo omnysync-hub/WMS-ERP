@@ -1544,7 +1544,7 @@ export async function POST(req: NextRequest) {
           actorName: accountantName,
           actorRole: "accountant",
           category: "DATA_MUTATION",
-          action: `Approved item discount of $${discountAmount} on Job #${updatedJob?.jobNumber}`,
+          action: `Approved item discount of PKR ${discountAmount} on Job #${updatedJob?.jobNumber}`,
           target: `Job:${jobId}:Item:${itemId}`,
           metadata: { discountAmount, approvedBy: accountantName },
         });
@@ -1632,7 +1632,7 @@ export async function POST(req: NextRequest) {
           actorName,
           actorRole: "accountant",
           category: "DATA_MUTATION",
-          action: `Recorded expense of $${numAmount} for ${payeeName} [${expenseAcc.name}]`,
+          action: `Recorded expense of PKR ${numAmount} for ${payeeName} [${expenseAcc.name}]`,
           target: `JournalEntry:${journal.id}`,
           metadata: { amount: numAmount, debitAccount: expenseAcc.code, creditAccount: disbursingAcc.code },
         });
@@ -1692,7 +1692,7 @@ export async function POST(req: NextRequest) {
           if (numAmount > pendingBalance + 0.01) {
             return NextResponse.json(
               {
-                error: `Payment amount ($${numAmount}) exceeds pending balance ($${pendingBalance}) of Invoice ${targetInvoice.invoiceNumber}. Overpayment is rejected.`,
+                error: `Payment amount (PKR ${numAmount}) exceeds pending balance (PKR ${pendingBalance}) of Invoice ${targetInvoice.invoiceNumber}. Overpayment is rejected.`,
               },
               { status: 400 }
             );
@@ -1763,7 +1763,7 @@ export async function POST(req: NextRequest) {
           actorName,
           actorRole: "accountant",
           category: "DATA_MUTATION",
-          action: `Recorded customer payment receipt of $${numAmount} via ${paymentMethod}`,
+          action: `Recorded customer payment receipt of PKR ${numAmount} via ${paymentMethod}`,
           target: customerId ? `Customer:${customerId}` : "CustomerPayment",
           metadata: { amount: numAmount, invoiceId, paymentMethod },
         });
@@ -1869,7 +1869,7 @@ export async function POST(req: NextRequest) {
           actorName,
           actorRole: "accountant",
           category: "DATA_MUTATION",
-          action: `Recorded ${job.isFoc ? "FOC " : ""}job payment of $${numAmount} on Job #${job.jobNumber} via ${paymentMethod}`,
+          action: `Recorded ${job.isFoc ? "FOC " : ""}job payment of PKR ${numAmount} on Job #${job.jobNumber} via ${paymentMethod}`,
           target: `Job:${job.id}`,
           metadata: { jobId: job.id, jobNumber: job.jobNumber, amount: numAmount, paymentMethod, isFoc: job.isFoc },
         });
@@ -1923,7 +1923,7 @@ export async function POST(req: NextRequest) {
           actorName,
           actorRole: "accountant",
           category: "DATA_MUTATION",
-          action: `Issued cash advance of $${numAmount} to technician`,
+          action: `Issued cash advance of PKR ${numAmount} to technician`,
           target: `Technician:${technicianId}`,
           metadata: { amount: numAmount, entryId: entry.id },
         });
@@ -2015,14 +2015,26 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "At least two lines required for double-entry" }, { status: 400 });
         }
 
-        const controlMsg = await controlAccountMessage(lines.map((l: any) => String(l.accountId)));
+        // Accept an account id or code per line; reject unknown accounts and one-sided lines with a clear message.
+        const resolvedLines: any[] = [];
+        for (const [i, l] of (lines as any[]).entries()) {
+          const ref = String(l?.accountId || l?.accountCode || "").trim();
+          const acc = ref ? await prisma.account.findFirst({ where: { OR: [{ id: ref }, { code: ref }] } }) : null;
+          if (!acc) return NextResponse.json({ error: `Line ${i + 1}: choose a valid account.` }, { status: 400 });
+          if (!acc.isActive || acc.level < 4) return NextResponse.json({ error: `Line ${i + 1}: account ${acc.code} is inactive or a group account.` }, { status: 400 });
+          const dr = Number(l.debit) || 0, cr = Number(l.credit) || 0;
+          if (dr < 0 || cr < 0 || (dr > 0) === (cr > 0)) return NextResponse.json({ error: `Line ${i + 1}: enter either a debit or a credit (not both, not zero).` }, { status: 400 });
+          resolvedLines.push({ ...l, accountId: acc.id });
+        }
+
+        const controlMsg = await controlAccountMessage(resolvedLines.map((l: any) => String(l.accountId)));
         if (controlMsg) return NextResponse.json({ error: controlMsg }, { status: 400 });
 
         const journal = await AccountsPostingService.post({
           memo: memo || "Manual General Journal Adjustment",
           postedBy: actorName,
           refType: "manual_journal",
-          lines: lines.map((l: any) => ({
+          lines: resolvedLines.map((l: any) => ({
             accountId: l.accountId,
             debit: Number(l.debit) || 0,
             credit: Number(l.credit) || 0,
@@ -2687,6 +2699,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    // Business-rule refusals (locked period, already reversed, control-account rules…) are the
+    // user's to fix: answer 400 with the message. Anything else is a real server error.
+    const msg = String(err?.message || "Request failed.");
+    if (/^(Posting|Reversal) rejected|rejected:|not found|must |cannot |Cannot |Insufficient|already/i.test(msg) && !/prisma|invocation/i.test(msg)) {
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    console.error("POST /api/accounts failed:", err);
+    return NextResponse.json({ error: /prisma|invocation/i.test(msg) ? "The accounting action could not be completed. Check the entries and try again." : msg }, { status: 500 });
   }
 }

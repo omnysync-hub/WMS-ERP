@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission, requireOfficePermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
+import { createCareOfParty } from "@/lib/careOfLedger";
 
 export async function GET(request: NextRequest) {
   const gate = await requireOfficePermission(request, "jobs.view_directory");
@@ -84,12 +85,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ careOfParty: updated, isExisting: true });
     }
 
-    const careOfParty = await prisma.careOfParty.create({
-      data: {
-        companyName: companyName.trim(),
-        personName: personName?.trim() || "",
-        phone: phone?.trim() || null,
-      },
+    const careOfParty = await createCareOfParty(prisma, {
+      companyName: companyName.trim(),
+      personName: personName?.trim() || "",
+      phone: phone?.trim() || null,
     });
 
     return NextResponse.json({ careOfParty, isExisting: false }, { status: 201 });

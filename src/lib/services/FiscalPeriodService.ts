@@ -7,6 +7,13 @@ export class FiscalPeriodService {
    * Seed 12 monthly fiscal periods for a given fiscal year.
    * startMonth: 1 = January, 7 = July (standard in Pakistan).
    */
+  /** Fiscal year label (the year it ends in) that contains `date`, e.g. Oct 2026 with a July start → FY2027. */
+  static fiscalYearFor(date: Date = new Date(), startMonth: number = 7) {
+    const y = date.getUTCFullYear();
+    if (!startMonth || startMonth === 1) return y;
+    return date.getUTCMonth() + 1 >= startMonth ? y + 1 : y;
+  }
+
   static async seedFiscalYear(fiscalYear: number, startMonth: number = 7) {
     const monthNames = [
       "January", "February", "March", "April", "May", "June",

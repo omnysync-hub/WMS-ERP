@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ERP_SESSION_COOKIE, authenticateErpRequest, clearErpSessionCookie } from "@/lib/auth/webAuth";
+import { ERP_SESSION_COOKIE, authenticateErpRequest, clearErpSessionCookie, setErpSessionCookie } from "@/lib/auth/webAuth";
 import { stampActorHeaders, stripActorHeaders } from "@/lib/auth/actorHeaders";
 import { signedOverridesFor } from "@/lib/auth/roleStore";
 import { actorHasPermission } from "@/lib/auth/erpActor";
@@ -54,8 +54,20 @@ export async function middleware(request: NextRequest) {
   let auth = null;
   try {
     auth = await authenticateErpRequest(request);
-  } catch {
-    auth = null;
+  } catch (err) {
+    // The session could not be CHECKED (database restarting, deploy in progress…). That is not
+    // "signed out": never clear the cookie or redirect to /login; ask the client to retry.
+    console.error("[middleware] session check unavailable:", (err as Error)?.message);
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "The server is busy for a moment. Please retry.", code: "SESSION_CHECK_UNAVAILABLE" },
+        { status: 503, headers: { "Retry-After": "3", "Cache-Control": "no-store" } }
+      );
+    }
+    return new NextResponse(
+      '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="4"><title>Workman ERP</title><body style="font-family:system-ui;text-align:center;padding-top:15vh;color:#3f3f46"><h2>Updating…</h2><p>The ERP is restarting for a moment. This page will reload by itself.</p></body>',
+      { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Retry-After": "4", "Cache-Control": "no-store" } }
+    );
   }
 
   if (!auth) {
@@ -152,7 +164,9 @@ export async function middleware(request: NextRequest) {
     }
     return new NextResponse(message, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
-  return NextResponse.next({ request: { headers } });
+  const response = NextResponse.next({ request: { headers } });
+  if (auth.renewedToken) setErpSessionCookie(response, auth.renewedToken, request);
+  return response;
 }
 
 export const config = {

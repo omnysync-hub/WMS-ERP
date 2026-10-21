@@ -549,6 +549,21 @@ export default function EmployeeProfilePage() {
             </div>
             <div>
               <span className="text-[10px] uppercase font-bold text-[#71717A] block tracking-wider">
+                ERP Login (User Accounts)
+              </span>
+              {employee.erpUser ? (
+                <span className="font-semibold text-xs text-[#18181B]">
+                  @{employee.erpUser.username} • {String(employee.erpUser.role).replace(/_/g, " ")} •{" "}
+                  <span className={employee.erpUser.status === "active" ? "text-[#0D7A5F]" : "text-red-700"}>
+                    {employee.erpUser.status === "active" ? "Active" : "Deactivated"}
+                  </span>
+                </span>
+              ) : (
+                <span className="font-semibold text-xs text-[#71717A]">No ERP login (field/mobile only)</span>
+              )}
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-[#71717A] block tracking-wider">
                 Biometric Enrolled
               </span>
               <span className={`font-semibold text-xs ${employee.faceEnrolled ? "text-[#0D7A5F]" : "text-amber-700"}`}>

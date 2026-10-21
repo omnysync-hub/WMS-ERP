@@ -4,12 +4,26 @@ import { prisma } from "@/lib/prisma";
 import { publicErpUser, validateErpPassword } from "@/lib/auth/webAuth";
 import { effectiveMapForUser, isAssignableWebRole, keysBeyondActor, sanitizePermissionMap } from "@/lib/auth/roleStore";
 import { logAdminChange, requireUserAdmin } from "@/lib/auth/userAdminGate";
+import { HrmService } from "@/lib/services/HrmService";
+import { LINKED_EMPLOYEE_SELECT, linkOrCreateEmployeeForUser } from "@/lib/hr/userEmployeeLink";
+
+type LinkedEmployee = { id: string; name: string; designation: string | null; department: string; status: string; active: boolean; reportingManager: { id: string; name: string; designation: string | null } | null } | null;
+const withEmployee = (user: Parameters<typeof publicErpUser>[0] & { employee?: LinkedEmployee }) => ({
+  ...publicErpUser(user),
+  linkedEmployee: user.employee
+    ? { id: user.employee.id, name: user.employee.name, designation: user.employee.designation, department: user.employee.department, status: user.employee.status, active: user.employee.active }
+    : null,
+  reportingManager: user.employee?.reportingManager || null,
+});
 
 export async function GET(request: NextRequest) {
   const gate = await requireUserAdmin(request, ["settings.manage_users", "settings.manage_roles"]);
   if (gate.error) return gate.error;
-  const users = await prisma.erpUser.findMany({ orderBy: [{ status: "asc" }, { name: "asc" }] });
-  return NextResponse.json({ users: users.map(publicErpUser) }, { headers: { "Cache-Control": "no-store" } });
+  const users = await prisma.erpUser.findMany({
+    orderBy: [{ status: "asc" }, { name: "asc" }],
+    include: { employee: { select: LINKED_EMPLOYEE_SELECT } },
+  });
+  return NextResponse.json({ users: users.map(withEmployee) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: NextRequest) {
@@ -22,6 +36,8 @@ export async function POST(request: NextRequest) {
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
   const role = String(body.role || "").trim().toLowerCase();
+  const phone = String(body.phone || "").trim().slice(0, 30);
+  if (phone && !/^[+\d][\d\s-]{6,29}$/.test(phone)) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
   const permissionOverrides = sanitizePermissionMap(body.permissionOverrides);
   const passwordError = validateErpPassword(password);
   if (name.length > 0 && (name.length < 2 || name.length > 100)) return NextResponse.json({ error: "Full name must be between 2 and 100 characters if provided." }, { status: 400 });
@@ -45,12 +61,16 @@ export async function POST(request: NextRequest) {
   });
   if (duplicate) return NextResponse.json({ error: "That username or email is already in use." }, { status: 409 });
 
-  const user = await prisma.erpUser.create({
+  // Create the login and its HR employee together, so neither exists without the other.
+  const passwordHash = await bcrypt.hash(password, 12);
+  const { user, link } = await prisma.$transaction(async (tx) => {
+  const user = await tx.erpUser.create({
     data: {
       name,
+      phone,
       username,
       email,
-      passwordHash: await bcrypt.hash(password, 12),
+      passwordHash,
       role,
       designation: String(body.designation || "").trim().slice(0, 100),
       department: String(body.department || "").trim().slice(0, 100),
@@ -61,6 +81,11 @@ export async function POST(request: NextRequest) {
       mustChangePassword: body.mustChangePassword !== false,
     },
   });
-  await logAdminChange(ctx, `Created user @${user.username} with role '${role}'`, `ErpUser:${user.id}`);
-  return NextResponse.json({ user: publicErpUser(user) }, { status: 201 });
+  const link = await linkOrCreateEmployeeForUser(tx, user);
+  return { user, link };
+  });
+  if (link.action === "created") await HrmService.initEmployeeLeaveBalances(link.employee.id).catch(() => null);
+  await logAdminChange(ctx, `Created user @${user.username} with role '${role}' (HR employee ${link.action === "created" ? "created" : "linked"}: ${link.employee.name})`, `ErpUser:${user.id}`);
+  const full = await prisma.erpUser.findUniqueOrThrow({ where: { id: user.id }, include: { employee: { select: LINKED_EMPLOYEE_SELECT } } });
+  return NextResponse.json({ user: withEmployee(full), employeeLink: link.action }, { status: 201 });
 }

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { publicErpUser, validateErpPassword } from "@/lib/auth/webAuth";
 import { effectiveMapForUser, isAssignableWebRole, keysBeyondActor, sanitizePermissionMap } from "@/lib/auth/roleStore";
 import { logAdminChange, requireUserAdmin } from "@/lib/auth/userAdminGate";
+import { LINKED_EMPLOYEE_SELECT, syncEmployeeFromUser } from "@/lib/hr/userEmployeeLink";
 
 async function activeAdminCount() {
   return prisma.erpUser.count({ where: { role: "admin", status: "active" } });
@@ -65,6 +66,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     }
     data.status = body.status;
   }
+  if (body.phone !== undefined) {
+    const phone = String(body.phone || "").trim().slice(0, 30);
+    if (phone && !/^[+\d][\d\s-]{6,29}$/.test(phone)) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+    data.phone = phone;
+  }
   if (body.designation !== undefined) data.designation = String(body.designation).trim().slice(0, 100);
   if (body.department !== undefined) data.department = String(body.department).trim().slice(0, 100);
   if (body.badgeColor !== undefined) data.badgeColor = String(body.badgeColor).slice(0, 80);
@@ -103,6 +109,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   try {
     const user = await prisma.$transaction(async (tx) => {
       const updated = await tx.erpUser.update({ where: { id }, data });
+      // Keep the linked HR employee in step (identity + active status only; never passwords).
+      await syncEmployeeFromUser(tx, id, {
+        name: data.name as string | undefined,
+        email: data.email as string | undefined,
+        phone: data.phone as string | undefined,
+        status: data.status as string | undefined,
+      });
       // Sign the user out everywhere when their access changes materially.
       if (passwordReset || data.status === "suspended" || data.role !== undefined) {
         await tx.erpSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
@@ -115,7 +128,14 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       permissionOverrides: data.permissionOverrides !== undefined ? nextOverrides : undefined,
       passwordReset,
     });
-    return NextResponse.json({ user: publicErpUser(user) });
+    const full = await prisma.erpUser.findUniqueOrThrow({ where: { id: user.id }, include: { employee: { select: LINKED_EMPLOYEE_SELECT } } });
+    return NextResponse.json({
+      user: {
+        ...publicErpUser(full),
+        linkedEmployee: full.employee ? { id: full.employee.id, name: full.employee.name, designation: full.employee.designation, department: full.employee.department, status: full.employee.status, active: full.employee.active } : null,
+        reportingManager: full.employee?.reportingManager || null,
+      },
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: "That username or email is already in use." }, { status: 409 });
@@ -133,7 +153,11 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
   if (user.role === "admin") return NextResponse.json({ error: "Administrator accounts must be deactivated, not deleted." }, { status: 409 });
   if (ctx.auth.user.id === id) return NextResponse.json({ error: "You cannot delete your own account." }, { status: 409 });
-  await prisma.erpUser.delete({ where: { id } });
-  await logAdminChange(ctx, `Deleted user @${user.username} (role '${user.role}')`, `ErpUser:${id}`);
+  // HR records are never hard-deleted: deactivate the linked employee; the FK is cleared by ON DELETE SET NULL.
+  await prisma.$transaction(async (tx) => {
+    await syncEmployeeFromUser(tx, id, { status: "suspended" });
+    await tx.erpUser.delete({ where: { id } });
+  });
+  await logAdminChange(ctx, `Deleted user @${user.username} (role '${user.role}'); linked HR employee kept and deactivated`, `ErpUser:${id}`);
   return NextResponse.json({ ok: true });
 }

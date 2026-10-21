@@ -4,6 +4,7 @@ import { requireJobsPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
 import { AuditService } from "@/lib/services/AuditService";
+import { createCareOfParty } from "@/lib/careOfLedger";
 
 export async function GET(req: NextRequest) {
   try {
@@ -160,11 +161,9 @@ export async function POST(req: NextRequest) {
         },
       });
       if (!existingParty) {
-        existingParty = await prisma.careOfParty.create({
-          data: {
-            companyName: careOfCompanyName.trim(),
-            personName: careOfPersonName?.trim() || "",
-          },
+        existingParty = await createCareOfParty(prisma, {
+          companyName: careOfCompanyName.trim(),
+          personName: careOfPersonName?.trim() || "",
         });
       }
       effectiveCareOfId = existingParty.id;

@@ -9,12 +9,21 @@ import {
 } from "@/lib/auth/erpRoles";
 
 export const ERP_SESSION_COOKIE = "workman_erp_session";
-export const ERP_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+/**
+ * Sliding session: a session stays valid while it is used at least once every 30 days.
+ * Each authenticated request (at most hourly) pushes the expiry forward and the middleware
+ * re-issues the cookie, so active users are never signed out.
+ */
+export const ERP_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const ERP_SESSION_RENEW_AFTER_MS = 60 * 60 * 1000;
+/** Concurrent browser sessions kept per account (shared logins, phone + PC). Oldest beyond this are revoked. */
+const ERP_MAX_SESSIONS_PER_USER = 20;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 
 export type AuthenticatedErpUser = {
   id: string;
+  phone?: string;
   name: string;
   email: string;
   username: string;
@@ -105,6 +114,7 @@ export function publicErpUser(user: {
   createdAt: Date;
   lastLoginAt: Date | null;
   isDemo: boolean;
+  phone?: string | null;
 }): AuthenticatedErpUser {
   const overrides =
     user.permissionOverrides && typeof user.permissionOverrides === "object" && !Array.isArray(user.permissionOverrides)
@@ -126,6 +136,7 @@ export function publicErpUser(user: {
     createdAt: user.createdAt.toISOString(),
     lastLoginAt: user.lastLoginAt?.toISOString() || null,
     isDemo: user.isDemo,
+    phone: user.phone || "",
   };
 }
 
@@ -136,10 +147,18 @@ export async function createErpSession(
   const token = randomBytes(48).toString("base64url");
   const expiresAt = new Date(Date.now() + ERP_SESSION_MAX_AGE_SECONDS * 1000);
 
-  // One active browser session per account. A new login safely signs out the older device.
+  // Several devices may stay signed in at once (a new login no longer signs out the others,
+  // which logged people out whenever a shared account was used elsewhere). Only expired
+  // sessions and the oldest beyond ERP_MAX_SESSIONS_PER_USER are revoked.
+  const keep = await prisma.erpSession.findMany({
+    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+    take: ERP_MAX_SESSIONS_PER_USER - 1,
+    select: { id: true },
+  });
   await prisma.$transaction([
     prisma.erpSession.updateMany({
-      where: { userId, revokedAt: null },
+      where: { userId, revokedAt: null, id: { notIn: keep.map((s) => s.id) } },
       data: { revokedAt: new Date() },
     }),
     prisma.erpSession.create({
@@ -212,7 +231,15 @@ export async function authenticateErpRequest(request: NextRequest) {
   ) {
     return null;
   }
-  return { session, user: publicErpUser(session.user) };
+  // Sliding renewal (throttled): extend the expiry and tell the middleware to refresh the cookie.
+  let renewedToken: string | null = null;
+  const renewBefore = Date.now() + ERP_SESSION_MAX_AGE_SECONDS * 1000 - ERP_SESSION_RENEW_AFTER_MS;
+  if (session.expiresAt.getTime() < renewBefore) {
+    const expiresAt = new Date(Date.now() + ERP_SESSION_MAX_AGE_SECONDS * 1000);
+    await prisma.erpSession.update({ where: { id: session.id }, data: { expiresAt } }).catch(() => null);
+    renewedToken = token;
+  }
+  return { session, user: publicErpUser(session.user), renewedToken };
 }
 
 export async function revokeCurrentErpSession(request: NextRequest) {
