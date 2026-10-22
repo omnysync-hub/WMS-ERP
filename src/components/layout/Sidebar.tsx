@@ -310,7 +310,6 @@ export default function Sidebar({
     { label: "Attendance & Face", tab: "attendance", icon: Camera },
     { label: "Payroll Runs", tab: "payroll", icon: CreditCard },
     { label: "Advances", tab: "advances", icon: TrendingDown },
-    { label: "Self-Service (ESS)", tab: "ess", icon: Sparkles },
   ];
 
   const hasHrmAccess =

@@ -69,7 +69,6 @@ function HrmPayrollContent() {
     | "attendance"
     | "payroll"
     | "advances"
-    | "ess"
   >(() => {
     if (
       tabParam &&
@@ -83,7 +82,6 @@ function HrmPayrollContent() {
         "attendance",
         "payroll",
         "advances",
-        "ess",
       ].includes(tabParam)
     ) {
       return tabParam as any;
@@ -104,7 +102,6 @@ function HrmPayrollContent() {
         "attendance",
         "payroll",
         "advances",
-        "ess",
       ].includes(tabParam)
     ) {
       setActiveTab(tabParam as any);
@@ -154,10 +151,6 @@ function HrmPayrollContent() {
   const [grievances, setGrievances] = useState<any[]>([]);
   const [showRaiseGrievanceDrawer, setShowRaiseGrievanceDrawer] = useState(false);
 
-  // Tab: ESS (uses the selected live employee record)
-  const [essEmployeeId, setEssEmployeeId] = useState("");
-  const [essEmployee, setEssEmployee] = useState<any>(null);
-
   // Existing Attendance States
   const [attendanceViewMode, setAttendanceViewMode] = useState<"sheet" | "sites" | "logs">("sheet");
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
@@ -167,13 +160,6 @@ function HrmPayrollContent() {
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [isResolving, setIsResolving] = useState(false);
   const [zones, setZones] = useState<any[]>([]);
-  const [selectedEmpId, setSelectedEmpId] = useState("");
-  const [selectedZoneId, setSelectedZoneId] = useState("");
-  const [faceScore, setFaceScore] = useState(96.5);
-  const [checkInLat, setCheckInLat] = useState<number | "">("");
-  const [checkInLng, setCheckInLng] = useState<number | "">("");
-  const [isSubmittingAttendance, setIsSubmittingAttendance] = useState(false);
-  const [attendanceResult, setAttendanceResult] = useState<any>(null);
 
   // Existing Payroll States
   const [payrollRuns, setPayrollRuns] = useState<any[]>([]);
@@ -232,15 +218,9 @@ function HrmPayrollContent() {
         if (data.flaggedCount !== undefined) setFlaggedCount(data.flaggedCount);
         if (data.employees) {
           setEmployees(data.employees);
-          if (!selectedEmpId && data.employees.length > 0) {
-            setSelectedEmpId(data.employees[0].id);
-          }
         }
         if (data.zones) {
           setZones(data.zones);
-          if (!selectedZoneId && data.zones.length > 0) {
-            setSelectedZoneId(data.zones[0].id);
-          }
         }
       } else if (activeTab === "payroll") {
         const res = await fetch("/api/hrm/payroll");
@@ -252,17 +232,6 @@ function HrmPayrollContent() {
         const data = await res.json();
         if (data.advances) setAdvances(data.advances);
         if (data.employees) setEmployees(data.employees);
-      } else if (activeTab === "ess") {
-        const empRes = await fetch("/api/hrm/employees");
-        const empData = await empRes.json();
-        if (empData.employees && empData.employees.length > 0) {
-          setEmployees(empData.employees);
-          const targetId = essEmployeeId || empData.employees[0].id;
-          if (!essEmployeeId) setEssEmployeeId(targetId);
-          const singleRes = await fetch(`/api/hrm/employees/${targetId}`);
-          const singleData = await singleRes.json();
-          setEssEmployee(singleData.employee);
-        }
       }
     } catch (e) {
       console.error("HRM data fetch failed", e);
@@ -271,7 +240,7 @@ function HrmPayrollContent() {
 
   useEffect(() => {
     loadData();
-  }, [activeTab, employeeSubTab, leaveSubTab, assetSubTab, atsView, grievanceSubTab, essEmployeeId, attendanceSubTab]);
+  }, [activeTab, employeeSubTab, leaveSubTab, assetSubTab, atsView, grievanceSubTab, attendanceSubTab]);
 
   // Leave approval / rejection
   const handleApproveLeave = async (requestId: string) => {
@@ -377,38 +346,6 @@ function HrmPayrollContent() {
       }
     } catch (e: any) {
       alert(e.message || "Failed to update candidate stage");
-    }
-  };
-
-  // Handle Attendance Verification Check-in
-  const handleCheckIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (checkInLat === "" || checkInLng === "") {
-      alert("Enter the attendance latitude and longitude or select a configured work site.");
-      return;
-    }
-    try {
-      setIsSubmittingAttendance(true);
-      const res = await fetch("/api/attendance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          employeeId: selectedEmpId,
-          geofenceZoneId: selectedZoneId || undefined,
-          faceMatchScore: Number(faceScore),
-          lat: Number(checkInLat),
-          lng: Number(checkInLng),
-          timestamp: new Date().toISOString(),
-          deviceId: navigator.userAgent,
-        }),
-      });
-      const data = await res.json();
-      setAttendanceResult(data);
-      loadData();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsSubmittingAttendance(false);
     }
   };
 
@@ -604,11 +541,6 @@ function HrmPayrollContent() {
       label: "Advances",
       title: "Staff Salary Advance Ledger",
       subtitle: "Record and manage employee advance disbursements and automated payroll recovery",
-    },
-    ess: {
-      label: "Self-Service (ESS)",
-      title: "Employee Self-Service Portal",
-      subtitle: "Self-service payslip access, leave balance inquiries, and grievance helpdesk",
     },
   };
 
@@ -2139,7 +2071,7 @@ function HrmPayrollContent() {
               }`}
             >
               <Clock className="w-3.5 h-3.5" />
-              Raw Audit Logs & Simulator
+              Raw Audit Logs
             </button>
           </div>
 
@@ -2155,120 +2087,8 @@ function HrmPayrollContent() {
           )}
 
           {attendanceViewMode === "logs" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Biometric Verification Simulation Form */}
-            <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-4">
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
-                <Camera className="w-4 h-4 text-[#0D7A5F]" />
-                Dual-Gate Attendance Simulator
-              </h3>
-              <form onSubmit={handleCheckIn} className="space-y-3 text-xs">
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">Employee</label>
-                  <select
-                    value={selectedEmpId}
-                    onChange={(e) => setSelectedEmpId(e.target.value)}
-                    className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                  >
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.name} ({e.role})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">Target Geofence Zone</label>
-                  <select
-                    value={selectedZoneId}
-                    onChange={(e) => setSelectedZoneId(e.target.value)}
-                    className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                  >
-                    <option value="">Auto-Detect Nearest Active Zone</option>
-                    {zones.map((z) => (
-                      <option key={z.id} value={z.id}>
-                        {z.name} (Radius: {z.radiusMeters}m)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-semibold text-[#18181B] block mb-1">Facial Match Score (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={faceScore}
-                    onChange={(e) => setFaceScore(Number(e.target.value))}
-                    className="w-full h-9 px-3 font-mono font-bold bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="font-semibold text-[#18181B] block mb-1">Check-in Lat</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={checkInLat}
-                      onChange={(e) => setCheckInLat(e.target.value === "" ? "" : Number(e.target.value))}
-                      placeholder="Enter latitude"
-                      className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold text-[#18181B] block mb-1">Check-in Lng</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={checkInLng}
-                      onChange={(e) => setCheckInLng(e.target.value === "" ? "" : Number(e.target.value))}
-                      placeholder="Enter longitude"
-                      className="w-full h-9 px-3 font-mono text-xs bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isSubmittingAttendance}
-                  className="w-full py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white font-bold rounded-lg transition"
-                >
-                  {isSubmittingAttendance ? "Verifying with Geofence..." : "Verify & Punch Attendance"}
-                </button>
-              </form>
-
-              {attendanceResult && (
-                <div
-                  className={`p-3 rounded-lg text-xs font-semibold space-y-1 ${
-                    attendanceResult.status === "accepted"
-                      ? "bg-emerald-50 text-emerald-900 border border-emerald-200"
-                      : attendanceResult.status === "accepted-but-flagged"
-                      ? "bg-amber-50 text-amber-900 border border-amber-200"
-                      : "bg-rose-50 text-rose-900 border border-rose-200"
-                  }`}
-                >
-                  <div className="font-bold uppercase tracking-wider">
-                    Status: {attendanceResult.status || attendanceResult.result}
-                  </div>
-                  <div>{attendanceResult.message}</div>
-                  {attendanceResult.flagReason && (
-                    <div className="text-[11px] text-amber-800 font-normal">
-                      <strong>Flag Reason:</strong> {attendanceResult.flagReason}
-                    </div>
-                  )}
-                  {attendanceResult.distanceMeters !== undefined && (
-                    <div className="text-[11px] text-[#71717A] font-mono">
-                      Distance: {attendanceResult.distanceMeters}m | Within Zone: {attendanceResult.withinGeofence ? "Yes" : "No"}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Attendance Audit Log Table & Flagged Review Console */}
-            <div className="md:col-span-2 bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden flex flex-col">
+            /* Attendance Audit Log Table & Flagged Review Console */
+            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden flex flex-col w-full">
               <div className="p-4 border-b border-[#E4E4E7] flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <button
@@ -2437,7 +2257,6 @@ function HrmPayrollContent() {
                 </table>
               </div>
             </div>
-          </div>
           )}
 
           {/* Resolve Flagged Attendance Modal */}
@@ -2572,14 +2391,6 @@ function HrmPayrollContent() {
                   Click on any cycle or &ldquo;View Breakdown&rdquo; to inspect individual employee compensation, attendance records, and payslips.
                 </p>
               </div>
-
-              <button
-                onClick={() => setShowCreatePayrollDrawer(true)}
-                className="px-3.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Generate Monthly Draft
-              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -2740,17 +2551,6 @@ function HrmPayrollContent() {
                   Staff advances are automatically debited to Account 1120 (Employee Advances Receivable) and recovered in monthly payroll runs.
                 </p>
               </div>
-
-              <button
-                onClick={() => {
-                  if (employees.length > 0 && !advanceEmpId) setAdvanceEmpId(employees[0].id);
-                  setShowAdvanceModal(true);
-                }}
-                className="px-3.5 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Issue Staff Advance
-              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -2818,146 +2618,6 @@ function HrmPayrollContent() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 10: EMPLOYEE SELF-SERVICE (ESS) PORTAL                                */}
-      {/* ========================================================================= */}
-      {activeTab === "ess" && (
-        <div className="space-y-6">
-          {/* Employee Switcher */}
-          <div className="bg-white p-4 rounded-xl border border-[#E4E4E7] flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-[#18181B]">Simulating Logged-in Staff:</span>
-              <select
-                value={essEmployeeId}
-                onChange={(e) => setEssEmployeeId(e.target.value)}
-                className="h-8 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-xs font-semibold"
-              >
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name} ({e.designation || e.role})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <span className="text-xs text-[#0D7A5F] font-bold">Personal Self-Service View</span>
-          </div>
-
-          {essEmployee && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Profile & Leave Balances */}
-              <div className="space-y-6">
-                <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-[#0D7A5F] text-white flex items-center justify-center font-bold text-base">
-                      {essEmployee.name[0]}
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-bold text-[#18181B]">{essEmployee.name}</h2>
-                      <p className="text-xs text-[#71717A]">{essEmployee.designation || essEmployee.role}</p>
-                      <StatusBadge status={essEmployee.status} />
-                    </div>
-                  </div>
-                  <div className="pt-2 border-t border-[#E4E4E7] text-xs space-y-1">
-                    <p><span className="text-[#71717A]">Phone:</span> {essEmployee.phone}</p>
-                    <p><span className="text-[#71717A]">Email:</span> {essEmployee.email || "N/A"}</p>
-                    <p><span className="text-[#71717A]">Reporting Manager:</span> {essEmployee.reportingManager?.name || "Direct"}</p>
-                  </div>
-                </div>
-
-                {/* My Leave Balances */}
-                <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                    <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                      My Leave Balances
-                    </h3>
-                    <button
-                      onClick={() => setShowLeaveDrawer(true)}
-                      className="text-xs text-[#0D7A5F] font-bold hover:underline"
-                    >
-                      + Request
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {essEmployee.leaveBalances?.map((lb: any) => (
-                      <div key={lb.id} className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-center text-xs">
-                        <span className="text-[10px] text-[#71717A] block">{lb.leaveType?.name}</span>
-                        <span className="text-base font-bold font-mono text-[#0D7A5F]">{lb.balance}</span>
-                        <span className="text-[9px] text-[#71717A] block">days left</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* My Assigned Assets & Payslips */}
-              <div className="md:col-span-2 space-y-6">
-                {/* My Assigned Assets */}
-                <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    My Assigned Company Assets & Tools ({essEmployee.assetAssignments?.length || 0})
-                  </h3>
-                  {essEmployee.assetAssignments && essEmployee.assetAssignments.length > 0 ? (
-                    <div className="space-y-2">
-                      {essEmployee.assetAssignments.map((a: any) => (
-                        <div key={a.id} className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-mono font-bold text-[#18181B]">{a.asset?.tag}</span>
-                            <p className="font-semibold text-[#18181B]">{a.asset?.name}</p>
-                            <p className="text-[11px] text-[#71717A]">{a.conditionNotes}</p>
-                          </div>
-                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            In My Care
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-[#71717A]">No company assets assigned.</p>
-                  )}
-                </div>
-
-                {/* My Payslips */}
-                <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-3">
-                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    My Recent Payslips ({essEmployee.payslips?.length || 0})
-                  </h3>
-                  {essEmployee.payslips && essEmployee.payslips.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-[#F4F4F5] text-[#71717A]">
-                          <tr>
-                            <th className="p-2.5">Period</th>
-                            <th className="p-2.5">Gross</th>
-                            <th className="p-2.5">Net Disbursed</th>
-                            <th className="p-2.5">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#E4E4E7]">
-                          {essEmployee.payslips.map((ps: any) => (
-                            <tr key={ps.id}>
-                              <td className="p-2.5 font-bold">{ps.payrollRun?.period}</td>
-                              <td className="p-2.5 font-mono">{formatCurrency(ps.grossSalary)}</td>
-                              <td className="p-2.5 font-mono font-bold text-emerald-700">{formatCurrency(ps.netSalary)}</td>
-                              <td className="p-2.5">
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                  {ps.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-[#71717A]">No payslips generated yet.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* DRAWERS & MODALS */}
       <AddEmployeeDrawer
         isOpen={showAddEmployeeDrawer}
@@ -2979,7 +2639,7 @@ function HrmPayrollContent() {
         onClose={() => setShowLeaveDrawer(false)}
         employees={employees}
         leaveTypes={leaveTypes}
-        defaultEmployeeId={activeTab === "ess" ? essEmployeeId : undefined}
+        defaultEmployeeId={undefined}
         onLeaveRequested={() => {
           setNotification("Leave application submitted.");
           loadData();
