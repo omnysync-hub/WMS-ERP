@@ -18,6 +18,7 @@ import PayslipModal from "@/components/drawers/PayslipModal";
 import IssueAdvanceDrawer from "@/components/drawers/IssueAdvanceDrawer";
 import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
 import CompanyOnboardingTab from "@/components/hrm/CompanyOnboardingTab";
+import DetailedAttendanceSheet from "@/components/hrm/DetailedAttendanceSheet";
 import {
   Users,
   Clock,
@@ -158,6 +159,7 @@ function HrmPayrollContent() {
   const [essEmployee, setEssEmployee] = useState<any>(null);
 
   // Existing Attendance States
+  const [attendanceViewMode, setAttendanceViewMode] = useState<"sheet" | "sites" | "logs">("sheet");
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
   const [attendanceSubTab, setAttendanceSubTab] = useState<"all" | "flagged">("all");
   const [flaggedCount, setFlaggedCount] = useState(0);
@@ -2099,14 +2101,61 @@ function HrmPayrollContent() {
       {/* ========================================================================= */}
       {activeTab === "attendance" && (
         <div className="space-y-6">
-          <GeofenceSitesPanel
-            employees={employees}
-            onZonesChanged={(list) => {
-              setZones(list.filter((z) => z.isActive));
-            }}
-          />
+          {/* Sub-navigation for Attendance */}
+          <div className="flex items-center gap-2 border-b border-zinc-200 pb-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setAttendanceViewMode("sheet")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                attendanceViewMode === "sheet"
+                  ? "bg-[#0D7A5F] text-white shadow-xs"
+                  : "bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              Detailed Attendance Sheet
+            </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <button
+              type="button"
+              onClick={() => setAttendanceViewMode("sites")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                attendanceViewMode === "sites"
+                  ? "bg-[#0D7A5F] text-white shadow-xs"
+                  : "bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              Geofence Sites ({zones.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAttendanceViewMode("logs")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                attendanceViewMode === "logs"
+                  ? "bg-[#0D7A5F] text-white shadow-xs"
+                  : "bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Raw Audit Logs & Simulator
+            </button>
+          </div>
+
+          {attendanceViewMode === "sheet" && <DetailedAttendanceSheet />}
+
+          {attendanceViewMode === "sites" && (
+            <GeofenceSitesPanel
+              employees={employees}
+              onZonesChanged={(list) => {
+                setZones(list.filter((z) => z.isActive));
+              }}
+            />
+          )}
+
+          {attendanceViewMode === "logs" && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Biometric Verification Simulation Form */}
             <div className="bg-white p-5 rounded-xl border border-[#E4E4E7] shadow-xs space-y-4">
               <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-1.5">
@@ -2389,6 +2438,7 @@ function HrmPayrollContent() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Resolve Flagged Attendance Modal */}
           {resolveTargetLog && (

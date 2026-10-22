@@ -14,6 +14,9 @@ export async function GET(req: NextRequest) {
   ]);
   if (gate.error) return gate.error;
   try {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     const technicians = await prisma.employee.findMany({
       where: {
         OR: [
@@ -35,18 +38,40 @@ export async function GET(req: NextRequest) {
           where: { status: { in: ["Assigned", "Accepted", "InProgress", "Paused"] } },
           include: { customer: true },
         },
+        attendanceLogs: {
+          where: { timestamp: { gte: startOfToday } },
+          orderBy: { timestamp: "desc" },
+          take: 10,
+          include: { geofenceZone: true },
+        },
       },
       orderBy: { name: "asc" },
     });
 
-    // Determine current status: "On Job" if has InProgress, "Assigned" if Accepted/Assigned, else "Available"
+    // Determine current status based on today's attendance and active jobs
     const formatted = technicians.map((tech) => {
       const activeJob = tech.jobs.find((j) => j.status === "InProgress") || tech.jobs[0];
-      let currentStatus = "Available";
-      if (activeJob) {
-        if (activeJob.status === "InProgress") currentStatus = "On Job";
-        else if (activeJob.status === "Paused") currentStatus = "Paused";
-        else currentStatus = "Assigned";
+      const todayLogs = tech.attendanceLogs || [];
+      const latestPunch = todayLogs[0] || null;
+      const isCheckedIn = latestPunch
+        ? !latestPunch.notes?.includes("[CHECK_OUT]")
+        : false;
+      const firstCheckIn = [...todayLogs].reverse().find((l) => !l.notes?.includes("[CHECK_OUT]"));
+      const lastCheckOut = todayLogs.find((l) => l.notes?.includes("[CHECK_OUT]"));
+
+      let currentStatus = "Off Duty";
+      if (isCheckedIn) {
+        if (activeJob) {
+          if (activeJob.status === "InProgress") currentStatus = "On Job";
+          else if (activeJob.status === "Paused") currentStatus = "Paused";
+          else currentStatus = "Assigned";
+        } else {
+          currentStatus = "Available & Ready";
+        }
+      } else if (lastCheckOut) {
+        currentStatus = "Checked Out";
+      } else {
+        currentStatus = "Off Duty";
       }
 
       return {
@@ -58,6 +83,10 @@ export async function GET(req: NextRequest) {
         lng: tech.lng || 55.2708,
         lastPingAt: tech.lastPingAt,
         currentStatus,
+        isCheckedIn,
+        checkInTime: firstCheckIn?.timestamp || null,
+        checkOutTime: lastCheckOut?.timestamp || null,
+        attendanceZone: latestPunch?.geofenceZone?.name || null,
         activeJobsCount: tech.jobs.length,
         assignedJobs: tech.jobs.map((j) => ({
           id: j.id,

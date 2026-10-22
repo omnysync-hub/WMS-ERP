@@ -10,6 +10,7 @@ export interface AttendanceSubmissionPayload {
   livenessScore?: number; // anti-spoofing liveness metric (0.0 to 1.0)
   deviceId?: string;
   notes?: string;
+  punchType?: "CHECK_IN" | "CHECK_OUT";
   /** Set only by the authenticated API after verifying the employee's work password. */
   backupVerified?: boolean;
 }
@@ -19,6 +20,7 @@ export interface AttendanceVerificationResult {
   code: string;
   message: string;
   log?: any;
+  punchType?: "CHECK_IN" | "CHECK_OUT";
   withinGeofence?: boolean;
   distanceMeters?: number;
   flaggedForReview?: boolean;
@@ -72,6 +74,7 @@ export class AttendanceService {
       livenessScore,
       deviceId = "unknown_device",
       notes,
+      punchType = "CHECK_IN",
       backupVerified = false,
     } = params;
 
@@ -291,6 +294,14 @@ export class AttendanceService {
     }
 
     const flagReasonStr = flagReasons.length > 0 ? flagReasons.join(" | ") : null;
+    const punchTypePrefix = punchType === "CHECK_OUT" ? "[CHECK_OUT]" : "[CHECK_IN]";
+    let resolvedNotes = notes ? notes.trim() : "";
+    if (!resolvedNotes.startsWith("[CHECK_IN]") && !resolvedNotes.startsWith("[CHECK_OUT]")) {
+      resolvedNotes = resolvedNotes ? `${punchTypePrefix} ${resolvedNotes}` : punchTypePrefix;
+    }
+    if (flagReasonStr) {
+      resolvedNotes += ` [Flag: ${flagReasonStr}]`;
+    }
 
     // 6. Persist AttendanceLog with complete audit attributes
     const log = await prisma.attendanceLog.create({
@@ -306,7 +317,7 @@ export class AttendanceService {
         flaggedForReview,
         flagReason: flagReasonStr,
         result: flaggedForReview ? "flagged" : "pass",
-        notes: notes ? `${notes}${flagReasonStr ? ` [Flag: ${flagReasonStr}]` : ""}` : flagReasonStr || "Verified",
+        notes: resolvedNotes,
         timestamp: clientTimestamp ? new Date(clientTimestamp) : serverReceiptTime,
       },
       include: {
@@ -324,14 +335,18 @@ export class AttendanceService {
       },
     });
 
-    // Update employee's last ping coordinates
+    // Update employee's last ping coordinates and status
+    const employeeUpdateData: any = {
+      lat,
+      lng,
+      lastPingAt: serverReceiptTime,
+    };
+    if (punchType === "CHECK_IN" && employee.status === "On Leave") {
+      employeeUpdateData.status = "Active";
+    }
     await prisma.employee.update({
       where: { id: employeeId },
-      data: {
-        lat,
-        lng,
-        lastPingAt: serverReceiptTime,
-      },
+      data: employeeUpdateData,
     });
 
     // 7. Format structured return payload
@@ -339,8 +354,12 @@ export class AttendanceService {
       return {
         status: "accepted-but-flagged",
         code: "FLAGGED_FOR_REVIEW",
-        message: "Attendance punch logged but flagged for administrative review.",
+        message:
+          punchType === "CHECK_OUT"
+            ? "Clock-out logged but flagged for administrative review."
+            : "Attendance punch logged but flagged for administrative review.",
         log,
+        punchType,
         withinGeofence,
         distanceMeters: Math.round(evaluatedDistance),
         flaggedForReview: true,
@@ -361,8 +380,12 @@ export class AttendanceService {
     return {
       status: "accepted",
       code: "ACCEPTED",
-      message: "Attendance verified and recorded successfully within authorized geofence.",
+      message:
+        punchType === "CHECK_OUT"
+          ? "Checked out successfully. Shift ended."
+          : "Checked in successfully. Marked Available & Ready on ERP.",
       log,
+      punchType,
       withinGeofence: true,
       distanceMeters: Math.round(evaluatedDistance),
       flaggedForReview: false,

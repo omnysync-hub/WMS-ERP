@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
       livenessScore,
       deviceId,
       notes,
+      punchType,
       backupPassword,
     } = body;
 
@@ -227,6 +228,7 @@ export async function POST(req: NextRequest) {
       livenessScore: livenessScore !== undefined && livenessScore !== null ? Number(livenessScore) : undefined,
       deviceId,
       notes,
+      punchType: punchType === "CHECK_OUT" ? "CHECK_OUT" : "CHECK_IN",
       backupVerified,
     });
 
