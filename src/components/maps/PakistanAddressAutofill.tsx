@@ -198,6 +198,14 @@ export default function PakistanAddressAutofill({
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchSeqRef = useRef(0);
+  /** Stop any pending or in-flight search so it cannot reopen the list after a pick. */
+  const cancelPendingSearch = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = null;
+    searchSeqRef.current += 1;
+    setIsLoading(false);
+  };
   const mapboxSessionRef = useRef<MapboxAddressSession | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const useMapbox = mapboxEnabled();
@@ -241,8 +249,12 @@ export default function PakistanAddressAutofill({
 
   // Real-time Pakistan & Lahore Address Autocomplete Search
   const searchAddress = async (query: string) => {
+    // Only the newest search may update the list; a pick or a newer keystroke makes older ones stale.
+    const seq = ++searchSeqRef.current;
+    const isStale = () => seq !== searchSeqRef.current;
     const q = query.trim();
     if (q.length < 2) {
+      if (isStale()) return;
       setSuggestions([]);
       setIsOpenDropdown(false);
       return;
@@ -265,11 +277,14 @@ export default function PakistanAddressAutofill({
     // Mapbox (when a token is configured): 3+ characters, 5 results, Pakistan only.
     if (useMapbox) {
       if (q.length < MIN_QUERY_CHARS) {
+        if (isStale()) return;
         setSuggestions(localMatches);
+        if (isStale()) return;
         setIsOpenDropdown(localMatches.length > 0);
         setActiveIndex(-1);
         return;
       }
+      if (isStale()) return;
       setIsLoading(true);
       try {
         const remote = await getMapboxSession().suggest(q);
@@ -283,9 +298,12 @@ export default function PakistanAddressAutofill({
           mapboxId: s.mapboxId,
         }));
         const combined = [...mapped, ...localMatches].slice(0, 8);
+        if (isStale()) return;
         setSuggestions(combined);
+        if (isStale()) return;
         setIsOpenDropdown(combined.length > 0);
         setActiveIndex(-1);
+        if (isStale()) return;
         setIsLoading(false);
         return;
       } catch (err: any) {
@@ -295,6 +313,7 @@ export default function PakistanAddressAutofill({
       }
     }
 
+    if (isStale()) return;
     setIsLoading(true);
     try {
       // 2. Query Photon OpenStreetMap Pakistan Engine (Free, Open-Source, Fast)
@@ -350,14 +369,18 @@ export default function PakistanAddressAutofill({
 
       // Merge local and remote without duplicates
       const combined = [...localMatches, ...remoteMatches].slice(0, 8);
+      if (isStale()) return;
       setSuggestions(combined);
+      if (isStale()) return;
       setIsOpenDropdown(combined.length > 0);
     } catch (err) {
       console.warn("Address autocomplete network fallback to local database", err);
+      if (isStale()) return;
       setSuggestions(localMatches);
+      if (isStale()) return;
       setIsOpenDropdown(localMatches.length > 0);
     } finally {
-      setIsLoading(false);
+      if (!isStale()) setIsLoading(false);
     }
   };
 
@@ -405,6 +428,7 @@ export default function PakistanAddressAutofill({
 
   const handleSelectSuggestion = async (picked: AddressSuggestion) => {
     let s = picked;
+    cancelPendingSearch();
     setActiveIndex(-1);
     if (picked.source === "mapbox") {
       setIsOpenDropdown(false);
@@ -648,6 +672,7 @@ export default function PakistanAddressAutofill({
             <button
               type="button"
               onClick={() => {
+                cancelPendingSearch();
                 setAddressInput("");
                 onChange("", currentLat, currentLng);
               }}
@@ -709,6 +734,7 @@ export default function PakistanAddressAutofill({
               key={preset.name}
               type="button"
               onClick={() => {
+                cancelPendingSearch();
                 setAddressInput(preset.address);
                 setCurrentLat(preset.lat);
                 setCurrentLng(preset.lng);

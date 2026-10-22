@@ -39,6 +39,21 @@ import { cn, formatCurrency, formatJobType, formatStockUnitName } from "@/lib/ut
 import { useRole } from "@/contexts/RoleContext";
 
 // Standard HVAC Job Types
+/** A dropdown list saved in Settings (localStorage cache of the server copy), or the fallback. */
+function readSavedList(key: string, fallback: string[], requireNonEmpty: boolean): string[] {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    if (requireNonEmpty && parsed.length === 0) return fallback;
+    return parsed;
+  } catch {
+    return fallback;
+  }
+}
+
 const COMMON_JOB_TYPES = [
   "Installation & Commissioning",
   "Emergency Repair & Breakdown",
@@ -178,7 +193,13 @@ export default function NewJobIntakePage() {
   const customerDropdownRef = useRef<HTMLDivElement>(null);
 
   // SECTION 2: Job Classification & Equipment Details
-  const [selectedJobTypePreset, setSelectedJobTypePreset] = useState("Installation & Commissioning");
+  // Saved dropdown lists, read once at mount (same rules as the sync effect below).
+  const [initialJobTypes] = useState<string[]>(() => readSavedList("custom_job_types", COMMON_JOB_TYPES, true));
+  const [initialEquipmentTypes] = useState<string[]>(() => readSavedList("custom_equipment_types", COMMON_EQUIPMENT_TYPES, false));
+  const [initialBrands] = useState<string[]>(() => readSavedList("custom_hvac_brands", HVAC_BRANDS, false));
+  const [selectedJobTypePreset, setSelectedJobTypePreset] = useState(() =>
+    initialJobTypes.includes("Installation & Commissioning") ? "Installation & Commissioning" : initialJobTypes[0] || "Installation & Commissioning"
+  );
   const [customJobType, setCustomJobType] = useState("");
   const [isCustomJobType, setIsCustomJobType] = useState(false);
 
@@ -186,10 +207,12 @@ export default function NewJobIntakePage() {
   const [equipmentLines, setEquipmentLines] = useState<EquipmentLineItem[]>([
     {
       id: "equip-1",
-      productType: "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
+      productType: initialEquipmentTypes.includes("Inverter AC (1.0 / 1.5 / 2.0 Ton)")
+        ? "Inverter AC (1.0 / 1.5 / 2.0 Ton)"
+        : initialEquipmentTypes[0] || "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
       isCustomProductType: false,
       customProductType: "",
-      brand: "Gree",
+      brand: initialBrands.includes("Gree") ? "Gree" : initialBrands[0] || "Gree",
       isCustomBrand: false,
       customBrand: "",
       model: "Inverter Split 1.5 Ton Fairy Series",
@@ -392,10 +415,12 @@ export default function NewJobIntakePage() {
     return list;
   }, [careOfParties, careOfPersonName]);
 
-  const [configuredEquipmentTypes, setConfiguredEquipmentTypes] = useState<string[]>(COMMON_EQUIPMENT_TYPES);
-  const [configuredBrands, setConfiguredBrands] = useState<string[]>(HVAC_BRANDS);
-  const [configuredModels, setConfiguredModels] = useState<string[]>(COMMON_MODELS);
-  const [configuredJobTypes, setConfiguredJobTypes] = useState<string[]>(COMMON_JOB_TYPES);
+  // Start from the saved lists (already synced from the server before this page renders) so the
+  // form doesn't first show the built-in defaults and then jump to the saved values.
+  const [configuredEquipmentTypes, setConfiguredEquipmentTypes] = useState<string[]>(() => initialEquipmentTypes);
+  const [configuredBrands, setConfiguredBrands] = useState<string[]>(() => initialBrands);
+  const [configuredModels, setConfiguredModels] = useState<string[]>(() => readSavedList("custom_hvac_models", COMMON_MODELS, true));
+  const [configuredJobTypes, setConfiguredJobTypes] = useState<string[]>(() => initialJobTypes);
 
   useEffect(() => {
     const syncDropdowns = () => {
@@ -1237,14 +1262,11 @@ export default function NewJobIntakePage() {
                           <label className="font-semibold text-[#18181B] block mb-1">
                             Qty *
                           </label>
-                          <input
-                            type="number"
+                          <DraftNumberInput
                             min="1"
                             step="1"
                             value={eq.quantity}
-                            onChange={(e) =>
-                              handleUpdateEquipmentLine(eq.id, "quantity", e.target.value)
-                            }
+                            onValue={(raw) => handleUpdateEquipmentLine(eq.id, "quantity", raw)}
                             className="w-full bg-white p-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono text-center font-bold"
                           />
                           <span className="text-[10px] text-[#71717A] mt-1 block text-center">
@@ -1261,15 +1283,13 @@ export default function NewJobIntakePage() {
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-[#71717A]">
                               Rs.
                             </span>
-                            <input
-                              type="number"
+                            <DraftNumberInput
                               min="0"
                               step="1"
                               placeholder="0"
-                              value={eq.unitPrice === 0 ? "" : eq.unitPrice}
-                              onChange={(e) =>
-                                handleUpdateEquipmentLine(eq.id, "unitPrice", e.target.value)
-                              }
+                              value={eq.unitPrice}
+                              display={(v) => (v === 0 ? "" : v)}
+                              onValue={(raw) => handleUpdateEquipmentLine(eq.id, "unitPrice", raw)}
                               className="w-full bg-white pl-8 pr-2.5 py-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono font-medium"
                             />
                           </div>
@@ -1799,14 +1819,11 @@ export default function NewJobIntakePage() {
                         <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
                           Qty ({line.unit || "unit"})
                         </label>
-                        <input
-                          type="number"
+                        <DraftNumberInput
                           min="1"
                           step="1"
                           value={line.quantity}
-                          onChange={(e) =>
-                            handleUpdateProductLine(line.id, "quantity", e.target.value)
-                          }
+                          onValue={(raw) => handleUpdateProductLine(line.id, "quantity", raw)}
                           className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-center font-bold text-[#18181B]"
                         />
                       </div>
@@ -1816,14 +1833,11 @@ export default function NewJobIntakePage() {
                         <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
                           Unit Rate (PKR)
                         </label>
-                        <input
-                          type="number"
+                        <DraftNumberInput
                           min="0"
                           step="1"
                           value={line.unitRate}
-                          onChange={(e) =>
-                            handleUpdateProductLine(line.id, "unitRate", e.target.value)
-                          }
+                          onValue={(raw) => handleUpdateProductLine(line.id, "unitRate", raw)}
                           className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-right font-semibold text-[#18181B]"
                         />
                       </div>
@@ -1957,14 +1971,11 @@ export default function NewJobIntakePage() {
                         <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
                           Units / Qty
                         </label>
-                        <input
-                          type="number"
+                        <DraftNumberInput
                           min="1"
                           step="1"
                           value={srv.quantity}
-                          onChange={(e) =>
-                            handleUpdateServiceLine(srv.id, "quantity", e.target.value)
-                          }
+                          onValue={(raw) => handleUpdateServiceLine(srv.id, "quantity", raw)}
                           className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-center font-bold text-[#18181B]"
                         />
                       </div>
@@ -1974,14 +1985,11 @@ export default function NewJobIntakePage() {
                         <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
                           Service Charge (PKR) *
                         </label>
-                        <input
-                          type="number"
+                        <DraftNumberInput
                           min="0"
                           step="1"
                           value={srv.unitRate}
-                          onChange={(e) =>
-                            handleUpdateServiceLine(srv.id, "unitRate", e.target.value)
-                          }
+                          onValue={(raw) => handleUpdateServiceLine(srv.id, "unitRate", raw)}
                           className="w-full bg-white p-2 rounded-lg border border-[#0D7A5F] focus:outline-none font-mono text-right font-semibold text-[#18181B]"
                           placeholder="Enter money..."
                         />
@@ -2289,5 +2297,43 @@ export default function NewJobIntakePage() {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * Number box that keeps exactly what the user is typing (so a field can be cleared or edited
+ * mid-way) and only falls back to the stored, clamped value when the box loses focus.
+ * A plain controlled <input type="number"> clamped on every keystroke made the value jump back
+ * (e.g. clearing a quantity instantly snapped it back to 1).
+ */
+function DraftNumberInput({
+  value,
+  onValue,
+  display,
+  onBlur,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> & {
+  value: number;
+  onValue: (raw: string) => void;
+  display?: (value: number) => string | number;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      {...rest}
+      type="number"
+      value={draft ?? (display ? display(value) : value)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw.trim() !== "" && Number.isFinite(Number(raw))) onValue(raw);
+      }}
+      onBlur={(e) => {
+        // A box left empty takes the same default the field always used (1 for qty, 0 for money).
+        if (draft !== null && draft.trim() === "") onValue("");
+        setDraft(null);
+        onBlur?.(e);
+      }}
+    />
   );
 }

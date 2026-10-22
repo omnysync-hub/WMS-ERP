@@ -74,20 +74,30 @@ export default function SearchableCombobox({
         (opt) => opt.toLowerCase().trim() === value.toLowerCase().trim()
       );
       if (idx >= 0) {
+        scrollHighlightRef.current = true;
         setHighlightedIndex(idx);
       }
     }
   }, [isOpen]);
 
-  // Scroll highlighted item into view
+  // Keep the highlighted item visible when moving with the arrow keys. Only the list itself is
+  // scrolled (never the page), and hovering with the mouse never scrolls: scrolling under the
+  // cursor used to move a different option under it, so clicks landed on the wrong option.
+  const scrollHighlightRef = useRef(false);
   useEffect(() => {
-    if (highlightedIndex >= 0 && listRef.current) {
-      const items = listRef.current.querySelectorAll("[data-combobox-item]");
-      const item = items[highlightedIndex] as HTMLElement;
-      if (item) {
-        item.scrollIntoView({ block: "nearest" });
-      }
-    }
+    if (!scrollHighlightRef.current) return;
+    scrollHighlightRef.current = false;
+    const list = listRef.current;
+    if (highlightedIndex < 0 || !list) return;
+    const item = list.querySelectorAll("[data-combobox-item]")[highlightedIndex] as HTMLElement | undefined;
+    if (!item) return;
+    // The scrolling box is the list itself or its nearest scrollable parent inside the dropdown.
+    let box: HTMLElement = list;
+    while (box.parentElement && box.scrollHeight <= box.clientHeight && box !== containerRef.current) box = box.parentElement;
+    const listBox = box.getBoundingClientRect();
+    const itemBox = item.getBoundingClientRect();
+    if (itemBox.top < listBox.top) box.scrollTop -= listBox.top - itemBox.top;
+    else if (itemBox.bottom > listBox.bottom) box.scrollTop += itemBox.bottom - listBox.bottom;
   }, [highlightedIndex]);
 
   const handleSelectOption = (opt: string) => {
@@ -120,12 +130,14 @@ export default function SearchableCombobox({
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
+        scrollHighlightRef.current = true;
         setHighlightedIndex((prev) =>
           prev < filteredOptions.length - 1 ? prev + 1 : 0
         );
         break;
       case "ArrowUp":
         e.preventDefault();
+        scrollHighlightRef.current = true;
         setHighlightedIndex((prev) =>
           prev > 0 ? prev - 1 : filteredOptions.length - 1
         );
