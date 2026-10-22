@@ -3,58 +3,24 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import PageHeader from "@/components/layout/PageHeader";
-import AddCustomerDrawer from "@/components/drawers/AddCustomerDrawer";
 import {
-  Briefcase,
-  User,
-  MapPin,
-  Building,
   Plus,
-  Check,
-  ArrowLeft,
-  Search,
+  Trash2,
   CheckCircle2,
-  Phone,
-  Cpu,
   AlertCircle,
   X,
-  Package,
-  Wrench,
-  Trash2,
-  Receipt,
-  Boxes,
-  Layers,
-  Sparkles,
-  Info,
-  Users,
-  Star,
-  Clock,
-  RefreshCw,
+  User,
+  Phone,
+  MapPin,
+  Building,
+  Check,
+  Search,
 } from "lucide-react";
-import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
-import SearchableCombobox from "@/components/ui/SearchableCombobox";
 import { realtimeSync } from "@/lib/realtimeSync";
-import { cn, formatCurrency, formatJobType, formatStockUnitName } from "@/lib/utils";
-import { useRole } from "@/contexts/RoleContext";
+import { cn, formatCurrency } from "@/lib/utils";
 
-// Standard HVAC Job Types
-/** A dropdown list saved in Settings (localStorage cache of the server copy), or the fallback. */
-function readSavedList(key: string, fallback: string[], requireNonEmpty: boolean): string[] {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return fallback;
-    if (requireNonEmpty && parsed.length === 0) return fallback;
-    return parsed;
-  } catch {
-    return fallback;
-  }
-}
-
-const COMMON_JOB_TYPES = [
+// Standard Dropdown Fallback Data
+const DEFAULT_JOB_TYPES = [
   "Installation & Commissioning",
   "Emergency Repair & Breakdown",
   "Preventive Maintenance Service",
@@ -65,8 +31,7 @@ const COMMON_JOB_TYPES = [
   "Annual Maintenance Contract (AMC)",
 ];
 
-// Common HVAC Equipment Types
-const COMMON_EQUIPMENT_TYPES = [
+const DEFAULT_EQUIPMENT_TYPES = [
   "Split Air Conditioner (Wall Mounted)",
   "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
   "Floor Standing / Tower AC",
@@ -79,8 +44,7 @@ const COMMON_EQUIPMENT_TYPES = [
   "Cold Storage / Walk-in Freezer",
 ];
 
-// Common HVAC Equipment Brands
-const HVAC_BRANDS = [
+const DEFAULT_BRANDS = [
   "Daikin",
   "O General",
   "Mitsubishi Electric",
@@ -99,725 +63,363 @@ const HVAC_BRANDS = [
   "Voltas",
 ];
 
-// Common HVAC Equipment Models & Specifications
-const COMMON_MODELS = [
-  "Inverter Split 1.5 Ton Fairy Series",
-  "Inverter Split 1.0 Ton Fairy Series",
-  "Inverter Split 2.0 Ton Fairy Series",
-  "Floor Standing 2.0 Ton / 4.0 Ton",
-  "Cassette 2.0 Ton Inverter",
-  "Cassette 4.0 Ton Inverter",
-  "Ducted Split 3.0 Ton High Static",
-  "VRF Outdoor Condenser Unit 10 HP",
-  "AHU / FCU 600 CFM Ducted",
-  "Commercial Package Unit 5.0 Ton",
-  "Commercial Package Unit 10.0 Ton",
-  "Cold Storage Freezer Unit 3HP",
-];
+// Helper to read saved custom list from localStorage or fallback
+function getSavedList(key: string, fallback: string[]): string[] {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-// Quick HVAC Service Presets with Standard Market Rates (PKR)
-const COMMON_SERVICE_PRESETS = [
-  { name: "AC Installation & Commissioning", rate: 4500 },
-  { name: "AC Gas Leakage Test & Full Recharge", rate: 5500 },
-  { name: "General Chemical Master Servicing", rate: 2500 },
-  { name: "Compressor Replacement & Vacuum Labor", rate: 7500 },
-  { name: "Inverter PCB Board Repair / Replacement Labor", rate: 3500 },
-  { name: "Capacitor & Contactor Replacement Labor", rate: 1200 },
-  { name: "Thermostat Installation & Wiring", rate: 1800 },
-  { name: "Duct Cleaning & Sanitization Service", rate: 6000 },
-  { name: "Diagnostic & Fault Troubleshooting Fee", rate: 1500 },
-];
-
-interface EquipmentLineItem {
+interface WorkRow {
   id: string;
-  productType: string;
-  isCustomProductType: boolean;
-  customProductType: string;
+  typeOfWork: string;
+  product: string;
   brand: string;
-  isCustomBrand: boolean;
-  customBrand: string;
-  model: string;
-  quantity: number;
-  unitPrice: number;
+  careOff: string;
+  qty: number;
+  charges: number;
+  remarks: string;
 }
 
-interface ProductLineItem {
-  id: string;
-  productId?: string;
-  name: string;
-  sku?: string;
-  unit?: string;
-  availableStock?: number;
-  quantity: number;
-  unitRate: number;
-}
-
-interface ServiceLineItem {
-  id: string;
-  name: string;
-  quantity: number;
-  unitRate: number;
-}
-
-export default function NewJobIntakePage() {
+export default function FastJobIntakePage() {
   const router = useRouter();
-  const { activeRole, currentRole, hasPermission } = useRole();
-  const effectiveRole = (activeRole || currentRole || "").toLowerCase();
-
-  // Roles responsible for job intake/creation (call center, dispatcher, intake lead)
-  // should strictly see ONLY: 1. Customer & Location, 2. Job Classification & Equipment Details, and 3. Operational Notes & Tech Assignment.
-  const isJobCreatorRole =
-    ["call_center", "dispatcher"].includes(effectiveRole) ||
-    effectiveRole.includes("creator") ||
-    effectiveRole.includes("intake") ||
-    effectiveRole.includes("dispatch") ||
-    effectiveRole.includes("call");
-
-  const canManageLineItems =
-    !isJobCreatorRole &&
-    (["admin", "accountant", "manager"].includes(effectiveRole) ||
-      hasPermission("jobs.view_financials"));
 
   // Master Data
   const [customers, setCustomers] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
-  const [inventoryProducts, setInventoryProducts] = useState<any[]>([]);
+  const [careOfParties, setCareOfParties] = useState<any[]>([]);
+  const [jobTypes, setJobTypes] = useState<string[]>(DEFAULT_JOB_TYPES);
+  const [equipmentTypes, setEquipmentTypes] = useState<string[]>(DEFAULT_EQUIPMENT_TYPES);
+  const [brands, setBrands] = useState<string[]>(DEFAULT_BRANDS);
   const [loading, setLoading] = useState(true);
 
-  // SECTION 1: Customer State
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
-  const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
-  const [initialQueryForDrawer, setInitialQueryForDrawer] = useState("");
+  // Customer Fields (Rows 1 & 2)
+  const [customerName, setCustomerName] = useState("");
+  const [customerMobile, setCustomerMobile] = useState("");
+  const [customerSecMobile, setCustomerSecMobile] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
 
-  // SECTION 2: Job Classification & Equipment Details
-  // Saved dropdown lists, read once at mount (same rules as the sync effect below).
-  const [initialJobTypes] = useState<string[]>(() => readSavedList("custom_job_types", COMMON_JOB_TYPES, true));
-  const [initialEquipmentTypes] = useState<string[]>(() => readSavedList("custom_equipment_types", COMMON_EQUIPMENT_TYPES, false));
-  const [initialBrands] = useState<string[]>(() => readSavedList("custom_hvac_brands", HVAC_BRANDS, false));
-  const [selectedJobTypePreset, setSelectedJobTypePreset] = useState(() =>
-    initialJobTypes.includes("Installation & Commissioning") ? "Installation & Commissioning" : initialJobTypes[0] || "Installation & Commissioning"
-  );
-  const [customJobType, setCustomJobType] = useState("");
-  const [isCustomJobType, setIsCustomJobType] = useState(false);
-
-  // Product, Brand, Model, Qty & Unit Rates (Multiple Equipment Specification Items)
-  const [equipmentLines, setEquipmentLines] = useState<EquipmentLineItem[]>([
+  // Work & Equipment Rows (Rows 3, 4, 5)
+  const [rows, setRows] = useState<WorkRow[]>([
     {
-      id: "equip-1",
-      productType: initialEquipmentTypes.includes("Inverter AC (1.0 / 1.5 / 2.0 Ton)")
-        ? "Inverter AC (1.0 / 1.5 / 2.0 Ton)"
-        : initialEquipmentTypes[0] || "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
-      isCustomProductType: false,
-      customProductType: "",
-      brand: initialBrands.includes("Gree") ? "Gree" : initialBrands[0] || "Gree",
-      isCustomBrand: false,
-      customBrand: "",
-      model: "Inverter Split 1.5 Ton Fairy Series",
-      quantity: 1,
-      unitPrice: 0,
+      id: "row-1",
+      typeOfWork: DEFAULT_JOB_TYPES[0],
+      product: DEFAULT_EQUIPMENT_TYPES[1] || DEFAULT_EQUIPMENT_TYPES[0],
+      brand: "Gree",
+      careOff: "direct",
+      qty: 1,
+      charges: 4500,
+      remarks: "",
     },
   ]);
 
-  const handleAddEquipmentLine = () => {
-    setEquipmentLines((prev) => [
-      ...prev,
-      {
-        id: `equip-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        productType: configuredEquipmentTypes[0] || "Inverter AC (1.0 / 1.5 / 2.0 Ton)",
-        isCustomProductType: false,
-        customProductType: "",
-        brand: configuredBrands[0] || "Gree",
-        isCustomBrand: false,
-        customBrand: "",
-        model: "",
-        quantity: 1,
-        unitPrice: 0,
-      },
-    ]);
-  };
-
-  const handleRemoveEquipmentLine = (lineId: string) => {
-    if (equipmentLines.length <= 1) return;
-    setEquipmentLines((prev) => prev.filter((item) => item.id !== lineId));
-  };
-
-  const handleUpdateEquipmentLine = (
-    lineId: string,
-    field: keyof EquipmentLineItem,
-    value: any
-  ) => {
-    setEquipmentLines((prev) =>
-      prev.map((item) => {
-        if (item.id !== lineId) return item;
-        if (field === "quantity") {
-          return { ...item, quantity: Math.max(1, parseInt(value, 10) || 1) };
-        }
-        if (field === "unitPrice") {
-          return { ...item, unitPrice: Math.max(0, parseFloat(value) || 0) };
-        }
-        return { ...item, [field]: value };
-      })
-    );
-  };
-
-
-  // SECTION 3: Line Items & Charges (Products from Inventory + Services)
-  const [productLines, setProductLines] = useState<ProductLineItem[]>([]);
-  const [serviceLines, setServiceLines] = useState<ServiceLineItem[]>([
-    {
-      id: "srv-initial-1",
-      name: "AC Installation & Commissioning",
-      quantity: 1,
-      unitRate: 4500,
-    },
-  ]);
-
-  // Care-Of Subcontract Toggle & Autocomplete
-  const [isCareOf, setIsCareOf] = useState(false);
-  const [isFoc, setIsFoc] = useState(false);
+  // Operational Settings (Technician & Payment)
+  const [assignedTechnicianId, setAssignedTechnicianId] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"technician" | "office" | "foc">("technician");
   const [focReason, setFocReason] = useState("");
-  const [paymentCollectionMode, setPaymentCollectionMode] = useState<"technician" | "office">("technician");
-  const [careOfParties, setCareOfParties] = useState<any[]>([]);
-  const [selectedCareOfPartyId, setSelectedCareOfPartyId] = useState<string | null>(null);
-  const [careOfCompanyName, setCareOfCompanyName] = useState("");
-  const [careOfPersonName, setCareOfPersonName] = useState("");
   const [manualJobNumber, setManualJobNumber] = useState("");
-  const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
-  const [isPersonDropdownOpen, setIsPersonDropdownOpen] = useState(false);
-  const companyInputRef = useRef<HTMLDivElement>(null);
-  const personInputRef = useRef<HTMLDivElement>(null);
 
-  // Remarks
-  const [remarks, setRemarks] = useState("");
+  // Modals for Quick Add (+)
+  const [showAddTypeModal, setShowAddTypeModal] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [activeRowIdForAddType, setActiveRowIdForAddType] = useState<string | null>(null);
 
-  // Technician Assignment (Optional - single or multiple)
-  const [assignedTechnicianIds, setAssignedTechnicianIds] = useState<string[]>([]);
-  const [primaryTechnicianId, setPrimaryTechnicianId] = useState<string>("");
-  const [isRefreshingTechnicians, setIsRefreshingTechnicians] = useState(false);
+  const [showAddBrandModal, setShowAddBrandModal] = useState(false);
+  const [newBrandName, setNewBrandName] = useState("");
+  const [activeRowIdForAddBrand, setActiveRowIdForAddBrand] = useState<string | null>(null);
 
+  const [showAddCareOfModal, setShowAddCareOfModal] = useState(false);
+  const [newCareOfCompany, setNewCareOfCompany] = useState("");
+  const [newCareOfPerson, setNewCareOfPerson] = useState("");
+  const [newCareOfPhone, setNewCareOfPhone] = useState("");
+  const [activeRowIdForAddCareOf, setActiveRowIdForAddCareOf] = useState<string | null>(null);
+
+  // Status & Feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const loadTechnicians = async () => {
-    try {
-      setIsRefreshingTechnicians(true);
-      const res = await fetch("/api/technicians");
-      const data = await res.json();
-      let list = Array.isArray(data?.technicians) ? data.technicians : [];
-
-      // Fallback: If empty, try HRM employees endpoint with technicians tab
-      if (list.length === 0) {
-        try {
-          const hrmRes = await fetch("/api/hrm/employees?tab=technicians");
-          const hrmData = await hrmRes.json();
-          const emps = Array.isArray(hrmData?.employees) ? hrmData.employees : Array.isArray(hrmData) ? hrmData : [];
-          if (emps.length > 0) {
-            list = emps
-              .filter((e: any) => e.active !== false && e.status !== "Terminated" && e.status !== "Inactive")
-              .map((e: any) => ({
-                id: e.id,
-                name: e.name,
-                phone: e.phone || "",
-                department: e.department || "Operations",
-                currentStatus: e.currentStatus || "Available",
-                active: e.active !== false,
-              }));
-          }
-        } catch (e) {
-          console.warn("HRM technicians fallback failed", e);
-        }
-      }
-
-      if (list.length > 0) {
-        setTechnicians(list);
-      }
-    } catch (err) {
-      console.error("Failed to load technicians", err);
-    } finally {
-      setIsRefreshingTechnicians(false);
-    }
-  };
-
-  // Load Customers, Technicians, and Inventory Products
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [custRes, invRes, careOfRes] = await Promise.all([
-        fetch("/api/customers"),
-        fetch("/api/inventory"),
-        fetch("/api/care-of-parties"),
-      ]);
-
-      const custList = await custRes.json();
-      const invData = await invRes.json();
+  // Fetch Master Data on Mount
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
       try {
-        const careOfData = await careOfRes.json();
-        if (Array.isArray(careOfData?.careOfParties)) {
-          setCareOfParties(careOfData.careOfParties);
-        }
-      } catch (e) {
-        // ignore
-      }
+        setLoading(true);
+        // Load custom lists from localStorage
+        setJobTypes(getSavedList("custom_job_types", DEFAULT_JOB_TYPES));
+        setEquipmentTypes(getSavedList("custom_equipment_types", DEFAULT_EQUIPMENT_TYPES));
+        setBrands(getSavedList("custom_hvac_brands", DEFAULT_BRANDS));
 
-      if (Array.isArray(custList)) {
-        setCustomers(custList);
-      }
-      if (Array.isArray(invData)) {
-        setInventoryProducts(invData);
-      }
+        const [custRes, techRes, careOfRes] = await Promise.all([
+          fetch("/api/customers"),
+          fetch("/api/technicians"),
+          fetch("/api/care-of-parties"),
+        ]);
 
-      await loadTechnicians();
-    } catch (err) {
-      console.error("Failed to load intake data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+        if (!cancelled) {
+          const custData = await custRes.json();
+          if (Array.isArray(custData)) setCustomers(custData);
+          else if (Array.isArray(custData?.customers)) setCustomers(custData.customers);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-  // Close Care-Of dropdowns on outside click
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (companyInputRef.current && !companyInputRef.current.contains(event.target as Node)) {
-        setIsCompanyDropdownOpen(false);
-      }
-      if (personInputRef.current && !personInputRef.current.contains(event.target as Node)) {
-        setIsPersonDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+          const techData = await techRes.json();
+          if (Array.isArray(techData?.technicians)) setTechnicians(techData.technicians);
 
-  const matchingCareOfCompanies = useMemo(() => {
-    if (!careOfCompanyName.trim()) return careOfParties;
-    const q = careOfCompanyName.toLowerCase();
-    return careOfParties.filter((p) =>
-      p.companyName.toLowerCase().includes(q) ||
-      p.personName?.toLowerCase().includes(q)
-    );
-  }, [careOfParties, careOfCompanyName]);
-
-  const matchingCareOfPersons = useMemo(() => {
-    const list: { id: string; companyName: string; personName: string }[] = [];
-    for (const p of careOfParties) {
-      if (p.personName && p.personName.trim()) {
-        if (!careOfPersonName.trim() || p.personName.toLowerCase().includes(careOfPersonName.toLowerCase())) {
-          list.push({ id: p.id, companyName: p.companyName, personName: p.personName });
-        }
-      }
-    }
-    return list;
-  }, [careOfParties, careOfPersonName]);
-
-  // Start from the saved lists (already synced from the server before this page renders) so the
-  // form doesn't first show the built-in defaults and then jump to the saved values.
-  const [configuredEquipmentTypes, setConfiguredEquipmentTypes] = useState<string[]>(() => initialEquipmentTypes);
-  const [configuredBrands, setConfiguredBrands] = useState<string[]>(() => initialBrands);
-  const [configuredModels, setConfiguredModels] = useState<string[]>(() => readSavedList("custom_hvac_models", COMMON_MODELS, true));
-  const [configuredJobTypes, setConfiguredJobTypes] = useState<string[]>(() => initialJobTypes);
-
-  useEffect(() => {
-    const syncDropdowns = () => {
-      try {
-        const savedEquip = localStorage.getItem("custom_equipment_types");
-        if (savedEquip) setConfiguredEquipmentTypes(JSON.parse(savedEquip));
-        const savedBrands = localStorage.getItem("custom_hvac_brands");
-        if (savedBrands) setConfiguredBrands(JSON.parse(savedBrands));
-        const savedModels = localStorage.getItem("custom_hvac_models");
-        if (savedModels) {
-          const parsed = JSON.parse(savedModels);
-          if (Array.isArray(parsed) && parsed.length > 0) setConfiguredModels(parsed);
-        }
-        const savedJobs = localStorage.getItem("custom_job_types");
-        if (savedJobs) {
-          const parsed = JSON.parse(savedJobs);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setConfiguredJobTypes(parsed);
-            setSelectedJobTypePreset((prev) => (parsed.includes(prev) ? prev : parsed[0]));
-          }
+          const careOfData = await careOfRes.json();
+          if (Array.isArray(careOfData?.careOfParties)) setCareOfParties(careOfData.careOfParties);
         }
       } catch (err) {
-        console.error("Failed loading custom dropdown options", err);
+        console.error("Error loading job intake data", err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    };
-
-    const handleJobTypesUpdate = (e: any) => {
-      const list = e?.detail;
-      if (Array.isArray(list) && list.length > 0) {
-        setConfiguredJobTypes(list);
-        setSelectedJobTypePreset((prev) => (list.includes(prev) ? prev : list[0]));
-      } else {
-        syncDropdowns();
-      }
-    };
-
-    syncDropdowns();
-    window.addEventListener("storage", syncDropdowns);
-    window.addEventListener("custom_equipment_types_updated", syncDropdowns as EventListener);
-    window.addEventListener("custom_hvac_brands_updated", syncDropdowns as EventListener);
-    window.addEventListener("custom_job_types_updated", handleJobTypesUpdate as EventListener);
-    window.addEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
+    }
+    loadData();
     return () => {
-      window.removeEventListener("storage", syncDropdowns);
-      window.removeEventListener("custom_equipment_types_updated", syncDropdowns as EventListener);
-      window.removeEventListener("custom_hvac_brands_updated", syncDropdowns as EventListener);
-      window.removeEventListener("custom_job_types_updated", handleJobTypesUpdate as EventListener);
-      window.removeEventListener("custom_hvac_models_updated", syncDropdowns as EventListener);
+      cancelled = true;
     };
   }, []);
 
-  const equipmentTypeOptions = useMemo(() => {
-    const opts = configuredEquipmentTypes.map((t) => ({ value: t, label: t }));
-    return [...opts, { value: "CUSTOM", label: "+ Custom / Other Appliance Type..." }];
-  }, [configuredEquipmentTypes]);
-
-  const brandOptions = useMemo(() => {
-    const opts = configuredBrands.map((b) => ({ value: b, label: b }));
-    return [...opts, { value: "CUSTOM", label: "+ Custom / Other Brand..." }];
-  }, [configuredBrands]);
-
-
-  // Close customer dropdown when clicking outside
+  // Close customer dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        customerDropdownRef.current &&
-        !customerDropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsCustomerDropdownOpen(false);
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target as Node)) {
+        setShowCustomerDropdown(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Selected Customer Object
-  const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+  // Filter customers for autocomplete
+  const matchingCustomers = useMemo(() => {
+    const q = customerSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return customers
+      .filter((c) => {
+        const name = (c.name || "").toLowerCase();
+        const phone = (c.phone || "").toLowerCase();
+        const address = (c.address || c.addressText || "").toLowerCase();
+        return name.includes(q) || phone.includes(q) || address.includes(q);
+      })
+      .slice(0, 8);
+  }, [customers, customerSearchQuery]);
 
-  // Filter customers by phone number or name
-  const filteredCustomers = customers.filter((c) => {
-    if (!customerSearch.trim()) return true;
-    const query = customerSearch.toLowerCase().trim();
-    const nameMatch = c.name?.toLowerCase().includes(query);
-    const phoneMatch = c.phone?.toLowerCase().includes(query);
-    const addressMatch = c.addressText?.toLowerCase().includes(query);
-    return nameMatch || phoneMatch || addressMatch;
-  });
+  // Select customer from dropdown
+  function handleSelectCustomer(c: any) {
+    setSelectedCustomerId(c.id);
+    setCustomerName(c.name || "");
+    setCustomerMobile(c.phone || "");
+    setCustomerSecMobile(c.secPhone || "");
+    setCustomerAddress(c.address || c.addressText || "");
+    setShowCustomerDropdown(false);
+    setCustomerSearchQuery("");
+  }
 
-  // Effective Job Type
-  const effectiveJobType = isCustomJobType
-    ? customJobType.trim() || "General Service"
-    : selectedJobTypePreset;
+  // Clear customer selection
+  function handleClearCustomer() {
+    setSelectedCustomerId(null);
+    setCustomerName("");
+    setCustomerMobile("");
+    setCustomerSecMobile("");
+    setCustomerAddress("");
+  }
 
-  const jobTypeOptions: SelectOption[] = useMemo(() => {
-    return [
-      ...configuredJobTypes.map((t) => ({ value: t, label: t })),
-      { value: "CUSTOM", label: "+ Type Custom Job Type...", badge: "Custom", badgeTone: "blue" as const },
-    ];
-  }, [configuredJobTypes]);
-
-  const technicianOptions: SelectOption[] = useMemo(() => {
-    return technicians.map((t) => {
-      const isAvail = (t.currentStatus || "").toLowerCase() === "available";
-      const isOnJob = (t.currentStatus || "").toLowerCase() === "on job";
-      const isAssigned = (t.currentStatus || "").toLowerCase() === "assigned";
-      const tone = isAvail ? ("green" as const) : isOnJob ? ("blue" as const) : isAssigned ? ("amber" as const) : ("zinc" as const);
-
-      return {
-        value: t.id,
-        label: t.name,
-        subLabel: t.phone || t.department || undefined,
-        badge: t.currentStatus || "Available",
-        badgeTone: tone,
-        icon: <Wrench className="w-3.5 h-3.5 text-zinc-400" />,
-      };
-    });
-  }, [technicians]);
-
-  const inventoryProductOptions: SelectOption[] = useMemo(() => {
-    return [
-      ...inventoryProducts.map((inv) => ({
-        value: inv.id,
-        label: `${inv.name} (${inv.sku})`,
-        subLabel: `Stock: ${inv.stockQuantity} ${formatStockUnitName(inv.unit)} @ ${formatCurrency(inv.unitPrice)}`,
-        badge: inv.stockQuantity > 0 ? `${inv.stockQuantity} ${formatStockUnitName(inv.unit)}` : "Out of stock",
-        badgeTone: inv.stockQuantity > 5 ? ("green" as const) : inv.stockQuantity > 0 ? ("amber" as const) : ("red" as const),
-      })),
-      {
-        value: "CUSTOM",
-        label: "+ Custom / Non-Catalog Product...",
-        badge: "Manual",
-        badgeTone: "zinc" as const,
-      },
-    ];
-  }, [inventoryProducts]);
-
-  // PRODUCT LINES MANAGEMENT (Linked with Inventory)
-  const handleAddProductLine = () => {
-    const defaultProd = inventoryProducts[0];
-    const newLine: ProductLineItem = {
-      id: `prod-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      productId: defaultProd?.id || "",
-      name: defaultProd?.name || "",
-      sku: defaultProd?.sku || "",
-      unit: formatStockUnitName(defaultProd?.unit),
-      availableStock: defaultProd?.stockQuantity ?? 0,
-      quantity: 1,
-      unitRate: defaultProd?.unitPrice || 0,
+  // Row Manipulation
+  function handleAddRow() {
+    const newRow: WorkRow = {
+      id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      typeOfWork: jobTypes[0] || DEFAULT_JOB_TYPES[0],
+      product: equipmentTypes[0] || DEFAULT_EQUIPMENT_TYPES[0],
+      brand: brands[0] || DEFAULT_BRANDS[0],
+      careOff: rows[0]?.careOff || "direct",
+      qty: 1,
+      charges: 4500,
+      remarks: "",
     };
-    setProductLines([...productLines, newLine]);
-  };
+    setRows((prev) => [...prev, newRow]);
+  }
 
-  const handleSelectInventoryProduct = (lineId: string, selectedProdId: string) => {
-    if (selectedProdId === "CUSTOM") {
-      setProductLines(
-        productLines.map((line) =>
-          line.id === lineId
-            ? {
-                ...line,
-                productId: "",
-                name: "",
-                sku: "",
-                unit: "unit",
-                availableStock: undefined,
-                unitRate: 0,
-              }
-            : line
-        )
-      );
-      return;
+  function handleRemoveRow(id: string) {
+    if (rows.length <= 1) return;
+    setRows((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  function handleUpdateRow(id: string, field: keyof WorkRow, value: any) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        return { ...r, [field]: value };
+      })
+    );
+  }
+
+  // Grand Total Calculation
+  const grandTotal = useMemo(() => {
+    return rows.reduce((sum, r) => {
+      const q = Math.max(1, Number(r.qty) || 1);
+      const c = Math.max(0, Number(r.charges) || 0);
+      return sum + q * c;
+    }, 0);
+  }, [rows]);
+
+  // Handle Quick Add (+) Submissions
+  function handleSaveNewType() {
+    if (!newTypeName.trim()) return;
+    const trimmed = newTypeName.trim();
+    if (!jobTypes.includes(trimmed)) {
+      const updated = [...jobTypes, trimmed];
+      setJobTypes(updated);
+      try {
+        localStorage.setItem("custom_job_types", JSON.stringify(updated));
+      } catch (e) {}
     }
+    if (activeRowIdForAddType) {
+      handleUpdateRow(activeRowIdForAddType, "typeOfWork", trimmed);
+    }
+    setNewTypeName("");
+    setShowAddTypeModal(false);
+  }
 
-    const prod = inventoryProducts.find((p) => p.id === selectedProdId);
-    if (!prod) return;
+  function handleSaveNewBrand() {
+    if (!newBrandName.trim()) return;
+    const trimmed = newBrandName.trim();
+    if (!brands.includes(trimmed)) {
+      const updated = [...brands, trimmed];
+      setBrands(updated);
+      try {
+        localStorage.setItem("custom_hvac_brands", JSON.stringify(updated));
+      } catch (e) {}
+    }
+    if (activeRowIdForAddBrand) {
+      handleUpdateRow(activeRowIdForAddBrand, "brand", trimmed);
+    }
+    setNewBrandName("");
+    setShowAddBrandModal(false);
+  }
 
-    setProductLines(
-      productLines.map((line) =>
-        line.id === lineId
-          ? {
-              ...line,
-              productId: prod.id,
-              name: prod.name,
-              sku: prod.sku,
-              unit: formatStockUnitName(prod.unit),
-              availableStock: prod.stockQuantity,
-              unitRate: prod.unitPrice || 0,
-            }
-          : line
-      )
-    );
-  };
-
-  const handleUpdateProductLine = (
-    lineId: string,
-    field: "name" | "quantity" | "unitRate",
-    value: any
-  ) => {
-    setProductLines(
-      productLines.map((line) => {
-        if (line.id !== lineId) return line;
-        if (field === "quantity") {
-          return { ...line, quantity: Math.max(1, Number(value) || 1) };
+  async function handleSaveNewCareOf() {
+    if (!newCareOfCompany.trim()) return;
+    try {
+      const res = await fetch("/api/care-of-parties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: newCareOfCompany.trim(),
+          personName: newCareOfPerson.trim() || undefined,
+          phone: newCareOfPhone.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data) {
+        const party = data.party || data;
+        setCareOfParties((prev) => [party, ...prev]);
+        if (activeRowIdForAddCareOf) {
+          handleUpdateRow(activeRowIdForAddCareOf, "careOff", party.id);
         }
-        if (field === "unitRate") {
-          return { ...line, unitRate: Math.max(0, Number(value) || 0) };
-        }
-        return { ...line, [field]: value };
-      })
-    );
-  };
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setNewCareOfCompany("");
+      setNewCareOfPerson("");
+      setNewCareOfPhone("");
+      setShowAddCareOfModal(false);
+    }
+  }
 
-  const handleRemoveProductLine = (lineId: string) => {
-    setProductLines(productLines.filter((l) => l.id !== lineId));
-  };
-
-  // SERVICE LINES MANAGEMENT
-  const handleAddServiceLine = () => {
-    const defaultSrv = COMMON_SERVICE_PRESETS[0];
-    const newLine: ServiceLineItem = {
-      id: `srv-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      name: defaultSrv?.name || "General HVAC Labor",
-      quantity: 1,
-      unitRate: defaultSrv?.rate || 2000,
-    };
-    setServiceLines([...serviceLines, newLine]);
-  };
-
-  const handleUpdateServiceLine = (
-    lineId: string,
-    field: "name" | "quantity" | "unitRate",
-    value: any
-  ) => {
-    setServiceLines(
-      serviceLines.map((line) => {
-        if (line.id !== lineId) return line;
-        if (field === "quantity") {
-          return { ...line, quantity: Math.max(1, Number(value) || 1) };
-        }
-        if (field === "unitRate") {
-          return { ...line, unitRate: Math.max(0, Number(value) || 0) };
-        }
-        return { ...line, [field]: value };
-      })
-    );
-  };
-
-  const handleRemoveServiceLine = (lineId: string) => {
-    setServiceLines(serviceLines.filter((l) => l.id !== lineId));
-  };
-
-  // EQUIPMENT FINANCIAL & QUANTITY SUMMARY
-  const equipmentSubtotal = equipmentLines.reduce(
-    (sum, l) => sum + (Number(l.quantity) || 1) * (Number(l.unitPrice) || 0),
-    0
-  );
-  const equipmentTotalQty = equipmentLines.reduce(
-    (sum, l) => sum + (Number(l.quantity) || 1),
-    0
-  );
-
-  // CHARGES FINANCIAL SUMMARY
-  const productsSubtotal = productLines.reduce(
-    (sum, l) => sum + l.quantity * (l.unitRate || 0),
-    0
-  );
-  const servicesSubtotal = serviceLines.reduce(
-    (sum, l) => sum + l.quantity * (l.unitRate || 0),
-    0
-  );
-  const totalEstimatedCharges = canManageLineItems
-    ? equipmentSubtotal + productsSubtotal + servicesSubtotal
-    : equipmentSubtotal;
-
-  // Form Submission
-  const handleSubmitJob = async (e: React.FormEvent) => {
+  // Main Form Submit Handler
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedCustomerId) {
-      setErrorMsg("Please select or add a customer.");
-      return;
-    }
-    if (!effectiveJobType.trim()) {
-      setErrorMsg("Please specify the job type.");
-      return;
-    }
+    setErrorMsg("");
 
     try {
       setIsSubmitting(true);
-      setErrorMsg("");
 
-      // Consolidate remarks with all Equipment items (Product Type, Brand, Model, Qty, UnitPrice, Total)
-      const equipSegments = equipmentLines
-        .filter((eq) => {
-          const t = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
-          return Boolean(t);
-        })
-        .map((eq) => {
-          const effectiveType = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
-          const effectiveBrand = eq.isCustomBrand ? eq.customBrand.trim() : eq.brand.trim();
-          const effectiveModel = eq.model.trim();
-          const qty = Math.max(1, Number(eq.quantity) || 1);
-          const price = Math.max(0, Number(eq.unitPrice) || 0);
-          const lineTot = qty * price;
-          return `[Equipment: ${effectiveType || "HVAC Unit"} | Brand: ${
-            effectiveBrand || "Unspecified"
-          } | Model: ${effectiveModel || "Standard"} | Qty: ${qty} | UnitPrice: ${price} | Total: ${lineTot}]`;
-        });
+      let targetCustomerId = selectedCustomerId;
 
-      const equipPrefix = equipSegments.join(" ");
-      const fullRemarks = `${equipPrefix ? `${equipPrefix} ` : ""}${remarks.trim()}`;
-
-      // Convert equipment specifications to JobItem records
-      const equipmentItems = equipmentLines
-        .filter((eq) => {
-          const t = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
-          return Boolean(t);
-        })
-        .map((eq) => {
-          const effectiveType = eq.isCustomProductType ? eq.customProductType.trim() : eq.productType.trim();
-          const effectiveBrand = eq.isCustomBrand ? eq.customBrand.trim() : eq.brand.trim();
-          const effectiveModel = eq.model.trim();
-          let desc = `[Equipment] ${effectiveType || "HVAC Unit"}`;
-          if (effectiveBrand && effectiveBrand !== "Unspecified") {
-            desc += ` - ${effectiveBrand}`;
-          }
-          if (effectiveModel && effectiveModel !== "Standard") {
-            desc += ` (${effectiveModel})`;
-          }
-          return {
-            description: desc,
-            quantityPlanned: Math.max(1, Number(eq.quantity) || 1),
-            unitRate: Math.max(0, Number(eq.unitPrice) || 0),
-            productId: null,
-            isProduct: true,
-          };
-        });
-
-      // Build consolidated items array for backend JobItem records (equipment items always recorded)
-      const combinedItems = canManageLineItems
-        ? [
-            ...equipmentItems,
-            ...productLines
-              .filter((l) => l.name.trim())
-              .map((l) => ({
-                description: `${l.name}${l.sku ? ` (${l.sku})` : ""}`.trim(),
-                quantityPlanned: l.quantity,
-                unitRate: l.unitRate,
-                productId: l.productId || null,
-                isProduct: true,
-              })),
-            ...serviceLines
-              .filter((s) => s.name.trim())
-              .map((s) => ({
-                description: s.name.trim(),
-                quantityPlanned: s.quantity,
-                unitRate: s.unitRate,
-                productId: null,
-                isProduct: false,
-              })),
-          ]
-        : equipmentItems;
-
-      const effectivePrimaryId =
-        primaryTechnicianId && assignedTechnicianIds.includes(primaryTechnicianId)
-          ? primaryTechnicianId
-          : assignedTechnicianIds[0] || null;
-
-      // Auto-persist custom job type to localStorage dropdown list if not already saved
-      if (isCustomJobType && customJobType.trim()) {
-        try {
-          const savedJobs = localStorage.getItem("custom_job_types");
-          const currentList: string[] = savedJobs ? JSON.parse(savedJobs) : COMMON_JOB_TYPES;
-          const trimmed = customJobType.trim();
-          if (Array.isArray(currentList) && !currentList.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
-            const nextList = [...currentList, trimmed];
-            localStorage.setItem("custom_job_types", JSON.stringify(nextList));
-            window.dispatchEvent(new CustomEvent("custom_job_types_updated", { detail: nextList }));
-          }
-        } catch (e) {
-          console.error("Could not auto-persist custom job type", e);
+      // If customer doesn't exist yet, automatically register them inline
+      if (!targetCustomerId) {
+        if (!customerName.trim()) {
+          throw new Error("Please enter customer name.");
         }
+        const phoneDigits = customerMobile.replace(/\D/g, "");
+        if (phoneDigits.length !== 11) {
+          throw new Error("Customer primary mobile must be exactly 11 digits (e.g., 03001234567).");
+        }
+        if (!customerAddress.trim()) {
+          throw new Error("Please enter the customer address.");
+        }
+
+        const createCustRes = await fetch("/api/customers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: customerName.trim(),
+            phone: customerMobile.trim(),
+            secPhone: customerSecMobile.trim() || undefined,
+            addressText: customerAddress.trim(),
+          }),
+        });
+        const custData = await createCustRes.json();
+        if (!createCustRes.ok) {
+          throw new Error(custData.error || "Failed to save customer record.");
+        }
+        targetCustomerId = custData.id;
       }
 
+      // Consolidate Items from Rows
+      const jobItems = rows.map((r) => {
+        const qty = Math.max(1, Number(r.qty) || 1);
+        const rate = Math.max(0, Number(r.charges) || 0);
+        return {
+          description: `[${r.product || "HVAC"} - ${r.brand || "Standard"}] ${r.typeOfWork}${r.remarks ? ` (${r.remarks})` : ""}`,
+          quantityPlanned: qty,
+          unitRate: rate,
+          isProduct: false,
+        };
+      });
+
+      // Care Of handling
+      const firstCareOf = rows[0]?.careOff;
+      const isCareOfActive = firstCareOf && firstCareOf !== "direct";
+      const selectedCareOfParty = isCareOfActive ? careOfParties.find((p) => p.id === firstCareOf) : null;
+
+      // Remarks consolidation
+      const rowRemarks = rows
+        .map((r, i) => {
+          const parts = [];
+          if (r.remarks) parts.push(r.remarks);
+          return parts.length ? `Item ${i + 1}: ${parts.join(" - ")}` : "";
+        })
+        .filter(Boolean)
+        .join(" | ");
+
+      const primaryJobType = rows[0]?.typeOfWork || "General HVAC Service";
+
       const payload = {
-        customerId: selectedCustomerId,
-        careOfPartyId: isCareOf ? selectedCareOfPartyId : null,
-        careOfCompanyName: isCareOf ? careOfCompanyName.trim() : null,
-        careOfPersonName: isCareOf ? careOfPersonName.trim() : null,
-        manualJobNumber: isCareOf ? manualJobNumber : null,
-        isFoc,
-        focReason: isFoc ? focReason.trim() : undefined,
-        paymentCollectionMode: isFoc ? "technician" : paymentCollectionMode,
-        jobType: effectiveJobType.trim(),
-        remarks: isFoc ? `[FOC: Company Billed] ${fullRemarks}`.trim() : fullRemarks,
-        assignedTechnicianId: effectivePrimaryId,
-        technicianIds: assignedTechnicianIds,
-        items: combinedItems,
+        customerId: targetCustomerId,
+        jobType: primaryJobType,
+        careOfPartyId: isCareOfActive ? firstCareOf : null,
+        careOfCompanyName: selectedCareOfParty?.companyName || null,
+        careOfPersonName: selectedCareOfParty?.personName || null,
+        manualJobNumber: manualJobNumber.trim() || null,
+        isFoc: paymentMode === "foc",
+        focReason: paymentMode === "foc" ? focReason.trim() : undefined,
+        paymentCollectionMode: paymentMode === "office" ? "office" : "technician",
+        remarks: rowRemarks || `${primaryJobType} at client location`,
+        assignedTechnicianId: assignedTechnicianId || null,
+        technicianIds: assignedTechnicianId ? [assignedTechnicianId] : [],
+        items: jobItems,
       };
 
       const res = await fetch("/api/jobs", {
@@ -829,6 +431,7 @@ export default function NewJobIntakePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create job");
 
+      // Publish Realtime Dispatch Notification
       if (payload.assignedTechnicianId) {
         const assignedTech = technicians.find((t) => t.id === payload.assignedTechnicianId);
         realtimeSync.publish("JOB_ASSIGNED", {
@@ -837,1503 +440,629 @@ export default function NewJobIntakePage() {
           technicianId: payload.assignedTechnicianId,
           technicianName: assignedTech?.name,
           actor: "Operations Intake",
-          message: assignedTechnicianIds.length > 1
-            ? `New Job #${data.jobNumber} assigned to crew of ${assignedTechnicianIds.length} (Lead: ${assignedTech?.name || "Technician"})`
-            : `New Job #${data.jobNumber} assigned to ${assignedTech?.name || "Technician"}`,
+          message: `New Job #${data.jobNumber} assigned to ${assignedTech?.name || "Technician"}`,
           payload: { job: data },
         });
       }
 
       router.push(`/jobs/${data.id}`);
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(err.message || "An error occurred while creating the job.");
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-24 animate-in fade-in">
-      {/* Page Header */}
-      <PageHeader
-        breadcrumbs={[
-          { label: "Jobs", href: "/jobs" },
-          { label: "Intake Work Order" },
-        ]}
-        title="New HVAC Job Intake"
-        subtitle={
-          canManageLineItems
-            ? "Book a service order, define equipment specs, link inventory parts, and set service charges."
-            : "Book a service order, define equipment specifications, log operational notes, and assign a technician."
-        }
-      />
+    <div className="min-h-[calc(100vh-4rem)] bg-[#F8FAFC] p-4 lg:p-6 flex flex-col justify-start">
+      {/* Top Breadcrumb & Status */}
+      <div className="flex items-center justify-between mb-3 max-w-6xl mx-auto w-full">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Link href="/jobs" className="hover:text-emerald-700 font-semibold transition">
+            Jobs
+          </Link>
+          <span>/</span>
+          <span className="font-bold text-slate-800">Fast Job Intake</span>
+        </div>
 
-      <div className="flex items-center justify-between">
         <Link
           href="/jobs"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#71717A] hover:text-[#18181B] transition"
+          className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition flex items-center gap-1"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Jobs Directory
+          <X className="w-3.5 h-3.5" />
+          Cancel & Close
         </Link>
-        <span className="text-xs font-mono bg-white border border-[#EDEDED] px-3 py-1 rounded-full text-[#71717A] shadow-2xs">
-          Auto-generating JOB-2026-XXXX
-        </span>
       </div>
 
-      {errorMsg && (
-        <div
-          role="alert"
-          className="p-3.5 bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs rounded-xl font-medium flex items-center gap-2"
-        >
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmitJob} className="space-y-6">
-        {/* ========================================================================= */}
-        {/* SECTION 1: CUSTOMER SEARCH & AUTO-RECOMMEND ADD NEW CUSTOMER              */}
-        {/* ========================================================================= */}
-        <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#EDEDED]">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
-                <User className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  1. Customer & Location
-                </h2>
-                <p className="text-[11px] text-[#71717A]">
-                  Search existing customer records or register a new customer with map coordinates.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setInitialQueryForDrawer(customerSearch);
-                setIsAddCustomerOpen(true);
-              }}
-              className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              + Add New Customer
-            </button>
+      {/* Main Single-Card Form (Exact Reference Layout) */}
+      <div className="max-w-6xl mx-auto w-full bg-white rounded-2xl shadow-sm border border-slate-200/90 p-5 lg:p-6">
+        {errorMsg && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
           </div>
+        )}
 
-          {/* If a customer is already selected, display the Customer Card */}
-          {selectedCustomer ? (
-            <div className="p-4 bg-[#F9FAFB] border border-emerald-200 rounded-xl space-y-3 animate-in fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-[#18181B]">
-                      {selectedCustomer.name}
-                    </span>
-                    <span className="text-[10px] bg-emerald-100 text-[#065F46] font-semibold px-2 py-0.5 rounded-full">
-                      Selected Customer
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-[#52525B]">
-                    <span className="flex items-center gap-1 font-mono">
-                      <Phone className="w-3 h-3 text-[#71717A]" />
-                      {selectedCustomer.phone}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-[#0D7A5F]" />
-                      {selectedCustomer.addressText}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCustomerId("");
-                    setCustomerSearch("");
-                  }}
-                  className="text-xs font-semibold text-[#71717A] hover:text-[#18181B] px-3 py-1.5 rounded-lg border border-[#EDEDED] bg-white hover:bg-[#F4F4F5] transition self-start sm:self-center"
-                >
-                  Change Customer
-                </button>
-              </div>
-
-            </div>
-          ) : (
-            /* Customer Search Input with Interactive Dropdown */
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ========================================================================= */}
+          {/* ROW 1: Customer (Name), Mobile, Secondary Mobile No                       */}
+          {/* ========================================================================= */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Customer Name with Autocomplete */}
             <div className="relative" ref={customerDropdownRef}>
-              <label className="text-xs font-semibold text-[#18181B] block mb-1.5">
-                Search Customer (Searchable by Name or Phone Number)
-              </label>
-
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Start typing customer name or phone number (+92...)"
-                  value={customerSearch}
-                  onFocus={() => setIsCustomerDropdownOpen(true)}
-                  onChange={(e) => {
-                    setCustomerSearch(e.target.value);
-                    setIsCustomerDropdownOpen(true);
-                  }}
-                  className="w-full bg-[#F4F4F5] pl-9 pr-8 py-2.5 rounded-lg text-xs text-[#18181B] border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs font-medium"
-                />
-                {customerSearch && (
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Customer:<span className="text-red-500 ml-0.5">*</span>
+                </label>
+                {selectedCustomerId && (
                   <button
                     type="button"
-                    onClick={() => setCustomerSearch("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#71717A] hover:text-[#18181B]"
+                    onClick={handleClearCustomer}
+                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    Change / New
                   </button>
                 )}
               </div>
+              <input
+                type="text"
+                required
+                value={customerName}
+                onChange={(e) => {
+                  setCustomerName(e.target.value);
+                  setCustomerSearchQuery(e.target.value);
+                  setShowCustomerDropdown(true);
+                  if (selectedCustomerId) setSelectedCustomerId(null);
+                }}
+                onFocus={() => {
+                  if (customerName) {
+                    setCustomerSearchQuery(customerName);
+                    setShowCustomerDropdown(true);
+                  }
+                }}
+                placeholder="Enter customer name"
+                className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition"
+              />
 
-              {/* Suggestions / Dropdown List */}
-              {isCustomerDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-[#EDEDED] rounded-xl shadow-xl z-30 max-h-72 overflow-y-auto divide-y divide-[#EDEDED] text-xs animate-in fade-in zoom-in-95 duration-100">
-                  {filteredCustomers.length > 0 ? (
-                    filteredCustomers.map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => {
-                          setSelectedCustomerId(c.id);
-                          setIsCustomerDropdownOpen(false);
-                          setCustomerSearch("");
-                        }}
-                        className="p-3 hover:bg-[#F9FAFB] cursor-pointer flex items-center justify-between transition group"
-                      >
-                        <div>
-                          <p className="font-bold text-[#18181B] group-hover:text-[#0D7A5F]">
-                            {c.name}
-                          </p>
-                          <p className="text-[11px] text-[#71717A] font-mono mt-0.5">
-                            {c.phone}
-                          </p>
-                          <p className="text-[11px] text-[#A1A1AA] truncate max-w-md mt-0.5 flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-[#A1A1AA]" />
-                            {c.addressText}
-                          </p>
-                        </div>
-                        <span className="text-xs font-bold text-[#0D7A5F] opacity-0 group-hover:opacity-100 transition px-2 py-1 bg-emerald-50 rounded">
-                          Select
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-4 text-center space-y-2">
-                      <p className="text-xs text-[#71717A]">
-                        No matching customer found for <strong className="text-[#18181B]">"{customerSearch}"</strong>
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="p-2 bg-[#F9FAFB] sticky bottom-0 border-t border-[#EDEDED]">
+              {/* Autocomplete Dropdown */}
+              {showCustomerDropdown && matchingCustomers.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100">
+                  {matchingCustomers.map((c) => (
                     <button
+                      key={c.id}
                       type="button"
-                      onClick={() => {
-                        setInitialQueryForDrawer(customerSearch);
-                        setIsAddCustomerOpen(true);
-                        setIsCustomerDropdownOpen(false);
-                      }}
-                      className="w-full p-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] font-bold text-xs flex items-center justify-between transition border border-emerald-200"
+                      onClick={() => handleSelectCustomer(c)}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 transition flex items-center justify-between group"
                     >
-                      <span className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        {customerSearch.trim()
-                          ? `Add "${customerSearch.trim()}" as New Customer`
-                          : "Add New Customer"}
-                      </span>
-                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[#0D7A5F] text-white">
-                        + New Record
+                      <div>
+                        <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">
+                          {c.name}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono">
+                          {c.phone} {c.addressText || c.address ? `· ${c.addressText || c.address}` : ""}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                        Auto-Fill
                       </span>
                     </button>
-                  </div>
+                  ))}
                 </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* ========================================================================= */}
-        {/* SECTION 2: JOB CLASSIFICATION & EQUIPMENT SPECIFICATION                   */}
-        {/* ========================================================================= */}
-        <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
-          <div className="flex items-center gap-2 pb-3 border-b border-[#EDEDED]">
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
-              <Briefcase className="w-4 h-4" />
-            </div>
+            {/* Mobile (Primary) */}
             <div>
-              <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                2. Job Classification & Equipment Details
-              </h2>
-              <p className="text-[11px] text-[#71717A]">
-                Select job type, equipment product type before brand, brand, and unit model.
-              </p>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Mobile:<span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input
+                type="tel"
+                required
+                value={customerMobile}
+                onChange={(e) => {
+                  setCustomerMobile(e.target.value);
+                  if (selectedCustomerId) setSelectedCustomerId(null);
+                }}
+                placeholder="Mobile (e.g. 03001234567)"
+                className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono"
+              />
+            </div>
+
+            {/* Secondary Mobile No */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Secondary Mobile No:
+              </label>
+              <input
+                type="tel"
+                value={customerSecMobile}
+                onChange={(e) => setCustomerSecMobile(e.target.value)}
+                placeholder="Secondary Mobile No"
+                className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono"
+              />
             </div>
           </div>
 
-          <div className="space-y-5 text-xs">
-            {/* 1. JOB TYPE: Select or Type from Dropdown */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="font-semibold text-[#18181B] block">
-                  Job Nature / Type <span className="text-rose-500">*</span>
-                </label>
-                <Link
-                  href="/settings/job-types"
-                  target="_blank"
-                  className="text-[11px] font-semibold text-[#0D7A5F] hover:underline flex items-center gap-1"
-                  title="Configure dropdown options in Settings"
-                >
-                  <Sparkles className="w-3 h-3 text-[#0D7A5F]" />
-                  Customize Options
-                </Link>
-              </div>
+          {/* ========================================================================= */}
+          {/* ROW 2: Address (Full Width)                                              */}
+          {/* ========================================================================= */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Address:
+            </label>
+            <input
+              type="text"
+              required
+              value={customerAddress}
+              onChange={(e) => setCustomerAddress(e.target.value)}
+              placeholder="Enter an Address..."
+              className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition"
+            />
+          </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <SearchableSelect
-                    options={jobTypeOptions}
-                    value={isCustomJobType ? "CUSTOM" : selectedJobTypePreset}
-                    onChange={(val: string) => {
-                      if (val === "CUSTOM") {
-                        setIsCustomJobType(true);
-                      } else {
-                        setIsCustomJobType(false);
-                        setSelectedJobTypePreset(val);
-                      }
-                    }}
-                    placeholder="Search or pick job type..."
-                    searchPlaceholder="Type to search standard HVAC job types..."
-                    className="w-full"
-                  />
-                </div>
+          {/* ========================================================================= */}
+          {/* ROWS 3, 4, 5: Work Items & Equipment Details                              */}
+          {/* ========================================================================= */}
+          <div className="space-y-4 pt-1">
+            {rows.map((row, index) => {
+              const rowTotal = (Math.max(1, Number(row.qty) || 1)) * (Math.max(0, Number(row.charges) || 0));
 
-                {isCustomJobType && (
-                  <div>
-                    <input
-                      type="text"
-                      placeholder="Type custom job type (e.g. Chiller Chemical Flushing)..."
-                      value={customJobType}
-                      onChange={(e) => setCustomJobType(e.target.value)}
-                      className="w-full bg-white p-2.5 rounded-lg border border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium animate-in fade-in"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 2. PRODUCT SPECIFICATION: PRODUCT TYPE (BEFORE BRAND) -> BRAND -> MODEL -> QTY -> UNIT PRICE -> TOTAL */}
-            <div className="pt-2 border-t border-[#EDEDED] space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <Cpu className="w-3.5 h-3.5 text-[#0D7A5F]" />
-                  <span className="font-bold text-xs text-[#18181B] uppercase tracking-wider">
-                    Equipment Details (Product Type, Brand, Model & Quantities)
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-[#0D7A5F] border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
-                    {equipmentLines.length} {equipmentLines.length === 1 ? "unit item" : "unit items"} ({equipmentTotalQty} total units)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded font-mono hidden sm:inline-block">
-                    Product column placed before Brand
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleAddEquipmentLine}
-                    className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    + Add Equipment
-                  </button>
-                </div>
-              </div>
-
-              {/* Equipment Items List */}
-              <div className="space-y-3">
-                {equipmentLines.map((eq, idx) => {
-                  const lineTotal = (Number(eq.quantity) || 1) * (Number(eq.unitPrice) || 0);
-
-                  return (
-                    <div
-                      key={eq.id}
-                      className="p-4 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl space-y-3 relative group animate-in fade-in"
-                    >
-                      {/* Item Sub-header */}
-                      <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-[#18181B] uppercase tracking-wider">
-                            Equipment #{idx + 1}
-                          </span>
-                          <span className="text-[10px] text-[#71717A]">
-                            Specification & Rates
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <div className="text-right">
-                            <span className="text-[10px] text-[#71717A] mr-1.5">Line Total:</span>
-                            <span className="text-xs font-mono font-extrabold text-[#0D7A5F] bg-white px-2 py-0.5 rounded border border-[#EDEDED]">
-                              {formatCurrency(lineTotal)}
-                            </span>
-                          </div>
-
-                          {equipmentLines.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveEquipmentLine(eq.id)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title={`Remove equipment #${idx + 1}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Equipment Fields Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3">
-                        {/* 1. Product / Appliance Type (Col span 3) */}
-                        <div className="lg:col-span-3">
-                          <label className="font-semibold text-[#18181B] block mb-1">
-                            Product / Appliance Type *
-                          </label>
-                          <SearchableCombobox
-                            options={configuredEquipmentTypes}
-                            value={eq.productType}
-                            onChange={(val: string) =>
-                              handleUpdateEquipmentLine(eq.id, "productType", val)
-                            }
-                            placeholder="Type or pick appliance..."
-                            className="w-full"
-                          />
-                          <span className="text-[10px] text-[#71717A] mt-1 block">
-                            Type or pick HVAC appliance
-                          </span>
-                        </div>
-
-                        {/* 2. Brand (Col span 2) */}
-                        <div className="lg:col-span-2">
-                          <label className="font-semibold text-[#18181B] block mb-1">
-                            Equipment Brand (Type or Select)
-                          </label>
-                          <SearchableCombobox
-                            options={configuredBrands}
-                            value={eq.brand}
-                            onChange={(val: string) =>
-                              handleUpdateEquipmentLine(eq.id, "brand", val)
-                            }
-                            placeholder="Type or pick brand..."
-                            className="w-full"
-                          />
-                          <span className="text-[10px] text-[#71717A] mt-1 block">
-                            Brand manufacturer
-                          </span>
-                        </div>
-
-                        {/* 3. Model / Specification (Col span 2) */}
-                        <div className="lg:col-span-2">
-                          <label className="font-semibold text-[#18181B] block mb-1">
-                            Model / Specification
-                          </label>
-                          <SearchableCombobox
-                            options={configuredModels}
-                            value={eq.model}
-                            onChange={(val: string) =>
-                              handleUpdateEquipmentLine(eq.id, "model", val)
-                            }
-                            placeholder="Type or pick model..."
-                            className="w-full"
-                          />
-                          <span className="text-[10px] text-[#71717A] mt-1 block">
-                            Series specification
-                          </span>
-                        </div>
-
-                        {/* 4. Quantity (Col span 1) */}
-                        <div className="lg:col-span-1">
-                          <label className="font-semibold text-[#18181B] block mb-1">
-                            Qty *
-                          </label>
-                          <DraftNumberInput
-                            min="1"
-                            step="1"
-                            value={eq.quantity}
-                            onValue={(raw) => handleUpdateEquipmentLine(eq.id, "quantity", raw)}
-                            className="w-full bg-white p-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono text-center font-bold"
-                          />
-                          <span className="text-[10px] text-[#71717A] mt-1 block text-center">
-                            Units
-                          </span>
-                        </div>
-
-                        {/* 5. Per-Unit Price (Col span 2) */}
-                        <div className="lg:col-span-2">
-                          <label className="font-semibold text-[#18181B] block mb-1">
-                            Per-Unit Price (PKR)
-                          </label>
-                          <div className="relative">
-                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-[#71717A]">
-                              Rs.
-                            </span>
-                            <DraftNumberInput
-                              min="0"
-                              step="1"
-                              placeholder="0"
-                              value={eq.unitPrice}
-                              display={(v) => (v === 0 ? "" : v)}
-                              onValue={(raw) => handleUpdateEquipmentLine(eq.id, "unitPrice", raw)}
-                              className="w-full bg-white pl-8 pr-2.5 py-2.5 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono font-medium"
-                            />
-                          </div>
-                          <span className="text-[10px] text-[#71717A] mt-1 block">
-                            Unit rate (PKR)
-                          </span>
-                        </div>
-
-                        {/* 6. Total (Col span 2) */}
-                        <div className="lg:col-span-2">
-                          <label className="font-semibold text-[#18181B] block mb-1">
-                            Total
-                          </label>
-                          <div className="px-2 py-2.5 bg-emerald-50/80 rounded-lg border border-emerald-200/90 text-center flex items-center justify-center min-h-[42px] overflow-hidden">
-                            <span
-                              className={cn(
-                                "font-mono font-bold text-[#0D7A5F] block leading-tight whitespace-nowrap overflow-x-auto scrollbar-none",
-                                formatCurrency(lineTotal).length > 16
-                                  ? "text-[11px]"
-                                  : "text-xs sm:text-[13px]"
-                              )}
-                              title={formatCurrency(lineTotal)}
-                            >
-                              {formatCurrency(lineTotal)}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-[#71717A] mt-1 block text-center">
-                            Qty × Rate
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Equipment Summary & Add Line Bar */}
-              <div className="p-3.5 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={handleAddEquipmentLine}
-                  className="text-xs font-bold text-[#0D7A5F] bg-white hover:bg-emerald-50 px-3.5 py-2 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  + Add Another Equipment / Appliance
-                </button>
-
-                <div className="flex items-center gap-4 text-xs">
-                  <div className="text-right">
-                    <span className="text-[10px] text-[#71717A] uppercase font-bold tracking-wider block">
-                      Total Units:
-                    </span>
-                    <span className="font-bold text-[#18181B] font-mono">
-                      {equipmentTotalQty} {equipmentTotalQty === 1 ? "unit" : "units"}
-                    </span>
-                  </div>
-
-                  <div className="text-right pl-4 border-l border-[#D4D4D8]">
-                    <span className="text-[10px] text-[#71717A] uppercase font-bold tracking-wider block">
-                      Equipment Subtotal:
-                    </span>
-                    <span className="text-sm font-black text-[#0D7A5F] font-mono">
-                      {formatCurrency(equipmentSubtotal)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. CARE-OF & FOC ORDER TOGGLES & SUB-FIELDS */}
-            <div className="pt-2 border-t border-[#EDEDED] space-y-2.5">
-              {/* Care-Of / Subcontracted Order */}
-              <div className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-xl border border-[#EDEDED]">
-                <div className="flex items-center gap-2.5">
-                  <Building className="w-4 h-4 text-[#71717A]" />
-                  <div>
-                    <span className="font-bold text-xs text-[#18181B] block">
-                      Care-Of / Subcontracted Order
-                    </span>
-                    <span className="text-[11px] text-[#71717A]">
-                      Enable if this job is billed through or performed on behalf of a 3rd party contractor.
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsCareOf(!isCareOf)}
+              return (
+                <div
+                  key={row.id}
                   className={cn(
-                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                    isCareOf ? "bg-[#0D7A5F]" : "bg-[#D4D4D8]"
+                    "rounded-xl border border-slate-200/90 p-4 space-y-3 transition",
+                    rows.length > 1 ? "bg-slate-50/50" : "bg-transparent"
                   )}
-                  role="switch"
-                  aria-checked={isCareOf}
                 >
-                  <span
-                    className={cn(
-                      "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
-                      isCareOf ? "translate-x-5" : "translate-x-0"
-                    )}
-                  />
-                </button>
-              </div>
-
-              {/* FOC (Free of Charge) Dispatcher Toggle */}
-              <div className="flex items-center justify-between p-3 bg-purple-50/60 rounded-xl border border-purple-100 hover:border-purple-200 transition">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs shrink-0 border border-purple-200">
-                    FOC
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-xs text-purple-950 block">
-                        Free of Charge (FOC) Order
+                  {/* Row Top Indicator (if multiple rows) */}
+                  {rows.length > 1 && (
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Work Item #{index + 1}
                       </span>
-                      {isFoc && (
-                        <span className="text-[10px] font-bold text-purple-800 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-purple-600" />
-                          Customer Pays PKR 0
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRow(row.id)}
+                        className="text-xs font-semibold text-rose-600 hover:text-rose-800 flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Remove
+                      </button>
                     </div>
-                    <span className="text-[11px] text-purple-800/80">
-                      Enable if this is a company warranty/corporate order where the customer pays PKR 0 at site, and revenue will be received from the principal company/partner.
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const nextVal = !isFoc;
-                    setIsFoc(nextVal);
-                    if (nextVal && !isCareOf) {
-                      setIsCareOf(true);
-                    }
-                  }}
-                  className={cn(
-                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                    isFoc ? "bg-purple-700" : "bg-[#D4D4D8]"
                   )}
-                  role="switch"
-                  aria-checked={isFoc}
-                >
-                  <span
-                    className={cn(
-                      "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
-                      isFoc ? "translate-x-5" : "translate-x-0"
-                    )}
-                  />
-                </button>
-              </div>
 
-              {/* FOC Active Explanatory Banner */}
-              {isFoc && (
-                <div className="p-3 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-start gap-2.5 animate-in fade-in">
-                  <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                  <div className="space-y-0.5">
-                    <p className="font-bold text-purple-950">FOC Customer Exemption Active</p>
-                    <p className="text-[11px] text-purple-800 leading-relaxed">
-                      The customer will be charged <strong>PKR 0</strong>. In the accounting workstation, this work order will be marked as <strong>FOC</strong> under the company's ledger so the finance team can record company receipts.
-                      {!isCareOf && " Please specify the Company/Brand details below."}
-                    </p>
-                    <p className="text-[11px] text-purple-800 leading-relaxed">
-                      The company&apos;s payment amount is entered by Accounts when it is received (revenue is booked then).
-                    </p>
-                    <div className="pt-2">
+                  {/* ROW 3: Type Of Work, Product, Brand, Care Off */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {/* Type Of Work with Blue (+) Button */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Type Of Work:<span className="text-red-500 ml-0.5">*</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={row.typeOfWork}
+                          onChange={(e) => handleUpdateRow(row.id, "typeOfWork", e.target.value)}
+                          className="flex-1 h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                        >
+                          {jobTypes.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveRowIdForAddType(row.id);
+                            setShowAddTypeModal(true);
+                          }}
+                          className="w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shrink-0 transition shadow-xs"
+                          title="Add new Type of Work"
+                        >
+                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Product / Equipment */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Product :
+                      </label>
+                      <select
+                        value={row.product}
+                        onChange={(e) => handleUpdateRow(row.id, "product", e.target.value)}
+                        className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                      >
+                        {equipmentTypes.map((eq) => (
+                          <option key={eq} value={eq}>
+                            {eq}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Brand with Blue (+) Button */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Brand:
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={row.brand}
+                          onChange={(e) => handleUpdateRow(row.id, "brand", e.target.value)}
+                          className="flex-1 h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                        >
+                          {brands.map((b) => (
+                            <option key={b} value={b}>
+                              {b}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveRowIdForAddBrand(row.id);
+                            setShowAddBrandModal(true);
+                          }}
+                          className="w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shrink-0 transition shadow-xs"
+                          title="Add new Brand"
+                        >
+                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Care Off with Blue (+) Button */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Care Off:<span className="text-red-500 ml-0.5">*</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={row.careOff}
+                          onChange={(e) => handleUpdateRow(row.id, "careOff", e.target.value)}
+                          className="flex-1 h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                        >
+                          <option value="direct">Direct / Cash Customer</option>
+                          {careOfParties.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.companyName} {p.personName ? `(${p.personName})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveRowIdForAddCareOf(row.id);
+                            setShowAddCareOfModal(true);
+                          }}
+                          className="w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shrink-0 transition shadow-xs"
+                          title="Add new Care Off Company"
+                        >
+                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ROW 4: Qty, Charges, Total */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Qty
+                      </label>
                       <input
-                        value={focReason}
-                        onChange={(e) => setFocReason(e.target.value)}
-                        placeholder="FOC note / warranty or claim reference (optional)"
-                        className="w-full h-8 px-2 rounded-lg border border-purple-300 bg-white text-xs"
+                        type="number"
+                        min="1"
+                        value={row.qty}
+                        onChange={(e) => handleUpdateRow(row.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono"
                       />
                     </div>
-                  </div>
-                </div>
-              )}
 
-              {/* Payment collection mode (non-FOC) */}
-              {!isFoc && (
-                <div className="p-3 bg-white border border-[#E4E4E7] rounded-xl text-xs flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <p className="font-bold text-[#18181B]">Payment collection</p>
-                    <p className="text-[11px] text-[#71717A]">
-                      Office collection: the technician app shows &quot;No collection&quot; and hisaab expects PKR 0; accounts records the receipt.
-                    </p>
-                  </div>
-                  <select
-                    value={paymentCollectionMode}
-                    onChange={(e) => setPaymentCollectionMode(e.target.value === "office" ? "office" : "technician")}
-                    className="h-8 px-2 rounded-lg border border-[#D4D4D8] bg-white text-xs"
-                  >
-                    <option value="technician">Technician collects on site</option>
-                    <option value="office">Office / accountant collects</option>
-                  </select>
-                </div>
-              )}
-
-              {isCareOf && (
-                <div className="p-3.5 mt-2 bg-[#F4F4F5] rounded-xl border border-[#EDEDED] animate-in fade-in space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-[#E4E4E7]">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-[#18181B]">
-                        Care-Of Organization Details
-                      </span>
-                      {selectedCareOfPartyId ? (
-                        <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          Saved Partner Linked
-                        </span>
-                      ) : careOfCompanyName.trim() ? (
-                        <span className="text-[10px] font-semibold text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-purple-600" />
-                          Will save as new organization
-                        </span>
-                      ) : null}
-                    </div>
-                    <Link
-                      href="/jobs/care-of"
-                      target="_blank"
-                      className="text-[11px] font-semibold text-[#0D7A5F] hover:text-[#0A614B] hover:underline inline-flex items-center gap-1"
-                    >
-                      <span>Manage Care-Of Directory &rarr;</span>
-                    </Link>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Searchable Company Name */}
-                    <div className="relative" ref={companyInputRef}>
-                      <label className="font-semibold text-xs text-[#18181B] block mb-1">
-                        Care Of Company Name <span className="text-rose-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <Building className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          placeholder="Search or type company..."
-                          value={careOfCompanyName}
-                          onFocus={() => setIsCompanyDropdownOpen(true)}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setCareOfCompanyName(val);
-                            setIsCompanyDropdownOpen(true);
-                            const match = careOfParties.find(
-                              (p) => p.companyName.toLowerCase() === val.trim().toLowerCase()
-                            );
-                            if (match) {
-                              setSelectedCareOfPartyId(match.id);
-                              if (match.personName && !careOfPersonName) {
-                                setCareOfPersonName(match.personName);
-                              }
-                            } else {
-                              setSelectedCareOfPartyId(null);
-                            }
-                          }}
-                          className="w-full text-xs pl-9 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
-                        />
-                        {careOfCompanyName && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCareOfCompanyName("");
-                              setSelectedCareOfPartyId(null);
-                            }}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-[#18181B]"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Dropdown Suggestions */}
-                      {isCompanyDropdownOpen && careOfParties.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-[#EDEDED] shadow-lg max-h-56 overflow-y-auto z-50 divide-y divide-[#F4F4F5] animate-in fade-in">
-                          <div className="p-1.5 bg-[#FAFAFA] text-[10px] font-semibold text-[#71717A] uppercase tracking-wider px-2">
-                            Select Saved Organization ({matchingCareOfCompanies.length})
-                          </div>
-                          {matchingCareOfCompanies.length === 0 ? (
-                            <div className="p-3 text-center text-xs text-[#71717A]">
-                              No matching partner found. Typed name will be registered.
-                            </div>
-                          ) : (
-                            matchingCareOfCompanies.map((party) => (
-                              <button
-                                key={party.id}
-                                type="button"
-                                onClick={() => {
-                                  setCareOfCompanyName(party.companyName);
-                                  setCareOfPersonName(party.personName || "");
-                                  setSelectedCareOfPartyId(party.id);
-                                  setIsCompanyDropdownOpen(false);
-                                }}
-                                className="w-full text-left p-2.5 hover:bg-[#F4F4F5] transition flex items-center justify-between text-xs group cursor-pointer"
-                              >
-                                <div>
-                                  <span className="font-bold text-[#18181B] group-hover:text-[#0D7A5F] block">
-                                    {party.companyName}
-                                  </span>
-                                  {party.personName && (
-                                    <span className="text-[11px] text-[#71717A] inline-flex items-center gap-1 mt-0.5">
-                                      <User className="w-3 h-3 text-[#A1A1AA]" />
-                                      {party.personName}
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[10px] text-[#0D7A5F] bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono group-hover:bg-emerald-100">
-                                  Auto-fill &rarr;
-                                </span>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Searchable Contact Person */}
-                    <div className="relative" ref={personInputRef}>
-                      <label className="font-semibold text-xs text-[#18181B] block mb-1">
-                        Care Of Contact Person
-                      </label>
-                      <div className="relative">
-                        <User className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          placeholder="e.g. Engr. Usman Khan"
-                          value={careOfPersonName}
-                          onFocus={() => setIsPersonDropdownOpen(true)}
-                          onChange={(e) => setCareOfPersonName(e.target.value)}
-                          className="w-full text-xs pl-9 pr-8 py-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs"
-                        />
-                        {careOfPersonName && (
-                          <button
-                            type="button"
-                            onClick={() => setCareOfPersonName("")}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-[#18181B]"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Dropdown Suggestions for Contact Person */}
-                      {isPersonDropdownOpen && matchingCareOfPersons.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-[#EDEDED] shadow-lg max-h-48 overflow-y-auto z-50 divide-y divide-[#F4F4F5] animate-in fade-in">
-                          <div className="p-1.5 bg-[#FAFAFA] text-[10px] font-semibold text-[#71717A] uppercase tracking-wider px-2">
-                            Suggested Contacts
-                          </div>
-                          {matchingCareOfPersons.map((p, idx) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              onClick={() => {
-                                setCareOfPersonName(p.personName);
-                                if (!careOfCompanyName && p.companyName) {
-                                  setCareOfCompanyName(p.companyName);
-                                  setSelectedCareOfPartyId(p.id);
-                                }
-                                setIsPersonDropdownOpen(false);
-                              }}
-                              className="w-full text-left p-2 hover:bg-[#F4F4F5] transition flex items-center justify-between text-xs cursor-pointer"
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <User className="w-3 h-3 text-[#71717A]" />
-                                <span className="font-semibold text-[#18181B]">{p.personName}</span>
-                              </div>
-                              <span className="text-[10px] text-[#71717A]">
-                                {p.companyName}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* External Job # */}
                     <div>
-                      <label className="font-semibold text-xs text-[#18181B] block mb-1">
-                        External Job #
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Charges
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={row.charges}
+                        onChange={(e) => handleUpdateRow(row.id, "charges", Math.max(0, parseFloat(e.target.value) || 0))}
+                        placeholder="Charges in PKR"
+                        className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Total
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. APX-9981"
-                        value={manualJobNumber}
-                        onChange={(e) => setManualJobNumber(e.target.value)}
-                        className="w-full text-xs p-2 bg-white rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none transition shadow-2xs font-mono"
+                        readOnly
+                        value={formatCurrency(rowTotal)}
+                        className="w-full h-10 px-3.5 bg-slate-100 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 cursor-not-allowed font-mono"
                       />
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
 
-        {/* ========================================================================= */}
-        {/* SECTION 3: SCOPE OF WORK, PRODUCTS (INVENTORY) & SERVICE CHARGES           */}
-        {/* ========================================================================= */}
-        {canManageLineItems && (
-          <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
-          <div className="flex items-center justify-between pb-3 border-b border-[#EDEDED]">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
-                <Receipt className="w-4 h-4" />
+                  {/* ROW 5: Remarks */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Remarks
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={row.remarks}
+                      onChange={(e) => handleUpdateRow(row.id, "remarks", e.target.value)}
+                      placeholder="Enter job remarks, site instructions, access notes, or unit specifications..."
+                      className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition resize-none"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ========================================================================= */}
+          {/* ROW 6: + Add Row Button                                                   */}
+          {/* ========================================================================= */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={handleAddRow}
+              className="h-10 px-5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm inline-flex items-center gap-1.5 transition shadow-xs"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              Add Row
+            </button>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* BOTTOM COMPACT DISPATCH & SUBMIT BAR                                     */}
+          {/* ========================================================================= */}
+          <div className="pt-4 mt-2 border-t border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/70 p-4 rounded-xl">
+            {/* Technician & Payment Options */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Technician Dropdown */}
+              <div className="w-60">
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Assign Technician:
+                </label>
+                <select
+                  value={assignedTechnicianId}
+                  onChange={(e) => setAssignedTechnicianId(e.target.value)}
+                  className="w-full h-9 px-2.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                >
+                  <option value="">Unassigned (Queue in Dispatch)</option>
+                  {technicians.map((t) => {
+                    const statusText = t.isCheckedIn ? "🟢 Available & Ready" : t.status === "On Job" ? "🔵 On Job" : "⚪ Off Duty";
+                    return (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({statusText})
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
+
+              {/* Payment Mode Pills */}
               <div>
-                <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  3. Line Items & Charges (Products from Inventory & Services)
-                </h2>
-                <p className="text-[11px] text-[#71717A]">
-                  Add multiple products (linked with inventory stock & prices) and multiple service labor charges.
-                </p>
-              </div>
-            </div>
-
-            <div className="text-right hidden sm:block">
-              <span className="text-[11px] text-[#71717A] block font-medium">Estimated Job Total:</span>
-              <span className="text-base font-extrabold text-[#0D7A5F] font-mono">
-                {formatCurrency(totalEstimatedCharges)}
-              </span>
-            </div>
-          </div>
-
-          {/* 3A. PRODUCT LINES (LINKED WITH INVENTORY) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-[#0D7A5F]" />
-                <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Product / Parts Lines (Linked with Live Inventory)
-                </span>
-                <span className="text-[10px] bg-emerald-50 text-[#0D7A5F] border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
-                  {productLines.length} {productLines.length === 1 ? "part" : "parts"}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAddProductLine}
-                className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                + Add Product Line
-              </button>
-            </div>
-
-            {productLines.length === 0 ? (
-              <div className="p-5 border border-dashed border-[#EDEDED] rounded-xl text-center space-y-2 bg-[#FAFAFA]">
-                <Boxes className="w-6 h-6 text-[#A1A1AA] mx-auto" />
-                <p className="text-xs text-[#71717A]">
-                  No inventory products or physical parts added yet for this job.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleAddProductLine}
-                  className="text-xs font-bold text-[#0D7A5F] hover:underline"
-                >
-                  Click to select products from warehouse inventory
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {productLines.map((line, idx) => {
-                  const lineTotal = line.quantity * (line.unitRate || 0);
-                  const isLowStock =
-                    line.availableStock !== undefined && line.availableStock <= 5;
-                  const isOutOfStock =
-                    line.availableStock !== undefined && line.availableStock <= 0;
-
-                  return (
-                    <div
-                      key={line.id}
-                      className="p-3.5 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl flex flex-col md:flex-row items-start md:items-center gap-3 text-xs animate-in fade-in"
-                    >
-                      {/* Product Selector / Name */}
-                      <div className="flex-1 w-full md:w-auto">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Product / Part #{idx + 1}
-                        </label>
-                        <SearchableSelect
-                          options={inventoryProductOptions}
-                          value={line.productId || "CUSTOM"}
-                          onChange={(val: string) => handleSelectInventoryProduct(line.id, val)}
-                          placeholder="Search products by name or SKU..."
-                          searchPlaceholder="Search warehouse inventory by name or SKU..."
-                          className="w-full bg-white"
-                        />
-
-                        {/* Custom product name input if CUSTOM */}
-                        {!line.productId && (
-                          <input
-                            type="text"
-                            placeholder="Type custom product name or model..."
-                            value={line.name}
-                            onChange={(e) => handleUpdateProductLine(line.id, "name", e.target.value)}
-                            className="w-full mt-1.5 bg-white p-1.5 text-xs rounded border border-[#0D7A5F] focus:outline-none font-medium"
-                          />
-                        )}
-
-                        {/* Stock & SKU badges */}
-                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                          {line.sku && (
-                            <span className="text-[10px] font-mono text-[#52525B] bg-[#E4E4E7] px-1.5 py-0.5 rounded">
-                              SKU: {line.sku}
-                            </span>
-                          )}
-                          {line.availableStock !== undefined && (
-                            <span
-                              className={cn(
-                                "text-[10px] font-semibold px-2 py-0.5 rounded-full",
-                                isOutOfStock
-                                  ? "bg-rose-100 text-rose-800"
-                                  : isLowStock
-                                  ? "bg-amber-100 text-amber-800"
-                                  : "bg-emerald-100 text-[#065F46]"
-                              )}
-                            >
-                              {isOutOfStock
-                                ? "Out of Stock (0)"
-                                : `${line.availableStock} in inventory`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Quantity */}
-                      <div className="w-full md:w-28">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Qty ({line.unit || "unit"})
-                        </label>
-                        <DraftNumberInput
-                          min="1"
-                          step="1"
-                          value={line.quantity}
-                          onValue={(raw) => handleUpdateProductLine(line.id, "quantity", raw)}
-                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-center font-bold text-[#18181B]"
-                        />
-                      </div>
-
-                      {/* Unit Price / Charge */}
-                      <div className="w-full md:w-36">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Unit Rate (PKR)
-                        </label>
-                        <DraftNumberInput
-                          min="0"
-                          step="1"
-                          value={line.unitRate}
-                          onValue={(raw) => handleUpdateProductLine(line.id, "unitRate", raw)}
-                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-right font-semibold text-[#18181B]"
-                        />
-                      </div>
-
-                      {/* Line Subtotal */}
-                      <div className="w-full md:w-36 text-right">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Line Total
-                        </label>
-                        <div className="p-2 font-mono font-bold text-[#18181B] bg-white rounded-lg border border-[#EDEDED] text-right">
-                          {formatCurrency(lineTotal)}
-                        </div>
-                      </div>
-
-                      {/* Remove */}
-                      <div className="self-end md:self-center pt-2 md:pt-4">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProductLine(line.id)}
-                          className="p-2 text-[#71717A] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Remove product"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="flex justify-end pr-1 text-xs text-[#71717A]">
-                  <span>Products Subtotal:&nbsp;</span>
-                  <span className="font-mono font-bold text-[#18181B]">
-                    {formatCurrency(productsSubtotal)}
-                  </span>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Payment Collection:
+                </label>
+                <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMode("technician")}
+                    className={cn(
+                      "px-3 py-1 rounded-md transition",
+                      paymentMode === "technician" ? "bg-emerald-600 text-white" : "text-slate-600 hover:text-slate-900"
+                    )}
+                  >
+                    Tech Collects
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMode("office")}
+                    className={cn(
+                      "px-3 py-1 rounded-md transition",
+                      paymentMode === "office" ? "bg-emerald-600 text-white" : "text-slate-600 hover:text-slate-900"
+                    )}
+                  >
+                    Office Billed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMode("foc")}
+                    className={cn(
+                      "px-3 py-1 rounded-md transition",
+                      paymentMode === "foc" ? "bg-amber-600 text-white" : "text-slate-600 hover:text-slate-900"
+                    )}
+                  >
+                    FOC
+                  </button>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* 3B. SERVICE LINES (LABOR & CHARGES) */}
-          <div className="space-y-3 pt-4 border-t border-[#EDEDED]">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-[#0D7A5F]" />
-                <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Service Lines & Labor Charges
-                </span>
-                <span className="text-[10px] bg-emerald-50 text-[#0D7A5F] border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
-                  {serviceLines.length} {serviceLines.length === 1 ? "service" : "services"}
+            {/* Total & Action Buttons */}
+            <div className="flex items-center gap-4 justify-end">
+              <div className="text-right">
+                <span className="text-[11px] font-bold text-slate-500 uppercase block">Grand Total</span>
+                <span className="text-lg font-bold text-emerald-700 font-mono">
+                  {formatCurrency(grandTotal)}
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={handleAddServiceLine}
-                className="text-xs font-bold text-[#0D7A5F] hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                + Add Service Line
-              </button>
-            </div>
-
-            {serviceLines.length === 0 ? (
-              <div className="p-5 border border-dashed border-[#EDEDED] rounded-xl text-center space-y-2 bg-[#FAFAFA]">
-                <Wrench className="w-6 h-6 text-[#A1A1AA] mx-auto" />
-                <p className="text-xs text-[#71717A]">
-                  No service lines or labor charges added yet.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleAddServiceLine}
-                  className="text-xs font-bold text-[#0D7A5F] hover:underline"
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/jobs"
+                  className="h-10 px-4 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold transition flex items-center"
                 >
-                  Click to add service labor charges
+                  Cancel
+                </Link>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="h-10 px-6 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white font-bold text-xs transition shadow-xs flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isSubmitting ? "Saving & Dispatching..." : "Save & Dispatch Job"}
                 </button>
               </div>
-            ) : (
-              <div className="space-y-2.5">
-                {serviceLines.map((srv, idx) => {
-                  const srvTotal = srv.quantity * (srv.unitRate || 0);
-
-                  return (
-                    <div
-                      key={srv.id}
-                      className="p-3.5 bg-[#F9FAFB] border border-[#EDEDED] rounded-xl flex flex-col md:flex-row items-start md:items-center gap-3 text-xs animate-in fade-in"
-                    >
-                      {/* Service Name / Suggestion */}
-                      <div className="flex-1 w-full md:w-auto">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block">
-                            Service Task #{idx + 1}
-                          </label>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-[#71717A]">Quick Presets:</span>
-                            <select
-                              onChange={(e) => {
-                                const selected = COMMON_SERVICE_PRESETS.find(
-                                  (p) => p.name === e.target.value
-                                );
-                                if (selected) {
-                                  handleUpdateServiceLine(srv.id, "name", selected.name);
-                                  handleUpdateServiceLine(srv.id, "unitRate", selected.rate);
-                                }
-                              }}
-                              className="text-[10px] bg-white border border-[#EDEDED] rounded px-1.5 py-0.5 text-[#52525B]"
-                              defaultValue=""
-                            >
-                              <option value="" disabled>
-                                Pick Preset...
-                              </option>
-                              {COMMON_SERVICE_PRESETS.map((p) => (
-                                <option key={p.name} value={p.name}>
-                                  {p.name} ({formatCurrency(p.rate)})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <input
-                          type="text"
-                          placeholder="e.g. AC Installation, Coil Chemical Wash, Gas Recharge..."
-                          value={srv.name}
-                          onChange={(e) => handleUpdateServiceLine(srv.id, "name", e.target.value)}
-                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
-                        />
-                      </div>
-
-                      {/* Quantity */}
-                      <div className="w-full md:w-28">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Units / Qty
-                        </label>
-                        <DraftNumberInput
-                          min="1"
-                          step="1"
-                          value={srv.quantity}
-                          onValue={(raw) => handleUpdateServiceLine(srv.id, "quantity", raw)}
-                          className="w-full bg-white p-2 rounded-lg border border-[#EDEDED] focus:border-[#0D7A5F] focus:outline-none font-mono text-center font-bold text-[#18181B]"
-                        />
-                      </div>
-
-                      {/* Service Rate / Charge (Money) */}
-                      <div className="w-full md:w-36">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Service Charge (PKR) *
-                        </label>
-                        <DraftNumberInput
-                          min="0"
-                          step="1"
-                          value={srv.unitRate}
-                          onValue={(raw) => handleUpdateServiceLine(srv.id, "unitRate", raw)}
-                          className="w-full bg-white p-2 rounded-lg border border-[#0D7A5F] focus:outline-none font-mono text-right font-semibold text-[#18181B]"
-                          placeholder="Enter money..."
-                        />
-                      </div>
-
-                      {/* Line Subtotal */}
-                      <div className="w-full md:w-36 text-right">
-                        <label className="text-[10px] font-semibold text-[#71717A] uppercase tracking-wider block mb-1">
-                          Service Total
-                        </label>
-                        <div className="p-2 font-mono font-bold text-[#18181B] bg-white rounded-lg border border-[#EDEDED] text-right">
-                          {formatCurrency(srvTotal)}
-                        </div>
-                      </div>
-
-                      {/* Remove */}
-                      <div className="self-end md:self-center pt-2 md:pt-4">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveServiceLine(srv.id)}
-                          className="p-2 text-[#71717A] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Remove service"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="flex justify-end pr-1 text-xs text-[#71717A]">
-                  <span>Services Subtotal:&nbsp;</span>
-                  <span className="font-mono font-bold text-[#18181B]">
-                    {formatCurrency(servicesSubtotal)}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 3C. SECTION OF CHARGES & FINANCIAL SUMMARY CARD */}
-          <div className="p-5 bg-gradient-to-br from-[#F9FAFB] to-[#F4F4F5] border border-[#EDEDED] rounded-xl space-y-3">
-            <div className="flex items-center gap-2 pb-2 border-b border-[#E4E4E7]">
-              <Sparkles className="w-4 h-4 text-[#0D7A5F]" />
-              <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                Work Order Quotation & Financial Summary
-              </h3>
             </div>
+          </div>
+        </form>
+      </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-              <div className="p-3 bg-white rounded-lg border border-[#EDEDED] shadow-2xs">
-                <span className="text-[#71717A] block text-[11px] mb-1">Products / Parts Total</span>
-                <span className="font-mono text-sm font-bold text-[#18181B]">
-                  {formatCurrency(productsSubtotal)}
-                </span>
-                <span className="text-[10px] text-[#71717A] block mt-0.5">
-                  {productLines.length} product {productLines.length === 1 ? "line" : "lines"}
-                </span>
-              </div>
-
-              <div className="p-3 bg-white rounded-lg border border-[#EDEDED] shadow-2xs">
-                <span className="text-[#71717A] block text-[11px] mb-1">Services & Labor Total</span>
-                <span className="font-mono text-sm font-bold text-[#18181B]">
-                  {formatCurrency(servicesSubtotal)}
-                </span>
-                <span className="text-[10px] text-[#71717A] block mt-0.5">
-                  {serviceLines.length} service {serviceLines.length === 1 ? "line" : "lines"}
-                </span>
-              </div>
-
-              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 shadow-2xs">
-                <span className="text-[#065F46] block text-[11px] font-semibold mb-1">
-                  Grand Total Estimated Charges
-                </span>
-                <span className="font-mono text-base font-extrabold text-[#0D7A5F]">
-                  {formatCurrency(totalEstimatedCharges)}
-                </span>
-                <span className="text-[10px] text-[#065F46] block mt-0.5 font-medium">
-                  Planned for customer invoice
-                </span>
-              </div>
+      {/* QUICK ADD MODALS (+) */}
+      {/* 1. Add Type of Work Modal */}
+      {showAddTypeModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+              <h3 className="font-bold text-sm text-slate-800">Add New Type Of Work</h3>
+              <button onClick={() => setShowAddTypeModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Work / Job Type Name:</label>
+              <input
+                type="text"
+                autoFocus
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                placeholder="e.g. PCB Board Inspection"
+                className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddTypeModal(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewType}
+                className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs"
+              >
+                Add & Select
+              </button>
             </div>
           </div>
         </div>
       )}
 
-        {/* ========================================================================= */}
-        {/* SECTION 4 / 3: REMARKS & TECHNICIAN DISPATCH ASSIGNMENT                   */}
-        {/* ========================================================================= */}
-        <div className="bg-white rounded-xl p-6 shadow-[0_1px_3px_rgba(0,0,0,0.035)] border border-[#EDEDED] space-y-6">
-          <div className="flex items-center gap-2 pb-3 border-b border-[#EDEDED]">
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#0D7A5F] flex items-center justify-center">
-              <Layers className="w-4 h-4" />
+      {/* 2. Add Brand Modal */}
+      {showAddBrandModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+              <h3 className="font-bold text-sm text-slate-800">Add New HVAC Brand</h3>
+              <button onClick={() => setShowAddBrandModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
             </div>
             <div>
-              <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                {canManageLineItems
-                  ? "4. Operational Notes & Technician Assignment"
-                  : "3. Operational Notes & Technician Assignment"}
-              </h2>
-              <p className="text-[11px] text-[#71717A]">
-                Add customer problem description and assign a field technician or defer to dispatcher.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4 text-xs">
-            {/* Remarks Section */}
-            <div>
-              <label className="font-semibold text-[#18181B] block mb-1.5">
-                Remarks / Problem Description & Caller Notes
-              </label>
-              <textarea
-                rows={3}
-                placeholder="Describe caller symptoms, site access codes, error codes on display, or special customer instructions..."
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] resize-none"
+              <label className="block text-xs font-bold text-slate-700 mb-1">Brand Name:</label>
+              <input
+                type="text"
+                autoFocus
+                value={newBrandName}
+                onChange={(e) => setNewBrandName(e.target.value)}
+                placeholder="e.g. Electrolux"
+                className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
               />
             </div>
-
-            {/* Assign Technician(s) - Single or Multiple with Searchable Dropdown */}
-            <div className="pt-2 border-t border-[#EDEDED] space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-[#0D7A5F]" />
-                  <label className="font-semibold text-[#18181B] text-xs">
-                    Assign Technicians (Single or Multi-Crew — Optional)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => loadTechnicians()}
-                    disabled={isRefreshingTechnicians}
-                    title="Refresh technicians list"
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isRefreshingTechnicians ? "animate-spin" : ""}`} />
-                    <span>Refresh</span>
-                  </button>
-                </div>
-                <span className="text-[11px] font-semibold text-[#71717A]">
-                  {assignedTechnicianIds.length === 0
-                    ? "Queued for Later Dispatch"
-                    : assignedTechnicianIds.length === 1
-                    ? "1 Technician Assigned (Lead)"
-                    : `${assignedTechnicianIds.length} Technicians Assigned (Crew)`}
-                </span>
-              </div>
-
-              <SearchableSelect
-                multiple={true}
-                options={technicianOptions}
-                value={assignedTechnicianIds}
-                onChange={(selected: string[]) => {
-                  setAssignedTechnicianIds(selected);
-                  if (!selected.includes(primaryTechnicianId)) {
-                    setPrimaryTechnicianId(selected[0] || "");
-                  }
-                }}
-                placeholder="Search & select single or multiple technicians (or leave unassigned for dispatcher)..."
-                searchPlaceholder="Search technician by name, phone, or status (e.g. Available, On Job)..."
-                clearable={true}
-                className="w-full"
-              />
-
-              {assignedTechnicianIds.length > 0 ? (
-                <div className="bg-[#F9FAFB] border border-[#EDEDED] rounded-xl p-3 space-y-2 animate-in fade-in">
-                  <div className="flex items-center justify-between text-[11px] text-[#71717A] pb-1.5 border-b border-[#EDEDED]">
-                    <span>
-                      Selected Crew ({assignedTechnicianIds.length}): Click <strong className="text-[#0D7A5F]">★ Lead</strong> to designate primary technician
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAssignedTechnicianIds([]);
-                        setPrimaryTechnicianId("");
-                      }}
-                      className="text-xs text-rose-600 hover:underline font-semibold"
-                    >
-                      Clear All
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                    {assignedTechnicianIds.map((techId) => {
-                      const tech = technicians.find((t) => t.id === techId);
-                      if (!tech) return null;
-                      const isPrimary = techId === (primaryTechnicianId || assignedTechnicianIds[0]);
-
-                      return (
-                        <div
-                          key={techId}
-                          className={cn(
-                            "flex items-center justify-between p-2.5 rounded-lg border text-xs transition",
-                            isPrimary
-                              ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-300/40"
-                              : "bg-white border-[#EDEDED] hover:border-slate-300"
-                          )}
-                        >
-                          <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
-                            <div
-                              className={cn(
-                                "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold",
-                                isPrimary
-                                  ? "bg-[#0D7A5F] text-white"
-                                  : "bg-slate-100 text-slate-600"
-                              )}
-                            >
-                              {tech.name.slice(0, 1).toUpperCase()}
-                            </div>
-                            <div className="truncate">
-                              <p className="font-bold text-[#18181B] truncate">{tech.name}</p>
-                              <p className="text-[10px] text-[#71717A] truncate font-mono">
-                                {tech.currentStatus || "Available"}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setPrimaryTechnicianId(techId)}
-                              title={isPrimary ? "Current Primary Lead" : "Click to set as Primary Lead"}
-                              className={cn(
-                                "px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5 transition",
-                                isPrimary
-                                  ? "bg-[#0D7A5F] text-white shadow-2xs"
-                                  : "bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-[#0D7A5F]"
-                              )}
-                            >
-                              <Star className={cn("w-3 h-3", isPrimary ? "fill-white" : "")} />
-                              {isPrimary ? "Lead" : "Set Lead"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = assignedTechnicianIds.filter((id) => id !== techId);
-                                setAssignedTechnicianIds(next);
-                                if (primaryTechnicianId === techId) {
-                                  setPrimaryTechnicianId(next[0] || "");
-                                }
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
-                              title="Remove technician"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-[11px] text-[#71717A] flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>
-                    Job will be created in <strong>"Created" (Unassigned)</strong> status, appearing in the Dispatch Map & Dispatcher Queue for proximity-based dispatch.
-                  </span>
-                </p>
-              )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddBrandModal(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewBrand}
+                className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs"
+              >
+                Add & Select
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Bottom Form Actions */}
-        <div className="flex items-center justify-between flex-wrap gap-3 pt-2 bg-white/60 backdrop-blur-xs p-4 rounded-xl border border-[#EDEDED]">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[#71717A] font-medium">Estimated Job Total:</span>
-            <span className="text-base font-extrabold text-[#0D7A5F] font-mono">
-              {formatCurrency(totalEstimatedCharges)}
-            </span>
-            <span className="text-[11px] text-[#71717A] bg-[#F4F4F5] px-2 py-0.5 rounded-full font-medium ml-1">
-              {equipmentTotalQty} {equipmentTotalQty === 1 ? "unit" : "units"} planned
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Link
-              href="/jobs"
-              className="px-4 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B]"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-6 py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
-            >
-              <Check className="w-4 h-4" />
-              {isSubmitting ? "Creating Work Order..." : "Create Work Order"}
-            </button>
+      {/* 3. Add Care Of Company Modal */}
+      {showAddCareOfModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3.5 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+              <h3 className="font-bold text-sm text-slate-800">Add Care Off Partner</h3>
+              <button onClick={() => setShowAddCareOfModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Company / Partner Name:*</label>
+              <input
+                type="text"
+                autoFocus
+                value={newCareOfCompany}
+                onChange={(e) => setNewCareOfCompany(e.target.value)}
+                placeholder="e.g. Gree Corporate Care"
+                className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Contact Person (Optional):</label>
+              <input
+                type="text"
+                value={newCareOfPerson}
+                onChange={(e) => setNewCareOfPerson(e.target.value)}
+                placeholder="e.g. Engr. Usman"
+                className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Phone (Optional):</label>
+              <input
+                type="text"
+                value={newCareOfPhone}
+                onChange={(e) => setNewCareOfPhone(e.target.value)}
+                placeholder="e.g. 03001234567"
+                className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600 font-mono"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowAddCareOfModal(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewCareOf}
+                className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs"
+              >
+                Add & Select
+              </button>
+            </div>
           </div>
         </div>
-      </form>
-
-      {/* Slide-over Add Customer Drawer */}
-      <AddCustomerDrawer
-        isOpen={isAddCustomerOpen}
-        onClose={() => setIsAddCustomerOpen(false)}
-        initialQuery={initialQueryForDrawer}
-        onCustomerCreated={(newCust) => {
-          setCustomers([newCust, ...customers]);
-          setSelectedCustomerId(newCust.id);
-        }}
-      />
+      )}
     </div>
-  );
-}
-
-/**
- * Number box that keeps exactly what the user is typing (so a field can be cleared or edited
- * mid-way) and only falls back to the stored, clamped value when the box loses focus.
- * A plain controlled <input type="number"> clamped on every keystroke made the value jump back
- * (e.g. clearing a quantity instantly snapped it back to 1).
- */
-function DraftNumberInput({
-  value,
-  onValue,
-  display,
-  onBlur,
-  ...rest
-}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> & {
-  value: number;
-  onValue: (raw: string) => void;
-  display?: (value: number) => string | number;
-}) {
-  const [draft, setDraft] = useState<string | null>(null);
-  return (
-    <input
-      {...rest}
-      type="number"
-      value={draft ?? (display ? display(value) : value)}
-      onChange={(e) => {
-        const raw = e.target.value;
-        setDraft(raw);
-        if (raw.trim() !== "" && Number.isFinite(Number(raw))) onValue(raw);
-      }}
-      onBlur={(e) => {
-        // A box left empty takes the same default the field always used (1 for qty, 0 for money).
-        if (draft !== null && draft.trim() === "") onValue("");
-        setDraft(null);
-        onBlur?.(e);
-      }}
-    />
   );
 }
