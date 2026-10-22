@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
+import { isServiceProduct, skuFromItemLabel } from "@/lib/inventory/physicalStock";
 
 export async function POST(
   req: NextRequest,
@@ -20,6 +21,21 @@ export async function POST(
         : technicianId;
     if (!techId || !item || !String(item).trim()) {
       return NextResponse.json({ error: "technicianId and item are required" }, { status: 400 });
+    }
+
+    // Only physical stock can be requested from the warehouse; services are added to the job instead.
+    const label = String(item).trim();
+    const sku = skuFromItemLabel(label);
+    const product = productId
+      ? await prisma.product.findUnique({ where: { id: String(productId) } })
+      : sku
+        ? await prisma.product.findUnique({ where: { sku } })
+        : await prisma.product.findFirst({ where: { name: { equals: label, mode: "insensitive" } } });
+    if (product && isServiceProduct(product)) {
+      return NextResponse.json(
+        { error: `${product.name} is a service, not physical stock. Add it from Services instead.`, code: "NOT_PHYSICAL_STOCK" },
+        { status: 400 }
+      );
     }
 
     const request = await prisma.inventoryRequest.create({

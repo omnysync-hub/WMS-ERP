@@ -68,3 +68,6 @@ Thumbs.db
 /.next-build/
 /.next-prev/
 /.deploy-lock.sum
+
+# APK served from the site (too large for git)
+/public/download/
