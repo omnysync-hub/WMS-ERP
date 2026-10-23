@@ -272,79 +272,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Default: products list with low-stock alerts, warehouse stock, and stock on jobs
-    let products = await prisma.product.findMany({
+    const products = await prisma.product.findMany({
       orderBy: { name: "asc" },
     });
 
-    // Auto-seed standard predefined HVAC services if none exist in the database
-    const hasServices = products.some(
-      (p) =>
-        (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
-        p.unit === "service" ||
-        p.unit === "visit" ||
-        p.unit === "job"
-    );
-
-    if (!hasServices) {
-      const defaultServices = [
-        {
-          sku: "SRV-AC-WASH",
-          name: "Master Split AC Deep Chemical Jet Wash",
-          unit: "service",
-          unitPrice: 3500,
-          costPrice: 1200,
-          stockQuantity: 0,
-          reorderLevel: 0,
-        },
-        {
-          sku: "SRV-LEAK-DIAG",
-          name: "Refrigerant Leakage Pressure Test & Diagnostic",
-          unit: "service",
-          unitPrice: 2500,
-          costPrice: 800,
-          stockQuantity: 0,
-          reorderLevel: 0,
-        },
-        {
-          sku: "SRV-PCB-REP",
-          name: "Inverter PCB Diagnostic & Circuit Component Repair",
-          unit: "job",
-          unitPrice: 6500,
-          costPrice: 2500,
-          stockQuantity: 0,
-          reorderLevel: 0,
-        },
-        {
-          sku: "SRV-COMP-REP",
-          name: "AC Compressor Replacement & Brazing Labor",
-          unit: "service",
-          unitPrice: 5000,
-          costPrice: 2000,
-          stockQuantity: 0,
-          reorderLevel: 0,
-        },
-        {
-          sku: "SRV-ELEC-CK",
-          name: "Electrical Distribution & Voltage Stabilizer Inspection",
-          unit: "visit",
-          unitPrice: 1800,
-          costPrice: 600,
-          stockQuantity: 0,
-          reorderLevel: 0,
-        },
-      ];
-
-      for (const srv of defaultServices) {
-        const existing = await prisma.product.findUnique({ where: { sku: srv.sku } });
-        if (!existing) {
-          await prisma.product.create({ data: srv });
-        }
-      }
-
-      products = await prisma.product.findMany({
-        orderBy: { name: "asc" },
-      });
-    }
+    // No sample services are seeded: the product list contains only the client's own items.
 
     const enrichedProducts = products.map((p) => {
       const isService =
