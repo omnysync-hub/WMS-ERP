@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { STANDARD_COA_DEFINITIONS } from "../src/lib/constants/chartOfAccountsHierarchy";
 
 const prisma = new PrismaClient();
 
@@ -7,36 +8,24 @@ async function main() {
 
   // 1. Chart of Accounts (Level 4 Standard Chart of Accounts)
   console.log("Ensuring Standard Chart of Accounts (PKR)...");
-  const accounts = [
-    { code: "1000", name: "Cash & Bank Balances (Meezan / HBL)", type: "asset", description: "Operational liquid funds and bank accounts" },
-    { code: "1010", name: "Operating Bank Account (Meezan Bank)", type: "asset", description: "Primary Islamic operating bank account" },
-    { code: "1011", name: "Secondary Bank Account (HBL)", type: "asset", description: "Conventional commercial clearing account" },
-    { code: "1020", name: "Petty Cash Float", type: "asset", description: "Office & field emergency petty cash float" },
-    { code: "1100", name: "Accounts Receivable", type: "asset", description: "Customer invoices pending collection" },
-    { code: "1150", name: "Employee & Tech Advances / Float", type: "asset", description: "Field cash advances given to technicians" },
-    { code: "1200", name: "Inventory Asset", type: "asset", description: "HVAC spares, gas cylinders and parts in warehouse" },
-    { code: "2000", name: "Accounts Payable", type: "liability", description: "Supplier and vendor invoices due" },
-    { code: "2050", name: "GR/IR Clearing Account (Unbilled Receipts)", type: "liability", description: "Goods received but supplier invoice not yet verified" },
-    { code: "2100", name: "Technician Payable", type: "liability", description: "Expense vouchers pending reimbursement to technicians" },
-    { code: "2200", name: "Withholding Tax (WHT) Payable", type: "liability", description: "Withholding tax deducted at source from vendor disbursements" },
-    { code: "3000", name: "Owner Capital / Equity", type: "equity", description: "Shareholder invested capital" },
-    { code: "3900", name: "Opening Balance Equity", type: "equity", description: "Offset equity for go-live initial balance import" },
-    { code: "4000", name: "HVAC Service & Installation Revenue", type: "revenue", description: "Revenue from HVAC jobs, repairs and AMC contracts" },
-    { code: "4100", name: "Discounts Allowed", type: "contra_revenue", description: "Customer discounts authorized mid-job" },
-    { code: "5000", name: "Cost of Goods Sold (COGS)", type: "expense", description: "Cost of HVAC parts and materials used on customer jobs" },
-    { code: "5050", name: "Purchase Price Variance (PPV)", type: "expense", description: "Variance between purchase order agreed price and actual invoiced price" },
-    { code: "6000", name: "Salaries & Wages Expense", type: "expense", description: "Monthly workforce payroll disbursements" },
-    { code: "6100", name: "Technician Travel & Field Expenses", type: "expense", description: "Field reimbursements for fuel, transit, and emergency materials" },
-    { code: "6200", name: "General Office & Facility Overheads", type: "expense", description: "Rent, utilities, office equipment and facilities" },
-    { code: "6201", name: "Internet & Telecom Subscriptions", type: "expense", description: "Fiber internet, technician data bundles and SIMs" },
-    { code: "6202", name: "Printer Ink & Office Stationery", type: "expense", description: "Office paperwork, dispatch printouts and stationery" },
-  ];
-
-  for (const acc of accounts) {
-    const existing = await prisma.account.findUnique({ where: { code: acc.code } });
-    if (!existing) {
-      await prisma.account.create({ data: acc });
-    }
+  // The ONLY chart of accounts is the client's "Updated Chart of Accounts" (groups first, then posting accounts).
+  const ordered = [...STANDARD_COA_DEFINITIONS].sort((a, b) => a.level - b.level);
+  for (const def of ordered) {
+    const existing = await prisma.account.findUnique({ where: { code: def.code } });
+    if (existing) continue;
+    const parent = def.parentCode ? await prisma.account.findUnique({ where: { code: def.parentCode } }) : null;
+    await prisma.account.create({
+      data: {
+        code: def.code,
+        name: def.name,
+        type: def.type,
+        description: def.description || null,
+        level: def.level,
+        parentId: parent?.id || null,
+        isSystem: true,
+        isActive: true,
+      },
+    });
   }
 
   // 1b. Seed Standard Vendors

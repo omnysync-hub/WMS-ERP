@@ -47,10 +47,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Vehicle Fuel & Petrol Expenses",
     category: "Field Operations",
     keywords: ["fuel", "petrol", "cng", "diesel", "filling station", "pump", "bike petrol", "van fuel", "mileage", "fueling"],
-    targetAccountCode: "6110",
-    targetAccountName: "Technician Vehicle & Fuel Expenses",
+    targetAccountCode: "5100",
+    targetAccountName: "Job Fuel & Conveyance",
     targetAccountType: "expense",
-    parentControlCode: "6120-CTRL", // Field Operations & Transit Control
+    parentControlCode: "5210-GRP",
     applicableTransactionTypes: ["expense_reimbursement_expense", "tech_expense_settlement_expense"],
     baseConfidence: 0.94,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -61,10 +61,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Local Transit & Conveyance",
     category: "Field Operations",
     keywords: ["rickshaw", "rikshaw", "chingchi", "uber", "careem", "indrive", "fare", "transit", "metro", "bus fare", "commute", "cab fare"],
-    targetAccountCode: "6120",
-    targetAccountName: "Technician Local Transit & Conveyance",
+    targetAccountCode: "5100",
+    targetAccountName: "Job Fuel & Conveyance",
     targetAccountType: "expense",
-    parentControlCode: "6120-CTRL",
+    parentControlCode: "5210-GRP",
     applicableTransactionTypes: ["expense_reimbursement_expense", "tech_expense_settlement_expense"],
     baseConfidence: 0.91,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -95,10 +95,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
       "hardware store",
       "brazing rod",
     ],
-    targetAccountCode: "5100",
-    targetAccountName: "Direct Job Supplies & Small Tools",
+    targetAccountCode: "5130",
+    targetAccountName: "Other Direct Job Costs",
     targetAccountType: "expense",
-    parentControlCode: "5110", // Direct Materials & Parts Consumption
+    parentControlCode: "5210-GRP",
     applicableTransactionTypes: ["expense_reimbursement_expense", "inventory_cogs_expense"],
     baseConfidence: 0.88,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -109,10 +109,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Staff Meals & Field Refreshments",
     category: "Field Operations",
     keywords: ["lunch", "dinner", "tea", "refreshment", "meals", "water bottle", "breakfast", "overtime meal", "food", "snacks"],
-    targetAccountCode: "6130",
-    targetAccountName: "Staff Meals & Field Refreshments",
+    targetAccountCode: "5110",
+    targetAccountName: "Job Food & Meals",
     targetAccountType: "expense",
-    parentControlCode: "6120-CTRL",
+    parentControlCode: "5210-GRP",
     applicableTransactionTypes: ["expense_reimbursement_expense", "tech_expense_settlement_expense"],
     baseConfidence: 0.86,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -123,10 +123,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Office Utilities & Electricity",
     category: "General & Admin",
     keywords: ["lesco", "wapda", "electricity bill", "k-electric", "gas bill", "sngpl", "utility bill", "water bill", "power bill"],
-    targetAccountCode: "6170",
-    targetAccountName: "Office Utilities (Electricity & Water)",
+    targetAccountCode: "6310",
+    targetAccountName: "Electricity",
     targetAccountType: "expense",
-    parentControlCode: "6130-CTRL", // General Office & Admin Overheads
+    parentControlCode: "6310-GRP",
     applicableTransactionTypes: ["cashbook_contra_expense"],
     baseConfidence: 0.95,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -137,28 +137,28 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Internet & Telecom Subscriptions",
     category: "General & Admin",
     keywords: ["internet", "stormfiber", "ptcl", "nayatel", "fiber", "wifi", "data bundle", "sim card", "telecom", "phone bill", "mobile load", "zong", "jazz"],
-    targetAccountCode: "6201",
-    targetAccountName: "Internet & Telecom Subscriptions",
+    targetAccountCode: "6330",
+    targetAccountName: "Internet",
     targetAccountType: "expense",
-    parentControlCode: "6130-CTRL",
+    parentControlCode: "6310-GRP",
     applicableTransactionTypes: ["cashbook_contra_expense"],
     baseConfidence: 0.96,
     explanationTemplate: (count, totalAmount, samples) =>
-      `Detected ${count} connectivity and telecom payment(s) totaling PKR ${totalAmount.toLocaleString()} (${samples.slice(0, 2).join("; ")}). Matches existing Internet & Telecom Subscriptions account.`,
+      `Detected ${count} connectivity and telecom payment(s) totaling PKR ${totalAmount.toLocaleString()} (${samples.slice(0, 2).join("; ")}). Matches the Internet account (6330).`,
   },
   {
     id: "printing_stationery",
     name: "Printer Ink & Office Stationery",
     category: "General & Admin",
     keywords: ["stationery", "photocopy", "printer ink", "toner", "paper rim", "stapler", "files", "office register", "invoice book"],
-    targetAccountCode: "6202",
-    targetAccountName: "Printer Ink & Office Stationery",
+    targetAccountCode: "6210",
+    targetAccountName: "Office Supplies & Stationery",
     targetAccountType: "expense",
-    parentControlCode: "6130-CTRL",
+    parentControlCode: "6210-GRP",
     applicableTransactionTypes: ["cashbook_contra_expense"],
     baseConfidence: 0.93,
     explanationTemplate: (count, totalAmount, samples) =>
-      `Detected ${count} printing/stationery invoice(s) totaling PKR ${totalAmount.toLocaleString()} (${samples.slice(0, 2).join("; ")}). Matches existing Printer Ink & Office Stationery account.`,
+      `Detected ${count} printing/stationery invoice(s) totaling PKR ${totalAmount.toLocaleString()} (${samples.slice(0, 2).join("; ")}). Matches the Office Supplies & Stationery account (6210).`,
   },
 ];
 
@@ -492,7 +492,7 @@ export class AccountSuggestionAgent {
         audit.proposedAccountCode,
         audit.proposedAccountName,
         audit.proposedAccountType || "expense",
-        audit.proposedParentCode || "6120-CTRL",
+        audit.proposedParentCode || "5210-GRP",
         companyId
       );
       finalAccountId = createdAccount.id;

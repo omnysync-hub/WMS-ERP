@@ -1,7 +1,11 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 
-/** Chart-of-accounts code used for care-of (referring company) receivables. */
-export const CARE_OF_RECEIVABLE_CODE = "1101";
+/**
+ * Chart-of-accounts code used for care-of (referring company) receivables.
+ * The client's chart has one receivables account (1100 Accounts Receivable); every care-of company
+ * keeps its own sub-ledger balance under it.
+ */
+export const CARE_OF_RECEIVABLE_CODE = "1100";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 

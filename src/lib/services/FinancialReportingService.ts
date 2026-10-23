@@ -38,6 +38,26 @@ export class FinancialReportingService {
     return members;
   }
 
+  /** Every account under the group with this code (all levels), or null when the group does not exist. */
+  private static async groupMembersByCode(groupCode: string): Promise<Set<string> | null> {
+    const root = await prisma.account.findUnique({ where: { code: groupCode }, select: { id: true } });
+    if (!root) return null;
+    const all = await prisma.account.findMany({ select: { id: true, parentId: true } });
+    const byId = new Map(all.map((a) => [a.id, a]));
+    const members = new Set<string>();
+    for (const a of all) {
+      let cur: string | null | undefined = a.id;
+      for (let depth = 0; cur && depth < 10; depth++) {
+        if (cur === root.id) {
+          members.add(a.id);
+          break;
+        }
+        cur = byId.get(cur)?.parentId;
+      }
+    }
+    return members;
+  }
+
   /**
    * Generate Full 4-Level Trial Balance as of a specific date.
    * Pulls all posted journal lines, groups by account, and rolls up from Level 4 to Level 1.
@@ -87,6 +107,8 @@ export class FinancialReportingService {
         code: acc.code,
         name: acc.name,
         type: acc.type,
+        level: acc.level,
+        parentId: acc.parentId,
         isActive: acc.isActive,
         debitTotal: Math.round(accountDebitSum * 100) / 100,
         creditTotal: Math.round(accountCreditSum * 100) / 100,
@@ -110,7 +132,8 @@ export class FinancialReportingService {
       variance,
       isInBalance: Math.abs(variance) <= 0.01,
       isBalanced: Math.abs(variance) <= 0.01,
-      accounts: accountsWithBalance,
+      // Group rows (levels 1-3) only organise the tree; reports list posting accounts.
+      accounts: accountsWithBalance.filter((a) => a.level >= 4),
       tree,
     };
   }
@@ -227,7 +250,8 @@ export class FinancialReportingService {
 
     const revenueAccounts = accountsList.filter((a) => a.type === "revenue" || a.type === "contra_revenue");
     // COGS = expense accounts in the group of the mapped cost-of-sales accounts (fallback: legacy 5xxx codes).
-    const cogsGroup = await this.mappedGroupMembers(["inventory_cogs_expense", "inventory_return_cogs"]);
+    const cogsGroup = (await this.groupMembersByCode("5000-GRP")) ||
+      (await this.mappedGroupMembers(["inventory_cogs_expense", "inventory_return_cogs"]));
     const isCogs = (a: { id: string; code: string; type: string }) =>
       a.type === "expense" && (cogsGroup ? cogsGroup.has(a.id) : a.code.startsWith("5"));
     const cogsAccounts = accountsList.filter((a) => isCogs(a));
@@ -307,7 +331,11 @@ export class FinancialReportingService {
       resolveSafe("customer_payment_receiving", "1000", "asset"),
       resolveSafe("bank_operating", "1010", "asset"),
     ]);
-    const cashAccountIds = Array.from(new Set([cashAcc?.id, bankAcc?.id].filter(Boolean) as string[]));
+    // Cash = every active cash/bank account (cash drawer, petty cash, banks), not only the two mapped ones.
+    const configuredCash = await prisma.financialAccount.findMany({ where: { isActive: true }, select: { ledgerAccountId: true } });
+    const cashAccountIds = Array.from(
+      new Set([cashAcc?.id, bankAcc?.id, ...configuredCash.map((c) => c.ledgerAccountId)].filter(Boolean) as string[])
+    );
 
     // 1. Depreciation (Non-Cash Expense)
     let depreciationAdjustment = 0;

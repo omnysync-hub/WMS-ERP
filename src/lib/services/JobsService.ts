@@ -1,3 +1,5 @@
+import { loadExpenseCategoryAccounts } from "@/lib/expenseCategoryAccount";
+import { goodsShareOfItems, jobRevenueRole } from "@/lib/jobRevenue";
 import { prisma } from "../prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
@@ -1349,12 +1351,10 @@ export class JobsService {
       const creditAcc = legacyRevenue > 0
         ? await AccountMappingService.resolveAccount({
             transactionType: "job_revenue_receivable",
-            categoryScope: job.jobType,
             prismaClient: tx,
           })
         : await AccountMappingService.resolveAccount({
-            transactionType: "job_revenue_sales",
-            categoryScope: job.jobType,
+            transactionType: jobRevenueRole(job.jobType),
             prismaClient: tx,
           });
 
@@ -1667,19 +1667,28 @@ export class JobsService {
     // Resolve accounts via AccountMappingService (read-only, before the write transaction)
     const arAccount = await AccountMappingService.resolveAccount({
       transactionType: "job_revenue_receivable",
-      categoryScope: job.jobType,
     });
+    // Service revenue follows the job type (installation vs repair); goods sold on the invoice
+    // (stock issued, market-purchased items) go to the goods revenue account.
     const revAccount = await AccountMappingService.resolveAccount({
-      transactionType: "job_revenue_sales",
-      categoryScope: job.jobType,
+      transactionType: jobRevenueRole(job.jobType),
     });
+    const goodsShare = trueFoc ? 0 : goodsShareOfItems(job.items);
+    const goodsAccount =
+      goodsShare > 0 ? await AccountMappingService.resolveAccount({ transactionType: "job_revenue_goods" }) : null;
     const discountAccount =
       discount > 0
         ? await AccountMappingService.resolveAccount({
             transactionType: "job_revenue_discount",
-            categoryScope: job.jobType,
           })
         : null;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const revenueCredit = discount > 0 && discountAccount ? revenueGross : r2(finalAmount - taxAmount);
+    const goodsCredit = goodsAccount ? r2(revenueCredit * goodsShare) : 0;
+    const serviceCredit = r2(revenueCredit - goodsCredit);
+    const revenueCredits: { accountId: string; credit: number }[] = [];
+    if (serviceCredit !== 0 || goodsCredit === 0) revenueCredits.push({ accountId: revAccount.id, credit: serviceCredit });
+    if (goodsAccount && goodsCredit !== 0) revenueCredits.push({ accountId: goodsAccount.id, credit: goodsCredit });
 
     const postingLines: { accountId: string; debit: number; credit: number }[] = [];
     if (trueFoc) {
@@ -1687,10 +1696,10 @@ export class JobsService {
     } else if (discount > 0 && discountAccount) {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
       postingLines.push({ accountId: discountAccount.id, debit: discount, credit: 0 });
-      postingLines.push({ accountId: revAccount.id, debit: 0, credit: revenueGross });
+      for (const rc of revenueCredits) postingLines.push({ accountId: rc.accountId, debit: 0, credit: rc.credit });
     } else {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
-      postingLines.push({ accountId: revAccount.id, debit: 0, credit: Math.round((finalAmount - taxAmount) * 100) / 100 });
+      for (const rc of revenueCredits) postingLines.push({ accountId: rc.accountId, debit: 0, credit: rc.credit });
     }
     if (!trueFoc && taxAccount && taxAmount > 0) {
       postingLines.push({ accountId: taxAccount.id, debit: 0, credit: taxAmount });
@@ -1730,19 +1739,21 @@ export class JobsService {
             0
           ) * 100
         ) / 100;
-      const bookedGross =
-        Math.round(
-          activeRevenue.reduce(
-            (sum, je) =>
-              sum +
-              je.lines
-                .filter((l) => l.accountId === revAccount.id)
-                .reduce((a, l) => a + (l.credit - l.debit), 0),
-            0
-          ) * 100
-        ) / 100;
-      const expectedGross =
-        discount > 0 && discountAccount ? revenueGross : Math.round((finalAmount - taxAmount) * 100) / 100;
+      // Revenue is compared account by account (service / goods), so a change in the split re-posts.
+      const bookedByRevenueAccount = new Map<string, number>();
+      for (const je of activeRevenue) {
+        for (const l of je.lines) {
+          if (l.accountId === arAccount.id || l.accountId === taxAccount?.id || l.accountId === discountAccount?.id) continue;
+          bookedByRevenueAccount.set(l.accountId, r2((bookedByRevenueAccount.get(l.accountId) || 0) + (l.credit - l.debit)));
+        }
+      }
+      const expectedByRevenueAccount = new Map<string, number>();
+      for (const rc of revenueCredits) {
+        expectedByRevenueAccount.set(rc.accountId, r2((expectedByRevenueAccount.get(rc.accountId) || 0) + rc.credit));
+      }
+      const revenueUnchanged = Array.from(new Set([...bookedByRevenueAccount.keys(), ...expectedByRevenueAccount.keys()])).every(
+        (id) => Math.abs((bookedByRevenueAccount.get(id) || 0) - (expectedByRevenueAccount.get(id) || 0)) < 0.005
+      );
       const bookedTax = taxAccount
         ? Math.round(
             activeRevenue.reduce(
@@ -1757,7 +1768,7 @@ export class JobsService {
         ? true
         : activeRevenue.length > 0 &&
           Math.abs(bookedNet - finalAmount) < 0.005 &&
-          Math.abs(bookedGross - expectedGross) < 0.005 &&
+          revenueUnchanged &&
           Math.abs(bookedTax - taxAmount) < 0.005;
 
       let reversedEntryIds: string[] = [];
@@ -2132,6 +2143,7 @@ export class JobsService {
           remainingClaimId = remainingClaim.id;
         }
 
+        const categoryAccount = (await loadExpenseCategoryAccounts(tx))(claim.category) || expenseCostingAccount;
         await AccountsPostingService.post({
           memo: isPartial
             ? `Partial technician expense payout (PKR ${paidNow.toLocaleString()} of PKR ${totalClaimAmount.toLocaleString()}) for Job ${job.jobNumber}: ${originalNote}${paymentRefLabel}`
@@ -2141,7 +2153,7 @@ export class JobsService {
           postedBy: accountantName,
           idempotencyKey: `expense_clear:${claim.id}`,
           lines: [
-            { accountId: expenseCostingAccount.id, debit: paidNow, credit: 0 },
+            { accountId: categoryAccount.id, debit: paidNow, credit: 0 },
             { accountId: disbursingAccount.id, debit: 0, credit: paidNow },
           ],
           tx,
@@ -2209,6 +2221,12 @@ export class JobsService {
         const remainingBalance = Math.round((totalPending - paidNow) * 100) / 100;
         let remainingToAllocate = paidNow;
         const clearedIds: string[] = [];
+        const categoryAccountFor = await loadExpenseCategoryAccounts(tx);
+        const paidByAccount = new Map<string, number>();
+        const addPaid = (category: string | null | undefined, amt: number) => {
+          const acc = categoryAccountFor(category) || expenseCostingAccount;
+          paidByAccount.set(acc.id, Math.round(((paidByAccount.get(acc.id) || 0) + amt) * 100) / 100);
+        };
 
         for (const claim of pendingClaims) {
           if (remainingToAllocate <= 0) break;
@@ -2233,6 +2251,7 @@ export class JobsService {
             throw new Error("Another payout cleared some of these claims at the same time. Refresh and try again.");
           }
           clearedIds.push(claim.id);
+          addPaid(claim.category, partialPaid);
           if (!fullyCovered) {
             await tx.jobExpenseClaim.create({
               data: {
@@ -2260,7 +2279,7 @@ export class JobsService {
           // Same set of claims can only be paid once.
           idempotencyKey: `expense_clear_batch:${clearedIds.slice().sort().join(",")}`.slice(0, 900),
           lines: [
-            { accountId: expenseCostingAccount.id, debit: paidNow, credit: 0 },
+            ...Array.from(paidByAccount.entries()).map(([accountId, amt]) => ({ accountId, debit: amt, credit: 0 })),
             { accountId: disbursingAccount.id, debit: 0, credit: paidNow },
           ],
           tx,

@@ -67,8 +67,12 @@ export async function GET(req: NextRequest) {
     prisma.vendorLedgerEntry.aggregate({ where: { postingDate: { gte: from, lte: to } }, _sum: { whtWithheld: true } }),
   ]);
 
+  // The chart has no tax asset accounts, so input tax / WHT receivable may be netted into the same
+  // liability account as output tax / WHT payable. Then the account already shows the net figure.
+  const sameOutIn = !!gl[0].account && gl[0].account.code === gl[1].account?.code;
+  const sameWht = !!gl[2].account && gl[2].account.code === gl[3].account?.code;
   const output = gl[0].net;
-  const input = gl[1].net;
+  const input = sameOutIn ? 0 : gl[1].net;
   return NextResponse.json({
     from: from.toISOString(),
     to: to.toISOString(),
@@ -81,6 +85,7 @@ export async function GET(req: NextRequest) {
     },
     netSalesTaxPayable: r2(output - input),
     whtPayable: gl[2].net,
-    whtReceivable: gl[3].net,
+    whtReceivable: sameWht ? 0 : gl[3].net,
+    netted: { salesTaxAndInputTaxShareAccount: sameOutIn, whtPayableAndReceivableShareAccount: sameWht },
   });
 }

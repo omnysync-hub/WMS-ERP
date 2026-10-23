@@ -181,8 +181,9 @@ export async function POST(
         }));
         contraAccountId = receiving.id;
       } else {
+        // Credit note reduces revenue (Discounts Allowed); a debit adjustment is Other Income.
         const revenue = await AccountMappingService.resolveAccount({
-          transactionType: "job_revenue_sales",
+          transactionType: entryType === "credit_note" ? "job_revenue_discount" : "other_income",
           prismaClient: tx,
         });
         contraAccountId = revenue.id;

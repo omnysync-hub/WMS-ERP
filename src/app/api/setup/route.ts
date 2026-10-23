@@ -7,6 +7,7 @@ import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { FinancialReportingService } from "@/lib/services/FinancialReportingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { STANDARD_COA_DEFINITIONS } from "@/lib/constants/chartOfAccountsHierarchy";
+import { BASELINE_MAPPINGS } from "@/lib/constants/baselineMappings";
 import { requirePermission } from "@/lib/auth/erpActor";
 import { careOfReceivableAccountId } from "@/lib/careOfLedger";
 import {
@@ -111,7 +112,7 @@ export async function GET(req: NextRequest) {
     }
 
     const accounts = await prisma.account.findMany({
-      where: { isActive: true },
+      where: { isActive: true, level: 4 },
       orderBy: { code: "asc" },
     });
 
@@ -929,8 +930,9 @@ export async function POST(req: NextRequest) {
     if (action === "ensure_template_coa") {
       const companyId = body.companyId || "DEFAULT";
       let created = 0;
-      for (const def of STANDARD_COA_DEFINITIONS) {
-        if (def.isGroup) continue;
+      // Groups first (level 1 -> 3), then posting accounts, so every parent exists before its children.
+      const ordered = [...STANDARD_COA_DEFINITIONS].sort((x, y) => (x.level || 4) - (y.level || 4));
+      for (const def of ordered) {
         const existing = await prisma.account.findUnique({ where: { code: def.code } });
         if (!existing) {
           let parentId = null;
@@ -965,59 +967,7 @@ export async function POST(req: NextRequest) {
     // Seed / upsert baseline mappings for DEFAULT company (includes newly introduced roles)
     if (action === "seed_baseline_mappings") {
       const companyId = body.companyId || "DEFAULT";
-      const baseline = [
-        { transactionType: "job_revenue_receivable", accountCode: "1100" },
-        { transactionType: "job_revenue_sales", accountCode: "4000" },
-        { transactionType: "job_revenue_discount", accountCode: "4100" },
-        { transactionType: "customer_payment_receiving", accountCode: "1000" },
-        { transactionType: "customer_payment_receivable", accountCode: "1100" },
-        { transactionType: "expense_reimbursement_expense", accountCode: "6100" },
-        { transactionType: "expense_reimbursement_disbursing", accountCode: "1000" },
-        { transactionType: "inventory_cogs_expense", accountCode: "5000" },
-        { transactionType: "inventory_cogs_asset", accountCode: "1200" },
-        { transactionType: "inventory_return_asset", accountCode: "1200" },
-        { transactionType: "inventory_return_cogs", accountCode: "5000" },
-        { transactionType: "stock_in_asset", accountCode: "1200" },
-        { transactionType: "stock_in_disbursing", accountCode: "1000" },
-        { transactionType: "opening_stock_asset", accountCode: "1200" },
-        { transactionType: "opening_stock_equity", accountCode: "3000" },
-        { transactionType: "grn_receipt_asset", accountCode: "1200" },
-        { transactionType: "grn_receipt_clearing", accountCode: "2050" },
-        { transactionType: "grn_receipt_payable", accountCode: "2000" },
-        { transactionType: "vendor_bill_clearing", accountCode: "2050" },
-        { transactionType: "vendor_bill_payable", accountCode: "2000" },
-        { transactionType: "vendor_bill_ppv", accountCode: "5050" },
-        { transactionType: "vendor_payment_payable", accountCode: "2000" },
-        { transactionType: "vendor_payment_disbursing", accountCode: "1010" },
-        { transactionType: "vendor_payment_wht", accountCode: "2200" },
-        { transactionType: "payroll_salaries_expense", accountCode: "6000" },
-        { transactionType: "payroll_net_disbursing", accountCode: "1000" },
-        { transactionType: "payroll_advance_deduction", accountCode: "1150" },
-        { transactionType: "advance_granted_receivable", accountCode: "1150" },
-        { transactionType: "advance_granted_disbursing", accountCode: "1000" },
-        { transactionType: "pos_sale_cash", accountCode: "1000" },
-        { transactionType: "pos_sale_bank", accountCode: "1010" },
-        { transactionType: "pos_sale_receivable", accountCode: "1100" },
-        { transactionType: "pos_sale_revenue", accountCode: "4002" },
-        { transactionType: "sales_tax_payable", accountCode: "2210" },
-        { transactionType: "input_tax_receivable", accountCode: "1160" },
-        { transactionType: "wht_receivable", accountCode: "1170" },
-        { transactionType: "cashbook_contra_revenue", accountCode: "4000" },
-        { transactionType: "cashbook_contra_expense", accountCode: "6200" },
-        { transactionType: "settlement_collection_vault", accountCode: "1000" },
-        { transactionType: "settlement_collection_receivable", accountCode: "1100" },
-        { transactionType: "tech_expense_settlement_expense", accountCode: "6100" },
-        { transactionType: "tech_expense_settlement_vault", accountCode: "1000" },
-        { transactionType: "tech_expense_settlement_payable", accountCode: "2100" },
-        { transactionType: "fixed_asset_cost", accountCode: "1500" },
-        { transactionType: "bank_operating", accountCode: "1010" },
-        { transactionType: "ar_control", accountCode: "1100" },
-        { transactionType: "ap_control", accountCode: "2000" },
-        { transactionType: "depreciation_expense", accountCode: "6350" },
-        { transactionType: "accumulated_depreciation", accountCode: "1590" },
-        { transactionType: "retained_earnings_equity", accountCode: "3200" },
-        { transactionType: "opening_balance_equity", accountCode: "3900" },
-      ];
+      const baseline = BASELINE_MAPPINGS;
 
       let upserted = 0;
       let skipped = 0;

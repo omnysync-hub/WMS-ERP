@@ -283,8 +283,8 @@ export async function POST(req: NextRequest) {
           AccountMappingService.resolveAccount({ transactionType: "pos_sale_bank" }),
           AccountMappingService.resolveAccount({ transactionType: "pos_sale_receivable" }),
           AccountMappingService.resolveAccount({ transactionType: "pos_sale_revenue" }),
-          AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_expense" }),
-          AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_asset" }),
+          AccountMappingService.resolveAccount({ transactionType: "pos_cogs_expense" }),
+          AccountMappingService.resolveAccount({ transactionType: "pos_inventory_asset" }),
         ]);
 
       // Step 3: Atomic Stock Depletion and POS Sale Creation in a Single Transaction

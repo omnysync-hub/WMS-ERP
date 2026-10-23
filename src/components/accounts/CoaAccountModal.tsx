@@ -79,7 +79,7 @@ export default function CoaAccountModal({
 
   // Level 3 parents that match the selected type
   const parentOptions = allAccounts.filter(
-    (a) => a.level === 3 && (type ? a.type === type : true)
+    (a) => a.level === 3 && (type ? a.type === type || (type === "contra_revenue" && a.type === "revenue") : true)
   );
 
   const handleSubmit = async (e: React.FormEvent) => {

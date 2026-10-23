@@ -1495,15 +1495,18 @@ export class ProcurementService {
           // GR/IR always clears at the tax-free value.
           const billTax = Math.round((Number(invoice.taxAmount) || 0) * 100) / 100;
           const inputTaxAccount =
-            billTax > 0 && taxPolicyForBill.procurement.recordInputTax
-              ? await AccountMappingService.resolveAccount({ transactionType: "input_tax_receivable", prismaClient: tx })
+            billTax > 0
+              ? await AccountMappingService.resolveAccount({
+                  transactionType: taxPolicyForBill.procurement.recordInputTax ? "input_tax_receivable" : "vendor_bill_tax_cost",
+                  prismaClient: tx,
+                })
               : null;
           const grirDebit = Math.round((totalPayable - billTax - priceVariance) * 100) / 100;
 
           const lines: any[] = [];
           if (grirDebit > 0) lines.push({ accountId: grirAccount.id, debit: grirDebit, credit: 0 });
           if (billTax > 0) {
-            lines.push({ accountId: (inputTaxAccount || ppvAccount).id, debit: billTax, credit: 0 });
+            lines.push({ accountId: inputTaxAccount!.id, debit: billTax, credit: 0 });
           }
           if (priceVariance > 0.01) {
             lines.push({ accountId: ppvAccount.id, debit: priceVariance, credit: 0 });

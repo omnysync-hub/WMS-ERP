@@ -150,9 +150,9 @@ export const TAX_KINDS: { value: TaxKind; label: string; defaultRole: TaxAccount
 
 export const TAX_ACCOUNT_ROLES: { value: TaxAccountRole; label: string; defaultCode: string }[] = [
   { value: "sales_tax_payable", label: "Sales tax payable (output tax)", defaultCode: "2210" },
-  { value: "input_tax_receivable", label: "Input tax receivable (claimable)", defaultCode: "1160" },
+  { value: "input_tax_receivable", label: "Input tax (claimable) - netted against sales tax payable", defaultCode: "2210" },
   { value: "vendor_payment_wht", label: "WHT payable (deducted from suppliers)", defaultCode: "2200" },
-  { value: "wht_receivable", label: "WHT receivable (deducted by customers)", defaultCode: "1170" },
+  { value: "wht_receivable", label: "WHT deducted by customers - netted against WHT payable", defaultCode: "2200" },
 ];
 
 export function normalizeTaxRates(input: unknown): TaxRateConfig[] {

@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { loadExpenseCategoryAccounts } from "@/lib/expenseCategoryAccount";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
@@ -235,6 +236,13 @@ export async function POST(req: NextRequest) {
 
         // Claim updates, the GL entry and the technician ledger are saved together (all or nothing).
         await prisma.$transaction(async (tx) => {
+          // Each claim is posted to the account of ITS expense category (fuel, meals, ...).
+          const categoryAccountFor = await loadExpenseCategoryAccounts(tx);
+          const paidByAccount = new Map<string, number>();
+          const addPaid = (category: string | null | undefined, amt: number) => {
+            const acc = categoryAccountFor(category) || expenseCostingAccount;
+            paidByAccount.set(acc.id, Math.round(((paidByAccount.get(acc.id) || 0) + amt) * 100) / 100);
+          };
           // Allocate disbursement across claims in creation order (same as clearJobExpenses)
           let remainingToAllocate = amountDisbursed;
           for (const claim of claimsToPay) {
@@ -248,12 +256,14 @@ export async function POST(req: NextRequest) {
                 where: { id: claim.id },
                 data: { status: "paid", paidAt: new Date() },
               });
+              addPaid(claim.category, claim.amount);
               remainingToAllocate = Math.round((remainingToAllocate - claim.amount) * 100) / 100;
             } else {
               // Partial cover: paid portion vs remaining unpaid claim
               const partialPaid = remainingToAllocate;
               const claimRemainder = Math.round((claim.amount - partialPaid) * 100) / 100;
               const originalNote = claim.note;
+              addPaid(claim.category, partialPaid);
 
               await tx.jobExpenseClaim.update({
                 where: { id: claim.id },
@@ -271,6 +281,7 @@ export async function POST(req: NextRequest) {
                   technicianId: claim.technicianId,
                   amount: claimRemainder,
                   note: `${originalNote} [Remaining Balance after PKR ${partialPaid.toLocaleString()} partial payout at hisaab]`,
+                  category: claim.category,
                   receiptUrl: claim.receiptUrl,
                   status: "pending",
                 },
@@ -287,7 +298,7 @@ export async function POST(req: NextRequest) {
               refType: "tech_expense_settlement",
               refId: settlement.id,
               lines: [
-                { accountId: expenseCostingAccount.id, debit: amountDisbursed, credit: 0 },
+                ...Array.from(paidByAccount.entries()).map(([accountId, amt]) => ({ accountId, debit: amt, credit: 0 })),
                 { accountId: disbursingAccount.id, debit: 0, credit: amountDisbursed },
               ],
               tx,

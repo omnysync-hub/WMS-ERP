@@ -1013,13 +1013,12 @@ export default function TechnicianExpensesPage() {
                   className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-semibold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
                 >
                   <option value="1000">1000 — Cash on Hand / Main Drawer (Cash Box / Office Safe)</option>
-                  <option value="1010">1010 — Operating Bank Account (Meezan Bank)</option>
-                  <option value="1011">1011 — Secondary Corporate Bank (HBL)</option>
-                  <option value="1020">1020 — Petty Cash Float (Store / Emergency Float)</option>
+                  <option value="1005">1005 — Petty Cash – Expenses</option>
+                  <option value="1010">1010 — Operating Bank Account</option>
                   <option value="2100">2100 — Technician Payable Clearing (Owed to Technician)</option>
                 </select>
                 <p className="text-[10px] text-[#71717A] mt-1 font-mono">
-                  GL Impact: Dr 6100 (Technician Travel & Field Expenses) | Cr {disbursingAccountCode}
+                  GL Impact: Dr the expense account of each claim's category (fuel, meals, other job costs ...) | Cr {disbursingAccountCode}
                 </p>
               </div>
 

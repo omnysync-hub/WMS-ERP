@@ -15,651 +15,110 @@ export interface CoaNode extends CoaDefinition {
   children?: CoaNode[];
 }
 
+/**
+ * The ONLY chart of accounts: the client's "Workman ERP - Updated Chart of Accounts".
+ * Level 1-3 rows are groups (code ends in -GRP); level 4 rows are the posting accounts.
+ * Generated from one data table - keep this file and the database in step.
+ */
 export const STANDARD_COA_DEFINITIONS: CoaDefinition[] = [
-  // =========================================================================
-  // LEVEL 1: ASSETS (1000)
-  // =========================================================================
-  {
-    code: "1000-GRP",
-    name: "Assets",
-    type: "asset",
-    level: 1,
-    isGroup: true,
-    description: "Economic resources controlled by the business",
-  },
-  // LEVEL 2: CURRENT ASSETS
-  {
-    code: "1100-GRP",
-    name: "Current Assets",
-    type: "asset",
-    level: 2,
-    parentCode: "1000-GRP",
-    isGroup: true,
-    description: "Cash and resources converted to cash within one year",
-  },
-  // LEVEL 3: Cash & Cash Equivalents
-  {
-    code: "1110",
-    name: "Cash & Cash Equivalents",
-    type: "asset",
-    level: 3,
-    parentCode: "1100-GRP",
-    isGroup: true,
-    description: "Physical cash on hand and liquid bank deposits",
-  },
-  // LEVEL 4: Detail Accounts under Cash & Bank
-  {
-    code: "1000",
-    name: "Cash on Hand / Main Drawer",
-    type: "asset",
-    level: 4,
-    parentCode: "1110",
-    isGroup: false,
-    description: "Physical currency in cash drawer for walk-in and counter collections",
-  },
-  {
-    code: "1010",
-    name: "Operating Bank Account (Meezan Bank)",
-    type: "asset",
-    level: 4,
-    parentCode: "1110",
-    isGroup: false,
-    description: "Primary corporate checking and disbursement account",
-  },
-  {
-    code: "1011",
-    name: "Secondary Bank Account (HBL)",
-    type: "asset",
-    level: 4,
-    parentCode: "1110",
-    isGroup: false,
-    description: "Corporate collections and online transfer account",
-  },
-  {
-    code: "1020",
-    name: "Petty Cash Float",
-    type: "asset",
-    level: 4,
-    parentCode: "1110",
-    isGroup: false,
-    description: "Field emergency petty cash and storekeeper float",
-  },
-
-  // LEVEL 3: Trade Receivables
-  {
-    code: "1120",
-    name: "Trade Receivables (Debtors)",
-    type: "asset",
-    level: 3,
-    parentCode: "1100-GRP",
-    isGroup: true,
-    description: "Amounts billed to customers for work orders and HVAC contracts",
-  },
-  // LEVEL 4: Detail Accounts under Receivables
-  {
-    code: "1100",
-    name: "Accounts Receivable - Trade Clients",
-    type: "asset",
-    level: 4,
-    parentCode: "1120",
-    isGroup: false,
-    description: "Customer invoice balances and credit receivables",
-  },
-  {
-    code: "1101",
-    name: "Care-Of Corporate Subcontract Receivables",
-    type: "asset",
-    level: 4,
-    parentCode: "1120",
-    isGroup: false,
-    description: "Receivables from 3rd party FM and facility management companies",
-  },
-
-  // LEVEL 3: Inventories & Stock
-  {
-    code: "1130",
-    name: "Inventories & Consumable Stock",
-    type: "asset",
-    level: 3,
-    parentCode: "1100-GRP",
-    isGroup: true,
-    description: "HVAC equipment, spare parts, and refrigerant gases on hand",
-  },
-  // LEVEL 4: Detail Accounts under Inventory
-  {
-    code: "1200",
-    name: "Inventory Asset - HVAC Equipment & Parts",
-    type: "asset",
-    level: 4,
-    parentCode: "1130",
-    isGroup: false,
-    description: "Warehouse inventory stock valuation",
-  },
-
-  // LEVEL 3: Advances & Deposits
-  {
-    code: "1140",
-    name: "Advances, Deposits & Prepayments",
-    type: "asset",
-    level: 3,
-    parentCode: "1100-GRP",
-    isGroup: true,
-    description: "Staff advances and vendor security deposits",
-  },
-  // LEVEL 4: Detail Accounts under Advances
-  {
-    code: "1150",
-    name: "Employee & Technician Advances",
-    type: "asset",
-    level: 4,
-    parentCode: "1140",
-    isGroup: false,
-    description: "Disbursed job floats and travel advances to field technicians",
-  },
-
-  // LEVEL 2: NON-CURRENT / FIXED ASSETS
-  {
-    code: "1200-GRP",
-    name: "Property, Plant & Equipment",
-    type: "asset",
-    level: 2,
-    parentCode: "1000-GRP",
-    isGroup: true,
-    description: "Long term tangible assets used in service delivery",
-  },
-  // LEVEL 3: Machinery & Tools
-  {
-    code: "1210",
-    name: "Service Equipment, Vehicles & Tools",
-    type: "asset",
-    level: 3,
-    parentCode: "1200-GRP",
-    isGroup: true,
-    description: "Field service vans, vacuum pumps, manifolds, and recovery units",
-  },
-  // LEVEL 4:
-  {
-    code: "1211",
-    name: "Service Fleet & Field Vehicles",
-    type: "asset",
-    level: 4,
-    parentCode: "1210",
-    isGroup: false,
-    description: "Company owned service vans and transport motorcycles",
-  },
-  {
-    code: "1212",
-    name: "HVAC Specialized Diagnostic Tools",
-    type: "asset",
-    level: 4,
-    parentCode: "1210",
-    isGroup: false,
-    description: "Digital manifold gauges, vacuum gauges, and thermal cameras",
-  },
-
-  // =========================================================================
-  // LEVEL 1: LIABILITIES (2000)
-  // =========================================================================
-  {
-    code: "2000-GRP",
-    name: "Liabilities",
-    type: "liability",
-    level: 1,
-    isGroup: true,
-    description: "Debts, payables, and obligations owed by the enterprise",
-  },
-  // LEVEL 2: CURRENT LIABILITIES
-  {
-    code: "2100-GRP",
-    name: "Current Liabilities",
-    type: "liability",
-    level: 2,
-    parentCode: "2000-GRP",
-    isGroup: true,
-    description: "Short term obligations due within one financial year",
-  },
-  // LEVEL 3: Trade Payables
-  {
-    code: "2110",
-    name: "Trade Payables (Creditors)",
-    type: "liability",
-    level: 3,
-    parentCode: "2100-GRP",
-    isGroup: true,
-    description: "Outstanding balances owed to suppliers and parts vendors",
-  },
-  // LEVEL 4:
-  {
-    code: "2000",
-    name: "Accounts Payable - Trade Vendors",
-    type: "liability",
-    level: 4,
-    parentCode: "2110",
-    isGroup: false,
-    description: "Vendor payables for parts, refrigerant cylinders, and copper",
-  },
-
-  // LEVEL 3: Accrued & Staff Liabilities
-  {
-    code: "2120",
-    name: "Technician & Staff Liabilities",
-    type: "liability",
-    level: 3,
-    parentCode: "2100-GRP",
-    isGroup: true,
-    description: "Technician field expense claims and salary obligations",
-  },
-  // LEVEL 4:
-  {
-    code: "2100",
-    name: "Technician Payable & Expense Claims",
-    type: "liability",
-    level: 4,
-    parentCode: "2120",
-    isGroup: false,
-    description: "Pending field expense reimbursements and hisaab balance due to techs",
-  },
-
-  // =========================================================================
-  // LEVEL 1: EQUITY (3000)
-  // =========================================================================
-  {
-    code: "3000-GRP",
-    name: "Equity & Capital",
-    type: "equity",
-    level: 1,
-    isGroup: true,
-    description: "Owners' residual interest in the assets after deducting liabilities",
-  },
-  // LEVEL 2: OWNERS CAPITAL
-  {
-    code: "3100",
-    name: "Owners' Capital & Reserves",
-    type: "equity",
-    level: 2,
-    parentCode: "3000-GRP",
-    isGroup: true,
-    description: "Capital invested by partners and accumulated profits",
-  },
-  // LEVEL 3: Contributed Capital
-  {
-    code: "3110",
-    name: "Contributed Capital & Drawings",
-    type: "equity",
-    level: 3,
-    parentCode: "3100",
-    isGroup: true,
-    description: "Partner investments and drawings",
-  },
-  // LEVEL 4:
-  {
-    code: "3000",
-    name: "Owner Capital / Equity",
-    type: "equity",
-    level: 4,
-    parentCode: "3110",
-    isGroup: false,
-    description: "Original capital investment into the company",
-  },
-  {
-    code: "3010",
-    name: "Owner Drawings",
-    type: "equity",
-    level: 4,
-    parentCode: "3110",
-    isGroup: false,
-    description: "Withdrawals of profits by business owners",
-  },
-
-  // =========================================================================
-  // LEVEL 1: REVENUE & INCOME (4000)
-  // =========================================================================
-  {
-    code: "4000-GRP",
-    name: "Revenue & Operating Income",
-    type: "revenue",
-    level: 1,
-    isGroup: true,
-    description: "Income earned from HVAC contracts, repairs, installations, and retail",
-  },
-  // LEVEL 2: OPERATING REVENUE
-  {
-    code: "4100-GRP",
-    name: "Operating Revenue",
-    type: "revenue",
-    level: 2,
-    parentCode: "4000-GRP",
-    isGroup: true,
-    description: "Core HVAC trade sales and services",
-  },
-  // LEVEL 3: Service & Installation Revenue
-  {
-    code: "4110",
-    name: "HVAC Services & Installation Billing",
-    type: "revenue",
-    level: 3,
-    parentCode: "4100-GRP",
-    isGroup: true,
-    description: "Labor and installation fee revenue",
-  },
-  // LEVEL 4:
-  {
-    code: "4000",
-    name: "HVAC Service & Installation Revenue",
-    type: "revenue",
-    level: 4,
-    parentCode: "4110",
-    isGroup: false,
-    description: "Work order service completions and installation billings",
-  },
-  {
-    code: "4001",
-    name: "Emergency Repair & Breakdown Income",
-    type: "revenue",
-    level: 4,
-    parentCode: "4110",
-    isGroup: false,
-    description: "Call-out and troubleshooting fee earnings",
-  },
-  {
-    code: "4002",
-    name: "POS Counter Sales & Retail Parts Revenue",
-    type: "revenue",
-    level: 4,
-    parentCode: "4110",
-    isGroup: false,
-    description: "Over-the-counter spare part and gas cylinder sales",
-  },
-
-  // LEVEL 3: Discounts & Allowances
-  {
-    code: "4120",
-    name: "Sales Discounts & Allowances",
-    type: "contra_revenue",
-    level: 3,
-    parentCode: "4100-GRP",
-    isGroup: true,
-    description: "Customer concessions, approved reductions, and promotional discounts",
-  },
-  // LEVEL 4:
-  {
-    code: "4100",
-    name: "Discounts Allowed",
-    type: "contra_revenue",
-    level: 4,
-    parentCode: "4120",
-    isGroup: false,
-    description: "Customer invoice discounts granted and accountant approvals",
-  },
-
-  // =========================================================================
-  // LEVEL 1: COST OF GOODS SOLD (5000)
-  // =========================================================================
-  {
-    code: "5000-GRP",
-    name: "Cost of Goods Sold (COGS)",
-    type: "expense",
-    level: 1,
-    isGroup: true,
-    description: "Direct costs of materials, equipment, and gas consumed on work orders",
-  },
-  // LEVEL 2: DIRECT MATERIALS & PARTS
-  {
-    code: "5100",
-    name: "Direct Materials & Parts Consumed",
-    type: "expense",
-    level: 2,
-    parentCode: "5000-GRP",
-    isGroup: true,
-    description: "Components issued by warehouse and consumed on field jobs",
-  },
-  // LEVEL 3: Material Costs
-  {
-    code: "5110",
-    name: "HVAC Parts & Gas Consumption",
-    type: "expense",
-    level: 3,
-    parentCode: "5100",
-    isGroup: true,
-    description: "Refrigerant, copper tubing, capacitors, and PCB boards",
-  },
-  // LEVEL 4:
-  {
-    code: "5000",
-    name: "Cost of Goods Sold (COGS) - Materials",
-    type: "expense",
-    level: 4,
-    parentCode: "5110",
-    isGroup: false,
-    description: "Direct inventory cost deducted upon job consumption or POS sale",
-  },
-
-  // =========================================================================
-  // LEVEL 1: OPERATING EXPENSES (6000)
-  // =========================================================================
-  {
-    code: "6000-GRP",
-    name: "Operating Expenses (OPEX)",
-    type: "expense",
-    level: 1,
-    isGroup: true,
-    description: "General, administrative, fleet, and field expenditures",
-  },
-  // LEVEL 2: PAYROLL & HUMAN RESOURCES
-  {
-    code: "6100-GRP",
-    name: "Salaries, Wages & Staff Benefits",
-    type: "expense",
-    level: 2,
-    parentCode: "6000-GRP",
-    isGroup: true,
-    description: "Headcount costs and monthly compensation",
-  },
-  // LEVEL 3: Direct Payroll
-  {
-    code: "6110",
-    name: "Operational Payroll",
-    type: "expense",
-    level: 3,
-    parentCode: "6100-GRP",
-    isGroup: true,
-    description: "Technician basic salaries and office administrative staff wages",
-  },
-  // LEVEL 4:
-  {
-    code: "6000",
-    name: "Salaries & Wages Expense",
-    type: "expense",
-    level: 4,
-    parentCode: "6110",
-    isGroup: false,
-    description: "Monthly staff payroll postings",
-  },
-
-  // LEVEL 2: FIELD & FLEET EXPENSES
-  {
-    code: "6200-GRP",
-    name: "Field Operations & Fleet Expenses",
-    type: "expense",
-    level: 2,
-    parentCode: "6000-GRP",
-    isGroup: true,
-    description: "Fuel, vehicle maintenance, parking, and technician daily allowances",
-  },
-  // LEVEL 3: Field Transportation
-  {
-    code: "6210",
-    name: "Technician Field Logistics",
-    type: "expense",
-    level: 3,
-    parentCode: "6200-GRP",
-    isGroup: true,
-    description: "Site transit, generator fuel, and highway tolls",
-  },
-  // LEVEL 4:
-  {
-    code: "6100",
-    name: "Technician Travel & Field Expenses",
-    type: "expense",
-    level: 4,
-    parentCode: "6210",
-    isGroup: false,
-    description: "Field fuel claims, parking receipts, and site transport expenses",
-  },
-
-  // LEVEL 2: ADMINISTRATIVE & OFFICE EXPENSES
-  {
-    code: "6300-GRP",
-    name: "Administrative & Facility Overheads",
-    type: "expense",
-    level: 2,
-    parentCode: "6000-GRP",
-    isGroup: true,
-    description: "Office rent, internet, electricity, and software subscriptions",
-  },
-  // LEVEL 3: Office Utilities
-  {
-    code: "6310",
-    name: "Utilities & Office Facility Costs",
-    type: "expense",
-    level: 3,
-    parentCode: "6300-GRP",
-    isGroup: true,
-    description: "Monthly electricity, high-speed fiber, and facility rent",
-  },
-  // LEVEL 4 (Transactional Accounts):
-  {
-    code: "6200",
-    name: "General Office & Facility Overheads",
-    type: "expense",
-    level: 4,
-    parentCode: "6310",
-    isGroup: false,
-    description: "Head office rent, power bills, and general office expenses",
-  },
-  {
-    code: "6201",
-    name: "Internet & Telecom Subscriptions",
-    type: "expense",
-    level: 4,
-    parentCode: "6310",
-    isGroup: false,
-    description: "High-speed broadband, cellular lines, and cloud software subscriptions",
-  },
-  {
-    code: "6202",
-    name: "Printer Ink & Office Stationery",
-    type: "expense",
-    level: 4,
-    parentCode: "6310",
-    isGroup: false,
-    description: "Printer toner cartridges, paper reams, office stationery supplies",
-  },
-
-  // Posting accounts required by the default account-role mapping (setup "Apply default mappings").
-  {
-    code: "1500",
-    name: "Office Equipment, Furniture & Fixed Assets",
-    type: "asset",
-    level: 4,
-    parentCode: "1210",
-    isGroup: false,
-    description: "Cost of fixed assets registered in the fixed asset register",
-  },
-  {
-    code: "1590",
-    name: "Accumulated Depreciation",
-    type: "asset",
-    level: 4,
-    parentCode: "1210",
-    isGroup: false,
-    description: "Contra-asset: depreciation charged to date on fixed assets (credit balance)",
-  },
-  {
-    code: "2050",
-    name: "GR/IR Clearing (Goods Received Not Billed)",
-    type: "liability",
-    level: 4,
-    parentCode: "2110",
-    isGroup: false,
-    description: "Credited when goods are received against a PO, cleared when the supplier bill is approved",
-  },
-  {
-    code: "2200",
-    name: "Withholding Tax Payable (FBR)",
-    type: "liability",
-    level: 4,
-    parentCode: "2110",
-    isGroup: false,
-    description: "Income tax withheld from supplier payments, payable to FBR",
-  },
-  {
-    code: "1160",
-    name: "Input Sales Tax Receivable (Claimable)",
-    type: "asset",
-    level: 4,
-    parentCode: "1120",
-    isGroup: false,
-    description: "Sales tax paid on supplier bills that can be claimed back from the tax authority",
-  },
-  {
-    code: "1170",
-    name: "Withholding Tax Receivable (Deducted by Customers)",
-    type: "asset",
-    level: 4,
-    parentCode: "1120",
-    isGroup: false,
-    description: "Income tax customers withheld from their payments; adjustable against our tax return",
-  },
-  {
-    code: "2210",
-    name: "Sales Tax Payable (FBR / PRA)",
-    type: "liability",
-    level: 4,
-    parentCode: "2110",
-    isGroup: false,
-    description: "Sales tax collected from customers, owed to the tax authority",
-  },
-  {
-    code: "3200",
-    name: "Retained Earnings",
-    type: "equity",
-    level: 4,
-    parentCode: "3110",
-    isGroup: false,
-    description: "Accumulated profit carried forward at year-end close",
-  },
-  {
-    code: "3900",
-    name: "Opening Balance Equity",
-    type: "equity",
-    level: 4,
-    parentCode: "3110",
-    isGroup: false,
-    description: "Balancing account for the go-live opening balances",
-  },
-  {
-    code: "5050",
-    name: "Purchase Price Variance & Supplier Discounts",
-    type: "expense",
-    level: 4,
-    parentCode: "5110",
-    isGroup: false,
-    description: "Difference between PO cost and supplier bill (discounts reduce it)",
-  },
-  {
-    code: "6350",
-    name: "Depreciation Expense",
-    type: "expense",
-    level: 4,
-    parentCode: "6310",
-    isGroup: false,
-    description: "Monthly depreciation on fixed assets",
-  },
+  { code: "1000-GRP", name: "Assets", type: "asset", level: 1, isGroup: true },
+  { code: "1100-GRP", name: "Current Assets", type: "asset", level: 2, parentCode: "1000-GRP", isGroup: true },
+  { code: "1110-GRP", name: "Cash & Bank", type: "asset", level: 3, parentCode: "1100-GRP", isGroup: true },
+  { code: "1120-GRP", name: "Receivables & Advances", type: "asset", level: 3, parentCode: "1100-GRP", isGroup: true },
+  { code: "1130-GRP", name: "Inventory", type: "asset", level: 3, parentCode: "1100-GRP", isGroup: true },
+  { code: "1500-GRP", name: "Fixed Assets", type: "asset", level: 2, parentCode: "1000-GRP", isGroup: true },
+  { code: "1510-GRP", name: "Equipment, Vehicles & Tools", type: "asset", level: 3, parentCode: "1500-GRP", isGroup: true },
+  { code: "2000-GRP", name: "Liabilities", type: "liability", level: 1, isGroup: true },
+  { code: "2100-GRP", name: "Current Liabilities", type: "liability", level: 2, parentCode: "2000-GRP", isGroup: true },
+  { code: "2110-GRP", name: "Payables & Tax Liabilities", type: "liability", level: 3, parentCode: "2100-GRP", isGroup: true },
+  { code: "3000-GRP", name: "Equity", type: "equity", level: 1, isGroup: true },
+  { code: "3100-GRP", name: "Owner's Equity", type: "equity", level: 2, parentCode: "3000-GRP", isGroup: true },
+  { code: "3110-GRP", name: "Capital, Drawings & Earnings", type: "equity", level: 3, parentCode: "3100-GRP", isGroup: true },
+  { code: "4000-GRP", name: "Revenue", type: "revenue", level: 1, isGroup: true },
+  { code: "4100-GRP", name: "Operating Revenue", type: "revenue", level: 2, parentCode: "4000-GRP", isGroup: true },
+  { code: "4110-GRP", name: "Service & Sales Revenue", type: "revenue", level: 3, parentCode: "4100-GRP", isGroup: true },
+  { code: "4200-GRP", name: "Other Income & Adjustments", type: "revenue", level: 2, parentCode: "4000-GRP", isGroup: true },
+  { code: "4210-GRP", name: "Discounts & Other Income", type: "revenue", level: 3, parentCode: "4200-GRP", isGroup: true },
+  { code: "5000-GRP", name: "Cost of Goods Sold (COGS)", type: "expense", level: 1, isGroup: true },
+  { code: "5100-GRP", name: "Materials & Goods", type: "expense", level: 2, parentCode: "5000-GRP", isGroup: true },
+  { code: "5110-GRP", name: "Materials & Goods Cost", type: "expense", level: 3, parentCode: "5100-GRP", isGroup: true },
+  { code: "5200-GRP", name: "Direct Job Costs", type: "expense", level: 2, parentCode: "5000-GRP", isGroup: true },
+  { code: "5210-GRP", name: "Job Costs", type: "expense", level: 3, parentCode: "5200-GRP", isGroup: true },
+  { code: "6000-GRP", name: "Operating Expenses", type: "expense", level: 1, isGroup: true },
+  { code: "6100-GRP", name: "Payroll", type: "expense", level: 2, parentCode: "6000-GRP", isGroup: true },
+  { code: "6110-GRP", name: "Salaries & Wages", type: "expense", level: 3, parentCode: "6100-GRP", isGroup: true },
+  { code: "6200-GRP", name: "Administrative", type: "expense", level: 2, parentCode: "6000-GRP", isGroup: true },
+  { code: "6210-GRP", name: "Administrative Expenses", type: "expense", level: 3, parentCode: "6200-GRP", isGroup: true },
+  { code: "6300-GRP", name: "Utilities", type: "expense", level: 2, parentCode: "6000-GRP", isGroup: true },
+  { code: "6310-GRP", name: "Utility Expenses", type: "expense", level: 3, parentCode: "6300-GRP", isGroup: true },
+  { code: "6400-GRP", name: "Other", type: "expense", level: 2, parentCode: "6000-GRP", isGroup: true },
+  { code: "6410-GRP", name: "Other Operating Expenses", type: "expense", level: 3, parentCode: "6400-GRP", isGroup: true },
+  { code: "1000", name: "Cash on Hand / Main Drawer", type: "asset", level: 4, parentCode: "1110-GRP", isGroup: false, description: "Physical cash in the shop drawer: counter sales, customer cash receipts and cash payouts" },
+  { code: "1005", name: "Petty Cash – Expenses", type: "asset", level: 4, parentCode: "1110-GRP", isGroup: false, description: "Small cash float used to pay daily expenses such as fuel, meals and small purchases" },
+  { code: "1010", name: "Operating Bank Account", type: "asset", level: 4, parentCode: "1110-GRP", isGroup: false, description: "Main bank account: transfers, cheques, card sales and vendor payments" },
+  { code: "1100", name: "Accounts Receivable – Trade Clients", type: "asset", level: 4, parentCode: "1120-GRP", isGroup: false, description: "Amounts customers and care-of companies owe us for invoices (a ledger is kept per party)" },
+  { code: "1150", name: "Employee & Technician Advances", type: "asset", level: 4, parentCode: "1120-GRP", isGroup: false, description: "Cash advances given to employees and technicians, recovered later from salary or claims" },
+  { code: "1200", name: "Inventory – Materials & Spares", type: "asset", level: 4, parentCode: "1130-GRP", isGroup: false, description: "Stock of materials and spare parts held in the store (used on jobs and sold at the counter)" },
+  { code: "1210", name: "Inventory – Goods for Direct Sale", type: "asset", level: 4, parentCode: "1130-GRP", isGroup: false, description: "Goods held for direct sale to customers" },
+  { code: "1500", name: "Office Equipment & Fixed Assets", type: "asset", level: 4, parentCode: "1510-GRP", isGroup: false, description: "Cost of office equipment, furniture and other fixed assets" },
+  { code: "1510", name: "Vehicles & Tools", type: "asset", level: 4, parentCode: "1510-GRP", isGroup: false, description: "Cost of company vehicles, tools and service equipment" },
+  { code: "1590", name: "Accumulated Depreciation", type: "asset", level: 4, parentCode: "1510-GRP", isGroup: false, description: "Contra-asset: depreciation charged to date on fixed assets (credit balance)" },
+  { code: "2000", name: "Accounts Payable – Trade Vendors", type: "liability", level: 4, parentCode: "2110-GRP", isGroup: false, description: "Amounts we owe suppliers for goods and services" },
+  { code: "2050", name: "GR/IR Clearing", type: "liability", level: 4, parentCode: "2110-GRP", isGroup: false, description: "Goods received but supplier bill not yet booked" },
+  { code: "2100", name: "Technician Payable & Expense Claims", type: "liability", level: 4, parentCode: "2110-GRP", isGroup: false, description: "Expense claims and balances owed to technicians" },
+  { code: "2110", name: "Technician Commission Payable", type: "liability", level: 4, parentCode: "2110-GRP", isGroup: false, description: "Commission earned by technicians and not yet paid" },
+  { code: "2200", name: "Withholding Tax Payable", type: "liability", level: 4, parentCode: "2110-GRP", isGroup: false, description: "Income tax withheld and payable to the tax authority" },
+  { code: "2210", name: "Sales Tax Payable", type: "liability", level: 4, parentCode: "2110-GRP", isGroup: false, description: "Sales tax collected from customers and payable to the tax authority" },
+  { code: "3000", name: "Owner Capital / Equity", type: "equity", level: 4, parentCode: "3110-GRP", isGroup: false, description: "Capital put in by the owners" },
+  { code: "3100", name: "Owner Drawings", type: "equity", level: 4, parentCode: "3110-GRP", isGroup: false, description: "Money the owners take out of the business" },
+  { code: "3200", name: "Retained Earnings", type: "equity", level: 4, parentCode: "3110-GRP", isGroup: false, description: "Profit carried forward from closed years" },
+  { code: "3900", name: "Opening Balance Equity", type: "equity", level: 4, parentCode: "3110-GRP", isGroup: false, description: "Balancing account for go-live opening balances" },
+  { code: "4000", name: "Service Revenue – Installation", type: "revenue", level: 4, parentCode: "4110-GRP", isGroup: false, description: "Income from installation and commissioning jobs" },
+  { code: "4001", name: "Service Revenue – Repair & Maintenance", type: "revenue", level: 4, parentCode: "4110-GRP", isGroup: false, description: "Income from repair, service, gas recharge and maintenance jobs" },
+  { code: "4010", name: "Goods Revenue – Parts & Products Sold to Customers", type: "revenue", level: 4, parentCode: "4110-GRP", isGroup: false, description: "Parts and products sold to customers on invoices, including goods bought from the market for the customer" },
+  { code: "4002", name: "POS Counter Sales Revenue", type: "revenue", level: 4, parentCode: "4110-GRP", isGroup: false, description: "Over-the-counter (POS) sales" },
+  { code: "4100", name: "Discounts Allowed", type: "contra_revenue", level: 4, parentCode: "4210-GRP", isGroup: false, description: "Contra-revenue: discounts given to customers" },
+  { code: "4900", name: "Other Income", type: "revenue", level: 4, parentCode: "4210-GRP", isGroup: false, description: "Any other income not related to jobs or sales" },
+  { code: "5000", name: "COGS – Materials Used on Jobs", type: "expense", level: 4, parentCode: "5110-GRP", isGroup: false, description: "Cost of store materials issued to jobs" },
+  { code: "5010", name: "COGS – Goods Bought from Market for Customer", type: "expense", level: 4, parentCode: "5110-GRP", isGroup: false, description: "Cost of goods bought from the market for a customer's job" },
+  { code: "5030", name: "COGS – POS Goods Sold", type: "expense", level: 4, parentCode: "5110-GRP", isGroup: false, description: "Cost of goods sold over the counter" },
+  { code: "5050", name: "Purchase Price Variance & Supplier Discounts", type: "expense", level: 4, parentCode: "5110-GRP", isGroup: false, description: "Difference between PO price and supplier bill; supplier discounts reduce it" },
+  { code: "5100", name: "Job Fuel & Conveyance", type: "expense", level: 4, parentCode: "5210-GRP", isGroup: false, description: "Fuel and conveyance spent on jobs" },
+  { code: "5110", name: "Job Food & Meals", type: "expense", level: 4, parentCode: "5210-GRP", isGroup: false, description: "Food and meals for the team on jobs" },
+  { code: "5120", name: "Technician Commission Expense", type: "expense", level: 4, parentCode: "5210-GRP", isGroup: false, description: "Commission earned by technicians on jobs" },
+  { code: "5130", name: "Other Direct Job Costs", type: "expense", level: 4, parentCode: "5210-GRP", isGroup: false, description: "Any other direct cost of a job" },
+  { code: "6000", name: "Salaries & Wages", type: "expense", level: 4, parentCode: "6110-GRP", isGroup: false, description: "Fixed salaries and wages only" },
+  { code: "6100", name: "Staff Travel & Conveyance (Non-Job)", type: "expense", level: 4, parentCode: "6210-GRP", isGroup: false, description: "Staff travel and conveyance that is not for a job" },
+  { code: "6200", name: "General Office Overheads", type: "expense", level: 4, parentCode: "6210-GRP", isGroup: false, description: "General office running costs" },
+  { code: "6210", name: "Office Supplies & Stationery", type: "expense", level: 4, parentCode: "6210-GRP", isGroup: false, description: "Stationery, printing and office supplies" },
+  { code: "6220", name: "Executive Meals & Entertainment", type: "expense", level: 4, parentCode: "6210-GRP", isGroup: false, description: "Management meals, guests and entertainment" },
+  { code: "6230", name: "Repairs & Maintenance", type: "expense", level: 4, parentCode: "6210-GRP", isGroup: false, description: "Repairs and maintenance of office and premises" },
+  { code: "6240", name: "Vehicle Running Costs (Company Vehicles)", type: "expense", level: 4, parentCode: "6210-GRP", isGroup: false, description: "Fuel, service and repairs of company vehicles" },
+  { code: "6310", name: "Electricity", type: "expense", level: 4, parentCode: "6310-GRP", isGroup: false, description: "Electricity bills" },
+  { code: "6320", name: "Water", type: "expense", level: 4, parentCode: "6310-GRP", isGroup: false, description: "Water bills" },
+  { code: "6330", name: "Internet", type: "expense", level: 4, parentCode: "6310-GRP", isGroup: false, description: "Internet and broadband bills" },
+  { code: "6340", name: "Telephone & Mobile", type: "expense", level: 4, parentCode: "6310-GRP", isGroup: false, description: "Phone and mobile bills" },
+  { code: "6350", name: "Depreciation Expense", type: "expense", level: 4, parentCode: "6410-GRP", isGroup: false, description: "Depreciation charged on fixed assets" },
+  { code: "6400", name: "Rent", type: "expense", level: 4, parentCode: "6410-GRP", isGroup: false, description: "Rent of office, shop and warehouse" },
+  { code: "6500", name: "Bank Charges", type: "expense", level: 4, parentCode: "6410-GRP", isGroup: false, description: "Bank fees and charges" },
+  { code: "6600", name: "Marketing & Advertising", type: "expense", level: 4, parentCode: "6410-GRP", isGroup: false, description: "Marketing and advertising spend" },
+  { code: "6900", name: "Miscellaneous Expenses", type: "expense", level: 4, parentCode: "6410-GRP", isGroup: false, description: "Anything that does not fit another expense account" },
 ];
 
+/** Where an account that is not in the standard list lands when it has no parent of its own. */
+const DEFAULT_GROUP_BY_TYPE: Record<string, string> = {
+  asset: "1110-GRP",
+  liability: "2110-GRP",
+  equity: "3110-GRP",
+  revenue: "4110-GRP",
+  contra_revenue: "4210-GRP",
+  expense: "6210-GRP",
+};
+
 /**
- * Builds the 4-level Tree structure and rolls up balances from Level 4 to Levels 3, 2, and 1.
+ * Builds the 4-level tree and rolls balances up from level 4 to levels 3, 2 and 1.
+ * Accounts saved in the database win over the built-in names; custom accounts and custom
+ * groups use their own level and parent.
  */
 export function buildChartOfAccountsTree(
   dbAccounts: Array<{
@@ -669,63 +128,50 @@ export function buildChartOfAccountsTree(
     type: string;
     balance: number;
     entriesCount?: number;
+    level?: number;
+    parentId?: string | null;
   }>
 ): CoaNode[] {
-  // Map of ledger accounts from database keyed by code
-  const dbMap = new Map<string, { id: string; balance: number; entriesCount: number; name: string }>();
+  const dbMap = new Map<string, (typeof dbAccounts)[number]>();
+  const codeById = new Map<string, string>();
   for (const acc of dbAccounts) {
-    dbMap.set(acc.code, {
-      id: acc.id,
-      balance: acc.balance,
-      entriesCount: acc.entriesCount || 0,
-      name: acc.name,
-    });
+    dbMap.set(acc.code, acc);
+    codeById.set(acc.id, acc.code);
   }
 
-  // Create node map initialized with definitions
   const nodeMap = new Map<string, CoaNode>();
-
   for (const def of STANDARD_COA_DEFINITIONS) {
     const dbMatch = dbMap.get(def.code);
     nodeMap.set(def.code, {
       ...def,
       id: dbMatch?.id,
       name: dbMatch?.name || def.name,
-      balance: dbMatch ? dbMatch.balance : 0,
+      balance: dbMatch && !def.isGroup ? dbMatch.balance : 0,
       entriesCount: dbMatch?.entriesCount || 0,
       children: [],
     });
   }
 
-  // If there are any custom db accounts not in STANDARD_COA_DEFINITIONS, add them under appropriate Level 3
   for (const acc of dbAccounts) {
-    if (!nodeMap.has(acc.code)) {
-      // Find default parent based on code prefix or account type
-      let parentCode = "1110";
-      if (acc.type === "liability") parentCode = "2110";
-      else if (acc.type === "equity") parentCode = "3110";
-      else if (acc.type === "revenue") parentCode = "4110";
-      else if (acc.type === "expense") parentCode = "6310";
-      else if (acc.type === "contra_revenue") parentCode = "4120";
-
-      nodeMap.set(acc.code, {
-        code: acc.code,
-        name: acc.name,
-        type: acc.type as any,
-        level: 4,
-        parentCode,
-        isGroup: false,
-        id: acc.id,
-        balance: acc.balance,
-        entriesCount: acc.entriesCount || 0,
-        children: [],
-      });
-    }
+    if (nodeMap.has(acc.code)) continue;
+    const level = ([1, 2, 3, 4].includes(Number(acc.level)) ? Number(acc.level) : 4) as 1 | 2 | 3 | 4;
+    const ownParent = acc.parentId ? codeById.get(acc.parentId) : undefined;
+    const parentCode = level === 1 ? undefined : ownParent || DEFAULT_GROUP_BY_TYPE[acc.type] || "6210-GRP";
+    nodeMap.set(acc.code, {
+      code: acc.code,
+      name: acc.name,
+      type: acc.type as CoaDefinition["type"],
+      level,
+      parentCode,
+      isGroup: level < 4,
+      id: acc.id,
+      balance: level < 4 ? 0 : acc.balance,
+      entriesCount: acc.entriesCount || 0,
+      children: [],
+    });
   }
 
-  // Build hierarchy tree
   const rootNodes: CoaNode[] = [];
-
   for (const node of Array.from(nodeMap.values())) {
     if (node.level === 1 || !node.parentCode) {
       rootNodes.push(node);
@@ -740,25 +186,19 @@ export function buildChartOfAccountsTree(
     }
   }
 
-  // Recursive balance rollup function
   function rollupBalance(node: CoaNode): number {
     if (!node.children || node.children.length === 0) {
       return node.balance || 0;
     }
-
     let sum = 0;
     for (const child of node.children) {
       sum += rollupBalance(child);
     }
-
     node.balance = Math.round(sum * 100) / 100;
     node.entriesCount = node.children.reduce((tot, c) => tot + (c.entriesCount || 0), 0);
     return node.balance;
   }
-
-  for (const root of rootNodes) {
-    rollupBalance(root);
-  }
+  for (const root of rootNodes) rollupBalance(root);
 
   return rootNodes;
 }

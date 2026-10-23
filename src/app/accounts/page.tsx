@@ -166,7 +166,7 @@ export default function AccountsPage() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [newExpensePayee, setNewExpensePayee] = useState("");
-  const [newExpenseAccount, setNewExpenseAccount] = useState("6100");
+  const [newExpenseAccount, setNewExpenseAccount] = useState("");
   const [newExpenseDisbursing, setNewExpenseDisbursing] = useState("1000");
   const [newExpenseAmount, setNewExpenseAmount] = useState("");
   const [newExpenseMemo, setNewExpenseMemo] = useState("");
@@ -206,7 +206,7 @@ export default function AccountsPage() {
   const [coaLevelFilter, setCoaLevelFilter] = useState<"ALL" | "1" | "2" | "3" | "4">("ALL");
   const [coaTypeFilter, setCoaTypeFilter] = useState<string>("ALL");
   const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(
-    new Set(["1000-GRP", "1100", "2000-GRP", "2100-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
+    new Set(["1000-GRP", "1100-GRP", "2000-GRP", "2100-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
   );
   const [selectedAccountDrilldown, setSelectedAccountDrilldown] = useState<any>(null);
   const [accountLedgerLines, setAccountLedgerLines] = useState<any[]>([]);
@@ -3760,7 +3760,7 @@ export default function AccountsPage() {
                         required
                       >
                         <option value="">Select Account...</option>
-                        {accounts.map((a) => (
+                        {accounts.filter((a) => a.level === 4 && a.isActive !== false).map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.code} — {a.name} ({a.type})
                           </option>
@@ -4244,19 +4244,37 @@ export default function AccountsPage() {
                   >
                     {cashFormType === "receipt" ? (
                       <>
-                        <option value="4000">4000 — HVAC Service & Installation Revenue</option>
-                        <option value="1100">1100 — Accounts Receivable (Customer Clearance)</option>
+                        <option value="4000">4000 — Service Revenue – Installation</option>
+                        <option value="4001">4001 — Service Revenue – Repair & Maintenance</option>
+                        <option value="4010">4010 — Goods Revenue – Parts & Products Sold to Customers</option>
                         <option value="4002">4002 — POS Counter Sales Revenue</option>
+                        <option value="4900">4900 — Other Income</option>
+                        <option value="1100">1100 — Accounts Receivable (Customer Clearance)</option>
                         <option value="3000">3000 — Owner Capital / Equity Injection</option>
                       </>
                     ) : (
                       <>
-                        <option value="6100">6100 — Technician Travel & Fuel Expenses</option>
-                        <option value="6200">6200 — Office & Utility Expenses</option>
-                        <option value="6000">6000 — Salaries & Wages Expense</option>
+                        <option value="5100">5100 — Job Fuel & Conveyance</option>
+                        <option value="5110">5110 — Job Food & Meals</option>
+                        <option value="5130">5130 — Other Direct Job Costs</option>
+                        <option value="6100">6100 — Staff Travel & Conveyance (Non-Job)</option>
+                        <option value="6200">6200 — General Office Overheads</option>
+                        <option value="6210">6210 — Office Supplies & Stationery</option>
+                        <option value="6220">6220 — Executive Meals & Entertainment</option>
+                        <option value="6230">6230 — Repairs & Maintenance</option>
+                        <option value="6240">6240 — Vehicle Running Costs</option>
+                        <option value="6310">6310 — Electricity</option>
+                        <option value="6320">6320 — Water</option>
+                        <option value="6330">6330 — Internet</option>
+                        <option value="6340">6340 — Telephone & Mobile</option>
+                        <option value="6400">6400 — Rent</option>
+                        <option value="6500">6500 — Bank Charges</option>
+                        <option value="6600">6600 — Marketing & Advertising</option>
+                        <option value="6900">6900 — Miscellaneous Expenses</option>
+                        <option value="6000">6000 — Salaries & Wages</option>
                         <option value="2000">2000 — Accounts Payable (Vendor Payment)</option>
                         <option value="2100">2100 — Technician Reimbursement Settlement</option>
-                        <option value="3010">3010 — Owner Profit Drawings</option>
+                        <option value="3100">3100 — Owner Drawings</option>
                       </>
                     )}
                   </select>

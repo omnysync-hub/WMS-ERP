@@ -1059,8 +1059,8 @@ export async function GET(req: NextRequest) {
           customerName: fc.job?.customer?.name,
           category: "Technician Field Expense",
           amount: fc.amount,
-          accountCode: "6100",
-          accountName: "Technician Travel & Job Expenses",
+          accountCode: fc.category || "JOB",
+          accountName: "Job expense claim (posted by its category at payout)",
           status: fc.status === "paid" ? "Paid / Reimbursed" : "Pending Clearance",
           notes: fc.note,
           receiptUrl: fc.receiptUrl,
@@ -1302,7 +1302,7 @@ export async function GET(req: NextRequest) {
         : await prisma.account.findMany({
             where: {
               OR: [
-                { code: { in: ["1000", "1010", "1011", "1020"] } },
+                { code: { in: ["1000", "1005", "1010"] } },
                 { name: { contains: "Cash", mode: "insensitive" } },
                 { name: { contains: "Bank", mode: "insensitive" } },
               ],
@@ -1453,7 +1453,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json(accountsWithBalance);
+    return NextResponse.json(accountsWithBalance.filter((a) => a.level >= 4));
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -1584,7 +1584,7 @@ export async function POST(req: NextRequest) {
           payeeType = "company",
           payeeName = "Operations",
           technicianId,
-          expenseAccountCode = "6100",
+          expenseAccountCode = "",
           disbursingAccountCode,
           amount,
           memo,
@@ -1597,7 +1597,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid expense amount" }, { status: 400 });
         }
 
-        const expenseAcc = expenseAccountCode && expenseAccountCode !== "6100"
+        const expenseAcc = expenseAccountCode
           ? await AccountsPostingService.getAccountByCode(expenseAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_expense" });
         const disbursingAcc = disbursingAccountCode
@@ -2380,7 +2380,7 @@ export async function POST(req: NextRequest) {
 
           if (parentId) {
             const parent = await tx.account.findUnique({ where: { id: parentId } });
-            if (!parent || !parent.isActive || parent.level !== 3 || parent.type !== type) {
+            if (!parent || !parent.isActive || parent.level !== 3 || !(parent.type === type || (type === "contra_revenue" && parent.type === "revenue"))) {
               throw new Error("Parent must be an active level-3 account with the same classification.");
             }
           }
@@ -2422,6 +2422,17 @@ export async function POST(req: NextRequest) {
         const existing = await prisma.account.findUnique({ where: { code } });
         if (existing) {
           return NextResponse.json({ error: `Account with code '${code}' already exists.` }, { status: 400 });
+        }
+        if (Number(level) === 4 || level === undefined) {
+          // A posting account must sit under an active Level 3 group of the same kind.
+          if (!parentId) {
+            return NextResponse.json({ error: "Choose a parent group for the new account." }, { status: 400 });
+          }
+          const parentGroup = await prisma.account.findUnique({ where: { id: parentId } });
+          const typeOk = parentGroup && (parentGroup.type === type || (type === "contra_revenue" && parentGroup.type === "revenue"));
+          if (!parentGroup || !parentGroup.isActive || parentGroup.level !== 3 || !typeOk) {
+            return NextResponse.json({ error: "The parent must be an active group (Level 3) of the same account type." }, { status: 400 });
+          }
         }
         const account = await prisma.account.create({
           data: {
