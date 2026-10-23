@@ -6,6 +6,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime, formatStockUnitName } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
+import { ensureStockUnit } from "@/lib/stockUnits";
 import {
   Package,
   ShoppingCart,
@@ -509,22 +510,16 @@ export default function InventoryPurchasingPage() {
     if (!newProductSku || !newProductName) return;
     try {
       setIsSubmittingStock(true);
-      const effectiveUnit = (isCustomUnit ? customUnitInput.trim() : newProductUnit) || configuredStockUnits[0] || "Pieces";
+      let effectiveUnit = (isCustomUnit ? customUnitInput.trim() : newProductUnit) || configuredStockUnits[0] || "Pieces";
 
-      // Auto-persist custom unit to workman_stock_units in localStorage if typed
+      // A custom unit is saved to the shared Units list on the server first, so it persists and
+      // shows on the Units screen and in every dropdown. If that fails, stop and tell the user.
       if (isCustomUnit && customUnitInput.trim()) {
         try {
-          const saved = localStorage.getItem("workman_stock_units");
-          const list: any[] = saved ? JSON.parse(saved) : [{ id: "unit-pcs", name: "Pieces", status: "Active" }];
-          const trimmed = customUnitInput.trim();
-          const formatted = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-          if (Array.isArray(list) && !list.some((u) => (u.name || "").toLowerCase() === formatted.toLowerCase())) {
-            const next = [...list, { id: `unit-${Date.now()}`, name: formatted, status: "Active" }];
-            localStorage.setItem("workman_stock_units", JSON.stringify(next));
-            window.dispatchEvent(new CustomEvent("workman_stock_units_updated", { detail: next }));
-          }
-        } catch (e) {
-          console.error("Auto-persisting stock unit failed", e);
+          effectiveUnit = await ensureStockUnit(customUnitInput);
+        } catch (unitErr: any) {
+          alert(`The new unit '${customUnitInput.trim()}' could not be saved to the Units list, so the product was not created.\n\n${unitErr?.message || "Please try again."}`);
+          return;
         }
       }
 
