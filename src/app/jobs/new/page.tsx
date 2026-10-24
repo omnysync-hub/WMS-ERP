@@ -20,6 +20,7 @@ import { realtimeSync } from "@/lib/realtimeSync";
 import { cn, formatCurrency } from "@/lib/utils";
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import SearchableCombobox from "@/components/ui/SearchableCombobox";
+import PakistanAddressAutofill from "@/components/maps/PakistanAddressAutofill";
 
 // Standard Dropdown Fallback Data
 const DEFAULT_JOB_TYPES = [
@@ -107,6 +108,8 @@ export default function FastJobIntakePage() {
   const [customerMobile, setCustomerMobile] = useState("");
   const [customerSecMobile, setCustomerSecMobile] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
+  const [customerLat, setCustomerLat] = useState<number>(31.5204);
+  const [customerLng, setCustomerLng] = useState<number>(74.3587);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [isNewCustomer, setIsNewCustomer] = useState(false);
 
@@ -218,30 +221,38 @@ export default function FastJobIntakePage() {
     }));
   }, [careOfParties]);
 
-  // Technician Select Options
+  // Present Technicians only (Absent / Off-duty technicians cannot be assigned jobs)
+  const presentTechnicians = useMemo(() => {
+    return technicians.filter((t) => t.isCheckedIn);
+  }, [technicians]);
+
+  // Technician Select Options - Absent / off-duty technicians do NOT show up
   const technicianOptions: SelectOption[] = useMemo(() => {
+    if (presentTechnicians.length === 0) {
+      return [
+        {
+          value: "",
+          label: "Unassigned (Queue in Dispatch - 0 Techs Present Today)",
+          badge: "Queue",
+          badgeTone: "zinc",
+        },
+      ];
+    }
+
     return [
       { value: "", label: "Unassigned (Queue in Dispatch)", badge: "Queue", badgeTone: "zinc" },
-      ...technicians.map((t) => {
-        let badge = "Off Duty";
-        let badgeTone: "green" | "blue" | "zinc" = "zinc";
-        if (t.isCheckedIn) {
-          badge = "Available";
-          badgeTone = "green";
-        } else if (t.status === "On Job") {
-          badge = "On Job";
-          badgeTone = "blue";
-        }
+      ...presentTechnicians.map((t) => {
+        const isOnJob = t.status === "On Job" || t.currentStatus === "On Job";
         return {
           value: t.id,
           label: t.name,
-          subLabel: t.phone || undefined,
-          badge,
-          badgeTone,
+          subLabel: t.phone ? `${t.phone} • Checked In` : "Checked In",
+          badge: isOnJob ? "On Job" : "Available",
+          badgeTone: (isOnJob ? "blue" : "green") as "blue" | "green",
         };
       }),
     ];
-  }, [technicians]);
+  }, [presentTechnicians]);
 
   // Select customer from dropdown
   function handleSelectCustomer(c: any) {
@@ -250,6 +261,10 @@ export default function FastJobIntakePage() {
     setCustomerMobile(c.phone || "");
     setCustomerSecMobile(c.secPhone || "");
     setCustomerAddress(c.addressText || c.address || "");
+    if (c.lat && c.lng) {
+      setCustomerLat(Number(c.lat));
+      setCustomerLng(Number(c.lng));
+    }
     setIsNewCustomer(false);
   }
 
@@ -260,6 +275,8 @@ export default function FastJobIntakePage() {
     setCustomerMobile("");
     setCustomerSecMobile("");
     setCustomerAddress("");
+    setCustomerLat(31.5204);
+    setCustomerLng(74.3587);
   }
 
   // Row Manipulation
@@ -396,6 +413,8 @@ export default function FastJobIntakePage() {
             phone: customerMobile.trim(),
             secPhone: customerSecMobile.trim() || undefined,
             addressText: customerAddress.trim(),
+            lat: customerLat || undefined,
+            lng: customerLng || undefined,
           }),
         });
         const custData = await createCustRes.json();
@@ -433,6 +452,13 @@ export default function FastJobIntakePage() {
         .join(" | ");
 
       const primaryJobType = rows[0]?.typeOfWork || "General HVAC Service";
+
+      if (assignedTechnicianId) {
+        const isTechPresent = presentTechnicians.some((t) => t.id === assignedTechnicianId);
+        if (!isTechPresent) {
+          throw new Error("Cannot assign job: Selected technician is off duty and has not checked in today. Jobs can only be assigned to present technicians.");
+        }
+      }
 
       const payload = {
         customerId: targetCustomerId,
@@ -639,19 +665,25 @@ export default function FastJobIntakePage() {
           </div>
 
           {/* ========================================================================= */}
-          {/* ROW 2: Address (Full Width)                                              */}
+          {/* ROW 2: Address (Mapbox Autofill & GPS Pinpoint)                          */}
           {/* ========================================================================= */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Address:
-            </label>
-            <input
-              type="text"
-              required
+            <PakistanAddressAutofill
               value={customerAddress}
-              onChange={(e) => setCustomerAddress(e.target.value)}
-              placeholder="Enter customer address..."
-              className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition"
+              lat={customerLat}
+              lng={customerLng}
+              onChange={(newAddress, newLat, newLng) => {
+                setCustomerAddress(newAddress);
+                if (newLat && newLng) {
+                  setCustomerLat(newLat);
+                  setCustomerLng(newLng);
+                }
+              }}
+              label="Address"
+              placeholder="Search address with Mapbox (e.g. DHA Phase 5, Gulberg III, Model Town, Johar Town)..."
+              required={true}
+              showMapPicker={true}
+              cityBias="lahore"
             />
           </div>
 
@@ -934,9 +966,14 @@ export default function FastJobIntakePage() {
             <div className="flex flex-wrap items-center gap-4">
               {/* Technician Dropdown */}
               <div className="w-64">
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Assign Technician:
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-slate-600">
+                    Assign Technician:
+                  </label>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                    {presentTechnicians.length} Checked In
+                  </span>
+                </div>
                 <SearchableSelect
                   value={assignedTechnicianId}
                   onChange={(val) => setAssignedTechnicianId(val)}

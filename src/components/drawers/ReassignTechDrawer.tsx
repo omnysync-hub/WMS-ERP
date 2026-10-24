@@ -64,6 +64,12 @@ export default function ReassignTechDrawer({
       return;
     }
 
+    const targetTech = technicians.find((t) => t.id === selectedTechId);
+    if (!targetTech?.isCheckedIn) {
+      alert(`Cannot assign job: ${targetTech?.name || "Technician"} is off duty and has not checked in today. Only present technicians can be assigned.`);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -198,6 +204,7 @@ export default function ReassignTechDrawer({
 
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {technicians
+              .filter((tech) => tech.isCheckedIn || tech.id === job.assignedTechnicianId)
               .filter((tech) => {
                 if (!techSearch.trim()) return true;
                 const q = techSearch.toLowerCase().trim();
@@ -208,9 +215,15 @@ export default function ReassignTechDrawer({
                 );
               })
               .length === 0 ? (
-              <p className="text-xs text-[#A1A1AA] py-4 text-center">No technicians matching "{techSearch}".</p>
+              <div className="py-6 text-center text-zinc-500">
+                <p className="text-xs font-bold text-zinc-700">No present technicians found.</p>
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  Only technicians who have checked in today appear here. Off-duty technicians are hidden.
+                </p>
+              </div>
             ) : (
               technicians
+                .filter((tech) => tech.isCheckedIn || tech.id === job.assignedTechnicianId)
                 .filter((tech) => {
                   if (!techSearch.trim()) return true;
                   const q = techSearch.toLowerCase().trim();
@@ -299,7 +312,7 @@ export default function ReassignTechDrawer({
             </p>
             <div className="space-y-1.5 max-h-40 overflow-y-auto">
               {technicians
-                .filter((t) => t.id !== selectedTechId)
+                .filter((t) => t.id !== selectedTechId && t.isCheckedIn)
                 .map((tech) => {
                   const checked = assistantIds.includes(tech.id);
                   return (

@@ -176,6 +176,23 @@ export async function POST(req: NextRequest) {
       assignedTechnicianId ||
       (Array.isArray(technicianIds) && technicianIds.length > 0 ? technicianIds[0] : null);
 
+    const allAssignees = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(technicianIds) ? technicianIds : []),
+          effectivePrimaryId,
+        ].filter(Boolean)
+      )
+    ) as string[];
+
+    if (allAssignees.length > 0) {
+      try {
+        await JobsService.assertTechniciansCheckedIn(allAssignees);
+      } catch (err: any) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+    }
+
     const job = await prisma.job.create({
       data: {
         jobNumber,

@@ -105,12 +105,26 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const { searchParams } = new URL(req.url);
+    const presentOnly = searchParams.get("presentOnly") === "true";
+
+    const presentTechnicians = formatted.filter((t) => t.isCheckedIn);
+    const outputTechnicians = presentOnly ? presentTechnicians : formatted;
+
     const unassignedJobs = await prisma.job.findMany({
       where: { status: "Created", assignedTechnicianId: null },
       include: { customer: true },
     });
 
-    return NextResponse.json({ technicians: formatted, unassignedJobs });
+    return NextResponse.json({
+      technicians: outputTechnicians,
+      presentTechnicians,
+      allTechnicians: formatted,
+      unassignedJobs,
+      totalCount: formatted.length,
+      presentCount: presentTechnicians.length,
+      offDutyCount: formatted.length - presentTechnicians.length,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

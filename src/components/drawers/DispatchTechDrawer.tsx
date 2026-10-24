@@ -34,6 +34,7 @@ export default function DispatchTechDrawer({
   };
 
   if (!technician) return null;
+  const isPresent = technician.isCheckedIn;
 
   return (
     <SideDrawer
@@ -55,11 +56,12 @@ export default function DispatchTechDrawer({
             <button
               type="button"
               onClick={handleAssign}
-              disabled={!selectedJobId || isAssigning}
-              className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A634D] disabled:bg-[#D4D4D8] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              disabled={!selectedJobId || isAssigning || !isPresent}
+              className="px-4 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A634D] disabled:bg-[#D4D4D8] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs disabled:cursor-not-allowed"
+              title={!isPresent ? "Cannot dispatch: Technician is off duty" : undefined}
             >
               <Briefcase className="w-3.5 h-3.5" />
-              {isAssigning ? "Dispatching..." : "Assign & Dispatch"}
+              {isAssigning ? "Dispatching..." : !isPresent ? "Off Duty (Cannot Assign)" : "Assign & Dispatch"}
             </button>
           )}
         </>
@@ -78,6 +80,13 @@ export default function DispatchTechDrawer({
           </div>
           <StatusBadge status={technician.currentStatus} />
         </div>
+
+        {!isPresent && (
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs leading-relaxed">
+            <strong className="block font-bold mb-0.5">⚠️ Technician Off Duty</strong>
+            This technician has not checked in today. In accordance with operational protocol, jobs can only be assigned to technicians who are present and checked in.
+          </div>
+        )}
 
 
         {/* Current Active Job Info if any */}

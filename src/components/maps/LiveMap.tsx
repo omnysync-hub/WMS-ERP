@@ -46,15 +46,33 @@ export default function LiveMap({
   const [filter, setFilter] = useState<"ALL" | "AVAILABLE" | "ON_JOB">("ALL");
   const [showUnassigned, setShowUnassigned] = useState(true);
 
-  const filteredTechnicians = technicians.filter((t) => {
+  // Strictly ensure only present / checked-in technicians are shown on the map
+  const presentTechs = technicians.filter(
+    (t: any) =>
+      t.isCheckedIn !== false &&
+      t.currentStatus !== "Off Duty" &&
+      t.currentStatus !== "Checked Out"
+  );
+
+  const filteredTechnicians = presentTechs.filter((t) => {
     if (filter === "ALL") return true;
-    if (filter === "AVAILABLE") return t.currentStatus === "Available";
+    if (filter === "AVAILABLE")
+      return (
+        t.currentStatus === "Available" ||
+        t.currentStatus === "Available & Ready"
+      );
     if (filter === "ON_JOB") return t.currentStatus === "On Job";
     return true;
   });
 
-  const availableCount = technicians.filter((t) => t.currentStatus === "Available").length;
-  const onJobCount = technicians.filter((t) => t.currentStatus === "On Job").length;
+  const availableCount = presentTechs.filter(
+    (t) =>
+      t.currentStatus === "Available" ||
+      t.currentStatus === "Available & Ready"
+  ).length;
+  const onJobCount = presentTechs.filter(
+    (t) => t.currentStatus === "On Job"
+  ).length;
 
   return (
     <div className="space-y-3">
@@ -71,7 +89,7 @@ export default function LiveMap({
                 : "bg-[#F4F4F5] text-zinc-600 hover:text-zinc-900"
             }`}
           >
-            All Technicians ({technicians.length})
+            Present in Field ({presentTechs.length})
           </button>
           <button
             type="button"

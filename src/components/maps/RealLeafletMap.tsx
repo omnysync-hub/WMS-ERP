@@ -105,12 +105,14 @@ export default function RealLeafletMap({
 
     const bounds: L.LatLngTuple[] = [];
 
-    // 1. Add Technician Markers
+    // 1. Add Technician Markers (Only present / checked-in technicians)
     technicians.forEach((tech) => {
-      if (!tech.lat || !tech.lng) return;
+      if (!tech.lat || !tech.lng || (tech as any).isCheckedIn === false) return;
 
       const isSelected = selectedTechId === tech.id;
-      const isAvailable = tech.currentStatus === "Available";
+      const isAvailable =
+        tech.currentStatus === "Available" ||
+        tech.currentStatus === "Available & Ready";
       bounds.push([tech.lat, tech.lng]);
 
       const pinColor = isAvailable

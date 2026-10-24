@@ -51,6 +51,12 @@ export default function DispatchMapPage() {
 
   const handleAssignJob = async (jobId: string, technicianId: string) => {
     try {
+      const assignedTech = technicians.find((t) => t.id === technicianId);
+      if (!assignedTech?.isCheckedIn) {
+        alert(`Cannot assign job: ${assignedTech?.name || "Technician"} is off duty and has not checked in today.`);
+        return;
+      }
+
       const res = await fetch(`/api/jobs/${jobId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -64,7 +70,6 @@ export default function DispatchMapPage() {
         const err = await res.json();
         throw new Error(err.error);
       }
-      const assignedTech = technicians.find((t) => t.id === technicianId);
       const jobObj = unassignedJobs.find((j) => j.id === jobId);
 
       setNotification("Job assigned successfully! WhatsApp dispatch instructions routed to technician.");
@@ -86,8 +91,11 @@ export default function DispatchMapPage() {
     }
   };
 
-  const availableCount = technicians.filter((t) => t.currentStatus === "Available").length;
-  const onJobCount = technicians.filter((t) => t.currentStatus === "On Job").length;
+  const presentTechnicians = technicians.filter((t) => t.isCheckedIn);
+  const availableCount = presentTechnicians.filter(
+    (t) => t.currentStatus === "Available" || t.currentStatus === "Available & Ready"
+  ).length;
+  const onJobCount = presentTechnicians.filter((t) => t.currentStatus === "On Job").length;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -165,52 +173,72 @@ export default function DispatchMapPage() {
         </div>
       </div>
 
-      {/* Main Full-Bleed Map Container */}
+      {/* Main Full-Bleed Map Container - Only present technicians plotted on map */}
       <div id="dispatch-live-map" className="relative">
         <LiveMap
-          technicians={technicians}
+          technicians={presentTechnicians}
           unassignedJobs={unassignedJobs}
           onSelectTech={handleSelectTech}
           selectedTechId={selectedTech?.id}
         />
       </div>
 
-      {/* Technician Roster Bar below Map */}
+      {/* Technician Roster Bar below Map - Only present technicians show up in list */}
       <div className="bg-white rounded-xl border border-[#E4E4E7] p-4 shadow-xs">
         <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7] mb-3">
-          <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-            Field Technicians Directory
-          </h3>
-          <span className="text-xs text-[#71717A]">
-            Click any technician to open dispatch drawer
-          </span>
+          <div>
+            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
+              <span>Present Field Technicians</span>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono">
+                {presentTechnicians.length} Active
+              </span>
+            </h3>
+            <p className="text-[11px] text-[#71717A] mt-0.5">
+              Only checked-in technicians are active on map and eligible for dispatch.
+            </p>
+          </div>
+          {technicians.length > presentTechnicians.length && (
+            <span className="text-[11px] font-medium text-zinc-500 bg-zinc-100 px-2.5 py-1 rounded-md border border-zinc-200">
+              {technicians.length - presentTechnicians.length} Off-Duty Hidden
+            </span>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {technicians.map((tech) => (
-            <button
-              key={tech.id}
-              type="button"
-              onClick={() => handleSelectTech(tech)}
-              className="p-3 rounded-lg border border-[#E4E4E7] hover:border-[#0D7A5F] bg-[#FAFAFA] hover:bg-white text-left transition flex items-center justify-between group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center">
-                  {tech.name.split(" ").map((n: string) => n[0]).join("")}
+        {presentTechnicians.length === 0 ? (
+          <div className="p-8 text-center bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+            <Users className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+            <p className="text-xs font-bold text-zinc-700">No technicians have checked in today</p>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              Off-duty technicians are hidden. Once technicians check in on mobile attendance, they will immediately appear here and on the map.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {presentTechnicians.map((tech) => (
+              <button
+                key={tech.id}
+                type="button"
+                onClick={() => handleSelectTech(tech)}
+                className="p-3 rounded-lg border border-[#E4E4E7] hover:border-[#0D7A5F] bg-[#FAFAFA] hover:bg-white text-left transition flex items-center justify-between group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center">
+                    {tech.name.split(" ").map((n: string) => n[0]).join("")}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-[#18181B] group-hover:text-[#0D7A5F] transition">
+                      {tech.name}
+                    </p>
+                    <p className="text-[11px] text-[#71717A] flex items-center gap-1 font-mono">
+                      <Phone className="w-2.5 h-2.5" /> {tech.phone}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-[#18181B] group-hover:text-[#0D7A5F] transition">
-                    {tech.name}
-                  </p>
-                  <p className="text-[11px] text-[#71717A] flex items-center gap-1 font-mono">
-                    <Phone className="w-2.5 h-2.5" /> {tech.phone}
-                  </p>
-                </div>
-              </div>
-              <StatusBadge status={tech.currentStatus} />
-            </button>
-          ))}
-        </div>
+                <StatusBadge status={tech.currentStatus} />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* DISPATCH TECH SIDE DRAWER (Sliding from Right, leaving map visible) */}

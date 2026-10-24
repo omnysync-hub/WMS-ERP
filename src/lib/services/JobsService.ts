@@ -123,7 +123,42 @@ export class JobsService {
   /**
    * Transition job to Assigned
    */
+  /**
+   * Verify that technician(s) are checked in today (present) and not checked out / off duty.
+   */
+  static async assertTechniciansCheckedIn(technicianIds: string[]) {
+    const ids = Array.from(new Set(technicianIds.filter(Boolean)));
+    if (ids.length === 0) return;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const employees = await prisma.employee.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        name: true,
+        attendanceLogs: {
+          where: { timestamp: { gte: startOfToday } },
+          orderBy: { timestamp: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    for (const emp of employees) {
+      const latestPunch = emp.attendanceLogs[0];
+      const isCheckedIn = latestPunch ? !latestPunch.notes?.includes("[CHECK_OUT]") : false;
+      if (!isCheckedIn) {
+        throw new Error(
+          `Cannot assign job: Technician "${emp.name}" is off duty and has not checked in today. Only present technicians can be assigned to jobs.`
+        );
+      }
+    }
+  }
+
   static async assignTechnician(jobId: string, technicianId: string, assignedBy: string) {
+    await this.assertTechniciansCheckedIn([technicianId]);
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) throw new Error("Job not found");
 
@@ -358,6 +393,7 @@ export class JobsService {
     }
     const ids = Array.from(new Set((technicianIds || []).filter(Boolean)));
     if (ids.length === 0) throw new Error("At least one technicianId is required");
+    await this.assertTechniciansCheckedIn(ids);
 
     const primaryId = primaryTechnicianId && ids.includes(primaryTechnicianId) ? primaryTechnicianId : ids[0];
     // If primary technician is already assigned and is being changed to another technician:
@@ -475,6 +511,7 @@ export class JobsService {
       throw new Error(`Cannot reassign a job in status '${job.status}'. Reassignment is only permitted while the job is active.`);
     }
     if (!newTechnicianId) throw new Error("newTechnicianId required");
+    await this.assertTechniciansCheckedIn([newTechnicianId, ...(opts?.assistantTechnicianIds || [])]);
     if (job.assignedTechnicianId === newTechnicianId) {
       throw new Error("New technician is already the primary assignee.");
     }
