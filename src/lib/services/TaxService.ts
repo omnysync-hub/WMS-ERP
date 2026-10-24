@@ -92,6 +92,7 @@ export class TaxService {
             where: { OR: [{ code: disbursingAccountCode }, { id: disbursingAccountCode }], isActive: true },
           })
         : null;
+      if (disbursingAccount) disbursingAccount = await AccountsPostingService.getCashBankAccountByCode(disbursingAccount.code, tx);
       if (!disbursingAccount) {
         disbursingAccount = await AccountMappingService.resolveAccount({
           transactionType: "vendor_payment_disbursing",

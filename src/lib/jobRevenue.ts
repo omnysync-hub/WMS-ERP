@@ -11,7 +11,7 @@ const INSTALLATION_WORDS = /install|commission|erect|piping|new\s*unit|setup|set
 
 export function jobRevenueRole(jobType?: string | null): JobRevenueRole {
   const t = (jobType || "").trim();
-  if (!t) return "job_revenue_sales";
+  if (!t) return "job_revenue_repair"; // no type given: treat as service / repair work
   return INSTALLATION_WORDS.test(t) ? "job_revenue_sales" : "job_revenue_repair";
 }
 

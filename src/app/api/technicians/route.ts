@@ -1,3 +1,4 @@
+import { pktTodayStart } from "@/lib/pktTime";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requireOfficePermission } from "@/lib/auth/erpActor";
@@ -14,8 +15,7 @@ export async function GET(req: NextRequest) {
   ]);
   if (gate.error) return gate.error;
   try {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const startOfToday = pktTodayStart(); // Pakistan calendar day (server clock is UTC)
 
     const technicians = await prisma.employee.findMany({
       where: {

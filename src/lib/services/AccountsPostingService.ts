@@ -8,6 +8,9 @@ export interface PostLineItem {
   accountId: string;
   debit: number;
   credit: number;
+  /** Optional sub-ledger party (e.g. care_of / customer / technician / supplier) for control accounts like 1100 AR. */
+  partyType?: string | null;
+  partyId?: string | null;
 }
 
 export interface PostEntryParams {
@@ -87,6 +90,8 @@ export class AccountsPostingService {
         accountId: line.accountId,
         debit: debitCents / 100,
         credit: creditCents / 100,
+        partyType: line.partyType || null,
+        partyId: line.partyId || null,
       };
     });
 
@@ -175,6 +180,8 @@ export class AccountsPostingService {
               accountId: l.accountId,
               debit: l.debit,
               credit: l.credit,
+              partyType: l.partyType,
+              partyId: l.partyId,
             })),
           },
         },
@@ -260,6 +267,8 @@ export class AccountsPostingService {
       accountId: l.accountId,
       debit: l.credit,   // Swap: original credit becomes debit
       credit: l.debit,   // Swap: original debit becomes credit
+      partyType: l.partyType,
+      partyId: l.partyId,
     }));
 
     const write = async (tx: Prisma.TransactionClient) => {
@@ -280,6 +289,8 @@ export class AccountsPostingService {
               accountId: l.accountId,
               debit: l.debit,
               credit: l.credit,
+              partyType: l.partyType || null,
+              partyId: l.partyId || null,
             })),
           },
         },
@@ -349,7 +360,18 @@ export class AccountsPostingService {
     }
     if (original.refType === "customer_payment" && original.refId) {
       const inv = await tx.invoice.findUnique({ where: { id: original.refId } });
-      if (inv && inv.status === "paid") await tx.invoice.update({ where: { id: inv.id }, data: { status: "unpaid" } });
+      if (inv && inv.status !== "cancelled") {
+        // What is still received on this invoice after dropping the reversed receipt?
+        const others = await tx.journalEntry.findMany({
+          where: { refType: "customer_payment", refId: inv.id, status: "posted", id: { not: original.id } },
+          include: { lines: true },
+        });
+        const stillReceived = round(
+          others.reduce((sum, je) => sum + je.lines.reduce((a, l) => a + (l.credit || 0), 0), 0)
+        );
+        const status = stillReceived <= 0.005 ? "unpaid" : stillReceived + 0.005 >= inv.amount ? "paid" : "partially_paid";
+        if (status !== inv.status) await tx.invoice.update({ where: { id: inv.id }, data: { status } });
+      }
     }
     if (original.refType === "vendor_bill") {
       const bill = await tx.supplierInvoice.findFirst({ where: { journalEntryId: original.id } });
@@ -420,5 +442,37 @@ export class AccountsPostingService {
       throw new Error(`Account with code '${code}' not found in Chart of Accounts.`);
     }
     return account;
+  }
+
+  /**
+   * Resolve a money account (cash / bank) by code. Rejects anything that is not an active
+   * posting account under the "Cash & Bank" group (1110-GRP) or linked to a Financial Account,
+   * so receipts / payments can never be booked against revenue, expense or AR by mistake.
+   */
+  static async getCashBankAccountByCode(code: string, db: DbClient = prisma) {
+    const account = await db.account.findUnique({
+      where: { code },
+      include: { parent: { select: { code: true } }, financialAccount: { select: { id: true } } },
+    });
+    if (!account) throw new Error(`Account with code '${code}' not found in Chart of Accounts.`);
+    if (!AccountsPostingService.isCashBankAccount(account)) {
+      throw new Error(`Account ${account.code} (${account.name}) is not a cash or bank account. Choose a Cash & Bank account.`);
+    }
+    return account;
+  }
+
+  static isCashBankAccount(account: {
+    type: string;
+    level: number;
+    isActive: boolean;
+    parent?: { code: string } | null;
+    financialAccount?: { id: string } | null;
+  }) {
+    return (
+      account.type === "asset" &&
+      account.level === 4 &&
+      account.isActive &&
+      (account.parent?.code === "1110-GRP" || !!account.financialAccount)
+    );
   }
 }

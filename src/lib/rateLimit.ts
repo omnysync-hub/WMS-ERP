@@ -40,12 +40,19 @@ export function clientIp(headers: Headers) {
 }
 
 /**
- * 10 sign-in attempts per IP per 5 minutes, per login surface.
- * If the proxy forwards no client IP at all, every user would share ONE bucket and lock each
- * other out, so the shared "unknown" bucket gets a much larger allowance (configure nginx!).
+ * Sign-in throttle that is friendly to shared office IPs (whole office behind one NAT address):
+ *  - 10 attempts per IP + username per 5 minutes (one person guessing a password is stopped),
+ *  - 100 attempts per IP per 5 minutes overall (many staff on one connection can still sign in),
+ *  - 300 for the shared "unknown" bucket when the proxy sends no client IP.
+ * nginx on the VPS sets `proxy_set_header X-Real-IP $remote_addr;`.
  */
-export function loginRateLimit(surface: "erp" | "mobile", headers: Headers) {
+export function loginRateLimit(surface: "erp" | "mobile", headers: Headers, username?: string | null) {
   const ip = clientIp(headers);
-  const limit = ip === "unknown" ? 100 : 10;
-  return rateLimitHit(`login:${surface}:${ip}`, limit, 5 * 60 * 1000);
+  const ipCap = ip === "unknown" ? 300 : 100;
+  const ipHit = rateLimitHit(`login:${surface}:ip:${ip}`, ipCap, 5 * 60 * 1000);
+  const user = String(username || "").trim().toLowerCase().slice(0, 160);
+  if (!user) return ipHit;
+  const userHit = rateLimitHit(`login:${surface}:ipuser:${ip}:${user}`, 10, 5 * 60 * 1000);
+  if (!ipHit.allowed) return ipHit;
+  return userHit;
 }

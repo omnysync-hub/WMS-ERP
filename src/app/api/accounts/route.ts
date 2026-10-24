@@ -1601,7 +1601,7 @@ export async function POST(req: NextRequest) {
           ? await AccountsPostingService.getAccountByCode(expenseAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_expense" });
         const disbursingAcc = disbursingAccountCode
-          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          ? await AccountsPostingService.getCashBankAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_disbursing" });
 
         const journal = await prisma.$transaction(async (tx) => {
@@ -1708,7 +1708,7 @@ export async function POST(req: NextRequest) {
 
         const journal = await prisma.$transaction(async (tx) => {
           const cashAcc = receivingAccountCode
-            ? await tx.account.findUnique({ where: { code: receivingAccountCode } })
+            ? await AccountsPostingService.getCashBankAccountByCode(receivingAccountCode, tx)
             : await AccountMappingService.resolveAccount({
                 transactionType: "customer_payment_receiving",
                 prismaClient: tx,
@@ -1894,7 +1894,7 @@ export async function POST(req: NextRequest) {
 
         const advanceAcc = await AccountMappingService.resolveAccount({ transactionType: "advance_granted_receivable" });
         const cashAcc = disbursingAccountCode
-          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          ? await AccountsPostingService.getCashBankAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "advance_granted_disbursing" });
 
         const { journal, entry } = await prisma.$transaction(async (tx) => {
@@ -1959,42 +1959,18 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const apAcc = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_payable" });
-        const cashAcc = disbursingAccountCode
-          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
-          : await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_disbursing" });
-
-        const journal = await prisma.$transaction(async (tx) => {
-          const je = await AccountsPostingService.post({
-            memo: memo || `Payment to supplier: ${vendor.name}`,
-            refType: "vendor_payment",
-            refId: vendor.id,
-            postedBy: actorName,
-            lines: [
-              { accountId: apAcc.id, debit: numAmount, credit: 0 },
-              { accountId: cashAcc.id, debit: 0, credit: numAmount },
-            ],
-            tx,
-          });
-          const last = await tx.vendorLedgerEntry.findFirst({
-            where: { vendorId: vendor.id },
-            orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }],
-          });
-          await tx.vendorLedgerEntry.create({
-            data: {
-              vendorId: vendor.id,
-              postingDate: new Date(),
-              entryType: "payment",
-              documentNumber: `PAY-${je.id.slice(0, 8).toUpperCase()}`,
-              journalEntryId: je.id,
-              debit: numAmount,
-              credit: 0,
-              runningBalance: Math.round(((last?.runningBalance || 0) - numAmount) * 100) / 100,
-              notes: memo || "Supplier payment (on account)",
-            },
-          });
-          return je;
+        // One payment path for on-account supplier payments: the same service the WHT screen uses
+        // (applies the supplier's WHT rate when WHT is on, checks the paying account is cash/bank,
+        // and writes the supplier sub-ledger).
+        if (disbursingAccountCode) await AccountsPostingService.getCashBankAccountByCode(disbursingAccountCode);
+        const paid = await TaxService.postVendorPaymentWithWht({
+          vendorId: vendor.id,
+          grossAmount: numAmount,
+          disbursingAccountCode,
+          memo: memo || `Payment to supplier: ${vendor.name}`,
+          postedBy: actorName,
         });
+        const journal = paid.journal;
 
         await AuditService.logActivity({
           actorName,
@@ -2072,7 +2048,7 @@ export async function POST(req: NextRequest) {
         }
 
         const cashAcc = cashAccountCode
-          ? await AccountsPostingService.getAccountByCode(cashAccountCode)
+          ? await AccountsPostingService.getCashBankAccountByCode(cashAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving" });
         let postingLines: Array<{ accountId: string; debit: number; credit: number }> = [];
 
@@ -2099,7 +2075,7 @@ export async function POST(req: NextRequest) {
           if (!transferToAccountCode || transferToAccountCode === cashAccountCode) {
             return NextResponse.json({ error: "A distinct destination account is required for transfers" }, { status: 400 });
           }
-          const toAcc = await AccountsPostingService.getAccountByCode(transferToAccountCode);
+          const toAcc = await AccountsPostingService.getCashBankAccountByCode(transferToAccountCode);
           postingLines = [
             { accountId: toAcc.id, debit: numAmount, credit: 0 },
             { accountId: cashAcc.id, debit: 0, credit: numAmount },
@@ -2159,6 +2135,7 @@ export async function POST(req: NextRequest) {
         if (!vendorId) {
           return NextResponse.json({ error: "Missing vendorId" }, { status: 400 });
         }
+        if (paymentAccountCode) await AccountsPostingService.getCashBankAccountByCode(paymentAccountCode);
 
         const result = await TaxService.postVendorPaymentWithWht({
           vendorId,
@@ -2238,9 +2215,76 @@ export async function POST(req: NextRequest) {
           assetAccountCode,
           depExpenseAccountCode,
           accumDepAccountCode,
+          // Vehicles / tools / machinery live in 1510; office equipment & other assets in 1500.
+          ...(assetAccountCode ? {} : /vehicle|tool|machin|equipment.*(field|workshop)/i.test(String(category || "")) ? { assetAccountCode: "1510" } : {}),
         });
 
-        return NextResponse.json({ success: true, asset });
+        // Purchase journal: Dr fixed-asset account / Cr cash-bank (paid now) or 2000 AP (on credit).
+        const assetCost = Number(asset.acquisitionCost) || 0;
+        let purchaseJournal = null;
+        if (assetCost > 0 && payload.paidFromAccountCode !== "none") {
+          const assetAcc = await AccountsPostingService.getAccountByCode(asset.assetAccountCode);
+          const creditAcc = payload.paidFromAccountCode && payload.paidFromAccountCode !== "ap"
+            ? await AccountsPostingService.getCashBankAccountByCode(String(payload.paidFromAccountCode))
+            : await AccountMappingService.resolveAccount({ transactionType: "ap_control" });
+          purchaseJournal = await AccountsPostingService.post({
+            date: asset.acquisitionDate,
+            memo: `Fixed asset purchase ${asset.assetNumber} - ${asset.name}`,
+            refType: "fixed_asset_purchase",
+            refId: asset.id,
+            postedBy: payload.actorName || "Accountant",
+            idempotencyKey: `fixed_asset_purchase:${asset.id}`,
+            lines: [
+              { accountId: assetAcc.id, debit: assetCost, credit: 0 },
+              { accountId: creditAcc.id, debit: 0, credit: assetCost },
+            ],
+          });
+        }
+
+        return NextResponse.json({ success: true, asset, purchaseJournal });
+      }
+
+      // FIXED ASSET helper ends. TECHNICIAN COMMISSION - accrue (Dr 5120 / Cr 2110)
+      case "record_commission":
+      case "pay_commission": {
+        const { technicianId, amount, jobId, memo, cashAccountCode, actorName = "Accountant" } = payload;
+        const numAmount = Math.round(Number(amount) * 100) / 100;
+        if (!technicianId || !(numAmount > 0)) {
+          return NextResponse.json({ error: "technicianId and a positive amount are required" }, { status: 400 });
+        }
+        const tech = await prisma.employee.findUnique({ where: { id: String(technicianId) }, select: { id: true, name: true } });
+        if (!tech) return NextResponse.json({ error: "Technician not found" }, { status: 404 });
+        const payable = await AccountMappingService.resolveAccount({ transactionType: "technician_commission_payable" });
+        const isPay = action === "pay_commission";
+        const other = isPay
+          ? cashAccountCode
+            ? await AccountsPostingService.getCashBankAccountByCode(String(cashAccountCode))
+            : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_disbursing" })
+          : await AccountMappingService.resolveAccount({ transactionType: "technician_commission_expense" });
+        const journal = await AccountsPostingService.post({
+          memo: memo || `${isPay ? "Commission paid to" : "Commission earned by"} ${tech.name}${jobId ? ` (job ${jobId})` : ""}`,
+          refType: isPay ? "commission_payment" : "commission_accrual",
+          refId: jobId ? String(jobId) : tech.id,
+          postedBy: actorName,
+          lines: isPay
+            ? [
+                { accountId: payable.id, debit: numAmount, credit: 0, partyType: "technician", partyId: tech.id },
+                { accountId: other.id, debit: 0, credit: numAmount },
+              ]
+            : [
+                { accountId: other.id, debit: numAmount, credit: 0 },
+                { accountId: payable.id, debit: 0, credit: numAmount, partyType: "technician", partyId: tech.id },
+              ],
+        });
+        await AuditService.logActivity({
+          actorName,
+          actorRole: "accountant",
+          category: "DATA_MUTATION",
+          action: `${isPay ? "Paid" : "Recorded"} commission PKR ${numAmount} for ${tech.name}`,
+          target: `Technician:${tech.id}`,
+          metadata: { amount: numAmount, jobId: jobId || null },
+        });
+        return NextResponse.json({ success: true, journal });
       }
 
       // 16. FIXED ASSET - RUN DEPRECIATION

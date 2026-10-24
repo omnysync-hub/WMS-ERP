@@ -8,6 +8,7 @@ import { computeSupplierBillTotals } from "../procurement/billDiscount";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
+import { InventoryService } from "./InventoryService";
 
 
 export interface CreateVendorInput {
@@ -1117,6 +1118,7 @@ export class ProcurementService {
       expiryDate: Date | null;
     }> = [];
     let totalAcceptedValue = 0;
+    const unitCostByIndex: number[] = [];
 
     for (const item of data.items) {
       const poItem = po.items.find((pi) => pi.id === item.poItemId);
@@ -1132,6 +1134,7 @@ export class ProcurementService {
       const qtyRej = qtyRec - qtyAcc;
 
       totalAcceptedValue += qtyAcc * unitCost;
+      unitCostByIndex.push(unitCost);
 
       grnItemsData.push({
         poItemId: item.poItemId || null,
@@ -1152,13 +1155,23 @@ export class ProcurementService {
 
     // Resolve GL accounts before the write transaction (read-only)
     const roundedValue = Math.round(totalAcceptedValue * 100) / 100;
-    const [inventoryAccount, grirAccount] =
-      roundedValue > 0
-        ? await Promise.all([
-            AccountMappingService.resolveAccount({ transactionType: "grn_receipt_asset" }),
-            AccountMappingService.resolveAccount({ transactionType: "grn_receipt_clearing" }),
-          ])
-        : [null, null];
+    // Inventory debit is split by stock account: direct-sale goods (forDirectSale) -> 1210, others -> 1200.
+    const grnProducts = await prisma.product.findMany({
+      where: { id: { in: grnItemsData.map((g) => g.productId).filter((x): x is string => !!x) } },
+      select: { id: true, forDirectSale: true },
+    });
+    const grnProductById = new Map(grnProducts.map((p) => [p.id, p]));
+    const debitByAccount = new Map<string, number>();
+    for (let i = 0; i < grnItemsData.length; i++) {
+      const gi = grnItemsData[i];
+      const val = gi.quantityAccepted * (unitCostByIndex[i] || 0);
+      if (!(val > 0)) continue;
+      const acc = await InventoryService.stockAccountFor(prisma, gi.productId ? grnProductById.get(gi.productId) : null, "grn_receipt_asset");
+      debitByAccount.set(acc.id, Math.round(((debitByAccount.get(acc.id) || 0) + val) * 100) / 100);
+    }
+    const debitTotal = Math.round(Array.from(debitByAccount.values()).reduce((a, b) => a + b, 0) * 100) / 100;
+    const inventoryAccount = debitTotal > 0 ? true : null;
+    const grirAccount = debitTotal > 0 ? await AccountMappingService.resolveAccount({ transactionType: "grn_receipt_clearing" }) : null;
 
     // GRN + PO lines + PO status + stock movements + GL: all-or-nothing
     return prisma.$transaction(
@@ -1201,7 +1214,8 @@ export class ProcurementService {
           },
         });
 
-        for (const gi of grnItemsData) {
+        for (let gIdx = 0; gIdx < grnItemsData.length; gIdx++) {
+          const gi = grnItemsData[gIdx];
           if (gi.poItemId && gi.quantityAccepted > 0) {
             await tx.purchaseOrderItem.update({
               where: { id: gi.poItemId },
@@ -1209,9 +1223,17 @@ export class ProcurementService {
             });
           }
           if (gi.productId && gi.quantityAccepted > 0) {
+            // Moving-average cost: new cost = (old qty x old cost + received qty x PO cost) / new qty.
+            const liveProduct = await tx.product.findUnique({ where: { id: gi.productId } });
+            const lineCost = unitCostByIndex[gIdx] || 0;
             await tx.product.update({
               where: { id: gi.productId },
-              data: { stockQuantity: { increment: gi.quantityAccepted } },
+              data: {
+                stockQuantity: { increment: gi.quantityAccepted },
+                ...(lineCost > 0 && liveProduct
+                  ? { costPrice: InventoryService.movingAverageCost(liveProduct.stockQuantity, liveProduct.costPrice, gi.quantityAccepted, lineCost) }
+                  : {}),
+              },
             });
             await tx.stockLedger.create({
               data: {
@@ -1229,13 +1251,13 @@ export class ProcurementService {
         // Double-entry: Dr Inventory Asset / Cr GR-IR clearing (AccountMappingService roles)
         if (roundedValue > 0 && inventoryAccount && grirAccount) {
           const journal = await AccountsPostingService.post({
-            memo: `Goods Receipt ${grnNumber} for PO ${po.poNumber} (${po.supplierName}) [Accepted Val: PKR ${roundedValue.toLocaleString()}]`,
+            memo: `Goods Receipt ${grnNumber} for PO ${po.poNumber} (${po.supplierName}) [Accepted Val: PKR ${debitTotal.toLocaleString()}]`,
             refType: "grn_receipt",
             refId: grn.id,
             postedBy: data.receivedBy,
             lines: [
-              { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
-              { accountId: grirAccount.id, debit: 0, credit: roundedValue },
+              ...Array.from(debitByAccount.entries()).map(([accountId, v]) => ({ accountId, debit: v, credit: 0 })),
+              { accountId: grirAccount.id, debit: 0, credit: debitTotal },
             ],
             tx,
           });
@@ -1598,6 +1620,7 @@ export class ProcurementService {
           where: { OR: [{ code: data.bankAccountId }, { id: data.bankAccountId }], isActive: true },
         })
       : null;
+    if (bankAccount) bankAccount = await AccountsPostingService.getCashBankAccountByCode(bankAccount.code);
     if (!bankAccount) {
       bankAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_payment_disbursing" });
     }

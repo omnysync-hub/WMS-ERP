@@ -5,7 +5,29 @@ import { AccountMappingService } from "./AccountMappingService";
 
 const RECEIVABLE_PO_STATUSES = ["approved", "sent_to_vendor", "sent", "partially_received"];
 
+type Db = Prisma.TransactionClient | typeof prisma;
+
 export class InventoryService {
+  /**
+   * Inventory asset account for a product: goods held for direct / POS sale (forDirectSale) sit in
+   * 1210 (pos_inventory_asset); everything else in the mapped materials account (1200).
+   */
+  static async stockAccountFor(db: Db, product: { forDirectSale?: boolean | null } | null | undefined, role: string) {
+    return AccountMappingService.resolveAccount({
+      transactionType: product?.forDirectSale ? "pos_inventory_asset" : role,
+      prismaClient: db,
+    });
+  }
+
+  /** Moving-average unit cost after receiving `inQty` units at `inCost`. */
+  static movingAverageCost(oldQty: number, oldCost: number, inQty: number, inCost: number) {
+    const q = Math.max(0, Number(oldQty) || 0);
+    const c = Number(oldCost) || 0;
+    if (!(inQty > 0)) return c;
+    if (q <= 0 || c <= 0) return Math.round(inCost * 10000) / 10000;
+    return Math.round(((q * c + inQty * inCost) / (q + inQty)) * 10000) / 10000;
+  }
+
   /**
    * Consume stock for a job or general usage.
    * Decrements product quantity, writes to stock_ledger, and posts to Accounts Posting Engine.
@@ -30,7 +52,7 @@ export class InventoryService {
       costAmount > 0
         ? await Promise.all([
             AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_expense" }),
-            AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_asset" }),
+            InventoryService.stockAccountFor(prisma, product, "inventory_cogs_asset"),
           ])
         : [null, null];
 
@@ -181,10 +203,7 @@ export class InventoryService {
     opts?: { productId?: string | null; tx?: Prisma.TransactionClient }
   ) {
     // Resolve GL accounts up-front (read-only, outside the write transaction)
-    const [cogsAccount, inventoryAccount] = await Promise.all([
-      AccountMappingService.resolveAccount({ transactionType: "inventory_return_cogs" }),
-      AccountMappingService.resolveAccount({ transactionType: "inventory_return_asset" }),
-    ]);
+    const cogsAccount = await AccountMappingService.resolveAccount({ transactionType: "inventory_return_cogs" });
 
     const run = async (tx: Prisma.TransactionClient) => {
       const stockReturn = await tx.stockReturn.findUnique({
@@ -251,6 +270,7 @@ export class InventoryService {
 
       const value = Math.round(qty * product.costPrice * 100) / 100;
       if (value > 0) {
+        const inventoryAccount = await InventoryService.stockAccountFor(tx, product, "inventory_return_asset");
         await AccountsPostingService.post({
           memo: `Stock return from Job ${stockReturn.job.jobNumber} (${qty}x ${product.name})`,
           refType: "inventory_return",
@@ -319,14 +339,21 @@ export class InventoryService {
       0
     );
 
-    // Post to accounts: Debit Inventory Asset, Credit GR/IR Clearing via AccountMappingService
-    const roundedValue = Math.round(totalReceiptValue * 100) / 100;
-    const [inventoryAccount, grirAccount] = roundedValue > 0
-      ? await Promise.all([
-          AccountMappingService.resolveAccount({ transactionType: "grn_receipt_asset" }),
-          AccountMappingService.resolveAccount({ transactionType: "grn_receipt_clearing" }),
-        ])
-      : [null, null];
+    // Post to accounts: Debit Inventory Asset (1200, or 1210 for direct-sale goods), Credit GR/IR Clearing.
+    // Valued at the PO unit cost (falls back to product cost) and the product cost moves to a moving average.
+    const unitCostOf = (productId: string) => {
+      const line = po.items.find((l) => l.productId === productId);
+      return Number(line?.unitCost) > 0 ? Number(line!.unitCost) : productById.get(productId)!.costPrice;
+    };
+    const roundedValue = Math.round(normalized.reduce((s2, it) => s2 + it.quantityReceived * unitCostOf(it.productId), 0) * 100) / 100;
+    void totalReceiptValue;
+    const debitByAccount = new Map<string, number>();
+    for (const it of normalized) {
+      const acc = await InventoryService.stockAccountFor(prisma, productById.get(it.productId), "grn_receipt_asset");
+      debitByAccount.set(acc.id, Math.round(((debitByAccount.get(acc.id) || 0) + it.quantityReceived * unitCostOf(it.productId)) * 100) / 100);
+    }
+    const inventoryAccount = roundedValue > 0 ? true : null;
+    const grirAccount = roundedValue > 0 ? await AccountMappingService.resolveAccount({ transactionType: "grn_receipt_clearing" }) : null;
 
     return prisma.$transaction(async (tx) => {
       const livePo = await tx.purchaseOrder.findUnique({ where: { id: poId }, include: { items: true } });
@@ -372,9 +399,13 @@ export class InventoryService {
           where: { id: poItem.id },
           data: { quantityReceived: { increment: item.quantityReceived } },
         });
+        const liveProduct = await tx.product.findUnique({ where: { id: item.productId } });
         await tx.product.update({
           where: { id: item.productId },
-          data: { stockQuantity: { increment: item.quantityReceived } },
+          data: {
+            stockQuantity: { increment: item.quantityReceived },
+            costPrice: InventoryService.movingAverageCost(liveProduct?.stockQuantity || 0, liveProduct?.costPrice || 0, item.quantityReceived, unitCostOf(item.productId)),
+          },
         });
         await tx.stockLedger.create({
           data: {
@@ -394,8 +425,8 @@ export class InventoryService {
           refType: "grn_receipt",
           refId: grn.id,
           lines: [
-            { accountId: inventoryAccount.id, debit: roundedValue, credit: 0 },
-            { accountId: grirAccount.id, debit: 0, credit: roundedValue },
+            ...Array.from(debitByAccount.entries()).filter(([, v]) => v > 0).map(([accountId, v]) => ({ accountId, debit: v, credit: 0 })),
+            { accountId: grirAccount.id, debit: 0, credit: Math.round(Array.from(debitByAccount.values()).reduce((a, b) => a + b, 0) * 100) / 100 },
           ],
           tx,
         });
@@ -430,8 +461,10 @@ export class InventoryService {
     unitCost?: number;
     notes?: string;
     source?: string;
+    /** Where the purchase was paid from: a cash/bank account code, or the AP account (2000) for credit purchases. */
+    paidFromAccountCode?: string | null;
   }) {
-    const { productId, quantity, unitCost, notes, source } = params;
+    const { productId, quantity, unitCost, notes, source, paidFromAccountCode } = params;
     if (quantity <= 0) throw new Error("Quantity must be greater than 0");
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
@@ -442,11 +475,12 @@ export class InventoryService {
     // Stock quantity, stock ledger and the GL entry are saved together: if the journal cannot be
     // posted (e.g. account not mapped) the stock is not changed either, so stock and GL never drift.
     return prisma.$transaction(async (tx) => {
+      const live = await tx.product.findUnique({ where: { id: productId } });
       const updatedProduct = await tx.product.update({
         where: { id: productId },
         data: {
           stockQuantity: { increment: quantity },
-          costPrice: effectiveCost,
+          costPrice: InventoryService.movingAverageCost(live?.stockQuantity || 0, live?.costPrice || 0, quantity, effectiveCost),
         },
       });
       const ledger = await tx.stockLedger.create({
@@ -461,8 +495,16 @@ export class InventoryService {
       // Debit Inventory Asset (stock_in_asset), Credit Cash / Bank (stock_in_disbursing)
       const totalVal = Math.round(quantity * effectiveCost * 100) / 100;
       if (totalVal > 0) {
-        const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "stock_in_asset", prismaClient: tx });
-        const cashAccount = await AccountMappingService.resolveAccount({ transactionType: "stock_in_disbursing", prismaClient: tx });
+        const inventoryAccount = await InventoryService.stockAccountFor(tx, product, "stock_in_asset");
+        let cashAccount;
+        if (paidFromAccountCode) {
+          const ap = await AccountMappingService.resolveAccount({ transactionType: "ap_control", prismaClient: tx });
+          cashAccount = String(paidFromAccountCode) === ap.code
+            ? ap
+            : await AccountsPostingService.getCashBankAccountByCode(String(paidFromAccountCode), tx);
+        } else {
+          cashAccount = await AccountMappingService.resolveAccount({ transactionType: "stock_in_disbursing", prismaClient: tx });
+        }
         await AccountsPostingService.post({
           memo: `Inventory stock inward for ${quantity}x ${product.name} (${source || "Direct Restock"})`,
           refType: "stock_in",
@@ -490,6 +532,7 @@ export class InventoryService {
     stockQuantity: number;
     reorderLevel?: number;
     notes?: string;
+    forDirectSale?: boolean;
   }) {
     const existing = await prisma.product.findUnique({ where: { sku: params.sku } });
     if (existing) throw new Error(`Product with SKU '${params.sku}' already exists.`);
@@ -504,6 +547,7 @@ export class InventoryService {
         costPrice: Number(params.costPrice) || 0,
         stockQuantity: Number(params.stockQuantity) || 0,
         reorderLevel: Number(params.reorderLevel) || 5,
+        forDirectSale: Boolean(params.forDirectSale),
       },
     });
 
@@ -521,7 +565,7 @@ export class InventoryService {
       // Debit Inventory Asset (opening_stock_asset), Credit Opening Equity (opening_stock_equity)
       const totalVal = Math.round(product.stockQuantity * product.costPrice * 100) / 100;
       if (totalVal > 0) {
-        const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_asset", prismaClient: tx });
+        const inventoryAccount = await InventoryService.stockAccountFor(tx, product, "opening_stock_asset");
         const capitalAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_equity", prismaClient: tx });
         await AccountsPostingService.post({
           memo: `Initial opening inventory asset for ${product.name} (${product.sku})`,
@@ -543,8 +587,8 @@ export class InventoryService {
   /**
    * Set or adjust Opening Stock balance for an inventory item.
    * Records opening_stock in StockLedger and posts balanced GAAP entry:
-   * Debit 1200 (Inventory Asset)
-   * Credit 3000 (Owner Capital / Equity)
+   * Debit 1200 (Inventory Asset; 1210 for direct-sale goods)
+   * Credit 3900 (Opening Balance Equity)
    */
   static async setOpeningStock(params: {
     productId: string;
@@ -563,11 +607,12 @@ export class InventoryService {
 
     return prisma.$transaction(async (tx) => {
     // 1. Increment product stockQuantity and update cost price
+    const live = await tx.product.findUnique({ where: { id: productId } });
     const updatedProduct = await tx.product.update({
       where: { id: productId },
       data: {
         stockQuantity: { increment: quantity },
-        costPrice: effectiveCost,
+        costPrice: InventoryService.movingAverageCost(live?.stockQuantity || 0, live?.costPrice || 0, quantity, effectiveCost),
       },
     });
 
@@ -584,9 +629,9 @@ export class InventoryService {
       },
     });
 
-    // 3. Post to Accounts: Debit 1200 (Inventory Asset), Credit 3000 (Owner Capital / Equity) via AccountMappingService
+    // 3. Post to Accounts: Debit 1200/1210 (Inventory Asset), Credit 3900 (Opening Balance Equity) via AccountMappingService
     {
-      const inventoryAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_asset", prismaClient: tx });
+      const inventoryAccount = await InventoryService.stockAccountFor(tx, product, "opening_stock_asset");
       const capitalAccount = await AccountMappingService.resolveAccount({ transactionType: "opening_stock_equity", prismaClient: tx });
       const totalVal = Math.round(quantity * effectiveCost * 100) / 100;
       if (totalVal > 0) {

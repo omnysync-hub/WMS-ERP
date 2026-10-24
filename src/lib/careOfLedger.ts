@@ -27,9 +27,30 @@ export async function createCareOfParty(
   data: { companyName: string; personName?: string; phone?: string | null; ledgerAccountId?: string | null }
 ) {
   return db.$transaction(async (tx) => {
-    const ledgerAccountId = data.ledgerAccountId || (await careOfReceivableAccountId(tx));
+    // Care-of companies never get their own COA account: always 1100 AR, balance kept by party.
+    const ledgerAccountId = await careOfReceivableAccountId(tx);
     return tx.careOfParty.create({
       data: { companyName: data.companyName, personName: data.personName || "", phone: data.phone || null, ledgerAccountId },
     });
   });
+}
+
+/**
+ * Outstanding balance per care-of company inside 1100 AR (sum of debit - credit on AR journal lines
+ * tagged partyType = "care_of"). Reversed entries and their reversals cancel out, so all are summed.
+ */
+export async function careOfBalances(db: Db): Promise<Map<string, number>> {
+  const account = await db.account.findFirst({ where: { code: CARE_OF_RECEIVABLE_CODE }, select: { id: true } });
+  const out = new Map<string, number>();
+  if (!account) return out;
+  const rows = await db.journalLine.groupBy({
+    by: ["partyId"],
+    where: { accountId: account.id, partyType: "care_of", journalEntry: { status: { not: "pending_approval" } } },
+    _sum: { debit: true, credit: true },
+  });
+  for (const r of rows) {
+    if (!r.partyId) continue;
+    out.set(r.partyId, Math.round(((r._sum.debit || 0) - (r._sum.credit || 0)) * 100) / 100);
+  }
+  return out;
 }

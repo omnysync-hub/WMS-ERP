@@ -94,7 +94,7 @@ export function getMobileAuthSecret(): string {
 /**
  * Roles permitted to perform administrative operations across employees.
  */
-export const ADMIN_HR_ROLES = ["admin", "hr", "management", "superadmin", "dispatcher", "office"];
+export const ADMIN_HR_ROLES = ["admin", "hr", "management", "superadmin"];
 
 /**
  * Expected facial embedding dimension for on-device MobileFaceNet and ArcFace ML models.

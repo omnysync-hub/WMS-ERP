@@ -190,6 +190,7 @@ export async function POST(req: NextRequest) {
           memo: `Field collection ${meansLabel} from customer on Job (Settled by ${settledBy})`,
           postedBy: settledBy,
           refType: "settlement_collection",
+          customerId: jobBilling.isFoc ? null : jobBilling.customerId,
         });
         // Keep the customer's sub-ledger in step with the AR credit just posted (delta only).
         if (gl.delta !== 0 && jobBilling.customerId && !jobBilling.isFoc) {
@@ -200,6 +201,7 @@ export async function POST(req: NextRequest) {
             debit: gl.delta < 0 ? Math.abs(gl.delta) : 0,
             credit: gl.delta > 0 ? gl.delta : 0,
             notes: `Field collection confirmed at hisaab for Job ${jobBilling.jobNumber}`,
+            journalEntryId: gl.journalEntryId || undefined,
             tx,
           });
         }
@@ -231,7 +233,7 @@ export async function POST(req: NextRequest) {
         // Accounts lookup via AccountMappingService
         const expenseCostingAccount = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_expense" });
         const disbursingAccount = disbursingAccountCode
-          ? await AccountsPostingService.getAccountByCode(disbursingAccountCode)
+          ? await AccountsPostingService.getCashBankAccountByCode(disbursingAccountCode)
           : await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_vault" });
 
         // Claim updates, the GL entry and the technician ledger are saved together (all or nothing).
@@ -239,8 +241,10 @@ export async function POST(req: NextRequest) {
           // Each claim is posted to the account of ITS expense category (fuel, meals, ...).
           const categoryAccountFor = await loadExpenseCategoryAccounts(tx);
           const paidByAccount = new Map<string, number>();
-          const addPaid = (category: string | null | undefined, amt: number) => {
-            const acc = categoryAccountFor(category) || expenseCostingAccount;
+          // Claims already expensed when carried forward (accruedAt) clear the 2100 payable instead.
+          const accruedPayable = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_payable", prismaClient: tx });
+          const addPaid = (claimRow: { category: string | null; accruedAt?: Date | null }, amt: number) => {
+            const acc = claimRow.accruedAt ? accruedPayable : categoryAccountFor(claimRow.category) || expenseCostingAccount;
             paidByAccount.set(acc.id, Math.round(((paidByAccount.get(acc.id) || 0) + amt) * 100) / 100);
           };
           // Allocate disbursement across claims in creation order (same as clearJobExpenses)
@@ -256,14 +260,14 @@ export async function POST(req: NextRequest) {
                 where: { id: claim.id },
                 data: { status: "paid", paidAt: new Date() },
               });
-              addPaid(claim.category, claim.amount);
+              addPaid(claim, claim.amount);
               remainingToAllocate = Math.round((remainingToAllocate - claim.amount) * 100) / 100;
             } else {
               // Partial cover: paid portion vs remaining unpaid claim
               const partialPaid = remainingToAllocate;
               const claimRemainder = Math.round((claim.amount - partialPaid) * 100) / 100;
               const originalNote = claim.note;
-              addPaid(claim.category, partialPaid);
+              addPaid(claim, partialPaid);
 
               await tx.jobExpenseClaim.update({
                 where: { id: claim.id },
@@ -284,6 +288,7 @@ export async function POST(req: NextRequest) {
                   category: claim.category,
                   receiptUrl: claim.receiptUrl,
                   status: "pending",
+                  accruedAt: claim.accruedAt,
                 },
               });
 
@@ -318,22 +323,50 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Handle deferred pending expenses (carried into technician running balance)
+    // 5. Handle deferred pending expenses (carried into technician running balance).
+    // The expense is recognised NOW: Dr expense category / Cr 2100 Technician Payable (party = technician).
+    // The claim is marked accrued so a later clearance (or payroll) settles 2100 instead of expensing it twice.
     if (pendingExpenseClaimIds.length > 0) {
       const pendingClaims = await prisma.jobExpenseClaim.findMany({
-        where: { id: { in: pendingExpenseClaimIds } },
+        where: { id: { in: pendingExpenseClaimIds }, status: "pending", accruedAt: null },
       });
+      const jobRef = await prisma.job.findUnique({ where: { id: jobId }, select: { jobNumber: true } });
 
       for (const claim of pendingClaims) {
-        await prisma.technicianLedgerEntry.create({
-          data: {
-            technicianId,
-            type: "expense_owed",
-            amount: claim.amount,
-            refJobId: jobId,
-            notes: `Pending expense voucher carried forward: ${claim.note}`,
-          },
-        });
+        await prisma.$transaction(async (tx) => {
+          const marked = await tx.jobExpenseClaim.updateMany({
+            where: { id: claim.id, status: "pending", accruedAt: null },
+            data: { accruedAt: new Date() },
+          });
+          if (marked.count !== 1) return;
+          const categoryAccountFor = await loadExpenseCategoryAccounts(tx);
+          const fallback = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_expense", prismaClient: tx });
+          const payable = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_payable", prismaClient: tx });
+          const expenseAcc = categoryAccountFor(claim.category) || fallback;
+          if (claim.amount > 0) {
+            await AccountsPostingService.post({
+              memo: `Technician expense carried forward to payroll (Job ${jobRef?.jobNumber || jobId}): ${claim.note}`,
+              refType: "tech_expense_accrual",
+              refId: claim.id,
+              postedBy: settledBy,
+              idempotencyKey: `claim_accrue:${claim.id}`,
+              lines: [
+                { accountId: expenseAcc.id, debit: claim.amount, credit: 0 },
+                { accountId: payable.id, debit: 0, credit: claim.amount, partyType: "technician", partyId: technicianId },
+              ],
+              tx,
+            });
+          }
+          await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId,
+              type: "expense_owed",
+              amount: claim.amount,
+              refJobId: jobId,
+              notes: `Pending expense voucher carried forward: ${claim.note}`,
+            },
+          });
+        }, { maxWait: 10000, timeout: 30000 });
       }
     }
 

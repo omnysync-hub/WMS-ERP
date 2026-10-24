@@ -1,3 +1,4 @@
+import { pktTodayStart } from "@/lib/pktTime";
 import { loadExpenseCategoryAccounts } from "@/lib/expenseCategoryAccount";
 import { goodsShareOfItems, jobRevenueRole } from "@/lib/jobRevenue";
 import { prisma } from "../prisma";
@@ -130,8 +131,8 @@ export class JobsService {
     const ids = Array.from(new Set(technicianIds.filter(Boolean)));
     if (ids.length === 0) return;
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    // "Today" is the Pakistan calendar day (server clock is UTC).
+    const startOfToday = pktTodayStart();
 
     const employees = await prisma.employee.findMany({
       where: { id: { in: ids } },
@@ -145,6 +146,12 @@ export class JobsService {
         },
       },
     });
+
+    const found = new Set(employees.map((e) => e.id));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Cannot assign job: technician not found (${missing.join(", ")}).`);
+    }
 
     for (const emp of employees) {
       const latestPunch = emp.attendanceLogs[0];
@@ -1377,23 +1384,31 @@ export class JobsService {
 
     return prisma.$transaction(async (tx) => {
       const cashAcc = input.receivingAccountCode
-        ? await tx.account.findUnique({ where: { code: String(input.receivingAccountCode) } })
+        ? await AccountsPostingService.getCashBankAccountByCode(String(input.receivingAccountCode), tx)
         : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving", prismaClient: tx });
-      if (!cashAcc || !cashAcc.isActive || cashAcc.type !== "asset" || cashAcc.level < 4) {
-        throw new Error("Receiving account must be an active level-4 asset (cash/bank) account.");
-      }
-      const legacyRevenue = await tx.journalEntry.count({
-        where: { refType: "job_revenue", refId: job.id, status: "posted" },
+      // Care-of companies live inside 1100 AR (sub-ledger by party). The payment first clears what
+      // this job still owes in AR (booked at finalize); anything above that is extra revenue.
+      const arAcc = await AccountMappingService.resolveAccount({ transactionType: "job_revenue_receivable", prismaClient: tx });
+      const party = job.careOfPartyId
+        ? { partyType: "care_of", partyId: job.careOfPartyId }
+        : { partyType: "customer", partyId: job.customerId };
+      const arLines = await tx.journalLine.findMany({
+        where: {
+          accountId: arAcc.id,
+          journalEntry: { refId: job.id, refType: { in: ["job_revenue", "foc_payment"] }, status: "posted" },
+        },
+        select: { debit: true, credit: true },
       });
-      const creditAcc = legacyRevenue > 0
-        ? await AccountMappingService.resolveAccount({
-            transactionType: "job_revenue_receivable",
-            prismaClient: tx,
-          })
-        : await AccountMappingService.resolveAccount({
-            transactionType: jobRevenueRole(job.jobType),
-            prismaClient: tx,
-          });
+      const outstanding = Math.max(0, Math.round(arLines.reduce((a, l) => a + l.debit - l.credit, 0) * 100) / 100);
+      const toAr = Math.min(amount, outstanding);
+      const extra = Math.round((amount - toAr) * 100) / 100;
+      const extraTax = extra > 0 && focTaxAccount && focRate
+        ? computeTax({ gross: extra, ratePercent: focRate.rate, inclusive: true, applyAfterDiscount: true, rounding: taxPolicy.rounding }).tax
+        : 0;
+      const revAcc = extra > 0
+        ? await AccountMappingService.resolveAccount({ transactionType: jobRevenueRole(job.jobType), prismaClient: tx })
+        : null;
+      const legacyRevenue = toAr > 0 ? 1 : 0;
 
       const journal = await AccountsPostingService.post({
         date: receivedAt,
@@ -1403,8 +1418,9 @@ export class JobsService {
         postedBy: actorName,
         lines: [
           { accountId: cashAcc.id, debit: amount, credit: 0 },
-          { accountId: creditAcc.id, debit: 0, credit: Math.round((amount - (focTaxAccount && legacyRevenue === 0 ? focTax : 0)) * 100) / 100 },
-          ...(focTaxAccount && legacyRevenue === 0 ? [{ accountId: focTaxAccount.id, debit: 0, credit: focTax }] : []),
+          ...(toAr > 0 ? [{ accountId: arAcc.id, debit: 0, credit: toAr, ...party }] : []),
+          ...(revAcc && extra > 0 ? [{ accountId: revAcc.id, debit: 0, credit: Math.round((extra - extraTax) * 100) / 100 }] : []),
+          ...(focTaxAccount && extraTax > 0 ? [{ accountId: focTaxAccount.id, debit: 0, credit: extraTax }] : []),
         ],
         tx,
       });
@@ -1435,13 +1451,13 @@ export class JobsService {
             reference: reference || null,
             paymentMethod: method,
             receivingAccount: cashAcc.code,
-            creditedTo: legacyRevenue > 0 ? "receivable (legacy revenue already booked)" : "revenue",
+            creditedTo: extra > 0 ? (toAr > 0 ? `receivable ${toAr} + revenue ${extra}` : "revenue") : "receivable (care-of AR)",
             journalEntryId: journal.id,
           }),
         },
       });
 
-      return { journal, totalReceived, creditedTo: legacyRevenue > 0 ? "receivable" : "revenue" };
+      return { journal, totalReceived, creditedTo: legacyRevenue > 0 ? "receivable" : "revenue", clearedReceivable: toAr, extraRevenue: extra };
     }, TX_OPTS);
   }
 
@@ -1687,19 +1703,41 @@ export class JobsService {
     }
 
     const { gross, discount } = this.computeJobTotals(job);
-    // FOC (referred by an external company): amount unknown at finalize -> no revenue, no AR,
-    // invoice 0/paid. Revenue is recognised when the company payment is recorded (recordFocPayment).
+    // FOC / care-of (referred by an external company): the customer pays nothing (invoice 0/paid), but the
+    // work is billable to the care-of company. Revenue is recognised now against 1100 AR with the care-of
+    // company as the sub-ledger party (no separate COA account per company); recordFocPayment clears it.
     // Material cost was already expensed to COGS when stock was issued.
     const trueFoc = Boolean(job.isFoc);
+    const arParty = trueFoc
+      ? job.careOfPartyId
+        ? { partyType: "care_of", partyId: job.careOfPartyId }
+        : { partyType: "customer", partyId: job.customerId }
+      : { partyType: "customer", partyId: job.customerId };
 
     // Sales tax (Settings > Taxes). Re-finalizing reuses the invoice's tax snapshot, so jobs
     // invoiced before tax was switched on never gain tax. FOC jobs: no customer charge, no tax.
     const taxRes = trueFoc ? null : await TaxSettingsService.forJob(job, gross, discount);
-    const taxAmount = taxRes?.tax || 0;
-    const finalAmount = taxRes ? taxRes.total : Math.round((gross - discount) * 100) / 100;
-    const revenueGross = taxRes ? taxRes.revenueGross : gross;
-    const taxAccount =
-      taxAmount > 0 && taxRes?.rate ? await TaxSettingsService.accountFor(taxRes.rate, "sales_tax_payable") : null;
+    // FOC: tax only when Settings > Taxes "tax FOC company payments" is on (tax-inclusive, same as the payment).
+    let focTaxAmount = 0;
+    let focTaxAccount: Awaited<ReturnType<typeof TaxSettingsService.accountFor>> | null = null;
+    if (trueFoc) {
+      const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
+      const focRate = taxPolicy.jobs.taxFocPayments
+        ? jobTaxRate(taxPolicy, taxRates, { jobType: job.jobType, careOfPartyId: job.careOfPartyId, customerTaxExempt: false, isFoc: false }, new Date())
+        : null;
+      const focNet = Math.max(0, Math.round((gross - discount) * 100) / 100);
+      focTaxAmount = focRate
+        ? computeTax({ gross: focNet, ratePercent: focRate.rate, inclusive: true, applyAfterDiscount: true, rounding: taxPolicy.rounding }).tax
+        : 0;
+      focTaxAccount = focRate && focTaxAmount > 0 ? await TaxSettingsService.accountFor(focRate, "sales_tax_payable") : null;
+      if (!focTaxAccount) focTaxAmount = 0;
+    }
+    const taxAmount = trueFoc ? focTaxAmount : taxRes?.tax || 0;
+    const finalAmount = taxRes ? taxRes.total : Math.max(0, Math.round((gross - discount) * 100) / 100);
+    const revenueGross = taxRes ? taxRes.revenueGross : trueFoc ? Math.round((gross - focTaxAmount) * 100) / 100 : gross;
+    const taxAccount = trueFoc
+      ? focTaxAccount
+      : taxAmount > 0 && taxRes?.rate ? await TaxSettingsService.accountFor(taxRes.rate, "sales_tax_payable") : null;
 
     // Resolve accounts via AccountMappingService (read-only, before the write transaction)
     const arAccount = await AccountMappingService.resolveAccount({
@@ -1710,7 +1748,7 @@ export class JobsService {
     const revAccount = await AccountMappingService.resolveAccount({
       transactionType: jobRevenueRole(job.jobType),
     });
-    const goodsShare = trueFoc ? 0 : goodsShareOfItems(job.items);
+    const goodsShare = goodsShareOfItems(job.items);
     const goodsAccount =
       goodsShare > 0 ? await AccountMappingService.resolveAccount({ transactionType: "job_revenue_goods" }) : null;
     const discountAccount =
@@ -1727,18 +1765,18 @@ export class JobsService {
     if (serviceCredit !== 0 || goodsCredit === 0) revenueCredits.push({ accountId: revAccount.id, credit: serviceCredit });
     if (goodsAccount && goodsCredit !== 0) revenueCredits.push({ accountId: goodsAccount.id, credit: goodsCredit });
 
-    const postingLines: { accountId: string; debit: number; credit: number }[] = [];
-    if (trueFoc) {
-      // no revenue posting
+    const postingLines: { accountId: string; debit: number; credit: number; partyType?: string; partyId?: string }[] = [];
+    if (finalAmount <= 0 && trueFoc) {
+      // nothing billable
     } else if (discount > 0 && discountAccount) {
-      postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
+      postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0, ...arParty });
       postingLines.push({ accountId: discountAccount.id, debit: discount, credit: 0 });
       for (const rc of revenueCredits) postingLines.push({ accountId: rc.accountId, debit: 0, credit: rc.credit });
     } else {
-      postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0 });
+      postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0, ...arParty });
       for (const rc of revenueCredits) postingLines.push({ accountId: rc.accountId, debit: 0, credit: rc.credit });
     }
-    if (!trueFoc && taxAccount && taxAmount > 0) {
+    if (taxAccount && taxAmount > 0 && postingLines.length > 0) {
       postingLines.push({ accountId: taxAccount.id, debit: 0, credit: taxAmount });
     }
     const hasAmount = postingLines.some((l) => l.debit > 0 || l.credit > 0);
@@ -1799,11 +1837,14 @@ export class JobsService {
             ) * 100
           ) / 100
         : 0;
-      // FOC: never touch GL here (legacy FOC jobs may carry old revenue/AR that a company payment
-      // already settled — leave it as is; new FOC jobs have none).
-      const glUnchanged = trueFoc
+      // FOC jobs that already received company payments under the old flow (payment credited revenue
+      // directly) must not get revenue booked again.
+      const priorFocPayments = trueFoc
+        ? await tx.journalEntry.count({ where: { refType: "foc_payment", refId: job.id, status: "posted" } })
+        : 0;
+      const glUnchanged = trueFoc && priorFocPayments > 0 && activeRevenue.length === 0
         ? true
-        : activeRevenue.length > 0 &&
+        : (activeRevenue.length > 0 || !hasAmount) &&
           Math.abs(bookedNet - finalAmount) < 0.005 &&
           revenueUnchanged &&
           Math.abs(bookedTax - taxAmount) < 0.005;
@@ -2175,12 +2216,27 @@ export class JobsService {
               allocationGroupId: claim.allocationGroupId,
               receiptUrl: claim.receiptUrl,
               status: "pending",
+              accruedAt: claim.accruedAt,
             },
           });
           remainingClaimId = remainingClaim.id;
         }
 
-        const categoryAccount = (await loadExpenseCategoryAccounts(tx))(claim.category) || expenseCostingAccount;
+        // A claim already expensed when carried forward at hisaab (accruedAt) settles the 2100 payable instead.
+        const categoryAccount = claim.accruedAt
+          ? await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_payable", prismaClient: tx })
+          : (await loadExpenseCategoryAccounts(tx))(claim.category) || expenseCostingAccount;
+        if (claim.accruedAt) {
+          await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId: claim.technicianId,
+              type: "expense_paid",
+              amount: paidNow,
+              refJobId: claim.jobId,
+              notes: `Carried-forward expense paid directly via ${disbursingAccount.name} (${disbursingAccount.code})`,
+            },
+          });
+        }
         await AccountsPostingService.post({
           memo: isPartial
             ? `Partial technician expense payout (PKR ${paidNow.toLocaleString()} of PKR ${totalClaimAmount.toLocaleString()}) for Job ${job.jobNumber}: ${originalNote}${paymentRefLabel}`
@@ -2260,9 +2316,14 @@ export class JobsService {
         const clearedIds: string[] = [];
         const categoryAccountFor = await loadExpenseCategoryAccounts(tx);
         const paidByAccount = new Map<string, number>();
-        const addPaid = (category: string | null | undefined, amt: number) => {
-          const acc = categoryAccountFor(category) || expenseCostingAccount;
+        const accruedPayable = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_payable", prismaClient: tx });
+        const accruedPaidByTech = new Map<string, number>();
+        const addPaid = (claimRow: { category: string | null; accruedAt: Date | null; technicianId: string }, amt: number) => {
+          const acc = claimRow.accruedAt ? accruedPayable : categoryAccountFor(claimRow.category) || expenseCostingAccount;
           paidByAccount.set(acc.id, Math.round(((paidByAccount.get(acc.id) || 0) + amt) * 100) / 100);
+          if (claimRow.accruedAt) {
+            accruedPaidByTech.set(claimRow.technicianId, Math.round(((accruedPaidByTech.get(claimRow.technicianId) || 0) + amt) * 100) / 100);
+          }
         };
 
         for (const claim of pendingClaims) {
@@ -2288,7 +2349,7 @@ export class JobsService {
             throw new Error("Another payout cleared some of these claims at the same time. Refresh and try again.");
           }
           clearedIds.push(claim.id);
-          addPaid(claim.category, partialPaid);
+          addPaid(claim, partialPaid);
           if (!fullyCovered) {
             await tx.jobExpenseClaim.create({
               data: {
@@ -2300,6 +2361,7 @@ export class JobsService {
                 allocationGroupId: claim.allocationGroupId,
                 receiptUrl: claim.receiptUrl,
                 status: "pending",
+                accruedAt: claim.accruedAt,
               },
             });
             remainingToAllocate = 0;
@@ -2321,6 +2383,18 @@ export class JobsService {
           ],
           tx,
         });
+
+        for (const [technicianId, amt] of accruedPaidByTech) {
+          await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId,
+              type: "expense_paid",
+              amount: amt,
+              refJobId: job.id,
+              notes: `Carried-forward expense paid directly via ${disbursingAccount.name} (${disbursingAccount.code})`,
+            },
+          });
+        }
 
         return { paidNow, isPartial, remainingBalance, totalPending, claimsClearedCount: clearedIds.length };
       },
@@ -2832,6 +2906,8 @@ export class JobsService {
       memo: string;
       postedBy: string;
       refType?: string;
+      /** Tag the AR line with the customer so the AR sub-ledger by party stays complete. */
+      customerId?: string | null;
     }
   ) {
     const entries = await tx.journalEntry.findMany({
@@ -2855,10 +2931,11 @@ export class JobsService {
       ) / 100;
     const target = Math.round((Number(params.targetAmount) || 0) * 100) / 100;
     const delta = Math.round((target - alreadyPosted) * 100) / 100;
-    if (Math.abs(delta) < 0.005) return { posted: false, alreadyPosted, delta: 0 };
+    if (Math.abs(delta) < 0.005) return { posted: false, alreadyPosted, delta: 0, journalEntryId: null as string | null };
 
     const amt = Math.abs(delta);
-    await AccountsPostingService.post({
+    const party = params.customerId ? { partyType: "customer", partyId: params.customerId } : {};
+    const je = await AccountsPostingService.post({
       memo: delta > 0 ? params.memo : `[Adjustment] ${params.memo} (reduced by PKR ${amt.toLocaleString()})`,
       refType: entries.length === 0 ? params.refType || "settlement_collection" : "settlement_adjustment",
       refId: params.settlementId,
@@ -2867,15 +2944,15 @@ export class JobsService {
         delta > 0
           ? [
               { accountId: params.vaultAccountId, debit: amt, credit: 0 },
-              { accountId: params.receivableAccountId, debit: 0, credit: amt },
+              { accountId: params.receivableAccountId, debit: 0, credit: amt, ...party },
             ]
           : [
-              { accountId: params.receivableAccountId, debit: amt, credit: 0 },
+              { accountId: params.receivableAccountId, debit: amt, credit: 0, ...party },
               { accountId: params.vaultAccountId, debit: 0, credit: amt },
             ],
       tx,
     });
-    return { posted: true, alreadyPosted, delta };
+    return { posted: true, alreadyPosted, delta, journalEntryId: je.id as string | null };
   }
 
   /**
@@ -2982,6 +3059,7 @@ export class JobsService {
         memo: `Technician cash collection handover of PKR ${amount.toLocaleString()} received by ${actor} for Job ${job.jobNumber}`,
         postedBy: actor,
         refType: "settlement_handover",
+        customerId: job.isFoc ? null : job.customerId,
       });
 
       if (target && amount > target.amountCollected) {
@@ -3012,6 +3090,7 @@ export class JobsService {
           debit: gl.delta < 0 ? Math.abs(gl.delta) : 0,
           credit: gl.delta > 0 ? gl.delta : 0,
           notes: `Customer collection handed over by technician for Job ${job.jobNumber} (${depositAccount})`,
+          journalEntryId: gl.journalEntryId || undefined,
           tx,
         });
       }

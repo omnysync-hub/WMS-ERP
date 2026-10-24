@@ -10,7 +10,8 @@ const KEYS = ["settings.taxes", "settings.accounting"];
 async function gate(req: NextRequest) {
   const resolved = await resolveJobsActor(req);
   if (resolved.error) return { error: resolved.error };
-  if (!KEYS.some((k) => actorHasPermission(resolved.actor, k))) {
+  // Tax registration is office-only: mobile-app tokens are refused even if the role has the permission.
+  if (resolved.viaMobileToken || !KEYS.some((k) => actorHasPermission(resolved.actor, k))) {
     return { error: NextResponse.json({ error: "You do not have permission to change tax settings." }, { status: 403 }) };
   }
   return { actor: resolved.actor };

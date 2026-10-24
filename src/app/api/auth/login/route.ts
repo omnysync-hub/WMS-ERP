@@ -8,7 +8,8 @@ import {
 } from "@/lib/auth/webAuth";
 
 export async function POST(request: NextRequest) {
-  const rl = loginRateLimit("erp", request.headers);
+  const b0: any = await request.clone().json().catch(() => ({}));
+  const rl = loginRateLimit("erp", request.headers, String(b0.login || ""));
   if (!rl.allowed) {
     return NextResponse.json(
       { error: `Too many sign-in attempts from this network. Try again in ${Math.ceil(rl.retryAfterSeconds / 60)} minute(s).`, code: "RATE_LIMITED" },

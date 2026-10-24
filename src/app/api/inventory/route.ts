@@ -9,20 +9,29 @@ import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import type { Prisma } from "@prisma/client";
 
 /**
- * Post the GL side of a stock quantity change valued at the product's cost price.
- * Stock going out (shrinkage, workshop use): Dr inventory_cogs_expense / Cr inventory_cogs_asset.
- * Stock coming back in (count gain):        Dr inventory_return_asset / Cr inventory_return_cogs.
+ * Post the GL side of a stock count adjustment / workshop use valued at the product's cost price.
+ * These are NOT job costs, so they go to 5040 Stock Adjustments & Workshop Consumption
+ * (inventory_adjustment_expense), never to job COGS (5000).
+ * Stock going out (shrinkage, workshop use): Dr inventory_adjustment_expense / Cr inventory asset.
+ * Stock coming back in (count gain):        Dr inventory asset / Cr inventory_adjustment_expense.
  */
 async function postStockValueChange(
   tx: Prisma.TransactionClient,
-  params: { direction: "in" | "out"; value: number; memo: string; refType: string; refId: string; postedBy: string }
+  params: {
+    direction: "in" | "out";
+    value: number;
+    memo: string;
+    refType: string;
+    refId: string;
+    postedBy: string;
+    product?: { forDirectSale?: boolean | null } | null;
+  }
 ) {
   const value = Math.round(params.value * 100) / 100;
   if (value <= 0) return;
-  const [debitRole, creditRole] =
-    params.direction === "out" ? ["inventory_cogs_expense", "inventory_cogs_asset"] : ["inventory_return_asset", "inventory_return_cogs"];
-  const debitAcc = await AccountMappingService.resolveAccount({ transactionType: debitRole, prismaClient: tx });
-  const creditAcc = await AccountMappingService.resolveAccount({ transactionType: creditRole, prismaClient: tx });
+  const adjAcc = await AccountMappingService.resolveAccount({ transactionType: "inventory_adjustment_expense", prismaClient: tx });
+  const stockAcc = await InventoryService.stockAccountFor(tx, params.product, "inventory_cogs_asset");
+  const [debitAcc, creditAcc] = params.direction === "out" ? [adjAcc, stockAcc] : [stockAcc, adjAcc];
   await AccountsPostingService.post({
     memo: params.memo,
     refType: params.refType,
@@ -387,13 +396,14 @@ export async function POST(req: NextRequest) {
 
 
       case "add_stock": {
-        const { productId, quantity, unitCost, notes, source } = payload;
+        const { productId, quantity, unitCost, notes, source, paidFromAccountCode } = payload;
         const result = await InventoryService.addStock({
           productId,
           quantity: Number(quantity),
           unitCost: unitCost !== undefined ? Number(unitCost) : undefined,
           notes,
           source,
+          paidFromAccountCode: paidFromAccountCode || null,
         });
         return NextResponse.json(result, { status: 200 });
       }
@@ -425,12 +435,29 @@ export async function POST(req: NextRequest) {
           stockQuantity: isService ? 0 : Number(payload.stockQuantity) || 0,
           reorderLevel: isService ? 0 : Number(payload.reorderLevel) || 5,
           notes: payload.notes || (isService ? "Predefined billable service" : "Inventory product setup"),
+          forDirectSale: !isService && Boolean(payload.forDirectSale),
         });
         return NextResponse.json(product, { status: 201 });
       }
 
       case "update_product": {
-        const { id, unitPrice, costPrice, name, unit } = payload;
+        const { id, unitPrice, costPrice, name, unit, forDirectSale } = payload;
+        const current = await prisma.product.findUnique({ where: { id } });
+        if (!current) throw new Error("Product not found");
+        // Stock value sits in 1200 or 1210 depending on this flag, so it can only flip while no stock is on hand.
+        if (forDirectSale !== undefined && Boolean(forDirectSale) !== current.forDirectSale && Math.abs(current.stockQuantity) > 1e-9) {
+          return NextResponse.json(
+            { error: "Direct-sale flag can only be changed when the product has no stock on hand (its value would sit in the wrong inventory account)." },
+            { status: 400 }
+          );
+        }
+        // Cost changes with stock on hand would make the GL inventory value drift from qty x cost.
+        if (costPrice !== undefined && Math.abs(Number(costPrice) - current.costPrice) > 1e-9 && current.stockQuantity > 1e-9) {
+          return NextResponse.json(
+            { error: "Cost price is a moving average of purchases and cannot be edited while stock is on hand. Use a stock adjustment instead." },
+            { status: 400 }
+          );
+        }
         const updated = await prisma.product.update({
           where: { id },
           data: {
@@ -438,6 +465,7 @@ export async function POST(req: NextRequest) {
             ...(unit && { unit }),
             ...(unitPrice !== undefined && { unitPrice: Number(unitPrice) }),
             ...(costPrice !== undefined && { costPrice: Number(costPrice) }),
+            ...(forDirectSale !== undefined && { forDirectSale: Boolean(forDirectSale) }),
           },
         });
         return NextResponse.json(updated, { status: 200 });
@@ -500,6 +528,7 @@ export async function POST(req: NextRequest) {
             refType: "stock_adjustment",
             refId: row.id,
             postedBy: actionGate.actor.name || "Storekeeper",
+            product,
           });
           return row;
         });
@@ -535,6 +564,7 @@ export async function POST(req: NextRequest) {
             refType: "workshop_consumption",
             refId: row.id,
             postedBy: actionGate.actor.name || "Storekeeper",
+            product,
           });
           return row;
         });

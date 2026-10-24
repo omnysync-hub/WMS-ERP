@@ -101,7 +101,7 @@ async function main() {
   const prod = await InventoryService.createProduct({ sku: `E2E-${stamp}`, name: "E2E Part", unit: "pcs", unitPrice: 1500, costPrice: 900, stockQuantity: 0, reorderLevel: 1 } as any);
   const os = await InventoryService.setOpeningStock({ productId: prod.id, quantity: 20, unitCost: 1000, notes: "e2e" } as any);
   const je = await prisma.journalEntry.findFirst({ where: { refType: "opening_stock" }, orderBy: { createdAt: "desc" }, include: { lines: { include: { account: true } } } });
-  ok(!!je && je.lines.some((l) => l.account.code === "1200" && l.debit === 20000) && je.lines.some((l) => l.account.code === "3000" && l.credit === 20000), "opening stock: Dr 1200 / Cr 3000");
+  ok(!!je && je.lines.some((l) => l.account.code === "1200" && l.debit === 20000) && je.lines.some((l) => l.account.code === "3900" && l.credit === 20000), "opening stock: Dr 1200 / Cr 3900 Opening Balance Equity");
   const pb = await prisma.journalEntry.count();
   await JobsService.issueInventory(jInst.id, prod.id, 2, "E2E Store").catch((e: any) => console.log("   issue:", e.message));
   const ia = await prisma.journalEntry.count();

@@ -21,7 +21,8 @@ import {
  */
 
 export async function POST(req: NextRequest) {
-  const rl = loginRateLimit("mobile", req.headers);
+  const b0: any = await req.clone().json().catch(() => ({}));
+  const rl = loginRateLimit("mobile", req.headers, String(b0.username || b0.phone || b0.email || b0.employeeId || ""));
   if (!rl.allowed) {
     return NextResponse.json(
       { error: `Too many sign-in attempts from this network. Try again in ${Math.ceil(rl.retryAfterSeconds / 60)} minute(s).`, code: "RATE_LIMITED" },

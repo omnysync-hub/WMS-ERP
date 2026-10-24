@@ -8,6 +8,7 @@ import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
 import { computeTax, findRate } from "@/lib/tax/taxConfig";
 import { requirePermission } from "@/lib/auth/erpActor";
+import { InventoryService } from "@/lib/services/InventoryService";
 
 export async function GET(req: NextRequest) {
   try {
@@ -286,10 +287,20 @@ export async function POST(req: NextRequest) {
           AccountMappingService.resolveAccount({ transactionType: "pos_cogs_expense" }),
           AccountMappingService.resolveAccount({ transactionType: "pos_inventory_asset" }),
         ]);
+      void inventoryAccount;
+      // Discount is shown gross: revenue at list price, discount debited to 4100 Discounts Allowed.
+      const discountAccount = numDiscount > 0 ? await AccountMappingService.resolveAccount({ transactionType: "job_revenue_discount" }) : null;
+      // COGS credits the stock account each product sits in (1210 direct-sale goods, else 1200).
+      const stockAccountByProduct = new Map<string, string>();
+      for (const item of normalizedItems) {
+        const acc = await InventoryService.stockAccountFor(prisma, productById.get(item.productId) as any, "inventory_cogs_asset");
+        stockAccountByProduct.set(item.productId, acc.id);
+      }
 
       // Step 3: Atomic Stock Depletion and POS Sale Creation in a Single Transaction
       const { sale } = await prisma.$transaction(async (tx) => {
         let costSum = 0;
+        const costByStockAccount = new Map<string, number>();
 
         for (const item of normalizedItems) {
           const qty = Number(item.quantity);
@@ -303,7 +314,10 @@ export async function POST(req: NextRequest) {
               `Insufficient stock for '${current?.name || item.productId}'. Available: ${current?.stockQuantity ?? 0}, Requested: ${qty}`
             );
           }
-          costSum += (Number(productById.get(item.productId)?.costPrice) || 0) * qty;
+          const lineCost = (Number(productById.get(item.productId)?.costPrice) || 0) * qty;
+          costSum += lineCost;
+          const sa = stockAccountByProduct.get(item.productId)!;
+          costByStockAccount.set(sa, (costByStockAccount.get(sa) || 0) + lineCost);
         }
 
         const createdSale = await (tx as any).posSale.create({
@@ -353,13 +367,18 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        const revenueLines: Array<{ accountId: string; debit: number; credit: number }> = [];
+        const revenueLines: Array<{ accountId: string; debit: number; credit: number; partyType?: string; partyId?: string }> = [];
         if (paymentMethod === "cash") {
           revenueLines.push({ accountId: cashAccount.id, debit: computedTotal, credit: 0 });
         } else if (paymentMethod === "card" || paymentMethod === "transfer") {
           revenueLines.push({ accountId: bankAccount.id, debit: computedTotal, credit: 0 });
         } else if (paymentMethod === "credit") {
-          revenueLines.push({ accountId: arAccount.id, debit: computedTotal, credit: 0 });
+          revenueLines.push({
+            accountId: arAccount.id,
+            debit: computedTotal,
+            credit: 0,
+            ...(creditCustomer ? { partyType: "customer", partyId: creditCustomer.id } : {}),
+          });
         } else {
           const cashPortion = Number(splitDetails?.cashAmount) || 0;
           const cardPortion = Number(splitDetails?.cardAmount) || 0;
@@ -368,7 +387,12 @@ export async function POST(req: NextRequest) {
         }
         // Revenue = total less sales tax; the tax collected is a liability (sales_tax_payable).
         const revenueNet = Math.round((computedTotal - (taxAccount ? numTax : 0)) * 100) / 100;
-        revenueLines.push({ accountId: revenueAccount.id, debit: 0, credit: revenueNet });
+        if (discountAccount && numDiscount > 0) {
+          revenueLines.push({ accountId: discountAccount.id, debit: numDiscount, credit: 0 });
+          revenueLines.push({ accountId: revenueAccount.id, debit: 0, credit: Math.round((revenueNet + numDiscount) * 100) / 100 });
+        } else {
+          revenueLines.push({ accountId: revenueAccount.id, debit: 0, credit: revenueNet });
+        }
         if (taxAccount && numTax > 0) revenueLines.push({ accountId: taxAccount.id, debit: 0, credit: numTax });
 
         const saleJournal = await AccountsPostingService.post({
@@ -398,10 +422,13 @@ export async function POST(req: NextRequest) {
             memo: `POS COGS for Receipt #${saleNumber} (${normalizedItems.length} items)`,
             refType: "inventory_cogs",
             refId: createdSale.id,
-            lines: [
-              { accountId: cogsAccount.id, debit: roundedCost, credit: 0 },
-              { accountId: inventoryAccount.id, debit: 0, credit: roundedCost },
-            ],
+            lines: (() => {
+              const credits = Array.from(costByStockAccount.entries())
+                .map(([accountId, v]) => ({ accountId, debit: 0, credit: Math.round(v * 100) / 100 }))
+                .filter((l) => l.credit > 0);
+              const creditTotal = Math.round(credits.reduce((a, l) => a + l.credit, 0) * 100) / 100;
+              return [{ accountId: cogsAccount.id, debit: creditTotal, credit: 0 }, ...credits];
+            })(),
             tx,
           });
         }
@@ -450,6 +477,74 @@ export async function POST(req: NextRequest) {
         sale,
         message: `Sale #${saleNumber} completed successfully`,
       });
+    }
+
+    if (action === "refund") {
+      // Full refund of a POS sale: reverse the sale + COGS journals, put the goods back in stock,
+      // credit the customer's sub-ledger for credit sales, and mark the sale refunded.
+      const saleId = String(body.saleId || "");
+      const reason = String(body.reason || "").trim() || "Customer refund";
+      if (!saleId) return NextResponse.json({ error: "saleId is required" }, { status: 400 });
+      const actor = gate.actor.name || "Counter Cashier";
+      const result = await prisma.$transaction(async (tx) => {
+        const claimed = await (tx as any).posSale.updateMany({
+          where: { id: saleId, status: { not: "refunded" } },
+          data: { status: "refunded", notes: undefined },
+        });
+        if (claimed.count !== 1) throw new Error("Sale not found or already refunded.");
+        const sale = await (tx as any).posSale.findUnique({ where: { id: saleId }, include: { items: true } });
+        const entries = await tx.journalEntry.findMany({
+          where: { refId: saleId, refType: { in: ["pos_sale", "inventory_cogs"] }, status: "posted" },
+        });
+        const reversalIds: string[] = [];
+        for (const je of entries) {
+          const rev = await AccountsPostingService.reverseEntry({
+            journalEntryId: je.id,
+            reversedBy: actor,
+            reason: `POS refund ${sale.saleNumber}: ${reason}`,
+            tx,
+          });
+          reversalIds.push(rev.id);
+        }
+        for (const it of sale.items) {
+          await tx.product.update({ where: { id: it.productId }, data: { stockQuantity: { increment: it.quantity } } });
+          await tx.stockLedger.create({
+            data: {
+              productId: it.productId,
+              qty: it.quantity,
+              direction: "in",
+              refType: "pos_refund",
+              refId: saleId,
+              notes: `POS refund of Receipt #${sale.saleNumber}: ${reason}`,
+            },
+          });
+        }
+        if (sale.paymentMethod === "credit") {
+          const inv = await tx.customerLedgerEntry.findFirst({ where: { documentNumber: sale.saleNumber, entryType: "invoice" } });
+          if (inv) {
+            await SubLedgerService.recordCustomerEntry({
+              customerId: inv.customerId,
+              entryType: "credit_note",
+              documentNumber: `${sale.saleNumber}-RF`,
+              journalEntryId: reversalIds[0],
+              debit: 0,
+              credit: sale.totalAmount,
+              notes: `POS refund ${sale.saleNumber}: ${reason}`,
+              tx,
+            });
+          }
+        }
+        return { sale: { ...sale, status: "refunded" }, reversalIds };
+      }, { maxWait: 10000, timeout: 30000 });
+      await AuditService.logActivity({
+        actorName: actor,
+        actorRole: "cashier",
+        category: "DATA_MUTATION",
+        action: `Refunded POS Sale #${result.sale.saleNumber} for PKR ${Number(result.sale.totalAmount).toLocaleString()}`,
+        target: `PosSale:${saleId}`,
+        metadata: { reason, reversalIds: result.reversalIds },
+      });
+      return NextResponse.json({ success: true, ...result, message: `Sale #${result.sale.saleNumber} refunded` });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

@@ -218,6 +218,11 @@ export class PayrollService {
               notes: `Settled via payroll run ${run.period} (${run.id})`,
             },
           });
+          // Carried-forward (accrued) claims are now settled through payroll.
+          await tx.jobExpenseClaim.updateMany({
+            where: { technicianId: slip.employeeId, status: "pending", accruedAt: { not: null } },
+            data: { status: "paid", paidAt: new Date() },
+          });
         }
 
         if (slip.advanceDeduction > 0) {

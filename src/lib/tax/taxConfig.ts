@@ -150,9 +150,9 @@ export const TAX_KINDS: { value: TaxKind; label: string; defaultRole: TaxAccount
 
 export const TAX_ACCOUNT_ROLES: { value: TaxAccountRole; label: string; defaultCode: string }[] = [
   { value: "sales_tax_payable", label: "Sales tax payable (output tax)", defaultCode: "2210" },
-  { value: "input_tax_receivable", label: "Input tax (claimable) - netted against sales tax payable", defaultCode: "2210" },
+  { value: "input_tax_receivable", label: "Input tax (claimable) - 1170 Input Sales Tax Recoverable", defaultCode: "1170" },
   { value: "vendor_payment_wht", label: "WHT payable (deducted from suppliers)", defaultCode: "2200" },
-  { value: "wht_receivable", label: "WHT deducted by customers - netted against WHT payable", defaultCode: "2200" },
+  { value: "wht_receivable", label: "WHT deducted by customers - 1160 Advance Income Tax", defaultCode: "1160" },
 ];
 
 export function normalizeTaxRates(input: unknown): TaxRateConfig[] {
@@ -183,7 +183,8 @@ export function normalizeTaxRates(input: unknown): TaxRateConfig[] {
 /** Active rate with this code that is in effect on `date` (latest effective-from wins). */
 export function findRate(rates: TaxRateConfig[], rateCode: string | null | undefined, date: Date = new Date()): TaxRateConfig | null {
   if (!rateCode) return null;
-  const day = date.toISOString().slice(0, 10);
+  // Effective dates are Pakistan calendar days (a rate effective "2026-07-01" applies from 00:00 PKT).
+  const day = new Date(date.getTime() + 5 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const matches = rates
     .filter((r) => r.active && r.code === rateCode.toUpperCase() && (!r.effectiveFrom || r.effectiveFrom <= day))
     .sort((a, b) => String(b.effectiveFrom || "").localeCompare(String(a.effectiveFrom || "")));

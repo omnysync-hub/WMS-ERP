@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission, requireOfficePermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
-import { createCareOfParty } from "@/lib/careOfLedger";
+import { careOfBalances, createCareOfParty } from "@/lib/careOfLedger";
 
 export async function GET(request: NextRequest) {
   const gate = await requireOfficePermission(request, "jobs.view_directory");
@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const balances = await careOfBalances(prisma);
     const filtered = search
       ? parties.filter(
           (p) =>
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
         personName: p.personName,
         phone: p.phone,
         jobsCount: p._count.jobs,
+        receivableBalance: balances.get(p.id) || 0, // owed to us, inside 1100 AR
         createdAt: p.createdAt,
       })),
     });

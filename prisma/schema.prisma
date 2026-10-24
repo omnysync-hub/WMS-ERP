@@ -103,6 +103,10 @@ model JournalLine {
   account        Account      @relation(fields: [accountId], references: [id])
   debit          Float        @default(0)
   credit         Float        @default(0)
+  partyType      String? // e.g. "care_of", "customer", "technician", "supplier" - AR/AP sub-ledger
+  partyId        String?
+
+  @@index([partyType, partyId])
 }
 
 model Invoice {
@@ -330,6 +334,7 @@ model JobExpenseClaim {
   receiptUrl        String?
   status            String    @default("pending") // pending, paid
   paidAt            DateTime?
+  accruedAt         DateTime? // set when carried forward at hisaab: expensed Dr category / Cr 2100
   createdAt         DateTime  @default(now())
 
   @@index([allocationGroupId])
@@ -385,6 +390,7 @@ model Product {
   unitPrice            Float
   costPrice            Float
   stockQuantity        Float                     @default(0)
+  forDirectSale        Boolean                   @default(false) // stock held for POS/direct sale -> 1210
   reorderLevel         Float                     @default(5)
   stockEntries         StockLedger[]
   prItems              PurchaseRequisitionItem[]

@@ -172,8 +172,9 @@ export async function POST(
       });
       let contraAccountId: string;
       if (entryType === "payment") {
+        // Money can only be received into a cash or bank account.
         const explicit = typeof receivingAccountCode === "string" && receivingAccountCode.trim()
-          ? await tx.account.findFirst({ where: { code: receivingAccountCode.trim(), isActive: true } })
+          ? await AccountsPostingService.getCashBankAccountByCode(receivingAccountCode.trim(), tx)
           : null;
         const receiving = explicit || (await AccountMappingService.resolveAccount({
           transactionType: "customer_payment_receiving",
@@ -183,7 +184,9 @@ export async function POST(
       } else {
         // Credit note reduces revenue (Discounts Allowed); a debit adjustment is Other Income.
         const revenue = await AccountMappingService.resolveAccount({
-          transactionType: entryType === "credit_note" ? "job_revenue_discount" : "other_income",
+          // Manual invoices are service revenue (4020); other debit adjustments stay Other Income.
+          transactionType:
+            entryType === "credit_note" ? "job_revenue_discount" : entryType === "invoice" ? "job_revenue_repair" : "other_income",
           prismaClient: tx,
         });
         contraAccountId = revenue.id;
@@ -197,10 +200,10 @@ export async function POST(
         lines: isCredit
           ? [
               { accountId: contraAccountId, debit: amount, credit: 0 },
-              { accountId: arAccount.id, debit: 0, credit: amount },
+              { accountId: arAccount.id, debit: 0, credit: amount, partyType: "customer", partyId: customer.id },
             ]
           : [
-              { accountId: arAccount.id, debit: amount, credit: 0 },
+              { accountId: arAccount.id, debit: amount, credit: 0, partyType: "customer", partyId: customer.id },
               { accountId: contraAccountId, debit: 0, credit: amount },
             ],
         tx,

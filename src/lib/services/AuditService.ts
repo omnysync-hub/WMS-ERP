@@ -438,21 +438,14 @@ export class AuditService {
           }
 
           case "JournalEntry": {
-            const je = await tx.journalEntry.findUnique({
-              where: { id: log.entityId },
-              include: { lines: true },
-            });
+            // Proper reversal: equal-and-opposite entry linked to the original, original marked reversed
+            // (so it cannot be undone twice and reports net it out correctly).
+            const je = await tx.journalEntry.findUnique({ where: { id: log.entityId } });
             if (je) {
-              const inverseLines = je.lines.map((l) => ({
-                accountId: l.accountId,
-                debit: l.credit,
-                credit: l.debit,
-              }));
-              await AccountsPostingService.post({
-                memo: `ROLLBACK REVERSAL: ${je.memo}`,
-                refType: `rollback_${je.refType}`,
-                refId: je.id,
-                lines: inverseLines,
+              await AccountsPostingService.reverseEntry({
+                journalEntryId: je.id,
+                reversedBy: rolledBackBy || "System",
+                reason: `Audit rollback${reason ? `: ${reason}` : ""}`,
                 tx,
               });
             }

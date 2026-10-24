@@ -445,17 +445,11 @@ export async function POST(req: NextRequest) {
         if (!clean(item.companyName)) {
           return NextResponse.json({ error: "Every care-of party needs a company name." }, { status: 400 });
         }
-        if (!clean(item.ledgerAccountId)) {
-          // Default to the care-of receivables ledger (1101) when none was chosen.
-          try {
-            item.ledgerAccountId = await careOfReceivableAccountId(prisma);
-          } catch (err: any) {
-            return NextResponse.json({ error: err.message }, { status: 400 });
-          }
-        }
-        const account = await prisma.account.findUnique({ where: { id: clean(item.ledgerAccountId) } });
-        if (!account || !account.isActive || account.level < 4 || account.type !== "asset") {
-          return NextResponse.json({ error: `Care-of party ${clean(item.companyName)} must use an active leaf asset account.` }, { status: 400 });
+        // Care-of companies always sit inside 1100 AR (no separate COA account per company).
+        try {
+          item.ledgerAccountId = await careOfReceivableAccountId(prisma);
+        } catch (err: any) {
+          return NextResponse.json({ error: err.message }, { status: 400 });
         }
       }
       const saved = await prisma.$transaction(async (tx) => {
