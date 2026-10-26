@@ -6,7 +6,7 @@ import { actorHasPermission } from "@/lib/auth/erpActor";
 
 export const runtime = "nodejs";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/neon"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
 function isPublic(request: NextRequest) {
   const { pathname } = request.nextUrl;

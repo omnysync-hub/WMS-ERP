@@ -9,6 +9,14 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { InventoryService } from "./InventoryService";
+import {
+  generatePoNumber,
+  generatePrNumber,
+  generateRfqNumber,
+  generateGrnNumber,
+  generateSupplierInvoiceNumber,
+  generateSupplierPaymentNumber,
+} from "@/lib/sequenceUtils";
 
 
 export interface CreateVendorInput {
@@ -330,8 +338,7 @@ export class ProcurementService {
   }
 
   static async createPurchaseRequisition(data: CreatePrInput) {
-    const count = await prisma.purchaseRequisition.count();
-    const prNumber = `PR-2026-${String(count + 1).padStart(4, "0")}`;
+    const prNumber = await generatePrNumber();
 
     const itemsData = [];
     for (const it of data.items) {
@@ -552,8 +559,7 @@ export class ProcurementService {
   }
 
   static async createRfq(data: CreateRfqInput) {
-    const count = await prisma.requestForQuotation.count();
-    const rfqNumber = `RFQ-2026-${String(count + 1).padStart(4, "0")}`;
+    const rfqNumber = await generateRfqNumber();
 
     const itemsData = [];
     for (const it of data.items) {
@@ -709,8 +715,7 @@ export class ProcurementService {
     });
 
     // Generate PO automatically
-    const count = await prisma.purchaseOrder.count();
-    const poNumber = `PO-2026-${String(count + 1).padStart(4, "0")}`;
+    const poNumber = await generatePoNumber();
 
     let totalAmount = 0;
     const poItemsData = [];
@@ -805,8 +810,7 @@ export class ProcurementService {
   }
 
   static async createPurchaseOrder(data: CreatePoInput) {
-    const count = await prisma.purchaseOrder.count();
-    const poNumber = `PO-2026-${String(count + 1).padStart(4, "0")}`;
+    const poNumber = await generatePoNumber();
 
     let vendor = null;
     if (data.vendorId) {
@@ -1015,35 +1019,37 @@ export class ProcurementService {
       items: poItems,
     });
 
-    // Update convertedQuantity per PR line, then set partially_converted vs converted_to_po
-    for (const poItem of poItems) {
-      if (!poItem.prItemId) continue;
-      const qty = Number(poItem.quantity) || 0;
-      if (qty <= 0) continue;
-      await prisma.purchaseRequisitionItem.update({
-        where: { id: poItem.prItemId },
-        data: { convertedQuantity: { increment: qty } },
-      });
-    }
+    // Atomically update convertedQuantity per PR line and set requisition status
+    await prisma.$transaction(async (tx) => {
+      for (const poItem of poItems) {
+        if (!poItem.prItemId) continue;
+        const qty = Number(poItem.quantity) || 0;
+        if (qty <= 0) continue;
+        await tx.purchaseRequisitionItem.update({
+          where: { id: poItem.prItemId },
+          data: { convertedQuantity: { increment: qty } },
+        });
+      }
 
-    for (const pr of prs) {
-      const freshItems = await prisma.purchaseRequisitionItem.findMany({
-        where: { prId: pr.id },
-      });
-      const allConverted = freshItems.every(
-        (it) => (it.convertedQuantity || 0) >= it.quantity - 1e-9
-      );
-      const anyConverted = freshItems.some((it) => (it.convertedQuantity || 0) > 0);
-      const nextStatus = allConverted
-        ? "converted_to_po"
-        : anyConverted
-          ? "partially_converted"
-          : pr.status;
-      await prisma.purchaseRequisition.update({
-        where: { id: pr.id },
-        data: { status: nextStatus },
-      });
-    }
+      for (const pr of prs) {
+        const freshItems = await tx.purchaseRequisitionItem.findMany({
+          where: { prId: pr.id },
+        });
+        const allConverted = freshItems.every(
+          (it) => (it.convertedQuantity || 0) >= it.quantity - 1e-9
+        );
+        const anyConverted = freshItems.some((it) => (it.convertedQuantity || 0) > 0);
+        const nextStatus = allConverted
+          ? "converted_to_po"
+          : anyConverted
+            ? "partially_converted"
+            : pr.status;
+        await tx.purchaseRequisition.update({
+          where: { id: pr.id },
+          data: { status: nextStatus },
+        });
+      }
+    }, { maxWait: 10000, timeout: 30000 });
 
     return createdPo;
   }
@@ -1196,8 +1202,7 @@ export class ProcurementService {
           }
         }
 
-        const count = await tx.goodsReceipt.count();
-        const grnNumber = `GRN-2026-${String(count + 1).padStart(4, "0")}`;
+        const grnNumber = await generateGrnNumber();
 
         const grn = await tx.goodsReceipt.create({
           data: {
@@ -1305,8 +1310,7 @@ export class ProcurementService {
   }
 
   static async createSupplierInvoice(data: CreateSupplierInvoiceInput) {
-    const count = await prisma.supplierInvoice.count();
-    const referenceNumber = `VINV-2026-${String(count + 1).padStart(4, "0")}`;
+    const referenceNumber = await generateSupplierInvoiceNumber();
 
     const po = data.poId
       ? await prisma.purchaseOrder.findUnique({
@@ -1673,8 +1677,7 @@ export class ProcurementService {
         throw new Error("Invoice balance changed while this payment was being recorded. Refresh and retry.");
       }
 
-      const count = await tx.supplierPayment.count();
-      const paymentNumber = `SPAY-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
+      const paymentNumber = await generateSupplierPaymentNumber();
       const now = new Date();
       const lines = [{ accountId: apAccount.id, debit: amountPaid, credit: 0 }];
       if (netDisbursed > 0) {

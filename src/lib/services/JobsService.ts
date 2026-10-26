@@ -2043,6 +2043,28 @@ export class JobsService {
 
     const nextStatus = targetStatus || (job.status === "Finalized" ? "CompletedPendingVerification" : "InProgress");
 
+    // If job was previously Finalized, reverse recognized revenue entries and cancel open invoices
+    if (job.status === "Finalized") {
+      const activeRevenueEntries = await prisma.journalEntry.findMany({
+        where: { refType: "job_revenue", refId: jobId, status: "posted" },
+      });
+      for (const entry of activeRevenueEntries) {
+        try {
+          await AccountsPostingService.reverseEntry({
+            journalEntryId: entry.id,
+            reversedBy: actorName || "Auditor",
+            reason: `Auditor rejection/send-back of Job ${job.jobNumber}: ${reason}`,
+          });
+        } catch (revErr: any) {
+          console.warn(`[sendBackFromVerification] Failed to reverse revenue journal ${entry.id}:`, revErr.message);
+        }
+      }
+      await prisma.invoice.updateMany({
+        where: { jobId, status: { in: ["Draft", "Unpaid", "Issued"] } },
+        data: { status: "Cancelled" },
+      });
+    }
+
     const updated = await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -2485,41 +2507,47 @@ export class JobsService {
       }
     }
 
-    // 1. Consume stock through InventoryService (handles ledger and COGS journal entry)
-    await InventoryService.consumeStock(
-      productId,
-      qty,
-      "job_consumption",
-      targetReq?.id || requestId || jobId,
-      `Issued to Job ${job.jobNumber} by ${storekeeperName}`
-    );
+    // Execute stock deduction, inventory request update, and job item creation atomically
+    const { updatedRequest, newItem } = await prisma.$transaction(async (tx) => {
+      // 1. Consume stock through InventoryService (handles ledger and COGS journal entry)
+      await InventoryService.consumeStock(
+        productId,
+        qty,
+        "job_consumption",
+        targetReq?.id || requestId || jobId,
+        `Issued to Job ${job.jobNumber} by ${storekeeperName}`,
+        tx
+      );
 
-    // 2. If an inventory request ID was supplied or exists for this item/job, update qtyIssued and status
-    let updatedRequest: any = null;
-    if (targetReq) {
-      const currentIssued = Number(targetReq.qtyIssued) || 0;
-      const newQtyIssued = currentIssued + qty;
-      const isFullyIssued = newQtyIssued >= (Number(targetReq.qtyRequested) || 0);
-      updatedRequest = await prisma.inventoryRequest.update({
-        where: { id: targetReq.id },
+      // 2. If an inventory request ID was supplied or exists for this item/job, update qtyIssued and status
+      let reqUpdate: any = null;
+      if (targetReq) {
+        const currentIssued = Number(targetReq.qtyIssued) || 0;
+        const newQtyIssued = currentIssued + qty;
+        const isFullyIssued = newQtyIssued >= (Number(targetReq.qtyRequested) || 0);
+        reqUpdate = await tx.inventoryRequest.update({
+          where: { id: targetReq.id },
+          data: {
+            qtyIssued: newQtyIssued,
+            productId: targetReq.productId || productId,
+            status: isFullyIssued ? "issued" : "partially_issued",
+          },
+        });
+      }
+
+      // 3. Add item to JobItem line items
+      const item = await tx.jobItem.create({
         data: {
-          qtyIssued: newQtyIssued,
-          productId: targetReq.productId || productId,
-          status: isFullyIssued ? "issued" : "partially_issued",
+          jobId,
+          description: `${product.name} (${product.sku}) [Issued by Storekeeper]`,
+          quantityPlanned: qty,
+          quantityActual: qty,
+          unitRate: product.unitPrice,
         },
       });
-    }
 
-    // 3. Add item to JobItem line items
-    const newItem = await prisma.jobItem.create({
-      data: {
-        jobId,
-        description: `${product.name} (${product.sku}) [Issued by Storekeeper]`,
-        quantityPlanned: qty,
-        quantityActual: qty,
-        unitRate: product.unitPrice,
-      },
-    });
+      return { updatedRequest: reqUpdate, newItem: item };
+    }, { maxWait: 10000, timeout: 30000 });
 
     // 4. Log status history
     await this.logStatusChange(jobId, job.status, job.status, storekeeperName, {

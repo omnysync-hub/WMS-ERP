@@ -1,10 +1,51 @@
 import { pktTodayStart } from "@/lib/pktTime";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { requireOfficePermission } from "@/lib/auth/erpActor";
+import { requireOfficePermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
+  const resolved = await resolveJobsActor(req);
+  if (resolved.error) return resolved.error;
+  const actor = resolved.actor;
+  const isTech = (actor?.role || "").toLowerCase() === "technician";
+
+  const startOfToday = pktTodayStart(); // Pakistan calendar day (server clock is UTC)
+
+  // Mobile technicians can safely view their own technician record
+  if (isTech) {
+    try {
+      const technicians = await prisma.employee.findMany({
+        where: {
+          id: actor.id,
+          AND: [
+            {
+              OR: [
+                { active: true },
+                { status: { equals: "Active", mode: "insensitive" } },
+              ],
+            },
+          ],
+        },
+        include: {
+          jobs: {
+            where: { status: { in: ["Assigned", "Accepted", "InProgress", "Paused"] } },
+            include: { customer: true },
+          },
+          attendanceLogs: {
+            where: { timestamp: { gte: startOfToday } },
+            orderBy: { timestamp: "desc" },
+            take: 10,
+            include: { geofenceZone: true },
+          },
+        },
+      });
+      return NextResponse.json(technicians);
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+  }
+
   const gate = await requireOfficePermission(req, [
     "jobs.view_directory",
     "jobs.create_job",
@@ -15,7 +56,6 @@ export async function GET(req: NextRequest) {
   ]);
   if (gate.error) return gate.error;
   try {
-    const startOfToday = pktTodayStart(); // Pakistan calendar day (server clock is UTC)
 
     const technicians = await prisma.employee.findMany({
       where: {

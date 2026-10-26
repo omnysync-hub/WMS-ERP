@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
       feedbackCalls,
       projects,
       ledgerEntries,
-    ]: [any[], any[], any[], any[], any[], any[], any[], any[], any[], any[], any[], any[], any[], any[], any[], any[]] = await Promise.all([
+    ]: any = await Promise.all([
       prisma.job.findMany({
         where: jobWhere,
         include: {
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { createdAt: "desc" },
       }),
-      prisma.customer.findMany(),
+      prisma.customer.count(),
       prisma.employee.findMany({
         where: { role: "technician" },
         include: {
@@ -78,18 +78,28 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      prisma.employee.findMany(),
+      prisma.employee.findMany({
+        select: { department: true },
+      }),
       prisma.invoice.findMany({
         where: dateFilter ? { createdAt: dateFilter } : {},
       }),
-      prisma.account.findMany(),
+      prisma.account.count(),
       prisma.journalEntry.findMany({
         take: 8,
         orderBy: { createdAt: "desc" },
         include: { lines: { include: { account: true } } },
       }),
       prisma.product.findMany({
-        include: { stockEntries: true },
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          stockQuantity: true,
+          reorderLevel: true,
+          costPrice: true,
+          unit: true,
+        },
       }),
       prisma.inventoryRequest.findMany({
         where: dateFilter ? { createdAt: dateFilter } : {},
@@ -118,7 +128,9 @@ export async function GET(req: NextRequest) {
       prisma.project.findMany({
         include: { customer: true, boqItems: true },
       }),
-      prisma.technicianLedgerEntry.findMany(),
+      prisma.technicianLedgerEntry.findMany({
+        select: { technicianId: true, type: true, amount: true },
+      }),
     ]);
 
     // 1. EXECUTIVE / BUSINESS OVERVIEW METRICS
@@ -279,7 +291,9 @@ export async function GET(req: NextRequest) {
 
     // 6. CUSTOMER CARE & FEEDBACK METRICS
     const totalCalls = feedbackCalls.length;
-    const satisfiedCalls = feedbackCalls.filter((c: any) => c.status === "satisfied").length;
+    const satisfiedCalls = feedbackCalls.filter((c: any) =>
+      c.outcome === "approved" || c.outcome === "satisfied" || c.outcome === "RESOLVED_SATISFIED" || c.status === "satisfied"
+    ).length;
     const csatScore = totalCalls > 0 ? Math.round((satisfiedCalls / totalCalls) * 50) / 10 : 0;
     const disputeResolutionPct = totalJobsCount > 0 ? ((totalJobsCount - disputedJobs) / totalJobsCount) * 100 : 100;
 
@@ -308,7 +322,7 @@ export async function GET(req: NextRequest) {
         inProgressJobs,
         unassignedJobs,
         completionRate: Math.round(completionRate * 10) / 10,
-        activeCustomersCount: customers.length,
+        activeCustomersCount: typeof customers === "number" ? customers : (customers as any)?.length || 0,
         csatScore,
         attendancePct: Math.round(attendancePct),
         totalStockValuation: Math.round(totalStockValuation),
@@ -332,7 +346,7 @@ export async function GET(req: NextRequest) {
         discountsGiven: Math.round(totalDiscountGiven),
         cashCollected: Math.round(totalCashCollected),
         cashExpected: Math.round(totalCashExpected),
-        accountsCount: accounts.length,
+        accountsCount: typeof accounts === "number" ? accounts : (accounts as any)?.length || 0,
         recentJournals: journalEntries.map((j: any) => ({
           id: j.id,
           date: j.date,

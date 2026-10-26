@@ -330,7 +330,15 @@ export class HrmService {
   }) {
     const start = new Date(data.startDate);
     const end = new Date(data.endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error("Invalid start or end date.");
+    }
+    if (end < start) {
+      throw new Error("Leave end date cannot be before start date.");
+    }
+
+    const diffTime = end.getTime() - start.getTime();
     const daysCount = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1);
 
     // Check balance
@@ -345,8 +353,22 @@ export class HrmService {
       });
     }
 
-    if (balanceRecord && balanceRecord.balance < daysCount) {
-      throw new Error(`Insufficient leave balance. Available: ${balanceRecord.balance} days, Requested: ${daysCount} days.`);
+    // Deduct pending leave requests to prevent overdrawing through multiple submissions
+    const pendingRequests = await prisma.leaveRequest.findMany({
+      where: {
+        employeeId: data.employeeId,
+        leaveTypeId: data.leaveTypeId,
+        status: "Pending",
+      },
+      select: { daysCount: true },
+    });
+    const pendingDays = pendingRequests.reduce((sum, r) => sum + (r.daysCount || 0), 0);
+    const availableBalance = Math.max(0, (balanceRecord?.balance || 0) - pendingDays);
+
+    if (daysCount > availableBalance) {
+      throw new Error(
+        `Insufficient leave balance. Total entitlement: ${balanceRecord?.balance || 0} days (${pendingDays} days pending approval), Available: ${availableBalance} days, Requested: ${daysCount} days.`
+      );
     }
 
     return await prisma.leaveRequest.create({
@@ -691,6 +713,26 @@ export class HrmService {
       debit: grossAmount,
       credit: 0,
     });
+
+    // Debit Expense Claims / Reimbursements if any
+    const expAdj = data.expenseAdjustment || 0;
+    if (expAdj > 0) {
+      const claimsAcc = await AccountMappingService.resolveAccount({
+        transactionType: "job_expense_claim_clearing",
+      }).catch(() => salaryExpenseAcc);
+
+      lines.push({
+        accountId: claimsAcc.id,
+        debit: expAdj,
+        credit: 0,
+      });
+    } else if (expAdj < 0) {
+      lines.push({
+        accountId: salaryExpenseAcc.id,
+        debit: 0,
+        credit: Math.abs(expAdj),
+      });
+    }
 
     // Credit Advance Recovery if any
     if (deductions > 0) {

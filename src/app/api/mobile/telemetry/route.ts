@@ -97,22 +97,30 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Record append-only historical location ping
-    const locationPing = await prisma.technicianLocationPing.create({
-      data: {
-        employeeId,
-        lat: Number(lat),
-        lng: Number(lng),
-        accuracy: accuracy !== undefined ? Number(accuracy) : null,
-        speed: speed !== undefined ? Number(speed) : null,
-        batteryLevel: batteryLevel !== undefined ? Number(batteryLevel) : null,
-        isMoving: Boolean(isMoving),
-        isShiftActive,
-        activeJobId,
-        source: body.source || "mobile_gps",
-        timestamp: now,
-      },
-    });
+    // 4. Record append-only historical location ping (throttled when stationary to conserve DB connections)
+    const latDiff = Math.abs((currentEmployee.lat ?? 0) - Number(lat));
+    const lngDiff = Math.abs((currentEmployee.lng ?? 0) - Number(lng));
+    const isStationary = latDiff < 0.0001 && lngDiff < 0.0001;
+    const isRecent = currentEmployee.lastPingAt && (now.getTime() - new Date(currentEmployee.lastPingAt).getTime()) < 60000;
+
+    let locationPing: any = null;
+    if (!isStationary || !isRecent) {
+      locationPing = await prisma.technicianLocationPing.create({
+        data: {
+          employeeId,
+          lat: Number(lat),
+          lng: Number(lng),
+          accuracy: accuracy !== undefined ? Number(accuracy) : null,
+          speed: speed !== undefined ? Number(speed) : null,
+          batteryLevel: batteryLevel !== undefined ? Number(batteryLevel) : null,
+          isMoving: Boolean(isMoving),
+          isShiftActive,
+          activeJobId,
+          source: body.source || "mobile_gps",
+          timestamp: now,
+        },
+      });
+    }
 
     // 5. Update employee latest GPS location & timestamp
     const employee = await prisma.employee.update({

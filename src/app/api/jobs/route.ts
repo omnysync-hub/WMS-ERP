@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { JobsService } from "@/lib/services/JobsService";
 import { AuditService } from "@/lib/services/AuditService";
 import { createCareOfParty } from "@/lib/careOfLedger";
+import { generateJobNumber } from "@/lib/sequenceUtils";
 
 export async function GET(req: NextRequest) {
   try {
@@ -169,8 +170,7 @@ export async function POST(req: NextRequest) {
       effectiveCareOfId = existingParty.id;
     }
 
-    const count = await prisma.job.count();
-    const jobNumber = `JOB-2026-${String(count + 1).padStart(4, "0")}`;
+    const jobNumber = await generateJobNumber();
 
     const effectivePrimaryId =
       assignedTechnicianId ||

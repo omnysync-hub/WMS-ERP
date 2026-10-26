@@ -40,6 +40,12 @@ import {
   WalletCards,
   Wrench,
   Save,
+  ShieldCheck,
+  Box,
+  Laptop,
+  Truck,
+  Tag,
+  AlertTriangle,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { logActivity } from "@/lib/telemetry";
@@ -160,7 +166,7 @@ export default function MobileCompanionPage() {
 
   // Employee Self-Service (ESS) states
   const [techEssData, setTechEssData] = useState<any>(null);
-  const [essSubTab, setEssSubTab] = useState<"ledger" | "leave" | "assets" | "payslips" | "helpdesk">("ledger");
+  const [essSubTab, setEssSubTab] = useState<"assets" | "ledger" | "leave" | "payslips" | "helpdesk">("assets");
   const [showMobileLeaveModal, setShowMobileLeaveModal] = useState(false);
   const [mobileLeaveTypeId, setMobileLeaveTypeId] = useState("");
   const [mobileLeaveStart, setMobileLeaveStart] = useState(new Date().toISOString().split("T")[0]);
@@ -199,7 +205,10 @@ export default function MobileCompanionPage() {
 
       // Fetch detailed ESS profile
       try {
-        const essRes = await fetch(`/api/hrm/employees/${tech.id}`);
+        let essRes = await fetch(`/api/hrm/employees/${tech.id}`);
+        if (!essRes.ok) {
+          essRes = await fetch(`/api/hrm/my-profile?employeeId=${tech.id}`);
+        }
         if (essRes.ok) {
           const essJson = await essRes.json();
           setTechEssData(essJson.employee);
@@ -2640,243 +2649,398 @@ export default function MobileCompanionPage() {
           </div>
         )}
 
-        {/* TAB 6: EMPLOYEE PROFILE */}
-        {activeTab === "profile" && (
-          <div className="space-y-3.5">
-            <div className="bg-white rounded-2xl border border-[#EDEDED] p-5 text-center shadow-xs">
-              <div className="w-16 h-16 rounded-full bg-[#0D7A5F] text-white mx-auto flex items-center justify-center text-2xl font-black">
-                {technician?.name?.charAt(0) || "T"}
-              </div>
-              <h2 className="text-base font-black mt-3">{technician?.name}</h2>
-              <p className="text-xs text-[#71717A]">{techEssData?.designation || "HVAC Technician"}</p>
-              <span className="inline-block mt-2 text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-full">
-                {techEssData?.department || "Operations"}
-              </span>
-            </div>
-            <div className="bg-white rounded-xl border border-[#EDEDED] divide-y divide-[#EDEDED] text-xs">
-              <div className="p-3 flex justify-between gap-3"><span className="text-[#71717A]">Phone</span><strong>{technician?.phone || "—"}</strong></div>
-              <div className="p-3 flex justify-between gap-3"><span className="text-[#71717A]">Employee ID</span><strong className="font-mono">{technician?.employeeCode || technician?.id?.slice(0, 8) || "—"}</strong></div>
-              <div className="p-3 flex justify-between gap-3"><span className="text-[#71717A]">Status</span><strong className="text-[#0D7A5F]">Active</strong></div>
-            </div>
-            <p className="text-[10px] text-center text-[#A1A1AA]">This managed field account stays signed in on its authorized device.</p>
-          </div>
-        )}
+        {/* TAB 6: EMPLOYEE PROFILE & ASSIGNED ASSETS */}
+        {activeTab === "profile" && (() => {
+          const assetAssignments = Array.isArray(techEssData?.assetAssignments) ? techEssData.assetAssignments : [];
+          const activeCustodyAssets = assetAssignments.filter((a: any) => !a.returnedAt);
+          const returnedPastAssets = assetAssignments.filter((a: any) => Boolean(a.returnedAt));
 
-        {activeTab === "profile" && false && (
-          <div className="space-y-4">
-            {/* Staff Card */}
-            <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-[#18181B]">{technician?.name}</h3>
-                  <p className="text-xs text-[#71717A]">{techEssData?.designation || "HVAC Technician"} • {technician?.phone}</p>
-                </div>
-                <span className="text-[10px] uppercase font-bold bg-[#F4F4F5] px-2 py-0.5 rounded text-[#71717A]">
-                  {techEssData?.department || "Operations"}
-                </span>
-              </div>
+          const renderCategoryIcon = (category?: string) => {
+            const cat = (category || "").toLowerCase();
+            if (cat.includes("vehicle") || cat.includes("truck") || cat.includes("van") || cat.includes("bike") || cat.includes("car")) {
+              return <Truck className="w-5 h-5 text-blue-600" />;
+            }
+            if (cat.includes("laptop") || cat.includes("it") || cat.includes("computer") || cat.includes("phone") || cat.includes("mobile") || cat.includes("tablet")) {
+              return <Laptop className="w-5 h-5 text-indigo-600" />;
+            }
+            if (cat.includes("gauge") || cat.includes("manifold") || cat.includes("pump") || cat.includes("vacuum") || cat.includes("meter") || cat.includes("multimeter") || cat.includes("tool") || cat.includes("wrench")) {
+              return <Wrench className="w-5 h-5 text-amber-600" />;
+            }
+            return <Box className="w-5 h-5 text-emerald-600" />;
+          };
 
-              {/* Sub-tab switcher inside ESS */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 border-t border-[#F4F4F5] pt-2">
-                {[
-                  { id: "ledger", label: "My Ledger" },
-                  { id: "leave", label: "Leave & Balances" },
-                  { id: "assets", label: "My Assets" },
-                  { id: "payslips", label: "Payslips" },
-                  { id: "helpdesk", label: "Helpdesk" },
-                ].map((st) => (
-                  <button
-                    key={st.id}
-                    onClick={() => setEssSubTab(st.id as any)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold whitespace-nowrap transition ${
-                      essSubTab === st.id
-                        ? "bg-[#0D7A5F] text-white"
-                        : "bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B]"
-                    }`}
-                  >
-                    {st.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Sub-view: My Ledger */}
-            {essSubTab === "ledger" && (
-              <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
-                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <span className="text-[11px] text-emerald-900 font-bold block uppercase tracking-wider">
-                    Netted Running Balance
-                  </span>
-                  <span className="text-2xl font-black font-mono text-emerald-700">
-                    {formatCurrency(techLedgerData?.netBalance || 0)}
-                  </span>
-                  <p className="text-[10px] text-emerald-800 mt-0.5">
-                    Netted running balance: Advances + Cash Handover - Verified Expenses.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5 pt-1">
-                  <span className="text-xs font-bold text-[#18181B] block">Recent Ledger Entries</span>
-                  {techLedgerData?.detailedEntries?.map((e: any) => (
-                    <div
-                      key={e.id}
-                      className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs"
-                    >
-                      <div>
-                        <p className="font-semibold capitalize text-[#18181B]">
-                          {e.type.replace("_", " ")}
-                        </p>
-                        <p className="text-[10px] text-[#71717A]">{formatDateTime(e.createdAt)}</p>
-                      </div>
-                      <span className="font-mono font-bold text-[#18181B]">
-                        {formatCurrency(e.amount)}
+          return (
+            <div className="space-y-4">
+              {/* Profile Card */}
+              <div className="bg-white rounded-2xl border border-[#EDEDED] p-4.5 shadow-xs space-y-3.5">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-14 h-14 rounded-2xl bg-[#0D7A5F] text-white flex items-center justify-center text-xl font-black shadow-sm shrink-0">
+                    {technician?.name?.charAt(0) || "T"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base font-black text-[#18181B] truncate">{technician?.name}</h2>
+                      <span className="inline-block text-[9px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                        Active
                       </span>
                     </div>
+                    <p className="text-xs text-[#71717A] truncate">{techEssData?.designation || "HVAC Technician"}</p>
+                    <p className="text-[11px] text-[#A1A1AA] mt-0.5">
+                      {techEssData?.department || "Operations"} · {technician?.phone || "—"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quick Info Strip */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#F4F4F5] text-xs">
+                  <div className="p-2 bg-[#F9FAFB] rounded-lg border border-[#EDEDED]">
+                    <span className="text-[10px] text-[#71717A] block">Employee ID</span>
+                    <span className="font-mono font-bold text-[#18181B]">
+                      {technician?.employeeCode || technician?.id?.slice(0, 8) || "—"}
+                    </span>
+                  </div>
+                  <div className="p-2 bg-[#F9FAFB] rounded-lg border border-[#EDEDED]">
+                    <span className="text-[10px] text-[#71717A] block">Assigned Equipment</span>
+                    <span className="font-bold text-[#0D7A5F]">
+                      {activeCustodyAssets.length} Active in Custody
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sub-tab switcher inside ESS */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 no-scrollbar">
+                  {[
+                    { id: "assets", label: "My Assets", count: activeCustodyAssets.length },
+                    { id: "leave", label: "Leave & Balances" },
+                    { id: "ledger", label: "My Ledger" },
+                    { id: "payslips", label: "Payslips" },
+                    { id: "helpdesk", label: "Helpdesk" },
+                  ].map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setEssSubTab(st.id as any)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                        essSubTab === st.id
+                          ? "bg-[#0D7A5F] text-white shadow-xs"
+                          : "bg-[#F4F4F5] text-[#71717A] hover:text-[#18181B]"
+                      }`}
+                    >
+                      <span>{st.label}</span>
+                      {typeof st.count === "number" && st.count > 0 && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                            essSubTab === st.id ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800"
+                          }`}
+                        >
+                          {st.count}
+                        </span>
+                      )}
+                    </button>
                   ))}
                 </div>
               </div>
-            )}
 
-            {/* Sub-view: Leave Balances & Requests */}
-            {essSubTab === "leave" && (
-              <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    My Leave Entitlements
-                  </span>
-                  <button
-                    onClick={() => setShowMobileLeaveModal(true)}
-                    className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-lg transition"
-                  >
-                    + Apply Leave
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {techEssData?.leaveBalances?.map((lb: any) => (
-                    <div key={lb.id} className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-center">
-                      <span className="text-[10px] text-[#71717A] font-bold block">{lb.leaveType?.name}</span>
-                      <span className="text-lg font-mono font-bold text-[#0D7A5F]">{lb.balance}</span>
-                      <span className="text-[9px] text-[#71717A] block">days available</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Recent Leave Requests */}
-                <div className="space-y-1.5 pt-2 border-t border-[#F4F4F5]">
-                  <span className="text-xs font-bold text-[#18181B] block">My Recent Requests</span>
-                  {techEssData?.leaveRequests && techEssData.leaveRequests.length > 0 ? (
-                    techEssData.leaveRequests.map((r: any) => (
-                      <div key={r.id} className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs">
-                        <div>
-                          <span className="font-semibold text-[#18181B]">{r.leaveType?.name}</span>
-                          <span className="text-[10px] text-[#71717A] block">
-                            {formatDateTime(r.startDate)} ({r.daysCount} days)
-                          </span>
-                        </div>
-                        <StatusBadge status={r.status} />
+              {/* Sub-view: My Assets */}
+              {essSubTab === "assets" && (
+                <div className="space-y-3">
+                  {/* Summary Banner */}
+                  <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-[#0D7A5F]">
+                        <ShieldCheck className="w-5 h-5" />
                       </div>
-                    ))
+                      <div>
+                        <h4 className="text-sm font-bold text-[#18181B]">Equipment & Tools in Custody</h4>
+                        <p className="text-[11px] text-[#71717A]">
+                          Registered company assets issued to your account
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                        {activeCustodyAssets.length} Active
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Active Custody List */}
+                  {activeCustodyAssets.length > 0 ? (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                          In Active Custody ({activeCustodyAssets.length})
+                        </span>
+                        <span className="text-[10px] text-[#A1A1AA]">Responsible for safe upkeep</span>
+                      </div>
+                      {activeCustodyAssets.map((a: any) => {
+                        const cat = a.asset?.category || "Equipment";
+                        return (
+                          <div
+                            key={a.id}
+                            className="bg-white rounded-xl p-4 border border-[#E4E4E7] shadow-xs space-y-3"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-start gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-[#F4F4F5] border border-[#E4E4E7] flex items-center justify-center shrink-0 mt-0.5">
+                                  {renderCategoryIcon(cat)}
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-bold text-[#18181B] leading-snug">
+                                    {a.asset?.name || "Equipment"}
+                                  </h5>
+                                  <p className="text-xs text-[#71717A] mt-0.5">{cat}</p>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-[#F4F4F5] text-[#18181B] border border-[#EDEDED] shrink-0">
+                                {a.asset?.tag || "—"}
+                              </span>
+                            </div>
+
+                            <div className="bg-[#F9FAFB] rounded-lg p-2.5 border border-[#EDEDED] grid grid-cols-2 gap-2 text-[11px]">
+                              <div>
+                                <span className="text-[#A1A1AA] text-[10px] block">Issued Date</span>
+                                <span className="font-semibold text-[#18181B]">
+                                  {a.assignedAt ? formatDateTime(a.assignedAt) : "—"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[#A1A1AA] text-[10px] block">Issued By</span>
+                                <span className="font-semibold text-[#18181B] truncate block">
+                                  {a.assignedBy || "Storekeeper"}
+                                </span>
+                              </div>
+                              {a.conditionNotes && (
+                                <div className="col-span-2 pt-1 border-t border-[#EDEDED]">
+                                  <span className="text-[#A1A1AA] text-[10px] block">Handover Condition Notes</span>
+                                  <span className="text-[#3F3F46] font-medium italic">
+                                    "{a.conditionNotes}"
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-[#F4F4F5] text-[11px]">
+                              <span className="inline-flex items-center gap-1.5 text-emerald-700 font-semibold">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> In Field Custody
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setMobileGrievanceCat("Equipment & Tools");
+                                  setMobileGrievanceDesc(`Asset Issue Report: ${a.asset?.name} (${a.asset?.tag}) - `);
+                                  setShowMobileGrievanceModal(true);
+                                }}
+                                className="text-[11px] font-bold text-[#0D7A5F] hover:underline"
+                              >
+                                Report Damage / Issue
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
-                    <p className="text-[11px] text-[#71717A]">No leave requests submitted yet.</p>
+                    <div className="bg-white rounded-xl p-8 border border-[#EDEDED] text-center shadow-xs space-y-2">
+                      <div className="w-12 h-12 rounded-full bg-[#F4F4F5] mx-auto flex items-center justify-center text-[#71717A]">
+                        <Box className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-[#18181B]">No Active Assets Assigned</h4>
+                      <p className="text-xs text-[#71717A] max-w-xs mx-auto">
+                        You currently do not have any registered company tools, HVAC instruments, or vehicles checked out to your custody.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Past / Returned Assets History */}
+                  {returnedPastAssets.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider px-1 block">
+                        Past Handover & Returned History ({returnedPastAssets.length})
+                      </span>
+                      <div className="space-y-2">
+                        {returnedPastAssets.map((a: any) => (
+                          <div
+                            key={a.id}
+                            className="bg-white rounded-xl p-3 border border-[#EDEDED] shadow-xs text-xs flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-[#F4F4F5] flex items-center justify-center text-[#71717A] shrink-0">
+                                {renderCategoryIcon(a.asset?.category)}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-[#18181B]">{a.asset?.name}</span>
+                                  <span className="font-mono text-[9px] bg-[#F4F4F5] px-1.5 py-0.2 rounded border border-[#E4E4E7]">
+                                    {a.asset?.tag}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-[#71717A] mt-0.5">
+                                  Returned on {a.returnedAt ? formatDateTime(a.returnedAt) : "—"}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-zinc-600 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-full shrink-0">
+                              Returned
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Sub-view: My Assets */}
-            {essSubTab === "assets" && (
-              <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
-                <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider block">
-                  Company Assets & Testing Instruments
-                </span>
-                {techEssData?.assetAssignments && techEssData.assetAssignments.length > 0 ? (
-                  <div className="space-y-2">
-                    {techEssData.assetAssignments.map((a: any) => (
-                      <div key={a.id} className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs flex items-center justify-between">
+              {/* Sub-view: My Ledger */}
+              {essSubTab === "ledger" && (
+                <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <span className="text-[11px] text-emerald-900 font-bold block uppercase tracking-wider">
+                      Netted Running Balance
+                    </span>
+                    <span className="text-2xl font-black font-mono text-emerald-700">
+                      {formatCurrency(techLedgerData?.netBalance || 0)}
+                    </span>
+                    <p className="text-[10px] text-emerald-800 mt-0.5">
+                      Netted running balance: Advances + Cash Handover - Verified Expenses.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-xs font-bold text-[#18181B] block">Recent Ledger Entries</span>
+                    {techLedgerData?.detailedEntries?.map((e: any) => (
+                      <div
+                        key={e.id}
+                        className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs"
+                      >
                         <div>
-                          <span className="font-mono font-bold text-[#18181B]">{a.asset?.tag}</span>
-                          <p className="font-semibold text-[#18181B]">{a.asset?.name}</p>
-                          <p className="text-[10px] text-[#71717A]">{a.conditionNotes}</p>
+                          <p className="font-semibold capitalize text-[#18181B]">
+                            {e.type.replace("_", " ")}
+                          </p>
+                          <p className="text-[10px] text-[#71717A]">{formatDateTime(e.createdAt)}</p>
                         </div>
-                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          {a.returnedAt ? "Returned" : "Active"}
+                        <span className="font-mono font-bold text-[#18181B]">
+                          {formatCurrency(e.amount)}
                         </span>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-xs text-[#71717A]">No company assets assigned to you.</p>
-                )}
-              </div>
-            )}
-
-            {/* Sub-view: Payslips */}
-            {essSubTab === "payslips" && (
-              <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
-                <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider block">
-                  My Monthly Payslips
-                </span>
-                {techEssData?.payslips && techEssData.payslips.length > 0 ? (
-                  <div className="space-y-2">
-                    {techEssData.payslips.map((ps: any) => (
-                      <div key={ps.id} className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs flex items-center justify-between">
-                        <div>
-                          <p className="font-bold text-[#18181B]">{ps.payrollRun?.period}</p>
-                          <p className="text-[10px] text-[#71717A]">Gross: {formatCurrency(ps.grossSalary)}</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-mono font-bold text-emerald-700 block">
-                            {formatCurrency(ps.netSalary)}
-                          </span>
-                          <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded">
-                            {ps.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-[#71717A]">No payslips available yet.</p>
-                )}
-              </div>
-            )}
-
-            {/* Sub-view: Helpdesk */}
-            {essSubTab === "helpdesk" && (
-              <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    Workplace & Field Helpdesk
-                  </span>
-                  <button
-                    onClick={() => setShowMobileGrievanceModal(true)}
-                    className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-lg transition"
-                  >
-                    + Raise Ticket
-                  </button>
                 </div>
+              )}
 
-                {techEssData?.grievanceTickets && techEssData.grievanceTickets.length > 0 ? (
-                  <div className="space-y-2">
-                    {techEssData.grievanceTickets.map((tk: any) => (
-                      <div key={tk.id} className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-[#18181B]">{tk.ticketNumber}</span>
-                          <StatusBadge status={tk.status} />
-                        </div>
-                        <p className="font-semibold text-[#18181B]">{tk.category}</p>
-                        <p className="text-[11px] text-[#71717A] line-clamp-2">{tk.description}</p>
+              {/* Sub-view: Leave Balances & Requests */}
+              {essSubTab === "leave" && (
+                <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      My Leave Entitlements
+                    </span>
+                    <button
+                      onClick={() => setShowMobileLeaveModal(true)}
+                      className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-lg transition"
+                    >
+                      + Apply Leave
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {techEssData?.leaveBalances?.map((lb: any) => (
+                      <div key={lb.id} className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-center">
+                        <span className="text-[10px] text-[#71717A] font-bold block">{lb.leaveType?.name}</span>
+                        <span className="text-lg font-mono font-bold text-[#0D7A5F]">{lb.balance}</span>
+                        <span className="text-[9px] text-[#71717A] block">days available</span>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-xs text-[#71717A]">No helpdesk tickets raised.</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+
+                  {/* Recent Leave Requests */}
+                  <div className="space-y-1.5 pt-2 border-t border-[#F4F4F5]">
+                    <span className="text-xs font-bold text-[#18181B] block">My Recent Requests</span>
+                    {techEssData?.leaveRequests && techEssData.leaveRequests.length > 0 ? (
+                      techEssData.leaveRequests.map((r: any) => (
+                        <div key={r.id} className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-semibold text-[#18181B]">{r.leaveType?.name}</span>
+                            <span className="text-[10px] text-[#71717A] block">
+                              {formatDateTime(r.startDate)} ({r.daysCount} days)
+                            </span>
+                          </div>
+                          <StatusBadge status={r.status} />
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[11px] text-[#71717A]">No leave requests submitted yet.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Sub-view: Payslips */}
+              {essSubTab === "payslips" && (
+                <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
+                  <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider block">
+                    My Monthly Payslips
+                  </span>
+                  {techEssData?.payslips && techEssData.payslips.length > 0 ? (
+                    <div className="space-y-2">
+                      {techEssData.payslips.map((ps: any) => (
+                        <div key={ps.id} className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-[#18181B]">{ps.payrollRun?.period}</p>
+                            <p className="text-[10px] text-[#71717A]">Gross: {formatCurrency(ps.grossSalary)}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono font-bold text-emerald-700 block">
+                              {formatCurrency(ps.netSalary)}
+                            </span>
+                            <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded">
+                              {ps.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#71717A]">No payslips available yet.</p>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-view: Helpdesk */}
+              {essSubTab === "helpdesk" && (
+                <div className="bg-white rounded-xl p-4 border border-[#EDEDED] shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                      Workplace & Field Helpdesk
+                    </span>
+                    <button
+                      onClick={() => setShowMobileGrievanceModal(true)}
+                      className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-lg transition"
+                    >
+                      + Raise Ticket
+                    </button>
+                  </div>
+
+                  {techEssData?.grievanceTickets && techEssData.grievanceTickets.length > 0 ? (
+                    <div className="space-y-2">
+                      {techEssData.grievanceTickets.map((tk: any) => (
+                        <div key={tk.id} className="p-3 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] text-xs space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-[#18181B]">{tk.ticketNumber}</span>
+                            <StatusBadge status={tk.status} />
+                          </div>
+                          <p className="font-semibold text-[#18181B]">{tk.category}</p>
+                          <p className="text-[11px] text-[#71717A] line-clamp-2">{tk.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#71717A]">No helpdesk tickets raised.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </main>
 
       {/* Docked In-App Bottom Navigation */}

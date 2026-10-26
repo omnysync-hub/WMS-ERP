@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
+import { generateGrnNumber } from "@/lib/sequenceUtils";
 
 const RECEIVABLE_PO_STATUSES = ["approved", "sent_to_vendor", "sent", "partially_received"];
 
@@ -37,14 +38,16 @@ export class InventoryService {
     quantity: number,
     refType: "job_consumption" | "pos_sale",
     refId?: string,
-    notes?: string
+    notes?: string,
+    outerTx?: Prisma.TransactionClient
   ) {
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new Error("Consumed stock quantity must be a positive number.");
     }
 
-    const product = await prisma.product.findUnique({ where: { id: productId } });
+    const db = outerTx ?? prisma;
+    const product = await db.product.findUnique({ where: { id: productId } });
     if (!product) throw new Error("Product not found");
 
     const costAmount = Math.round(qty * product.costPrice * 100) / 100;
@@ -52,12 +55,11 @@ export class InventoryService {
       costAmount > 0
         ? await Promise.all([
             AccountMappingService.resolveAccount({ transactionType: "inventory_cogs_expense" }),
-            InventoryService.stockAccountFor(prisma, product, "inventory_cogs_asset"),
+            InventoryService.stockAccountFor(db, product, "inventory_cogs_asset"),
           ])
         : [null, null];
 
-    // Stock, ledger and GL must either all succeed or all roll back.
-    return prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       const updated = await tx.product.updateMany({
         where: { id: productId, stockQuantity: { gte: qty } },
         data: { stockQuantity: { decrement: qty } },
@@ -87,7 +89,10 @@ export class InventoryService {
       }
 
       return ledger;
-    }, { maxWait: 10000, timeout: 30000 });
+    };
+
+    if (outerTx) return run(outerTx);
+    return prisma.$transaction(run, { maxWait: 10000, timeout: 30000 });
   }
 
   /**
@@ -368,8 +373,7 @@ export class InventoryService {
         }
       }
 
-      const grnCount = await tx.goodsReceipt.count();
-      const grnNumber = `GRN-${new Date().getFullYear()}-${String(grnCount + 1).padStart(4, "0")}`;
+      const grnNumber = await generateGrnNumber();
       const grn = await tx.goodsReceipt.create({
         data: {
           grnNumber,

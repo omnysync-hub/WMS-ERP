@@ -138,7 +138,7 @@ export class PayrollService {
   static async disburseRun(payrollRunId: string) {
     const run = await prisma.payrollRun.findUnique({
       where: { id: payrollRunId },
-      include: { payslips: true },
+      include: { payslips: { include: { employee: true } } },
     });
     if (!run) throw new Error("Payroll run not found");
     if (run.status !== "Approved") {
@@ -209,15 +209,19 @@ export class PayrollService {
 
       // Settle expense_owed and recover only the advance amount deducted in this run.
       for (const slip of run.payslips) {
+        const isTechnician = (slip.employee?.role || "").toLowerCase() === "technician";
+
         if (slip.expenseAdjustment > 0) {
-          await tx.technicianLedgerEntry.create({
-            data: {
-              technicianId: slip.employeeId,
-              type: "expense_paid",
-              amount: slip.expenseAdjustment,
-              notes: `Settled via payroll run ${run.period} (${run.id})`,
-            },
-          });
+          if (isTechnician) {
+            await tx.technicianLedgerEntry.create({
+              data: {
+                technicianId: slip.employeeId,
+                type: "expense_paid",
+                amount: slip.expenseAdjustment,
+                notes: `Settled via payroll run ${run.period} (${run.id})`,
+              },
+            });
+          }
           // Carried-forward (accrued) claims are now settled through payroll.
           await tx.jobExpenseClaim.updateMany({
             where: { technicianId: slip.employeeId, status: "pending", accruedAt: { not: null } },
@@ -238,7 +242,10 @@ export class PayrollService {
             if (remainingToRecover >= adv.amount) {
               await tx.employeeAdvance.update({
                 where: { id: adv.id },
-                data: { status: "recovered" },
+                data: {
+                  status: "recovered",
+                  notes: `[Fully recovered in ${run.period}] ${adv.notes || ""}`.trim(),
+                },
               });
               remainingToRecover = Math.round((remainingToRecover - adv.amount) * 100) / 100;
             } else {
@@ -247,7 +254,11 @@ export class PayrollService {
 
               await tx.employeeAdvance.update({
                 where: { id: adv.id },
-                data: { amount: recoveredAmount, status: "recovered" },
+                data: {
+                  amount: recoveredAmount,
+                  status: "recovered",
+                  notes: `[Partially recovered PKR ${recoveredAmount} in ${run.period}] ${adv.notes || ""}`.trim(),
+                },
               });
               await tx.employeeAdvance.create({
                 data: {
@@ -255,20 +266,23 @@ export class PayrollService {
                   amount: remainderAmount,
                   status: "approved",
                   approvedBy: adv.approvedBy,
+                  notes: `Remaining balance of advance (original: PKR ${adv.amount}, recovered: PKR ${recoveredAmount} in ${run.period})`,
                 },
               });
               remainingToRecover = 0;
             }
           }
 
-          await tx.technicianLedgerEntry.create({
-            data: {
-              technicianId: slip.employeeId,
-              type: "advance_recovered",
-              amount: slip.advanceDeduction,
-              notes: `Advance recovered via payroll deduction for period ${run.period}`,
-            },
-          });
+          if (isTechnician) {
+            await tx.technicianLedgerEntry.create({
+              data: {
+                technicianId: slip.employeeId,
+                type: "advance_recovered",
+                amount: slip.advanceDeduction,
+                notes: `Advance recovered via payroll deduction for period ${run.period}`,
+              },
+            });
+          }
         }
       }
 

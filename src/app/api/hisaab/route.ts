@@ -5,8 +5,18 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 
-export async function GET() {
+import { requireJobsPermission } from "@/lib/auth/erpActor";
+
+export async function GET(req: NextRequest) {
   try {
+    const gate = await requireJobsPermission(req, [
+      "jobs.collect_payment",
+      "jobs.view_financials",
+      "accounts.view_reports",
+      "accounts.view_coa",
+    ]);
+    if (gate.error) return gate.error;
+
     // Jobs awaiting hisaab settlement: Paused or CompletedPendingVerification
     const pendingJobs = await prisma.job.findMany({
       where: {
@@ -37,7 +47,6 @@ export async function GET() {
 }
 
 import { JobsService, isFieldReportedSettlement } from "@/lib/services/JobsService";
-import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
 
 export async function POST(req: NextRequest) {

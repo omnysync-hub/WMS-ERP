@@ -473,25 +473,67 @@ export async function POST(req: NextRequest) {
 
       case "branch_transfer": {
         const { productId, quantity, fromBranch, toBranch, challanNumber, notes } = payload;
-        const product = await prisma.product.findUnique({ where: { id: productId } });
-        if (!product) throw new Error("Product not found");
-        if (product.stockQuantity < Number(quantity)) {
-          throw new Error(`Insufficient stock for branch transfer. Available: ${product.stockQuantity}`);
+        const qtyNum = Number(quantity);
+        if (!qtyNum || qtyNum <= 0) {
+          return NextResponse.json({ error: "Transfer quantity must be greater than zero." }, { status: 400 });
         }
-        await prisma.product.update({
-          where: { id: productId },
-          data: { stockQuantity: { decrement: Number(quantity) } },
-        });
-        const ledger = await prisma.stockLedger.create({
-          data: {
-            productId,
-            qty: Number(quantity),
-            direction: "out",
-            refType: "branch_transfer",
-            notes: `[Transfer: ${fromBranch || "Central Warehouse"} ➔ ${toBranch || "Branch Depot"}] Challan #${challanNumber || "TRF-" + Date.now().toString().slice(-4)}: ${notes || ""}`.trim(),
-          },
-        });
-        return NextResponse.json({ success: true, ledger });
+
+        const result = await prisma.$transaction(async (tx) => {
+          const product = await tx.product.findUnique({ where: { id: productId } });
+          if (!product) throw new Error("Product not found");
+          if (product.stockQuantity < qtyNum) {
+            throw new Error(`Insufficient stock for branch transfer. Available: ${product.stockQuantity}`);
+          }
+
+          await tx.product.update({
+            where: { id: productId },
+            data: { stockQuantity: { decrement: qtyNum } },
+          });
+
+          const ledger = await tx.stockLedger.create({
+            data: {
+              productId,
+              qty: qtyNum,
+              direction: "out",
+              refType: "branch_transfer",
+              notes: `[Transfer: ${fromBranch || "Central Warehouse"} ➔ ${toBranch || "Branch Depot"}] Challan #${challanNumber || "TRF-" + Date.now().toString().slice(-4)}: ${notes || ""}`.trim(),
+            },
+          });
+
+          // Post inter-branch transit GL entry if transfer value > 0
+          const transferVal = Math.round(qtyNum * (product.costPrice || 0) * 100) / 100;
+          if (transferVal > 0) {
+            try {
+              const invAssetAcc = await AccountMappingService.resolveAccount({
+                transactionType: "inventory_cogs_asset",
+                prismaClient: tx,
+              }).catch(() => null);
+              const transitAcc = await AccountMappingService.resolveAccount({
+                transactionType: "inventory_in_transit",
+                prismaClient: tx,
+              }).catch(() => null);
+
+              if (invAssetAcc && transitAcc && invAssetAcc.id !== transitAcc.id) {
+                await AccountsPostingService.post({
+                  memo: `Branch Stock Transfer: ${product.name} (${qtyNum} units) [${fromBranch || "Central"} -> ${toBranch || "Branch"}]`,
+                  refType: "branch_transfer",
+                  refId: ledger.id,
+                  lines: [
+                    { accountId: transitAcc.id, debit: transferVal, credit: 0 },
+                    { accountId: invAssetAcc.id, debit: 0, credit: transferVal },
+                  ],
+                  tx,
+                });
+              }
+            } catch (glErr) {
+              console.warn("[branch_transfer] GL posting omitted:", glErr);
+            }
+          }
+
+          return ledger;
+        }, { maxWait: 10000, timeout: 30000 });
+
+        return NextResponse.json({ success: true, ledger: result });
       }
 
       case "stock_adjustment": {

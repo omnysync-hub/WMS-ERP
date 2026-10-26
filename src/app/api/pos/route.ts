@@ -534,6 +534,23 @@ export async function POST(req: NextRequest) {
             });
           }
         }
+
+        // Adjust open register session so physical cash drawer matches expected balance
+        const activeSession = await (tx as any).posRegisterSession.findFirst({
+          where: { status: "open" },
+          orderBy: { openedAt: "desc" },
+        });
+        if (activeSession) {
+          const refundAmount = Number(sale.totalAmount) || 0;
+          const isCash = sale.paymentMethod === "cash";
+          await (tx as any).posRegisterSession.update({
+            where: { id: activeSession.id },
+            data: {
+              totalSalesAmount: { decrement: refundAmount },
+              cashSalesAmount: isCash && refundAmount > 0 ? { decrement: refundAmount } : undefined,
+            },
+          });
+        }
         return { sale: { ...sale, status: "refunded" }, reversalIds };
       }, { maxWait: 10000, timeout: 30000 });
       await AuditService.logActivity({

@@ -7,6 +7,7 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { DocumentSequenceService } from "@/lib/services/DocumentSequenceService";
+import { generateProjectCode, generatePrNumber } from "@/lib/sequenceUtils";
 import { actorHasPermission, requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -134,8 +135,7 @@ export async function POST(req: NextRequest) {
         where: { id: { in: boqItemIds } },
       });
 
-      const count = await prisma.purchaseRequisition.count();
-      const prNumber = `PR-PRJ-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
+      const prNumber = await generatePrNumber();
 
       const requisition = await prisma.purchaseRequisition.create({
         data: {
@@ -764,8 +764,7 @@ export async function POST(req: NextRequest) {
 
     let projectNumber = customNumber?.trim();
     if (!projectNumber) {
-      const count = await prisma.project.count();
-      projectNumber = `PRJ-2026-${String(count + 1).padStart(3, "0")}`;
+      projectNumber = await generateProjectCode();
     }
 
     const calculatedBudget = Number(totalBudget) || boqItems.reduce((acc: number, item: any) => acc + (Number(item.plannedQty) || 0) * (Number(item.unitRate) || 0), 0);

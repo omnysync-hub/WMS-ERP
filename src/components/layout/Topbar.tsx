@@ -530,6 +530,17 @@ export default function Topbar({
 
                   <div className="border-t border-[#EDEDED] mt-1 pt-1.5 px-1.5 space-y-1">
                     <Link
+                      href="/profile"
+                      onClick={() => setIsUserMenuOpen(false)}
+                      className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[#F4F4F5] text-[#18181B] font-semibold flex items-center justify-between transition text-xs"
+                    >
+                      <span className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-[#0D7A5F]" />
+                        <span>My Profile & Assets</span>
+                      </span>
+                    </Link>
+
+                    <Link
                       href="/audit"
                       onClick={() => setIsUserMenuOpen(false)}
                       className="w-full text-left px-2.5 py-2 rounded-lg bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] font-semibold flex items-center justify-between transition text-xs"

@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { HrmService } from "@/lib/services/HrmService";
 import { requirePermission, resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
 
@@ -12,8 +13,15 @@ export async function GET(
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
     const canViewAll = actorHasPermission(resolved.actor, "hrm.view_employees");
-    if (!canViewAll && resolved.actor.id !== params.id) {
-      return NextResponse.json({ error: "You can only view your own employee profile." }, { status: 403 });
+    const callerId = resolved.actor?.id || req.headers.get("x-technician-id") || req.headers.get("x-employee-id");
+    if (!canViewAll && callerId !== params.id) {
+      const emp = await prisma.employee.findUnique({
+        where: { id: params.id },
+        select: { erpUserId: true },
+      });
+      if (!emp || emp.erpUserId !== resolved.actor?.id) {
+        return NextResponse.json({ error: "You can only view your own employee profile." }, { status: 403 });
+      }
     }
     const employee = await HrmService.getEmployee(params.id);
     if (!employee) {
