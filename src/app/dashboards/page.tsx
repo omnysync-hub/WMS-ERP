@@ -252,9 +252,16 @@ function DashboardsContent() {
             <div className="bg-white rounded-2xl p-5 border border-[#EDEDED] shadow-2xs space-y-2">
               <div className="flex items-center justify-between text-xs text-zinc-500 font-semibold">
                 <span>Net Billed Revenue</span>
-                <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                  +18.4% MoM
-                </span>
+                {typeof overview.revenueMomPct === "number" ? (
+                  <span
+                    className={`${overview.revenueMomPct >= 0 ? "text-emerald-700 bg-emerald-50" : "text-red-700 bg-red-50"} px-2 py-0.5 rounded-full text-[10px] font-bold`}
+                  >
+                    {overview.revenueMomPct >= 0 ? "+" : ""}
+                    {overview.revenueMomPct}% MoM
+                  </span>
+                ) : (
+                  <span className="text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full text-[10px] font-bold">— MoM</span>
+                )}
               </div>
               <p className="text-2xl font-black font-mono text-[#0D7A5F]">
                 {formatCurrency(overview.totalRevenue || 0)}

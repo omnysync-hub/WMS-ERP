@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveErpActorFromRequest } from "@/lib/auth/erpActor";
-import { pktTodayStart } from "@/lib/pktTime";
+import { pktTodayStart, pktParts, pktStartOfDay } from "@/lib/pktTime";
 
 export async function GET(req: NextRequest) {
   try {
@@ -139,6 +139,12 @@ export async function GET(req: NextRequest) {
     let totalDiscountGiven = 0;
 
     for (const j of jobs) {
+      // "Billed" revenue = finalized, chargeable jobs only (the same jobs that get an invoice and a
+      // revenue journal). Open / in-progress / FOC jobs are not billed and must not show here.
+      if (j.status !== "Finalized" || j.isFoc) {
+        for (const exp of j.expenseClaims || []) totalActualCosts += exp.amount || 0;
+        continue;
+      }
       totalDiscountGiven += j.discountAmount || 0;
       for (const item of j.items || []) {
         const qty = item.quantityActual ?? item.quantityPlanned;
@@ -312,9 +318,30 @@ export async function GET(req: NextRequest) {
       { name: "Current", revenue: Math.round(netRevenue), jobs: totalJobsCount },
     ];
 
+    // Month-over-month change of the same metric (finalized, chargeable jobs; by finalize date, PKT months).
+    const pNow = pktParts(now);
+    const thisMonthStart = pktStartOfDay(pNow.year, pNow.month, 1);
+    const lastMonthStart = pktStartOfDay(pNow.year, pNow.month - 1, 1);
+    const momJobs = await prisma.job.findMany({
+      where: { status: "Finalized", isFoc: false, finalizedAt: { gte: lastMonthStart } },
+      select: { finalizedAt: true, discountAmount: true, items: { select: { quantityActual: true, quantityPlanned: true, unitRate: true } } },
+    });
+    let revThisMonth = 0;
+    let revLastMonth = 0;
+    for (const j of momJobs) {
+      const net =
+        (j.items || []).reduce((a: number, it: any) => a + (it.quantityActual ?? it.quantityPlanned) * it.unitRate, 0) -
+        (j.discountAmount || 0);
+      if (j.finalizedAt && j.finalizedAt >= thisMonthStart) revThisMonth += net;
+      else revLastMonth += net;
+    }
+    const revenueMomPct =
+      revLastMonth > 0 ? Math.round(((Math.max(0, revThisMonth) - revLastMonth) / revLastMonth) * 1000) / 10 : null;
+
     return NextResponse.json({
       overview: {
         totalRevenue: Math.round(netRevenue),
+        revenueMomPct,
         grossProfit: Math.round(grossProfit),
         grossMarginPct: Math.round(grossMarginPct * 10) / 10,
         totalJobsCount,
