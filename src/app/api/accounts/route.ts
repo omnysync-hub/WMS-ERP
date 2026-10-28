@@ -2204,7 +2204,23 @@ export async function POST(req: NextRequest) {
           accumDepAccountCode,
         } = payload;
 
+        // Bought on credit (Cr 2000 AP) needs the supplier, so the AP sub-ledger knows who is owed.
+        const onCredit = (Number(cost) || 0) > 0 && payload.paidFromAccountCode !== "none" &&
+          (!payload.paidFromAccountCode || payload.paidFromAccountCode === "ap");
+        const apVendor = onCredit && payload.vendorId
+          ? await prisma.vendor.findUnique({ where: { id: String(payload.vendorId) }, select: { id: true, name: true } })
+          : null;
+        if (onCredit && !apVendor) {
+          return NextResponse.json(
+            { error: "Choose the supplier when the asset is bought on credit (Accounts Payable), or pick the cash/bank account it was paid from." },
+            { status: 400 }
+          );
+        }
+
+        // Asset record and purchase journal are saved together (one transaction).
+        const { asset, purchaseJournal } = await prisma.$transaction(async (tx) => {
         const asset = await FixedAssetService.createAsset({
+          tx,
           assetTag,
           name,
           category,
@@ -2223,10 +2239,10 @@ export async function POST(req: NextRequest) {
         const assetCost = Number(asset.acquisitionCost) || 0;
         let purchaseJournal = null;
         if (assetCost > 0 && payload.paidFromAccountCode !== "none") {
-          const assetAcc = await AccountsPostingService.getAccountByCode(asset.assetAccountCode);
+          const assetAcc = await AccountsPostingService.getAccountByCode(asset.assetAccountCode, tx);
           const creditAcc = payload.paidFromAccountCode && payload.paidFromAccountCode !== "ap"
-            ? await AccountsPostingService.getCashBankAccountByCode(String(payload.paidFromAccountCode))
-            : await AccountMappingService.resolveAccount({ transactionType: "ap_control" });
+            ? await AccountsPostingService.getCashBankAccountByCode(String(payload.paidFromAccountCode), tx)
+            : await AccountMappingService.resolveAccount({ transactionType: "ap_control", prismaClient: tx });
           purchaseJournal = await AccountsPostingService.post({
             date: asset.acquisitionDate,
             memo: `Fixed asset purchase ${asset.assetNumber} - ${asset.name}`,
@@ -2236,10 +2252,27 @@ export async function POST(req: NextRequest) {
             idempotencyKey: `fixed_asset_purchase:${asset.id}`,
             lines: [
               { accountId: assetAcc.id, debit: assetCost, credit: 0 },
-              { accountId: creditAcc.id, debit: 0, credit: assetCost },
+              apVendor
+                ? { accountId: creditAcc.id, debit: 0, credit: assetCost, partyType: "vendor", partyId: apVendor.id }
+                : { accountId: creditAcc.id, debit: 0, credit: assetCost },
             ],
+            tx,
           });
+          if (apVendor) {
+            await SubLedgerService.recordVendorEntry({
+              vendorId: apVendor.id,
+              entryType: "bill",
+              documentNumber: asset.assetNumber,
+              journalEntryId: purchaseJournal.id,
+              debit: 0,
+              credit: assetCost,
+              notes: `Fixed asset bought on credit: ${asset.name}`,
+              tx,
+            });
+          }
         }
+        return { asset, purchaseJournal };
+        }, { maxWait: 10000, timeout: 30000 });
 
         return NextResponse.json({ success: true, asset, purchaseJournal });
       }
@@ -2261,21 +2294,59 @@ export async function POST(req: NextRequest) {
             ? await AccountsPostingService.getCashBankAccountByCode(String(cashAccountCode))
             : await AccountMappingService.resolveAccount({ transactionType: "expense_reimbursement_disbursing" })
           : await AccountMappingService.resolveAccount({ transactionType: "technician_commission_expense" });
-        const journal = await AccountsPostingService.post({
-          memo: memo || `${isPay ? "Commission paid to" : "Commission earned by"} ${tech.name}${jobId ? ` (job ${jobId})` : ""}`,
-          refType: isPay ? "commission_payment" : "commission_accrual",
-          refId: jobId ? String(jobId) : tech.id,
-          postedBy: actorName,
-          lines: isPay
-            ? [
-                { accountId: payable.id, debit: numAmount, credit: 0, partyType: "technician", partyId: tech.id },
-                { accountId: other.id, debit: 0, credit: numAmount },
-              ]
-            : [
-                { accountId: other.id, debit: numAmount, credit: 0 },
-                { accountId: payable.id, debit: 0, credit: numAmount, partyType: "technician", partyId: tech.id },
-              ],
-        });
+        const refType = isPay ? "commission_payment" : "commission_accrual";
+        const refId = jobId ? String(jobId) : tech.id;
+        const clientKey = typeof payload.idempotencyKey === "string" && payload.idempotencyKey.trim()
+          ? `${refType}:${payload.idempotencyKey.trim()}`.slice(0, 190)
+          : null;
+        const journal = await prisma.$transaction(async (tx) => {
+          // One commission post per technician at a time (stops double-clicks racing each other).
+          await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, `commission:${tech.id}`);
+          if (clientKey) {
+            const prior = await tx.journalEntry.findUnique({ where: { idempotencyKey: clientKey } });
+            if (prior) return prior;
+          } else {
+            // No key sent: treat an identical post in the last 2 minutes as a duplicate submit.
+            const recent = await tx.journalEntry.findFirst({
+              where: { refType, refId, status: "posted", createdAt: { gte: new Date(Date.now() - 2 * 60 * 1000) } },
+              include: { lines: true },
+              orderBy: { createdAt: "desc" },
+            });
+            const sameAmount = recent?.lines.some(
+              (l) => l.accountId === payable.id && l.partyId === tech.id && Math.abs((isPay ? l.debit : l.credit) - numAmount) < 0.005
+            );
+            if (recent && sameAmount) {
+              throw new Error(`The same commission ${isPay ? "payment" : "entry"} for ${tech.name} was just posted. Refresh before posting again.`);
+            }
+          }
+          if (isPay) {
+            const lines = await tx.journalLine.findMany({
+              where: { accountId: payable.id, partyType: "technician", partyId: tech.id },
+              select: { debit: true, credit: true },
+            });
+            const owed = Math.round(lines.reduce((a, l) => a + (l.credit || 0) - (l.debit || 0), 0) * 100) / 100;
+            if (numAmount > owed + 0.005) {
+              throw new Error(`Commission payable for ${tech.name} is only PKR ${owed}. Cannot pay PKR ${numAmount}.`);
+            }
+          }
+          return AccountsPostingService.post({
+            memo: memo || `${isPay ? "Commission paid to" : "Commission earned by"} ${tech.name}${jobId ? ` (job ${jobId})` : ""}`,
+            refType,
+            refId,
+            postedBy: actorName,
+            idempotencyKey: clientKey,
+            lines: isPay
+              ? [
+                  { accountId: payable.id, debit: numAmount, credit: 0, partyType: "technician", partyId: tech.id },
+                  { accountId: other.id, debit: 0, credit: numAmount },
+                ]
+              : [
+                  { accountId: other.id, debit: numAmount, credit: 0 },
+                  { accountId: payable.id, debit: 0, credit: numAmount, partyType: "technician", partyId: tech.id },
+                ],
+            tx,
+          });
+        }, { maxWait: 10000, timeout: 30000 });
         await AuditService.logActivity({
           actorName,
           actorRole: "accountant",

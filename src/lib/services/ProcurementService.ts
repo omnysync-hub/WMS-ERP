@@ -1202,7 +1202,7 @@ export class ProcurementService {
           }
         }
 
-        const grnNumber = await generateGrnNumber();
+        const grnNumber = await generateGrnNumber(tx);
 
         const grn = await tx.goodsReceipt.create({
           data: {
@@ -1310,8 +1310,6 @@ export class ProcurementService {
   }
 
   static async createSupplierInvoice(data: CreateSupplierInvoiceInput) {
-    const referenceNumber = await generateSupplierInvoiceNumber();
-
     const po = data.poId
       ? await prisma.purchaseOrder.findUnique({
           where: { id: data.poId },
@@ -1343,7 +1341,7 @@ export class ProcurementService {
 
     const allGrnItems = grnList.flatMap((g) => g.items);
 
-    const invoiceItemsData = [];
+    const invoiceItemsData: any[] = [];
 
     // Discount math (validates percent 0-100 and fixed amount <= subtotal) — throws before any write
     // Settings > Taxes: optionally work out the bill's sales tax from the configured purchase rate.
@@ -1434,7 +1432,10 @@ export class ProcurementService {
       data.matchNotes || (hasDiscrepancy ? "Discrepancy detected during 3-Way Match calculation." : "3-Way Match Passed successfully.")
     ].filter(Boolean).join(" ");
 
-    return await prisma.supplierInvoice.create({
+    // Number + insert in one transaction under the VINV advisory lock: race-safe.
+    return await prisma.$transaction(async (tx) => {
+     const referenceNumber = await generateSupplierInvoiceNumber(tx);
+     return tx.supplierInvoice.create({
       data: {
         invoiceNumber: data.invoiceNumber.trim(),
         referenceNumber,
@@ -1465,7 +1466,8 @@ export class ProcurementService {
         po: true,
         grn: true,
       },
-    });
+     });
+    }, { maxWait: 10000, timeout: 30000 });
   }
 
   // Approve invoice for payment & post to General Ledger & Vendor Sub-Ledger
@@ -1677,7 +1679,7 @@ export class ProcurementService {
         throw new Error("Invoice balance changed while this payment was being recorded. Refresh and retry.");
       }
 
-      const paymentNumber = await generateSupplierPaymentNumber();
+      const paymentNumber = await generateSupplierPaymentNumber(tx);
       const now = new Date();
       const lines = [{ accountId: apAccount.id, debit: amountPaid, credit: 0 }];
       if (netDisbursed > 0) {

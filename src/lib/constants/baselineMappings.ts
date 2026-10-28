@@ -33,6 +33,7 @@ export const BASELINE_MAPPINGS: Array<{ transactionType: string; accountCode: st
   { transactionType: "inventory_cogs_expense", accountCode: "5000" },
   { transactionType: "inventory_cogs_asset", accountCode: "1200" },
   { transactionType: "inventory_return_asset", accountCode: "1200" },
+  { transactionType: "inventory_in_transit", accountCode: "1220" },
   { transactionType: "inventory_return_cogs", accountCode: "5000" },
   { transactionType: "stock_in_asset", accountCode: "1200" },
   { transactionType: "stock_in_disbursing", accountCode: "1000" },

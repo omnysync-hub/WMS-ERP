@@ -3,6 +3,7 @@ import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 
 export interface CreateFixedAssetParams {
+  tx?: any;
   name: string;
   category: string;
   hrmAssetId?: string;
@@ -21,7 +22,8 @@ export class FixedAssetService {
    * Register a new fixed asset.
    */
   static async createFixedAsset(params: CreateFixedAssetParams) {
-    const count = await prisma.fixedAsset.count();
+    const db = params.tx ?? prisma;
+    const count = await db.fixedAsset.count();
     const assetNumber = `FA-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
 
     const salvage = params.salvageValue || 0;
@@ -34,7 +36,7 @@ export class FixedAssetService {
     const defaultDeprExpCode = params.deprExpenseAccountCode
       || (await AccountMappingService.resolveAccountCode({ transactionType: "depreciation_expense" }));
 
-    return await prisma.fixedAsset.create({
+    return await db.fixedAsset.create({
       data: {
         assetNumber,
         name: params.name,
@@ -217,6 +219,7 @@ export class FixedAssetService {
       assetAccountCode: params.assetAccountCode,
       accumDeprAccountCode: params.accumDepAccountCode || params.accumDeprAccountCode,
       deprExpenseAccountCode: params.depExpenseAccountCode || params.deprExpenseAccountCode,
+      tx: params.tx,
     });
   }
 

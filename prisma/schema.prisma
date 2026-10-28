@@ -715,6 +715,9 @@ model PosSale {
   cashierName    String?
   notes          String?
   status         String?       @default("completed") // completed, refunded
+  sessionId      String? // register session the sale was rung up in (refunds adjust this one)
+  cashAmount     Float? // cash part of the tender (split sales)
+  cardAmount     Float? // card/transfer part of the tender (split sales)
   items          PosSaleItem[]
   createdAt      DateTime      @default(now())
 }
@@ -1191,6 +1194,7 @@ model Payslip {
   advanceDeduction  Float      @default(0)
   expenseAdjustment Float      @default(0)
   netSalary         Float
+  settledClaimIds   String[]   @default([]) // carried-forward JobExpenseClaim ids included in this payslip
   status            String     @default("generated") // generated, paid
   createdAt         DateTime   @default(now())
 }

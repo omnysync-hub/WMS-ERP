@@ -717,9 +717,11 @@ export class HrmService {
     // Debit Expense Claims / Reimbursements if any
     const expAdj = data.expenseAdjustment || 0;
     if (expAdj > 0) {
+      // Carried-forward claims were already expensed at hisaab (Dr category / Cr 2100), so paying
+      // them out here must clear the 2100 Technician Settlement Payable liability, not expense again.
       const claimsAcc = await AccountMappingService.resolveAccount({
-        transactionType: "job_expense_claim_clearing",
-      }).catch(() => salaryExpenseAcc);
+        transactionType: "tech_expense_settlement_payable",
+      });
 
       lines.push({
         accountId: claimsAcc.id,
@@ -752,36 +754,57 @@ export class HrmService {
       });
     }
 
-    // Post through Spine
-    const journal = await AccountsPostingService.post({
-      memo: `Final Exit Settlement — ${employee.name} (${employee.designation || employee.role})`,
-      refType: "final_settlement",
-      refId: employee.id,
-      lines,
-    });
+    // Journal, settlement record, claim/ledger clearing and deactivation succeed or fail together.
+    const { settlement, deactivated } = await prisma.$transaction(async (tx) => {
+      const journal = await AccountsPostingService.post({
+        memo: `Final Exit Settlement — ${employee.name} (${employee.designation || employee.role})`,
+        refType: "final_settlement",
+        refId: employee.id,
+        lines,
+        tx,
+      });
 
-    // Record settlement entity
-    const settlement = await prisma.finalSettlement.create({
-      data: {
-        employeeId: employee.id,
-        grossAmount,
-        advanceDeduction: deductions,
-        expenseAdjustment: data.expenseAdjustment || 0,
-        leaveEncashment: leaveEncashmentAmount,
-        netAmount,
-        status: "Paid",
-        journalEntryId: journal.id,
-      },
-    });
+      const settlement = await tx.finalSettlement.create({
+        data: {
+          employeeId: employee.id,
+          grossAmount,
+          advanceDeduction: deductions,
+          expenseAdjustment: data.expenseAdjustment || 0,
+          leaveEncashment: leaveEncashmentAmount,
+          netAmount,
+          status: "Paid",
+          journalEntryId: journal.id,
+        },
+      });
 
-    // Set employee status to Inactive (soft deletion); the linked ERP login is suspended too.
-    const deactivated = await prisma.employee.update({
-      where: { id: employee.id },
-      data: {
-        status: "Inactive",
-        active: false,
-      },
-    });
+      if (expAdj > 0) {
+        // Same clearing as payroll: the owed expenses are now paid out.
+        if ((employee.role || "").toLowerCase() === "technician") {
+          await tx.technicianLedgerEntry.create({
+            data: {
+              technicianId: employee.id,
+              type: "expense_paid",
+              amount: expAdj,
+              notes: `Settled via final settlement (${settlement.id})`,
+            },
+          });
+        }
+        await tx.jobExpenseClaim.updateMany({
+          where: { technicianId: employee.id, status: "pending", accruedAt: { not: null } },
+          data: { status: "paid", paidAt: new Date() },
+        });
+      }
+
+      // Set employee status to Inactive (soft deletion); the linked ERP login is suspended too.
+      const deactivated = await tx.employee.update({
+        where: { id: employee.id },
+        data: {
+          status: "Inactive",
+          active: false,
+        },
+      });
+      return { settlement, deactivated };
+    }, { maxWait: 10000, timeout: 30000 });
     await syncUserFromEmployee(prisma, deactivated).catch((e) => console.error("Linked ERP login not suspended:", e?.message));
 
     return settlement;

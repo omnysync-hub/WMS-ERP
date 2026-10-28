@@ -125,10 +125,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const gate = requirePermission(req, "accounts.pos");
-    if (gate.error) return gate.error;
     const body = await req.json();
     const { action } = body;
+    // Refunds need their own permission (admin/manager by default); other actions need POS access.
+    const gate = requirePermission(req, action === "refund" ? "pos.refund" : "accounts.pos");
+    if (gate.error) return gate.error;
 
     if (action === "checkout") {
       const {
@@ -328,6 +329,13 @@ export async function POST(req: NextRequest) {
             discountAmount: numDiscount,
             taxAmount: numTax,
             amountTendered: Number(amountTendered) || computedTotal,
+            cashAmount: paymentMethod === "cash" ? computedTotal : paymentMethod === "split" ? Number(splitDetails?.cashAmount) || 0 : 0,
+            cardAmount:
+              paymentMethod === "card" || paymentMethod === "transfer"
+                ? computedTotal
+                : paymentMethod === "split"
+                ? Number(splitDetails?.cardAmount) || 0
+                : 0,
             changeGiven: paymentMethod === "cash" ? Math.max(0, (Number(amountTendered) || computedTotal) - computedTotal) : 0,
             paymentMethod,
             customerName: typeof customerName === "string" ? customerName.trim() || "Walk-in Customer" : "Walk-in Customer",
@@ -451,6 +459,7 @@ export async function POST(req: NextRequest) {
               cardSalesAmount: cardAmount > 0 ? { increment: cardAmount } : undefined,
             },
           });
+          await (tx as any).posSale.update({ where: { id: createdSale.id }, data: { sessionId: activeSession.id } });
         }
 
         return { sale: createdSale };
@@ -496,6 +505,16 @@ export async function POST(req: NextRequest) {
         const entries = await tx.journalEntry.findMany({
           where: { refId: saleId, refType: { in: ["pos_sale", "inventory_cogs"] }, status: "posted" },
         });
+        // Legacy split sales (no stored tender split): read the cash part from the sale journal.
+        let splitCashFromJournal = 0;
+        if (sale.paymentMethod === "split" && sale.cashAmount == null) {
+          const cashAcc = await AccountMappingService.resolveAccountOptional({ transactionType: "pos_sale_cash", prismaClient: tx });
+          const saleJe = entries.find((e) => e.refType === "pos_sale");
+          if (cashAcc && saleJe) {
+            const lines = await tx.journalLine.findMany({ where: { journalEntryId: saleJe.id, accountId: cashAcc.id } });
+            splitCashFromJournal = Math.round(lines.reduce((a, l) => a + (l.debit || 0), 0) * 100) / 100;
+          }
+        }
         const reversalIds: string[] = [];
         for (const je of entries) {
           const rev = await AccountsPostingService.reverseEntry({
@@ -535,19 +554,42 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Adjust open register session so physical cash drawer matches expected balance
-        const activeSession = await (tx as any).posRegisterSession.findFirst({
-          where: { status: "open" },
-          orderBy: { openedAt: "desc" },
-        });
-        if (activeSession) {
+        // Adjust the register session the sale was rung up in (not whichever is open now),
+        // taking off the exact cash / card split that was tendered.
+        let session: any = null;
+        if (sale.sessionId) {
+          session = await (tx as any).posRegisterSession.findUnique({ where: { id: sale.sessionId } });
+        }
+        if (!session) {
+          session = await (tx as any).posRegisterSession.findFirst({
+            where: {
+              openedAt: { lte: sale.createdAt },
+              OR: [{ closedAt: null }, { closedAt: { gte: sale.createdAt } }],
+            },
+            orderBy: { openedAt: "desc" },
+          });
+        }
+        if (session) {
           const refundAmount = Number(sale.totalAmount) || 0;
-          const isCash = sale.paymentMethod === "cash";
+          let cashPart = 0;
+          let cardPart = 0;
+          if (sale.cashAmount != null || sale.cardAmount != null) {
+            cashPart = Number(sale.cashAmount) || 0;
+            cardPart = Number(sale.cardAmount) || 0;
+          } else if (sale.paymentMethod === "cash") {
+            cashPart = refundAmount;
+          } else if (sale.paymentMethod === "card" || sale.paymentMethod === "transfer") {
+            cardPart = refundAmount;
+          } else if (sale.paymentMethod === "split") {
+            cashPart = splitCashFromJournal;
+            cardPart = Math.max(0, Math.round((refundAmount - cashPart) * 100) / 100);
+          }
           await (tx as any).posRegisterSession.update({
-            where: { id: activeSession.id },
+            where: { id: session.id },
             data: {
               totalSalesAmount: { decrement: refundAmount },
-              cashSalesAmount: isCash && refundAmount > 0 ? { decrement: refundAmount } : undefined,
+              cashSalesAmount: cashPart > 0 ? { decrement: cashPart } : undefined,
+              cardSalesAmount: cardPart > 0 ? { decrement: cardPart } : undefined,
             },
           });
         }

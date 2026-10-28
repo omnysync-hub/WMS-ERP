@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { resolveJobsActor } from "@/lib/auth/erpActor";
+import { resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
@@ -8,21 +8,24 @@ export async function GET(req: NextRequest) {
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
 
-    // Fetch system event notices (pending approvals, low stock alerts, unassigned jobs)
+    // Office notices only go to people whose role/permissions cover them (never to technicians).
+    const actor = resolved.actor;
+    const isTech = (actor?.role || "").toLowerCase() === "technician";
+    const can = (key: string) => !!actor && !isTech && actorHasPermission(actor, key);
+    const seeLeaves = can("hrm.manage_employees");
+    const seeStock = can("inventory.view_stock");
+    const seeDispatch = can("dispatch.assign_job") || can("jobs.reassign_tech");
+
     const [pendingLeaves, lowStockProducts, unassignedJobs] = await Promise.all([
-      prisma.leaveRequest.count({ where: { status: "Pending" } }),
-      prisma.product.count({
-        where: {
-          reorderLevel: { gt: 0 },
-          stockQuantity: { lte: 5 },
-        },
-      }),
-      prisma.job.count({
-        where: {
-          status: "Pending",
-          assignedTechnicianId: null,
-        },
-      }),
+      seeLeaves ? prisma.leaveRequest.count({ where: { status: "Pending" } }) : Promise.resolve(0),
+      // Low stock = at or below each item's own reorder level.
+      seeStock
+        ? prisma.$queryRaw<Array<{ n: bigint }>>`SELECT COUNT(*)::bigint AS n FROM "Product" WHERE "reorderLevel" > 0 AND "stockQuantity" <= "reorderLevel"`
+            .then((r) => Number(r[0]?.n || 0))
+        : Promise.resolve(0),
+      seeDispatch
+        ? prisma.job.count({ where: { status: "Pending", assignedTechnicianId: null } })
+        : Promise.resolve(0),
     ]);
 
     const notifications: Array<{

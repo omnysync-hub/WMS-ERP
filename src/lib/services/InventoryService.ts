@@ -373,7 +373,7 @@ export class InventoryService {
         }
       }
 
-      const grnNumber = await generateGrnNumber();
+      const grnNumber = await generateGrnNumber(tx);
       const grn = await tx.goodsReceipt.create({
         data: {
           grnNumber,

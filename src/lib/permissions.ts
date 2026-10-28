@@ -475,6 +475,12 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
         module: "accounts",
       },
       {
+        key: "pos.refund",
+        label: "Refund POS Sales",
+        description: "Allow refunding a completed counter sale (reverses its journals, returns stock and adjusts the original register session)",
+        module: "accounts",
+      },
+      {
         key: "accounts.cashier_register",
         label: "Cashier Register Sessions & Hissab",
         description: "Allow cashier opening cash float, daily drawer close, and hissab verification",
@@ -1051,6 +1057,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "accounts.post_entries": true,
     "accounts.financial_reports": true,
     "audit.view_logs": true,
+    "pos.refund": true,
   },
 
   auditor: {

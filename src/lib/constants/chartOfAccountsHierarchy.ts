@@ -62,6 +62,7 @@ export const STANDARD_COA_DEFINITIONS: CoaDefinition[] = [
   { code: "1170", name: "Input Sales Tax Recoverable", type: "asset", level: 4, parentCode: "1120-GRP", isGroup: false, description: "Sales tax paid on supplier bills that can be claimed back against output sales tax" },
   { code: "1200", name: "Inventory – Materials & Spares", type: "asset", level: 4, parentCode: "1130-GRP", isGroup: false, description: "Stock of materials and spare parts held in the store (used on jobs and sold at the counter)" },
   { code: "1210", name: "Inventory – Goods for Direct Sale", type: "asset", level: 4, parentCode: "1130-GRP", isGroup: false, description: "Goods held for direct sale to customers" },
+  { code: "1220", name: "Inventory – Stock in Transit", type: "asset", level: 4, parentCode: "1130-GRP", isGroup: false, description: "Stock sent from the warehouse to another branch that is still on the way (branch transfers)" },
   { code: "1500", name: "Office Equipment & Fixed Assets", type: "asset", level: 4, parentCode: "1510-GRP", isGroup: false, description: "Cost of office equipment, furniture and other fixed assets" },
   { code: "1510", name: "Vehicles & Tools", type: "asset", level: 4, parentCode: "1510-GRP", isGroup: false, description: "Cost of company vehicles, tools and service equipment" },
   { code: "1590", name: "Accumulated Depreciation", type: "asset", level: 4, parentCode: "1510-GRP", isGroup: false, description: "Contra-asset: depreciation charged to date on fixed assets (credit balance)" },

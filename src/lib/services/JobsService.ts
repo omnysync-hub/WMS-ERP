@@ -1766,8 +1766,9 @@ export class JobsService {
     if (goodsAccount && goodsCredit !== 0) revenueCredits.push({ accountId: goodsAccount.id, credit: goodsCredit });
 
     const postingLines: { accountId: string; debit: number; credit: number; partyType?: string; partyId?: string }[] = [];
-    if (finalAmount <= 0 && trueFoc) {
-      // nothing billable
+    if (trueFoc && (finalAmount <= 0 || !job.careOfPartyId)) {
+      // Nothing billable: FOC with no care-of company means nobody owes us for this job, so no AR is
+      // booked against the customer (whose invoice is 0 / paid).
     } else if (discount > 0 && discountAccount) {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0, ...arParty });
       postingLines.push({ accountId: discountAccount.id, debit: discount, credit: 0 });
@@ -2043,38 +2044,64 @@ export class JobsService {
 
     const nextStatus = targetStatus || (job.status === "Finalized" ? "CompletedPendingVerification" : "InProgress");
 
-    // If job was previously Finalized, reverse recognized revenue entries and cancel open invoices
-    if (job.status === "Finalized") {
-      const activeRevenueEntries = await prisma.journalEntry.findMany({
-        where: { refType: "job_revenue", refId: jobId, status: "posted" },
-      });
-      for (const entry of activeRevenueEntries) {
-        try {
-          await AccountsPostingService.reverseEntry({
-            journalEntryId: entry.id,
-            reversedBy: actorName || "Auditor",
-            reason: `Auditor rejection/send-back of Job ${job.jobNumber}: ${reason}`,
-          });
-        } catch (revErr: any) {
-          console.warn(`[sendBackFromVerification] Failed to reverse revenue journal ${entry.id}:`, revErr.message);
-        }
-      }
-      await prisma.invoice.updateMany({
-        where: { jobId, status: { in: ["Draft", "Unpaid", "Issued"] } },
-        data: { status: "Cancelled" },
-      });
-    }
+    // Reverse recognised revenue, cancel the job's invoices and move the job back, all in ONE
+    // transaction. Any failure (e.g. an invoice already has customer receipts, or the period is
+    // locked) throws and rolls everything back, so the books and invoices never disagree.
+    const updated = await prisma.$transaction(
+      async (tx) => {
+        if (job.status === "Finalized") {
+          const invoices = await tx.invoice.findMany({ where: { jobId } });
+          for (const inv of invoices) {
+            const st = (inv.status || "").toLowerCase();
+            if (st === "cancelled") continue;
+            const receipts = await tx.journalEntry.count({
+              where: { refType: "customer_payment", refId: inv.id, status: "posted" },
+            });
+            if (receipts > 0 || st === "partially_paid" || (st === "paid" && (inv.amount || 0) > 0.005)) {
+              throw new Error(
+                `Cannot send back Job ${job.jobNumber}: invoice ${inv.invoiceNumber} already has customer receipts (status ${inv.status}). Reverse the receipts first.`
+              );
+            }
+          }
 
-    const updated = await prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status: nextStatus,
-        finalizedAt: null,
-        qualityFlag: "disputed",
-        verifiedAt: null,
-        verifiedChecklist: null,
+          const activeRevenueEntries = await tx.journalEntry.findMany({
+            where: { refType: "job_revenue", refId: jobId, status: "posted" },
+          });
+          for (const entry of activeRevenueEntries) {
+            // Also cancels the job's invoices and mirrors the AR sub-ledger (see reverseDocumentEffects).
+            await AccountsPostingService.reverseEntry({
+              journalEntryId: entry.id,
+              reversedBy: actorName || "Auditor",
+              reason: `Auditor rejection/send-back of Job ${job.jobNumber}: ${reason}`,
+              tx,
+            });
+          }
+
+          // Cancel any remaining open invoice (statuses are stored lowercase; match legacy casing too).
+          await tx.invoice.updateMany({
+            where: {
+              jobId,
+              status: {
+                in: ["draft", "unpaid", "issued", "sent", "open", "paid", "Draft", "Unpaid", "Issued", "Sent", "Open", "Paid"],
+              },
+            },
+            data: { status: "cancelled" },
+          });
+        }
+
+        return tx.job.update({
+          where: { id: jobId },
+          data: {
+            status: nextStatus,
+            finalizedAt: null,
+            qualityFlag: "disputed",
+            verifiedAt: null,
+            verifiedChecklist: null,
+          },
+        });
       },
-    });
+      { maxWait: 10000, timeout: 30000 }
+    );
 
     await this.logStatusChange(jobId, job.status, nextStatus, actorName, {
       action: "auditor_disapproved",

@@ -13,7 +13,9 @@ export async function GET(
     const resolved = await resolveJobsActor(req);
     if (resolved.error) return resolved.error;
     const canViewAll = actorHasPermission(resolved.actor, "hrm.view_employees");
-    const callerId = resolved.actor?.id || req.headers.get("x-technician-id") || req.headers.get("x-employee-id");
+    // Identity comes only from the authenticated session / mobile token, never from client-sent headers.
+    const callerId = resolved.actor && resolved.actor.id !== "anonymous" ? resolved.actor.id : null;
+    if (!callerId) return NextResponse.json({ error: "Unauthorized: login required" }, { status: 401 });
     if (!canViewAll && callerId !== params.id) {
       const emp = await prisma.employee.findUnique({
         where: { id: params.id },

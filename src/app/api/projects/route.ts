@@ -7,7 +7,7 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
 import { DocumentSequenceService } from "@/lib/services/DocumentSequenceService";
-import { generateProjectCode, generatePrNumber } from "@/lib/sequenceUtils";
+import { generateProjectCode, generateProjectPrNumber } from "@/lib/sequenceUtils";
 import { actorHasPermission, requireJobsPermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
         where: { id: { in: boqItemIds } },
       });
 
-      const prNumber = await generatePrNumber();
+      const prNumber = await generateProjectPrNumber();
 
       const requisition = await prisma.purchaseRequisition.create({
         data: {

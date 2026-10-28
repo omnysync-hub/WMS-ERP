@@ -77,6 +77,14 @@ export const TRANSACTION_TYPE_DEFINITIONS: TransactionTypeDefinition[] = [
     allowedAccountTypes: ["expense"],
   },
   {
+    transactionType: "inventory_in_transit",
+    name: "Branch Stock Transfer — Stock in Transit",
+    domain: "Inventory & COGS",
+    description: "Debited when stock leaves the warehouse on a branch transfer (credit is the stock account it left)",
+    defaultDebitOrCredit: "debit",
+    allowedAccountTypes: ["asset"],
+  },
+  {
     transactionType: "inventory_cogs_asset",
     name: "Job Inventory Issue — Stock Asset Outflow",
     domain: "Inventory & COGS",

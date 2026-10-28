@@ -366,8 +366,21 @@ export class AccountsPostingService {
           where: { refType: "customer_payment", refId: inv.id, status: "posted", id: { not: original.id } },
           include: { lines: true },
         });
+        // Count only what was actually allocated to the receivable: the account(s) the reversed receipt
+        // credited (customer AR). Cash/bank, WHT and any extra credit lines (e.g. advance / misc income)
+        // are ignored, and debits on AR net off.
+        const origLines = await tx.journalLine.findMany({ where: { journalEntryId: original.id } });
+        let arIds = new Set(origLines.filter((l) => (l.credit || 0) > 0).map((l) => l.accountId));
+        if (arIds.size > 1) {
+          const arMap = await tx.accountMapping.findFirst({ where: { transactionType: "customer_payment_receivable" } });
+          if (arMap && arIds.has(arMap.accountId)) arIds = new Set([arMap.accountId]);
+        }
         const stillReceived = round(
-          others.reduce((sum, je) => sum + je.lines.reduce((a, l) => a + (l.credit || 0), 0), 0)
+          others.reduce(
+            (sum, je) =>
+              sum + je.lines.filter((l) => arIds.has(l.accountId)).reduce((a, l) => a + (l.credit || 0) - (l.debit || 0), 0),
+            0
+          )
         );
         const status = stillReceived <= 0.005 ? "unpaid" : stillReceived + 0.005 >= inv.amount ? "paid" : "partially_paid";
         if (status !== inv.status) await tx.invoice.update({ where: { id: inv.id }, data: { status } });
@@ -434,8 +447,8 @@ export class AccountsPostingService {
    * Throws an error if the account is not found in the Chart of Accounts.
    * Does NOT auto-provision or create accounts on the fly.
    */
-  static async getAccountByCode(code: string) {
-    const account = await prisma.account.findUnique({
+  static async getAccountByCode(code: string, db: DbClient = prisma) {
+    const account = await db.account.findUnique({
       where: { code },
     });
     if (!account) {

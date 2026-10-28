@@ -481,14 +481,27 @@ export async function POST(req: NextRequest) {
         const result = await prisma.$transaction(async (tx) => {
           const product = await tx.product.findUnique({ where: { id: productId } });
           if (!product) throw new Error("Product not found");
-          if (product.stockQuantity < qtyNum) {
-            throw new Error(`Insufficient stock for branch transfer. Available: ${product.stockQuantity}`);
+
+          // Resolve accounts first: if the GL entry cannot be posted, no stock is moved.
+          const transferVal = Math.round(qtyNum * (product.costPrice || 0) * 100) / 100;
+          const invAssetAcc = await InventoryService.stockAccountFor(tx, product, "inventory_cogs_asset"); // 1200 or 1210
+          const transitAcc = await AccountMappingService.resolveAccount({
+            transactionType: "inventory_in_transit",
+            prismaClient: tx,
+          });
+          if (invAssetAcc.id === transitAcc.id) {
+            throw new Error("Stock-in-transit account must differ from the stock account. Fix it in Accounts > Account Mapping.");
           }
 
-          await tx.product.update({
-            where: { id: productId },
+          // Atomic decrement (same guard as consumeStock): never goes below zero under concurrency.
+          const dec = await tx.product.updateMany({
+            where: { id: productId, stockQuantity: { gte: qtyNum } },
             data: { stockQuantity: { decrement: qtyNum } },
           });
+          if (dec.count === 0) {
+            const live = await tx.product.findUnique({ where: { id: productId } });
+            throw new Error(`Insufficient stock for branch transfer. Available: ${live?.stockQuantity ?? 0}`);
+          }
 
           const ledger = await tx.stockLedger.create({
             data: {
@@ -500,34 +513,18 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          // Post inter-branch transit GL entry if transfer value > 0
-          const transferVal = Math.round(qtyNum * (product.costPrice || 0) * 100) / 100;
+          // Dr Stock in Transit / Cr Inventory (1200 or 1210). Failure rolls back the stock move.
           if (transferVal > 0) {
-            try {
-              const invAssetAcc = await AccountMappingService.resolveAccount({
-                transactionType: "inventory_cogs_asset",
-                prismaClient: tx,
-              }).catch(() => null);
-              const transitAcc = await AccountMappingService.resolveAccount({
-                transactionType: "inventory_in_transit",
-                prismaClient: tx,
-              }).catch(() => null);
-
-              if (invAssetAcc && transitAcc && invAssetAcc.id !== transitAcc.id) {
-                await AccountsPostingService.post({
-                  memo: `Branch Stock Transfer: ${product.name} (${qtyNum} units) [${fromBranch || "Central"} -> ${toBranch || "Branch"}]`,
-                  refType: "branch_transfer",
-                  refId: ledger.id,
-                  lines: [
-                    { accountId: transitAcc.id, debit: transferVal, credit: 0 },
-                    { accountId: invAssetAcc.id, debit: 0, credit: transferVal },
-                  ],
-                  tx,
-                });
-              }
-            } catch (glErr) {
-              console.warn("[branch_transfer] GL posting omitted:", glErr);
-            }
+            await AccountsPostingService.post({
+              memo: `Branch Stock Transfer: ${product.name} (${qtyNum} units) [${fromBranch || "Central"} -> ${toBranch || "Branch"}]`,
+              refType: "branch_transfer",
+              refId: ledger.id,
+              lines: [
+                { accountId: transitAcc.id, debit: transferVal, credit: 0 },
+                { accountId: invAssetAcc.id, debit: 0, credit: transferVal },
+              ],
+              tx,
+            });
           }
 
           return ledger;

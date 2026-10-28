@@ -41,7 +41,15 @@ export class PayrollService {
 
       // Net outstanding expense_owed after expense_paid clearances (LOGICS sections 4/6)
       let expenseAdj = 0;
+      let settledClaimIds: string[] = [];
       if (emp.role === "technician") {
+        // Remember exactly which carried-forward claims this payslip settles, so a claim added
+        // after the payslip is worked out is not marked paid at disbursement.
+        const accrued = await prisma.jobExpenseClaim.findMany({
+          where: { technicianId: emp.id, status: "pending", accruedAt: { not: null } },
+          select: { id: true },
+        });
+        settledClaimIds = accrued.map((c) => c.id);
         const expenseEntries = await prisma.technicianLedgerEntry.findMany({
           where: {
             technicianId: emp.id,
@@ -69,6 +77,7 @@ export class PayrollService {
         advanceDeduction,
         expenseAdjustment: expenseAdj,
         netSalary: net,
+        settledClaimIds: expenseAdj > 0 ? settledClaimIds : [],
         status: "generated",
       });
     }
@@ -223,8 +232,15 @@ export class PayrollService {
             });
           }
           // Carried-forward (accrued) claims are now settled through payroll.
+          // Only the claims captured when this payslip was calculated.
+          const ids = (slip as any).settledClaimIds as string[] | undefined;
+          // (Payslips calculated before this tracking existed fall back to claims carried forward
+          //  no later than the payslip's calculation time.)
           await tx.jobExpenseClaim.updateMany({
-            where: { technicianId: slip.employeeId, status: "pending", accruedAt: { not: null } },
+            where:
+              ids && ids.length > 0
+                ? { id: { in: ids }, technicianId: slip.employeeId, status: "pending" }
+                : { technicianId: slip.employeeId, status: "pending", accruedAt: { not: null, lte: slip.createdAt } },
             data: { status: "paid", paidAt: new Date() },
           });
         }

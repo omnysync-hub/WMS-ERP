@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const queryEmpId = searchParams.get("employeeId") || searchParams.get("technicianId");
 
     // Only HR managers or admins can view other employees' profiles
-    const canViewOthers = actorHasPermission(actor, "hrm.view_employees") || actor.role === "admin" || actor.role === "manager";
+    const canViewOthers = actorHasPermission(actor, "hrm.view_employees");
 
     let targetEmployeeId: string | null = null;
 
