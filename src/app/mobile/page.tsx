@@ -381,7 +381,7 @@ export default function MobileCompanionPage() {
       }
 
       if (event.type === "INVENTORY_FULFILLED") {
-        setNotificationToast(`📦 Warehouse Storekeeper Bilal Sheikh issued requested materials!`);
+        setNotificationToast(`📦 Warehouse Storekeeper issued requested materials!`);
         setTimeout(() => setNotificationToast(null), 5000);
         if (selectedJob) handleOpenJob(selectedJob.id);
         if (technician) fetchTechnicianDetails(technician);
@@ -928,7 +928,7 @@ export default function MobileCompanionPage() {
       setShowItemDiscountModal(false);
       setItemDiscountRequested("");
       setItemDiscountReason("");
-      setNotificationToast(`Item discount request of PKR ${itemDiscountRequested} sent to Accountant Fatima Noor.`);
+      setNotificationToast(`Item discount request of PKR ${itemDiscountRequested} sent to Accounts for review.`);
       setTimeout(() => setNotificationToast(null), 4000);
       handleOpenJob(selectedJob.id);
     } catch (e: any) {
@@ -964,7 +964,7 @@ export default function MobileCompanionPage() {
         if (unused > 0) {
           hasUnusedItems = true;
           if (unusedDisposition === "return") {
-            // Automatically submit stock return for Storekeeper Bilal Sheikh
+            // Automatically submit stock return for Warehouse Storekeeper
             await fetch(`/api/jobs/${selectedJob.id}/stock-return`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1045,7 +1045,7 @@ export default function MobileCompanionPage() {
 
       if (hasUnusedItems) {
         setNotificationToast(
-          `Job Completed! ⚠️ Mandatory: Return unused items to Storekeeper Bilal Sheikh before Accountant clearance.`
+          `Job Completed! ⚠️ Mandatory: Return unused items to Storekeeper before Accountant clearance.`
         );
       } else {
         setNotificationToast(`Job Completed successfully! Handing over to Accountant for settlement clearance.`);
@@ -2136,7 +2136,7 @@ export default function MobileCompanionPage() {
                         Work Completed Successfully!
                       </p>
                       <p className="text-[11px] text-emerald-800">
-                        Proceed to Storekeeper Bilal Sheikh for returned inventory sign-off, then to Accountant Fatima Noor for final Hisaab cash settlement.
+                        Proceed to Warehouse Storekeeper for returned inventory sign-off, then to Accounts for final Hisaab cash settlement.
                       </p>
                     </div>
                   )}
@@ -3115,11 +3115,11 @@ export default function MobileCompanionPage() {
             <div className="p-3 bg-gradient-to-r from-emerald-50 via-teal-50/50 to-emerald-50 border border-emerald-200/80 rounded-2xl flex items-center justify-between shadow-2xs">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-[#0D7A5F] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
-                  BS
+                  SK
                 </div>
                 <div>
-                  <span className="font-bold text-emerald-900 block text-xs">Bilal Sheikh</span>
-                  <span className="text-[10px] text-emerald-700">Central Storekeeper • +92 312 4443322</span>
+                  <span className="font-bold text-emerald-900 block text-xs">Warehouse Storekeeper</span>
+                  <span className="text-[10px] text-emerald-700">Central Warehouse • Inventory Desk</span>
                 </div>
               </div>
               <a
@@ -3607,7 +3607,7 @@ export default function MobileCompanionPage() {
                       <div className="p-2 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-950">
                         <span className="font-bold">⚠️ Unused Material: {unusedQty} units</span>
                         <p className="text-[10px] text-amber-900 mt-0.5">
-                          Compulsory store return to Storekeeper Bilal Sheikh before settlement.
+                          Compulsory store return to Warehouse Storekeeper before settlement.
                         </p>
                       </div>
                     )}
@@ -3641,7 +3641,7 @@ export default function MobileCompanionPage() {
                         className="accent-[#0D7A5F]"
                       />
                       <span className="font-medium text-[11px] text-zinc-900">
-                        📦 Return unused items to Storekeeper (Bilal Sheikh)
+                        📦 Return unused items to Warehouse Storekeeper
                       </span>
                     </label>
                     <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-amber-200 cursor-pointer">
@@ -3999,7 +3999,7 @@ export default function MobileCompanionPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900 leading-tight">Log Field Expense</h3>
-                  <p className="text-[10px] text-zinc-500">Queued for Accountant Fatima Noor settlement</p>
+                  <p className="text-[10px] text-zinc-500">Queued for Finance & Accounts settlement</p>
                 </div>
               </div>
               <button

@@ -38,6 +38,14 @@ export type AuthenticatedErpUser = {
   createdAt: string;
   lastLoginAt: string | null;
   isDemo: boolean;
+  linkedEmployee?: {
+    id: string;
+    name: string;
+    designation: string | null;
+    department: string;
+    status: string;
+    active: boolean;
+  } | null;
 };
 
 function tokenHash(token: string) {
@@ -115,21 +123,36 @@ export function publicErpUser(user: {
   lastLoginAt: Date | null;
   isDemo: boolean;
   phone?: string | null;
+  employee?: {
+    id: string;
+    name: string;
+    designation: string | null;
+    department: string;
+    status: string;
+    active: boolean;
+  } | null;
 }): AuthenticatedErpUser {
   const overrides =
     user.permissionOverrides && typeof user.permissionOverrides === "object" && !Array.isArray(user.permissionOverrides)
       ? (user.permissionOverrides as Record<string, boolean>)
       : {};
+  const resolvedName = (user.name && user.name.trim()) || user.employee?.name || "";
+  const resolvedDesignation = user.designation || user.employee?.designation || "";
+  const resolvedDepartment = user.department || user.employee?.department || "";
+  const autoAvatar = resolvedName
+    ? resolvedName.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+    : user.username.slice(0, 2).toUpperCase();
+
   return {
     id: user.id,
-    name: user.name,
+    name: resolvedName,
     email: user.email,
     username: user.username,
     role: user.role,
-    designation: user.designation,
-    department: user.department,
+    designation: resolvedDesignation,
+    department: resolvedDepartment,
     status: user.status,
-    avatar: user.avatar,
+    avatar: user.avatar && user.avatar !== "ERP" ? user.avatar : autoAvatar,
     badgeColor: user.badgeColor,
     permissionOverrides: overrides,
     mustChangePassword: user.mustChangePassword,
@@ -137,6 +160,16 @@ export function publicErpUser(user: {
     lastLoginAt: user.lastLoginAt?.toISOString() || null,
     isDemo: user.isDemo,
     phone: user.phone || "",
+    linkedEmployee: user.employee
+      ? {
+          id: user.employee.id,
+          name: user.employee.name,
+          designation: user.employee.designation,
+          department: user.employee.department,
+          status: user.employee.status,
+          active: user.employee.active,
+        }
+      : null,
   };
 }
 
@@ -221,7 +254,22 @@ export async function authenticateErpRequest(request: NextRequest) {
 
   const session = await prisma.erpSession.findUnique({
     where: { tokenHash: tokenHash(token) },
-    include: { user: true },
+    include: {
+      user: {
+        include: {
+          employee: {
+            select: {
+              id: true,
+              name: true,
+              designation: true,
+              department: true,
+              status: true,
+              active: true,
+            },
+          },
+        },
+      },
+    },
   });
   if (
     !session ||
@@ -296,6 +344,18 @@ export async function verifyErpLogin(login: string, password: string) {
   const updated = await prisma.erpUser.update({
     where: { id: user.id },
     data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          name: true,
+          designation: true,
+          department: true,
+          status: true,
+          active: true,
+        },
+      },
+    },
   });
   return { user: publicErpUser(updated) };
 }

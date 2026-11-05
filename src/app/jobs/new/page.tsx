@@ -122,7 +122,7 @@ export default function FastJobIntakePage() {
       brand: "Gree",
       careOff: "direct",
       qty: 0,
-      charges: 4500,
+      charges: 0,
       remarks: "",
     },
   ]);
@@ -214,11 +214,14 @@ export default function FastJobIntakePage() {
 
   // Care-Of Select Options
   const careOfOptions: SelectOption[] = useMemo(() => {
-    return careOfParties.map((p) => ({
-      value: p.id,
-      label: p.companyName,
-      subLabel: p.personName ? `${p.personName}${p.phone ? ` • ${p.phone}` : ""}` : p.phone || undefined,
-    }));
+    return careOfParties.map((p) => {
+      const details = [p.personName, p.phone].filter(Boolean).join(" • ");
+      return {
+        value: p.id,
+        label: details ? `${p.companyName} (${details})` : p.companyName,
+        subLabel: details ? `Contact: ${details}` : undefined,
+      };
+    });
   }, [careOfParties]);
 
   // Present Technicians only (Absent / Off-duty technicians cannot be assigned jobs)
@@ -288,7 +291,7 @@ export default function FastJobIntakePage() {
       brand: brands[0] || DEFAULT_BRANDS[0],
       careOff: rows[0]?.careOff || "direct",
       qty: 0,
-      charges: 4500,
+      charges: 0,
       remarks: "",
     };
     setRows((prev) => [...prev, newRow]);
@@ -366,8 +369,11 @@ export default function FastJobIntakePage() {
       });
       const data = await res.json();
       if (res.ok && data) {
-        const party = data.party || data;
-        setCareOfParties((prev) => [party, ...prev]);
+        const party = data.careOfParty || data.party || data;
+        setCareOfParties((prev) => {
+          const filtered = prev.filter((p) => p.id !== party.id);
+          return [party, ...filtered];
+        });
         if (activeRowIdForAddCareOf) {
           handleUpdateRow(activeRowIdForAddCareOf, "careOff", party.id);
         }
@@ -389,6 +395,17 @@ export default function FastJobIntakePage() {
 
     try {
       setIsSubmitting(true);
+
+      const phoneDigits = customerMobile.replace(/\D/g, "");
+      if (phoneDigits.length !== 11) {
+        throw new Error("Customer primary mobile must be exactly 11 digits (e.g., 03001234567).");
+      }
+      if (customerSecMobile.trim()) {
+        const secDigits = customerSecMobile.replace(/\D/g, "");
+        if (secDigits.length !== 11) {
+          throw new Error("Secondary mobile must be exactly 11 digits (e.g., 03001234567).");
+        }
+      }
 
       let targetCustomerId = selectedCustomerId;
 
@@ -506,6 +523,16 @@ export default function FastJobIntakePage() {
       setIsSubmitting(false);
     }
   }
+
+  const mobileDigits = customerMobile.replace(/\D/g, "");
+  const isMobileTouched = customerMobile.length > 0;
+  const isMobileInvalid = isMobileTouched && mobileDigits.length !== 11;
+  const isMobileValid = isMobileTouched && mobileDigits.length === 11;
+
+  const secMobileDigits = customerSecMobile.replace(/\D/g, "");
+  const isSecMobileTouched = customerSecMobile.length > 0;
+  const isSecMobileInvalid = isSecMobileTouched && secMobileDigits.length !== 11;
+  const isSecMobileValid = isSecMobileTouched && secMobileDigits.length === 11;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F8FAFC] p-4 lg:p-6 flex flex-col justify-start">
@@ -633,34 +660,118 @@ export default function FastJobIntakePage() {
 
             {/* Mobile (Primary) */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Mobile:<span className="text-red-500 ml-0.5">*</span>
-              </label>
-              <input
-                type="tel"
-                required
-                value={customerMobile}
-                onChange={(e) => {
-                  setCustomerMobile(e.target.value);
-                  if (selectedCustomerId) setSelectedCustomerId(null);
-                }}
-                placeholder="Mobile (e.g. 03001234567)"
-                className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono"
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Mobile:<span className="text-red-500 ml-0.5">*</span>
+                </label>
+                {isMobileTouched && (
+                  <span
+                    className={cn(
+                      "text-[10px] font-mono font-bold px-1.5 py-0.2 rounded",
+                      mobileDigits.length === 11
+                        ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
+                        : "text-rose-700 bg-rose-50 border border-rose-200"
+                    )}
+                  >
+                    {mobileDigits.length}/11 digits
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="tel"
+                  required
+                  maxLength={11}
+                  value={customerMobile}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, "").slice(0, 11);
+                    setCustomerMobile(cleaned);
+                    if (selectedCustomerId) setSelectedCustomerId(null);
+                  }}
+                  placeholder="Mobile (e.g. 03001234567)"
+                  className={cn(
+                    "w-full h-10 px-3.5 pr-9 bg-white border rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:outline-none transition font-mono",
+                    isMobileInvalid
+                      ? "border-rose-400 bg-rose-50/20 text-rose-900 focus:ring-1 focus:ring-rose-500 focus:border-rose-500"
+                      : isMobileValid
+                      ? "border-emerald-400 bg-emerald-50/20 text-slate-900 focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                      : "border-slate-300 text-slate-900 focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                  )}
+                />
+                {isMobileValid && (
+                  <Check className="w-4 h-4 text-emerald-600 absolute right-3 top-3 pointer-events-none" />
+                )}
+                {isMobileInvalid && (
+                  <AlertCircle className="w-4 h-4 text-rose-500 absolute right-3 top-3 pointer-events-none" />
+                )}
+              </div>
+              {isMobileInvalid && (
+                <p className="text-[11px] font-semibold text-rose-600 mt-1 flex items-center gap-1 animate-in fade-in">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  <span>
+                    {mobileDigits.length < 11
+                      ? `Mobile number must be 11 digits (missing ${11 - mobileDigits.length} digit${11 - mobileDigits.length === 1 ? "" : "s"})`
+                      : "Mobile number must be exactly 11 digits"}
+                  </span>
+                </p>
+              )}
             </div>
 
             {/* Secondary Mobile No */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Secondary Mobile No:
-              </label>
-              <input
-                type="tel"
-                value={customerSecMobile}
-                onChange={(e) => setCustomerSecMobile(e.target.value)}
-                placeholder="Secondary Mobile No"
-                className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono"
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Secondary Mobile No:
+                </label>
+                {isSecMobileTouched && (
+                  <span
+                    className={cn(
+                      "text-[10px] font-mono font-bold px-1.5 py-0.2 rounded",
+                      secMobileDigits.length === 11
+                        ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
+                        : "text-rose-700 bg-rose-50 border border-rose-200"
+                    )}
+                  >
+                    {secMobileDigits.length}/11 digits
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="tel"
+                  maxLength={11}
+                  value={customerSecMobile}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, "").slice(0, 11);
+                    setCustomerSecMobile(cleaned);
+                  }}
+                  placeholder="Secondary Mobile No"
+                  className={cn(
+                    "w-full h-10 px-3.5 pr-9 bg-white border rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:outline-none transition font-mono",
+                    isSecMobileInvalid
+                      ? "border-rose-400 bg-rose-50/20 text-rose-900 focus:ring-1 focus:ring-rose-500 focus:border-rose-500"
+                      : isSecMobileValid
+                      ? "border-emerald-400 bg-emerald-50/20 text-slate-900 focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                      : "border-slate-300 text-slate-900 focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600"
+                  )}
+                />
+                {isSecMobileValid && (
+                  <Check className="w-4 h-4 text-emerald-600 absolute right-3 top-3 pointer-events-none" />
+                )}
+                {isSecMobileInvalid && (
+                  <AlertCircle className="w-4 h-4 text-rose-500 absolute right-3 top-3 pointer-events-none" />
+                )}
+              </div>
+              {isSecMobileInvalid && (
+                <p className="text-[11px] font-semibold text-rose-600 mt-1 flex items-center gap-1 animate-in fade-in">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                  <span>
+                    {secMobileDigits.length < 11
+                      ? `Secondary mobile must be 11 digits (missing ${11 - secMobileDigits.length} digit${11 - secMobileDigits.length === 1 ? "" : "s"})`
+                      : "Secondary mobile must be exactly 11 digits"}
+                  </span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -845,28 +956,85 @@ export default function FastJobIntakePage() {
                           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex-1">
-                            <SearchableSelect
-                              value={row.careOff}
-                              onChange={(val) => handleUpdateRow(row.id, "careOff", val)}
-                              options={careOfOptions}
-                              placeholder="Select Care-Of Partner..."
-                              searchPlaceholder="Search company or person..."
-                              className="h-10 bg-white"
-                            />
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1">
+                              <SearchableSelect
+                                value={row.careOff}
+                                onChange={(val) => handleUpdateRow(row.id, "careOff", val)}
+                                options={careOfOptions}
+                                placeholder="Select Care-Of Partner..."
+                                searchPlaceholder="Search company, contact person, or phone..."
+                                className="h-10 bg-white"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewCareOfCompany("");
+                                setNewCareOfPerson("");
+                                setNewCareOfPhone("");
+                                setActiveRowIdForAddCareOf(row.id);
+                                setShowAddCareOfModal(true);
+                              }}
+                              className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shrink-0 transition shadow-xs"
+                              title="Add new Care Off Company"
+                            >
+                              <Plus className="w-4 h-4 stroke-[2.5]" />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveRowIdForAddCareOf(row.id);
-                              setShowAddCareOfModal(true);
-                            }}
-                            className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shrink-0 transition shadow-xs"
-                            title="Add new Care Off Company"
-                          >
-                            <Plus className="w-4 h-4 stroke-[2.5]" />
-                          </button>
+                          {(() => {
+                            const party = careOfParties.find((p) => p.id === row.careOff);
+                            if (!party) return null;
+                            const hasPerson = Boolean(party.personName && party.personName.trim());
+                            const hasPhone = Boolean(party.phone && party.phone.trim());
+                            return (
+                              <div className="p-2 rounded-lg bg-blue-50/80 border border-blue-200/90 text-xs space-y-1 animate-in fade-in duration-150 shadow-2xs">
+                                <div className="flex items-center justify-between gap-1 text-[11px]">
+                                  <div className="flex items-center gap-1 text-slate-600 font-medium">
+                                    <User className="w-3 h-3 text-blue-600 shrink-0" />
+                                    <span>Contact:</span>
+                                  </div>
+                                  <span className="font-semibold text-slate-900 truncate">
+                                    {hasPerson ? party.personName : <span className="text-slate-400 italic font-normal">Not set</span>}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-1 text-[11px]">
+                                  <div className="flex items-center gap-1 text-slate-600 font-medium">
+                                    <Phone className="w-3 h-3 text-blue-600 shrink-0" />
+                                    <span>Phone:</span>
+                                  </div>
+                                  {hasPhone ? (
+                                    <a
+                                      href={`tel:${party.phone}`}
+                                      className="font-mono font-bold text-blue-700 hover:text-blue-900 hover:underline"
+                                    >
+                                      {party.phone}
+                                    </a>
+                                  ) : (
+                                    <span className="text-slate-400 italic font-mono text-[10px]">Not set</span>
+                                  )}
+                                </div>
+                                {(!hasPerson || !hasPhone) && (
+                                  <div className="pt-1 border-t border-blue-100 flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setNewCareOfCompany(party.companyName);
+                                        setNewCareOfPerson(party.personName || "");
+                                        setNewCareOfPhone(party.phone || "");
+                                        setActiveRowIdForAddCareOf(row.id);
+                                        setShowAddCareOfModal(true);
+                                      }}
+                                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                                    >
+                                      + Add Contact Info
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
@@ -1047,21 +1215,7 @@ export default function FastJobIntakePage() {
                   </button>
                 </div>
 
-                {paymentMode === "foc" && (
-                  <div className="mt-2 flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                    <span className="text-[11px] font-bold text-amber-700 shrink-0">
-                      FOC Reason:*
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      value={focReason}
-                      onChange={(e) => setFocReason(e.target.value)}
-                      placeholder="e.g. Warranty Claim / Repeat Visit / VIP Goodwill"
-                      className="h-8 px-2.5 bg-amber-50/60 border border-amber-200 rounded-lg text-xs text-amber-900 placeholder:text-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-500 flex-1"
-                    />
-                  </div>
-                )}
+
               </div>
             </div>
 

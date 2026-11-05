@@ -285,7 +285,7 @@ export default function VendorBillDocument({
         <div className="grid grid-cols-3 gap-8 pt-8 border-t border-zinc-300 text-center text-xs">
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-700 font-semibold">
-              Fatima Noor
+              {invoice.auditedBy || "Accounts Payable"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Accounts Payable Auditor
@@ -294,7 +294,7 @@ export default function VendorBillDocument({
 
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-500">
-              Bilal Sheikh
+              {invoice.endorsedBy || "Warehouse / Storekeeper"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Procurement & GRN Endorser

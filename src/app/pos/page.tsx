@@ -33,6 +33,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 import { computeTax, findRate, normalizeTaxPolicy, normalizeTaxRates } from "@/lib/tax/taxConfig";
 
@@ -63,6 +64,8 @@ interface HeldCart {
 }
 
 export default function PosTerminalPage() {
+  const { currentPersona, activeUser } = useRole();
+  const defaultCashierName = activeUser?.name || currentPersona?.name || "Cashier";
   const { profile, legalName } = useCompanyProfile();
   // Navigation & View Modes
   const [activeTab, setActiveTab] = useState<"terminal" | "history" | "shifts">("terminal");
@@ -113,7 +116,13 @@ export default function PosTerminalPage() {
   // Shift & Register Modals State
   const [showOpenShiftModal, setShowOpenShiftModal] = useState(false);
   const [openingFloatInput, setOpeningFloatInput] = useState("5000");
-  const [cashierNameInput, setCashierNameInput] = useState("Fatima Noor");
+  const [cashierNameInput, setCashierNameInput] = useState(defaultCashierName);
+
+  useEffect(() => {
+    if (defaultCashierName && (!cashierNameInput || cashierNameInput === "Cashier")) {
+      setCashierNameInput(defaultCashierName);
+    }
+  }, [defaultCashierName]);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
   const [countedCashInput, setCountedCashInput] = useState("");
   const [closeShiftNotes, setCloseShiftNotes] = useState("");
@@ -420,7 +429,7 @@ export default function PosTerminalPage() {
         totalAmount: grandTotal,
         customerName: selectedCustomer.name || "Walk-in Customer",
         customerPhone: selectedCustomer.phone || null,
-        cashierName: activeSession?.cashierName || "Fatima Noor (Accountant)",
+        cashierName: activeSession?.cashierName || defaultCashierName,
         notes: orderNotes ? `${orderNotes}${cardApprovalRef ? ` | Card Auth: ${cardApprovalRef}` : ""}` : cardApprovalRef ? `Card Auth: ${cardApprovalRef}` : null,
         splitDetails: paymentMethod === "split" ? {
           cashAmount: Number(splitCashAmount) || 0,
@@ -1596,7 +1605,7 @@ export default function PosTerminalPage() {
                 </div>
                 <div className="flex justify-between">
                   <span>Cashier:</span>
-                  <span>{completedSale.cashierName || "Fatima Noor"}</span>
+                  <span>{completedSale.cashierName || defaultCashierName}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Customer:</span>

@@ -147,27 +147,28 @@ export default function JobRemarksCard({
   const { activeRole, currentRole, currentPersona, hasPermission } = useRole();
   const effectiveRole = (activeRole || currentRole || currentPersona?.role || "").toLowerCase();
   const isStorekeeper = effectiveRole === "storekeeper" || effectiveRole.includes("store");
+  const isAccountant = effectiveRole === "accountant" || effectiveRole.includes("account");
   const isRestrictedRole = ["dispatcher", "call_center"].includes(effectiveRole);
 
   const canSeeFieldExecution =
     showFieldExecution !== undefined
       ? showFieldExecution
-      : !isStorekeeper;
+      : !isStorekeeper && !isAccountant;
 
   const canSeePayment =
     showCustomerPayment !== undefined
       ? showCustomerPayment
-      : hasPermission("jobs.view_financials") && !isRestrictedRole;
+      : hasPermission("jobs.view_financials") && !isRestrictedRole && !isAccountant;
 
   const canSeeUnusedStock =
     showUnusedStockReason !== undefined
       ? showUnusedStockReason
-      : !isRestrictedRole;
+      : !isRestrictedRole && !isAccountant;
 
   const canSeePhotosCard =
     propShowPhotosCard !== undefined
       ? propShowPhotosCard
-      : !isStorekeeper;
+      : !isStorekeeper && !isAccountant;
 
   if (!remarks || !remarks.trim()) {
     return null;

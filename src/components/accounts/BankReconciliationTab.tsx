@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { formatCurrency } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 import {
   Building,
   UploadCloud,
@@ -25,6 +26,8 @@ import {
 } from "lucide-react";
 
 export default function BankReconciliationTab() {
+  const { currentPersona, activeUser } = useRole();
+  const currentActorName = `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`;
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [statementDate, setStatementDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -116,7 +119,7 @@ export default function BankReconciliationTab() {
           action: "bank_rec_manualmatch",
           statementLineId,
           journalLineId,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActorName,
         }),
       });
       const data = await res.json();
@@ -174,7 +177,7 @@ export default function BankReconciliationTab() {
         body: JSON.stringify({
           action: "bank_rec_unmatch",
           statementLineId,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActorName,
         }),
       });
       if (!res.ok) throw new Error("Failed to unmatch");

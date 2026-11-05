@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 import {
   Layers,
   Plus,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react";
 
 export default function FixedAssetsTab() {
+  const { currentPersona, activeUser } = useRole();
+  const currentActorName = `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`;
   const [assets, setAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -112,7 +115,7 @@ export default function FixedAssetsTab() {
           action: "run_depreciation",
           year: deprYear,
           month: deprMonth,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActorName,
         }),
       });
       const data = await res.json();

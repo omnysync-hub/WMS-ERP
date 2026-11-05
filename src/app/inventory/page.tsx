@@ -168,7 +168,8 @@ function generateServiceSku(prods: any[] = []) {
 
 export default function InventoryPurchasingPage() {
   const { profile } = useCompanyProfile();
-  const { currentRole, activeRole } = useRole();
+  const { currentRole, activeRole, currentPersona, activeUser } = useRole();
+  const currentActor = `${activeUser?.name || currentPersona?.name || "Warehouse Storekeeper"} (Storekeeper)`;
   const isStorekeeper = (activeRole || currentRole) === "storekeeper";
 
   const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "branches">("stock");
@@ -413,7 +414,7 @@ export default function InventoryPurchasingPage() {
         body: JSON.stringify({
           action: "acknowledge_return",
           stockReturnId: returnId,
-          storeKeeperName: "Bilal Sheikh (Storekeeper)",
+          storeKeeperName: currentActor,
         }),
       });
       if (!res.ok) {
@@ -425,8 +426,8 @@ export default function InventoryPurchasingPage() {
 
       // Publish Real-time Sync Event
       realtimeSync.publish("STOCK_RETURN_ACKNOWLEDGED", {
-        actor: "Storekeeper Bilal Sheikh",
-        message: `Storekeeper Bilal Sheikh physically inspected and acknowledged returned stock.`,
+        actor: currentActor,
+        message: `${currentActor} physically inspected and acknowledged returned stock.`,
         payload: { returnId },
       });
     } catch (e: any) {
@@ -459,8 +460,8 @@ export default function InventoryPurchasingPage() {
 
       // Publish Real-time Sync Event
       realtimeSync.publish("INVENTORY_FULFILLED", {
-        actor: "Storekeeper Bilal Sheikh",
-        message: `Storekeeper Bilal Sheikh fulfilled request: ${qty}x ${prod.name}`,
+        actor: currentActor,
+        message: `${currentActor} fulfilled request: ${qty}x ${prod.name}`,
         payload: { requestId, productId: prod.id, quantity: qty },
       });
     } catch (e: any) {

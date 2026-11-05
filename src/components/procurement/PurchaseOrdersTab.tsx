@@ -1316,7 +1316,7 @@ export default function PurchaseOrdersTab({
               <div className="grid grid-cols-3 gap-8 pt-8 border-t border-zinc-300 text-center text-xs">
                 <div>
                   <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-500">
-                    Bilal Sheikh
+                    {printablePo.createdBy || "Procurement & Store"}
                   </div>
                   <span className="text-[10px] font-bold text-zinc-700 uppercase">
                     Prepared By (Storekeeper)
@@ -1325,7 +1325,7 @@ export default function PurchaseOrdersTab({
 
                 <div>
                   <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-500">
-                    Fatima Noor
+                    {printablePo.verifiedBy || "Finance & Accounts"}
                   </div>
                   <span className="text-[10px] font-bold text-zinc-700 uppercase">
                     Verified By (Finance)

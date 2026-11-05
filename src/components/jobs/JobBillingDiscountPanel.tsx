@@ -218,8 +218,20 @@ export default function JobBillingDiscountPanel({ job, onChanged }: { job: any; 
             </label>
             {isFoc && (
               <div className="grid md:grid-cols-2 gap-3">
-                <div className="h-8 px-2 rounded border border-zinc-200 bg-white flex items-center">
-                  Company: {job.careOfParty?.companyName || <span className="text-red-700">&nbsp;link a Care-Of company first</span>}
+                <div className="h-8 px-2 rounded border border-zinc-200 bg-white flex items-center text-xs truncate">
+                  <span className="font-medium text-zinc-700">Company:&nbsp;</span>
+                  {job.careOfParty?.companyName ? (
+                    <span className="font-semibold text-zinc-900 truncate">
+                      {job.careOfParty.companyName}
+                      {(job.careOfParty.personName || job.careOfParty.phone) && (
+                        <span className="text-zinc-500 font-normal text-[11px] ml-1.5">
+                          ({[job.careOfParty.personName, job.careOfParty.phone].filter(Boolean).join(" • ")})
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-red-700 font-semibold">link a Care-Of company first</span>
+                  )}
                 </div>
                 <input
                   value={focReason}

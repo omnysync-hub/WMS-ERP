@@ -33,6 +33,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       return NextResponse.json({ error: "Full name must be between 2 and 100 characters if provided." }, { status: 400 });
     }
     data.name = name;
+    if (body.avatar === undefined) {
+      data.avatar = name
+        ? name.split(/\s+/).map((part: string) => part[0]).join("").slice(0, 2).toUpperCase()
+        : (current.username || "").slice(0, 2).toUpperCase();
+    }
   }
   if (body.username !== undefined) {
     const username = String(body.username).trim().toLowerCase();

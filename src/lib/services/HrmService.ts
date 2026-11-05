@@ -605,11 +605,11 @@ export class HrmService {
 
   static async seedOffboardingChecklist(employeeId: string) {
     const items = [
-      { item: "Return all assigned company tools & equipment to Store", owner: "Storekeeper Bilal Sheikh" },
+      { item: "Return all assigned company tools & equipment to Store", owner: "Warehouse Storekeeper" },
       { item: "Return company vehicle & fuel card (if applicable)", owner: "Fleet Coordinator" },
       { item: "Revoke ERP, email, and facility access permissions", owner: "IT Administrator" },
       { item: "Conduct Exit Interview Form & Feedback Submission", owner: "HR Manager" },
-      { item: "Calculate & Post Final Settlement via Accounts Engine", owner: "Accountant Fatima Noor" },
+      { item: "Calculate & Post Final Settlement via Accounts Engine", owner: "Finance & Accounts" },
     ];
 
     for (const it of items) {

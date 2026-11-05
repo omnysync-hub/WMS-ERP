@@ -1603,7 +1603,7 @@ export class ProcurementService {
   // 7. VENDOR PAYMENT & DISBURSEMENT
   // ==========================================
 
-  static async recordSupplierPayment(data: RecordPaymentInput, actorName = "Fatima Noor") {
+  static async recordSupplierPayment(data: RecordPaymentInput, actorName = "Finance & Accounts") {
     const amountPaid = Math.round(Number(data.amount) * 100) / 100;
     if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
       throw new Error("Payment amount must be greater than zero.");

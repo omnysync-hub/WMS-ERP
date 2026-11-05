@@ -286,7 +286,7 @@ export default function ThreeWayMatchTab({
         body: JSON.stringify({
           action: "approve_supplier_invoice",
           invoiceId,
-          actorName: "Fatima Noor (Chief Financial Accountant)",
+          actorName: `${activeUser?.name || currentPersona?.name || "Accountant"} (${currentPersona?.designation || "Finance & Accounts"})`,
         }),
       });
 

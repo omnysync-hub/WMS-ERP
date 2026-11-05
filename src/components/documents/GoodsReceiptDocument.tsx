@@ -131,7 +131,7 @@ export default function GoodsReceiptDocument({
             </div>
             <div className="mt-0.5">
               <span className="font-semibold text-zinc-800">Received By:</span>{" "}
-              <strong className="text-zinc-900">{grn.receivedBy || "Bilal Sheikh (Storekeeper)"}</strong>
+              <strong className="text-zinc-900">{grn.receivedBy || "Warehouse Storekeeper"}</strong>
             </div>
             <div className="mt-0.5 text-zinc-600">
               Inspection Status: <span className="font-bold text-emerald-800">100% Physical Count Verified</span>
@@ -236,7 +236,7 @@ export default function GoodsReceiptDocument({
         <div className="grid grid-cols-3 gap-8 pt-8 border-t border-zinc-300 text-center text-xs">
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-800 font-semibold">
-              {grn.receivedBy || "Bilal Sheikh"}
+              {grn.receivedBy || "Warehouse Storekeeper"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Storekeeper / Receiver
@@ -254,7 +254,7 @@ export default function GoodsReceiptDocument({
 
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-900 font-bold">
-              Fatima Noor
+              {grn.verifiedBy || "Finance & Accounts"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Accounts Verification

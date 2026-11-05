@@ -1528,7 +1528,7 @@ export async function POST(req: NextRequest) {
     switch (action) {
       // 1. APPROVE ITEM DISCOUNT
       case "approve_item_discount": {
-        const { jobId, itemId, discountAmount, accountantName = "Fatima Noor (Accountant)" } = payload;
+        const { jobId, itemId, discountAmount, accountantName = "Finance & Accounts" } = payload;
         if (!jobId || !itemId) {
           return NextResponse.json({ error: "Missing jobId or itemId" }, { status: 400 });
         }
@@ -1554,7 +1554,7 @@ export async function POST(req: NextRequest) {
 
       // 2. REJECT ITEM DISCOUNT
       case "reject_item_discount": {
-        const { jobId, itemId, reason, accountantName = "Fatima Noor (Accountant)" } = payload;
+        const { jobId, itemId, reason, accountantName = "Finance & Accounts" } = payload;
         if (!jobId || !itemId) {
           return NextResponse.json({ error: "Missing jobId or itemId" }, { status: 400 });
         }
@@ -1589,7 +1589,7 @@ export async function POST(req: NextRequest) {
           amount,
           memo,
           receiptRef,
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         const numAmount = Number(amount);
@@ -1649,7 +1649,7 @@ export async function POST(req: NextRequest) {
           paymentMethod = "cash",
           receivingAccountCode,
           notes,
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         const numAmount = Number(amount);
@@ -1780,7 +1780,7 @@ export async function POST(req: NextRequest) {
           receivingAccountCode,
           notes,
           source = "company",
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         const numAmount = Number(amount);
@@ -1884,7 +1884,7 @@ export async function POST(req: NextRequest) {
           amount,
           disbursingAccountCode,
           notes,
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         const numAmount = Number(amount);
@@ -1938,7 +1938,7 @@ export async function POST(req: NextRequest) {
           amount,
           disbursingAccountCode,
           memo,
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         const numAmount = Number(amount);
@@ -1986,7 +1986,7 @@ export async function POST(req: NextRequest) {
 
       // 7. MANUAL BALANCED JOURNAL ENTRY
       case "manual_journal_entry": {
-        const { memo, lines, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { memo, lines, actorName = "Finance & Accounts" } = payload;
         if (!lines || lines.length < 2) {
           return NextResponse.json({ error: "At least two lines required for double-entry" }, { status: 400 });
         }
@@ -2039,7 +2039,7 @@ export async function POST(req: NextRequest) {
           amount,
           memo,
           partyName,
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         const numAmount = Number(amount);
@@ -2108,7 +2108,7 @@ export async function POST(req: NextRequest) {
 
       // 9. REVERSE JOURNAL ENTRY (Immutable Reversal)
       case "reverse_entry": {
-        const { entryId, reason, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { entryId, reason, actorName = "Finance & Accounts" } = payload;
         if (!entryId) {
           return NextResponse.json({ error: "Missing entryId to reverse" }, { status: 400 });
         }
@@ -2129,7 +2129,7 @@ export async function POST(req: NextRequest) {
           paymentAccountCode,
           memo,
           cprNumber,
-          actorName = "Fatima Noor (Accountant)",
+          actorName = "Finance & Accounts",
         } = payload;
 
         if (!vendorId) {
@@ -2171,7 +2171,7 @@ export async function POST(req: NextRequest) {
 
       // 13. BANK RECONCILIATION - MANUAL MATCH
       case "bank_rec_manualmatch": {
-        const { statementLineId, journalLineId, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { statementLineId, journalLineId, actorName = "Finance & Accounts" } = payload;
         if (!statementLineId || !journalLineId) {
           return NextResponse.json({ error: "Missing statementLineId or journalLineId" }, { status: 400 });
         }
@@ -2181,7 +2181,7 @@ export async function POST(req: NextRequest) {
 
       // 14. BANK RECONCILIATION - UNMATCH
       case "bank_rec_unmatch": {
-        const { statementLineId, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { statementLineId, actorName = "Finance & Accounts" } = payload;
         if (!statementLineId) {
           return NextResponse.json({ error: "Missing statementLineId" }, { status: 400 });
         }
@@ -2360,7 +2360,7 @@ export async function POST(req: NextRequest) {
 
       // 16. FIXED ASSET - RUN DEPRECIATION
       case "run_depreciation": {
-        const { year = new Date().getFullYear(), month = new Date().getMonth() + 1, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { year = new Date().getFullYear(), month = new Date().getMonth() + 1, actorName = "Finance & Accounts" } = payload;
         const periodStr = `${year}-${String(month).padStart(2, "0")}`;
         const result = await FixedAssetService.runMonthlyDepreciation(
           periodStr,
@@ -2371,7 +2371,7 @@ export async function POST(req: NextRequest) {
 
       // 17. FISCAL PERIOD - LOCK PERIOD
       case "lock_fiscal_period": {
-        const { periodId, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { periodId, actorName = "Finance & Accounts" } = payload;
         if (!periodId) {
           return NextResponse.json({ error: "Missing periodId" }, { status: 400 });
         }
@@ -2381,7 +2381,7 @@ export async function POST(req: NextRequest) {
 
       // 18. FISCAL PERIOD - YEAR END CLOSE
       case "year_end_close": {
-        const { year, actorName = "Fatima Noor (Accountant)" } = payload;
+        const { year, actorName = "Finance & Accounts" } = payload;
         if (!year) {
           return NextResponse.json({ error: "Missing fiscal year" }, { status: 400 });
         }
@@ -2397,7 +2397,7 @@ export async function POST(req: NextRequest) {
 
       // 20. UPDATE ACCOUNT MAPPING
       case "update_account_mapping": {
-        const { transactionType, accountId, categoryScope = null, companyId = "DEFAULT", actorName = "Fatima Noor (Accountant)" } = payload;
+        const { transactionType, accountId, categoryScope = null, companyId = "DEFAULT", actorName = "Finance & Accounts" } = payload;
         if (!transactionType || !accountId) {
           return NextResponse.json({ error: "transactionType and accountId are required" }, { status: 400 });
         }
@@ -2437,7 +2437,7 @@ export async function POST(req: NextRequest) {
 
       // 20.2 AI AGENT: REVIEW SINGLE SUGGESTION (ACCEPT, SKIP, REJECT)
       case "review_suggestion": {
-        const { auditId, decision, reviewAction, overrideAccountId, actorName = "Fatima Noor (Accountant)", companyId = "DEFAULT" } = payload;
+        const { auditId, decision, reviewAction, overrideAccountId, actorName = "Finance & Accounts", companyId = "DEFAULT" } = payload;
         const finalDecision = decision || reviewAction;
         if (!auditId) {
           return NextResponse.json({ error: "auditId is required" }, { status: 400 });
@@ -2458,7 +2458,7 @@ export async function POST(req: NextRequest) {
 
       // 20.3 AI AGENT: BATCH ACCEPT ALL HIGH CONFIDENCE SUGGESTIONS (>= 85%)
       case "accept_high_confidence": {
-        const { companyId = "DEFAULT", actorName = "Fatima Noor (Accountant)", threshold = 0.85 } = payload;
+        const { companyId = "DEFAULT", actorName = "Finance & Accounts", threshold = 0.85 } = payload;
         const res = await AccountSuggestionAgent.acceptAllHighConfidence(companyId, actorName, Number(threshold));
         return NextResponse.json({ success: true, ...res });
       }

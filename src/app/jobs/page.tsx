@@ -12,6 +12,7 @@ import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianC
 import JobsKpiDashboard from "@/components/jobs/JobsKpiDashboard";
 import StorekeeperKpiDashboard from "@/components/jobs/StorekeeperKpiDashboard";
 import { formatCurrency, formatDateTime, formatJobType, capitalizeWords, cn, isServiceItem } from "@/lib/utils";
+import { isJobCompleted } from "@/lib/jobStatus";
 import {
   Plus,
   User,
@@ -1025,7 +1026,8 @@ export default function JobsListPage() {
           );
         }
 
-        const pendingCashSettlement = isAccountant
+        const isCompleted = isJobCompleted(row);
+        const pendingCashSettlement = (isAccountant && isCompleted)
           ? row.hisaabSettlements?.find((s: any) => {
               if (s.status === "superseded") return false;
               const collected = Number(s.amountCollected) || 0;
@@ -1219,7 +1221,7 @@ export default function JobsListPage() {
               onClick: () => setActiveTab(tab.id),
             }))}
             primaryAction={
-              canCreateJob
+              canCreateJob && !isAccountant
                 ? {
                     label: "+ New Job",
                     onClick: () => {
@@ -1245,6 +1247,7 @@ export default function JobsListPage() {
               activeFilter={kpiFilter}
               onFilterSelect={setKpiFilter}
               isAccountant={isAccountant || isAdmin || canViewFinancials}
+              isAccountantStrict={isAccountant}
               isDispatcher={isDispatcher}
             />
           )}

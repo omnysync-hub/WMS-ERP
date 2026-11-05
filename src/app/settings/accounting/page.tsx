@@ -113,7 +113,7 @@ export default function AccountingSettingsPage() {
               className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center gap-1.5"
             >
               <UserCheck className="w-4 h-4" />
-              Switch to Haris Qureshi (Admin)
+              Switch to Administrator (Admin)
             </button>
             <Link
               href="/jobs"

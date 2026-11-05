@@ -614,10 +614,18 @@ export default function PakistanAddressAutofill({
     <div className="space-y-2.5">
       {/* Label and GPS Action Bar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <label className="font-semibold text-xs text-[#18181B] flex items-center gap-1.5">
-          <MapPin className="w-3.5 h-3.5 text-[#0D7A5F]" />
-          {label} {required && <span className="text-rose-500">*</span>}
-        </label>
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="font-semibold text-xs text-[#18181B] flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-[#0D7A5F]" />
+            {label} {required && <span className="text-rose-500">*</span>}
+          </label>
+          {statusNotice && (
+            <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-full flex items-center gap-1 animate-in fade-in">
+              <CheckCircle2 className="w-3 h-3 text-[#0D7A5F]" />
+              {statusNotice}
+            </span>
+          )}
+        </div>
 
         <div className="flex items-center gap-1.5">
           <button
@@ -777,47 +785,6 @@ export default function PakistanAddressAutofill({
           </div>
         </div>
       )}
-
-      {/* Location Coordinates & Verification Bar */}
-      <div className="p-2.5 bg-[#F9FAFB] rounded-lg border border-[#EDEDED] flex items-center justify-between text-xs flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono text-[#71717A] uppercase">GPS Coordinates:</span>
-          <span className="font-mono font-bold text-[#0D7A5F] text-[11px]">
-            {currentLat.toFixed(5)}, {currentLng.toFixed(5)}
-          </span>
-          <button
-            type="button"
-            onClick={copyCoordinates}
-            className="p-1 rounded hover:bg-[#EDEDED] text-[#71717A]"
-            title="Copy Coordinates"
-          >
-            {copiedCoords ? (
-              <Check className="w-3.5 h-3.5 text-[#0D7A5F]" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {statusNotice && (
-            <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-full flex items-center gap-1 animate-in fade-in">
-              <CheckCircle2 className="w-3 h-3 text-[#0D7A5F]" />
-              {statusNotice}
-            </span>
-          )}
-
-          <a
-            href={`https://www.google.com/maps?q=${currentLat},${currentLng}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[10px] font-bold text-[#0D7A5F] hover:underline flex items-center gap-1"
-          >
-            <span>Verify on Google Maps</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </div>
     </div>
   );
 }

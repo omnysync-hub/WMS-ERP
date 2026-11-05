@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { isJobCompleted } from "@/lib/jobStatus";
 
 interface ReceiveTechnicianCashDrawerProps {
   isOpen: boolean;
@@ -73,6 +74,10 @@ export default function ReceiveTechnicianCashDrawer({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isCompleted) {
+      setErrorMsg("Technician cash payments cannot be collected before the work order is completed.");
+      return;
+    }
     if (!numReceived || numReceived <= 0) {
       setErrorMsg("Please enter a valid cash amount received from the technician.");
       return;
@@ -115,6 +120,7 @@ export default function ReceiveTechnicianCashDrawer({
     }
   };
 
+  const isCompleted = isJobCompleted(job);
   const techName = job?.assignedTechnician?.name || settlement?.settledBy || "Technician";
 
   return (

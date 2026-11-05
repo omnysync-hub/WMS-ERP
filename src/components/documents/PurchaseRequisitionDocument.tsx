@@ -231,7 +231,7 @@ export default function PurchaseRequisitionDocument({
 
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-500">
-              {pr.status === "approved" ? "Fatima Noor (Accounts)" : "Pending Review"}
+              {pr.status === "approved" ? (pr.verifiedBy || "Finance & Accounts") : "Pending Review"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Budget Verified

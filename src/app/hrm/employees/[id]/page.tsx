@@ -49,7 +49,7 @@ export default function EmployeeProfilePage() {
   const router = useRouter();
   const employeeId = params.id as string;
 
-  const { activeRole, currentPersona } = useRole();
+  const { activeRole, currentPersona, activeUser } = useRole();
   const { profile } = useCompanyProfile();
 
   const getAdminHeaders = () => ({
@@ -407,7 +407,7 @@ export default function EmployeeProfilePage() {
           advanceDeduction: Number(advanceDeduction),
           expenseAdjustment: Number(expenseAdjustment),
           disbursingAccountCode: disbursingAccount,
-          settledBy: "Fatima Noor (Accountant)",
+          settledBy: `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`,
         }),
       });
 

@@ -36,6 +36,30 @@ export const JOB_POST_COMPLETION_STATUSES = [
   "CompletedPendingVerification",
 ] as const;
 
+/**
+ * Completed statuses: the field crew has finished work (or audit/closeout).
+ */
+export const JOB_COMPLETED_STATUSES = [
+  "Completed",
+  "AwaitingFeedback",
+  "CompletedPendingVerification",
+  "Finalized",
+  "Verified",
+  "Closed",
+] as const;
+
+export function isCompletedJobStatus(status?: string | null): boolean {
+  return (JOB_COMPLETED_STATUSES as readonly string[]).includes(String(status || ""));
+}
+
+export function isJobCompleted(
+  job?: { status?: string | null; finalizedAt?: unknown; verifiedAt?: unknown; completedAt?: unknown } | null
+): boolean {
+  if (!job) return false;
+  if (Boolean(job.finalizedAt) || Boolean(job.verifiedAt) || Boolean((job as any).completedAt)) return true;
+  return isCompletedJobStatus(job.status);
+}
+
 export function isReassignableStatus(status?: string | null): boolean {
   return (JOB_REASSIGNABLE_STATUSES as readonly string[]).includes(String(status || ""));
 }

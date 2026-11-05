@@ -7,6 +7,7 @@ import { JobsService } from "@/lib/services/JobsService";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { isJobCompleted } from "@/lib/jobStatus";
 
 function pakistanDayRange(dateText?: unknown) {
   const value =

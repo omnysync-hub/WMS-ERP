@@ -17,6 +17,7 @@ import {
   canAddServiceOrItem,
   canChangeTechnician,
   isPreStartStatus,
+  isJobCompleted,
   isReassignableStatus,
 } from "../jobStatus";
 
@@ -2209,8 +2210,11 @@ export class JobsService {
     amountToPay?: number,
     paymentNotes?: string
   ) {
-    const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, jobNumber: true, status: true } });
+    const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, jobNumber: true, status: true, finalizedAt: true, verifiedAt: true } });
     if (!job) throw new Error("Job not found");
+    if (!isJobCompleted(job)) {
+      throw new Error(`Technician expenses cannot be cleared before work order ${job.jobNumber} is completed.`);
+    }
 
     const { disbursingAccount, expenseCostingAccount } = await this.resolveExpensePayoutAccounts(disbursingAccountCode);
     const paymentRefLabel = paymentNotes ? ` [Ref: ${paymentNotes}]` : "";
@@ -2336,8 +2340,11 @@ export class JobsService {
     amountToPay?: number,
     paymentNotes?: string
   ) {
-    const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, jobNumber: true, status: true } });
+    const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, jobNumber: true, status: true, finalizedAt: true, verifiedAt: true } });
     if (!job) throw new Error("Job not found");
+    if (!isJobCompleted(job)) {
+      throw new Error(`Technician expenses cannot be cleared before work order ${job.jobNumber} is completed.`);
+    }
 
     const { disbursingAccount, expenseCostingAccount } = await this.resolveExpensePayoutAccounts(disbursingAccountCode);
     const paymentRefLabel = paymentNotes ? ` [Ref: ${paymentNotes}]` : "";
@@ -3037,6 +3044,11 @@ export class JobsService {
     const amount = Number(amountReceived) || 0;
     if (amount <= 0) {
       throw new Error("Amount received must be greater than zero.");
+    }
+    if (!isJobCompleted(job)) {
+      throw new Error(
+        `Job ${job.jobNumber} is not completed. Technician cash payments cannot be collected before the work order is completed.`
+      );
     }
     if (!job.isFoc && job.paymentCollectionMode === "office") {
       throw new Error(

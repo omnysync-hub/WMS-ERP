@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { RotateCcw, AlertTriangle, ShieldCheck } from "lucide-react";
+import { useRole } from "@/contexts/RoleContext";
 
 interface ReverseJournalEntryModalProps {
   entry: any;
@@ -15,6 +16,8 @@ export default function ReverseJournalEntryModal({
   onClose,
   onSuccess,
 }: ReverseJournalEntryModalProps) {
+  const { currentPersona, activeUser } = useRole();
+  const currentActorName = `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`;
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -36,7 +39,7 @@ export default function ReverseJournalEntryModal({
           action: "reverse_entry",
           entryId: entry.id,
           reason,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActorName,
         }),
       });
 

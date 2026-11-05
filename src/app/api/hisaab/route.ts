@@ -6,6 +6,7 @@ import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 
 import { requireJobsPermission } from "@/lib/auth/erpActor";
+import { isJobCompleted } from "@/lib/jobStatus";
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     // Jobs awaiting hisaab settlement: Paused or CompletedPendingVerification
     const pendingJobs = await prisma.job.findMany({
       where: {
-        status: { in: ["Paused", "CompletedPendingVerification"] },
+        status: { in: ["CompletedPendingVerification", "AwaitingFeedback"] },
       },
       include: {
         customer: true,
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
     // FOC and office-collected jobs: technician owes nothing — expected 0, no field collection allowed.
     const jobBilling = await prisma.job.findUnique({
       where: { id: jobId },
-      select: { isFoc: true, paymentCollectionMode: true, jobNumber: true, customerId: true },
+      select: { isFoc: true, paymentCollectionMode: true, jobNumber: true, customerId: true, status: true, finalizedAt: true, verifiedAt: true },
     });
     if (!jobBilling) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });

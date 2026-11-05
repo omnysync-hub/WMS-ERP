@@ -31,6 +31,7 @@ export interface JobsKpiDashboardProps {
   onFilterSelect: (filterKey: string | null) => void;
   className?: string;
   isAccountant?: boolean;
+  isAccountantStrict?: boolean;
   isDispatcher?: boolean;
 }
 
@@ -40,6 +41,7 @@ export default function JobsKpiDashboard({
   onFilterSelect,
   className = "",
   isAccountant = true,
+  isAccountantStrict = false,
   isDispatcher = false,
 }: JobsKpiDashboardProps) {
   // 1. Created (only created but not assigned)
@@ -238,7 +240,7 @@ export default function JobsKpiDashboard({
         }
       } catch (e) {}
     }
-    return "all";
+    return isAccountantStrict ? "financial" : "all";
   });
 
   const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
@@ -773,7 +775,9 @@ export default function JobsKpiDashboard({
             <Activity className="w-3 h-3" />
           </div>
           <h2 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-            {isDispatcher
+            {isAccountantStrict
+              ? "Financial Clearance & Cash Recovery"
+              : isDispatcher
               ? "Dispatcher Operations Overview"
               : isAccountant
               ? "Dispatch Operations & Financial Clearance"
@@ -793,6 +797,7 @@ export default function JobsKpiDashboard({
         {/* Center / Right: Section Switcher Pills + Filter Dropdown + Collapse Button */}
         <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
           {/* Section Filter Pills */}
+          {!isAccountantStrict && (
           <div className="flex items-center gap-0.5 bg-[#F4F4F5] p-0.5 rounded-lg border border-[#E4E4E7] text-[11px]">
             <button
               type="button"
@@ -847,6 +852,7 @@ export default function JobsKpiDashboard({
               </button>
             )}
           </div>
+          )}
 
           {/* Quick KPI Dropdown Selector */}
           <div className="relative">
@@ -856,14 +862,16 @@ export default function JobsKpiDashboard({
               onChange={(e) => onFilterSelect(e.target.value || null)}
               className="text-xs font-semibold bg-[#F4F4F5] hover:bg-white border border-[#EDEDED] focus:border-[#0D7A5F] rounded-lg px-2.5 py-1 text-[#18181B] focus:outline-none transition cursor-pointer shadow-2xs"
             >
-              <option value="">▼ Filter by KPI (All {jobs.length} Jobs)</option>
-              <optgroup label="Lifecycle Pipeline">
-                {lifecycleCards.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.label} ({c.count})
-                  </option>
-                ))}
-              </optgroup>
+              <option value="">▼ Filter by KPI ({isAccountantStrict ? "Financial Clearance" : `All ${jobs.length} Jobs`})</option>
+              {!isAccountantStrict && (
+                <optgroup label="Lifecycle Pipeline">
+                  {lifecycleCards.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label} ({c.count})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
               {!isDispatcher && (
                 <>
                   <optgroup label="Cash Recovery & Financials">
@@ -873,13 +881,15 @@ export default function JobsKpiDashboard({
                       </option>
                     ))}
                   </optgroup>
-                  <optgroup label="Materials & Discounts">
-                    {requestCards.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.label} ({c.count})
-                      </option>
-                    ))}
-                  </optgroup>
+                  {!isAccountantStrict && (
+                    <optgroup label="Materials & Discounts">
+                      {requestCards.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label} ({c.count})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </>
               )}
             </select>
@@ -930,7 +940,7 @@ export default function JobsKpiDashboard({
       {!isCollapsed && (
         <div className="space-y-2 pt-0.5">
           {/* Row 1: Job Lifecycle Pipeline (6 cards) — VISIBLE TO ALL ROLES INCLUDING DISPATCHER */}
-          {(activeSection === "all" || activeSection === "pipeline") && (
+          {!isAccountantStrict && (activeSection === "all" || activeSection === "pipeline") && (
             <div className="space-y-1">
               {activeSection === "all" && (
                 <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
@@ -944,13 +954,13 @@ export default function JobsKpiDashboard({
           )}
 
           {/* Row 2: Technician Expense Clearance & Cash Recovery (Accountant/Admin View - STRICTLY HIDDEN FOR DISPATCHER) */}
-          {!isDispatcher && isAccountant && (activeSection === "all" || activeSection === "financial") && (
+          {!isDispatcher && isAccountant && (isAccountantStrict || activeSection === "all" || activeSection === "financial") && (
             <div className={cn("space-y-1", activeSection === "all" && "pt-1.5 border-t border-[#F4F4F5]")}>
               {activeSection === "all" && (
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] uppercase font-bold text-[#0D7A5F] tracking-wider flex items-center gap-1.5">
                     <Banknote className="w-3 h-3 text-[#0D7A5F]" />
-                    Technician Financial Clearance & Cash Recovery (Accountant)
+                    Technician Financial Clearance & Cash Recovery
                   </span>
                   <span className="text-[9.5px] text-[#71717A]">
                     Click card to filter jobs list • Click Jobs ▾ for list
@@ -964,7 +974,7 @@ export default function JobsKpiDashboard({
           )}
 
           {/* Row 3: Stock & Discount Requests (STRICTLY HIDDEN FOR DISPATCHER) */}
-          {!isDispatcher && (activeSection === "all" || activeSection === "materials") && (
+          {!isDispatcher && !isAccountantStrict && (activeSection === "all" || activeSection === "materials") && (
             <div className={cn("space-y-1", activeSection === "all" && "pt-1.5 border-t border-[#F4F4F5]")}>
               {activeSection === "all" && (
                 <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">

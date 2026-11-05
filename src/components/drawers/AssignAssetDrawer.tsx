@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { UserCheck, AlertCircle } from "lucide-react";
+import { useRole } from "@/contexts/RoleContext";
 
 interface AssignAssetDrawerProps {
   isOpen: boolean;
@@ -20,9 +21,11 @@ export default function AssignAssetDrawer({
   employees = [],
   onAssetAssigned,
 }: AssignAssetDrawerProps) {
+  const { currentPersona, activeUser } = useRole();
+  const defaultIncharge = `${activeUser?.name || currentPersona?.name || "Warehouse Storekeeper"} (Storekeeper)`;
   const [employeeId, setEmployeeId] = useState(employees[0]?.id || "");
   const [conditionNotes, setConditionNotes] = useState("Issued in fully functional calibrated condition");
-  const [assignedBy, setAssignedBy] = useState("Bilal Sheikh (Storekeeper)");
+  const [assignedBy, setAssignedBy] = useState(defaultIncharge);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 

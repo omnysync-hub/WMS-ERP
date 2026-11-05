@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { Percent, Check, AlertCircle } from "lucide-react";
+import { useRole } from "@/contexts/RoleContext";
 
 interface DiscountDrawerProps {
   isOpen: boolean;
@@ -19,6 +20,8 @@ export default function DiscountDrawer({
   jobNumber,
   onDiscountApplied,
 }: DiscountDrawerProps) {
+  const { currentPersona, activeUser } = useRole();
+  const currentActor = `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`;
   const [discountAmount, setDiscountAmount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,7 +45,7 @@ export default function DiscountDrawer({
           action: "discount",
           discountAmount: Number(discountAmount),
           reason: discountReason || "Accountant phone approval",
-          actor: "Fatima Noor (Accountant)",
+          actor: currentActor,
         }),
       });
 

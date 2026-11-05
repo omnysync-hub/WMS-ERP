@@ -20,16 +20,16 @@ export function isKnownErpRole(value: unknown): value is (typeof ERP_ROLE_KEYS)[
 export const DEVELOPMENT_DEMO_PASSWORD = "Workman@2026";
 
 export const DEVELOPMENT_DEMO_USERS = [
-  { name: "Haris Qureshi", username: "admin", email: "admin@workman.local", role: "admin", designation: "System Administrator", department: "Management", avatar: "HQ", badgeColor: "bg-purple-600 text-white" },
-  { name: "Imran Siddiqui", username: "manager", email: "manager@workman.local", role: "manager", designation: "Operations Manager", department: "Operations", avatar: "IS", badgeColor: "bg-violet-600 text-white" },
-  { name: "Zeeshan Ahmed", username: "dispatcher", email: "dispatcher@workman.local", role: "dispatcher", designation: "Lead Dispatcher", department: "Dispatch", avatar: "ZA", badgeColor: "bg-blue-600 text-white" },
-  { name: "Bilal Sheikh", username: "storekeeper", email: "storekeeper@workman.local", role: "storekeeper", designation: "Store Keeper", department: "Warehouse", avatar: "BS", badgeColor: "bg-amber-600 text-white" },
-  { name: "Fatima Noor", username: "accountant", email: "accountant@workman.local", role: "accountant", designation: "Accountant", department: "Finance & Accounts", avatar: "FN", badgeColor: "bg-emerald-600 text-white" },
-  { name: "Ayesha Malik", username: "callcenter", email: "callcenter@workman.local", role: "call_center", designation: "Call Center Lead", department: "Customer Care", avatar: "AM", badgeColor: "bg-teal-600 text-white" },
-  { name: "Nadia Hussain", username: "procurement", email: "procurement@workman.local", role: "purchasing", designation: "Procurement Lead", department: "Procurement", avatar: "NH", badgeColor: "bg-orange-600 text-white" },
-  { name: "Sara Bilal", username: "hr", email: "hr@workman.local", role: "hr", designation: "HR Manager", department: "Human Resources", avatar: "SB", badgeColor: "bg-pink-600 text-white" },
-  { name: "Kamran Akram", username: "cashier", email: "cashier@workman.local", role: "cashier", designation: "Cashier", department: "Cash Desk", avatar: "KA", badgeColor: "bg-cyan-600 text-white" },
-  { name: "Tariq Mehmood", username: "auditor", email: "auditor@workman.local", role: "auditor", designation: "Internal Auditor", department: "Governance & Audit", avatar: "TM", badgeColor: "bg-slate-700 text-white" },
+  { name: "System Administrator", username: "admin", email: "admin@workmanservices.pk", role: "admin", designation: "System Administrator", department: "Executive Management", avatar: "SA", badgeColor: "bg-purple-600 text-white" },
+  { name: "Operations Manager", username: "manager", email: "operations@workmanservices.pk", role: "manager", designation: "Operations Manager", department: "Operations", avatar: "OM", badgeColor: "bg-violet-600 text-white" },
+  { name: "Lead Dispatcher", username: "dispatcher", email: "dispatch@workmanservices.pk", role: "dispatcher", designation: "Lead Dispatcher", department: "Field Operations & Fleet", avatar: "DS", badgeColor: "bg-blue-600 text-white" },
+  { name: "Warehouse Storekeeper", username: "storekeeper", email: "warehouse@workmanservices.pk", role: "storekeeper", designation: "Warehouse & Inventory Head", department: "Central Warehouse & Logistics", avatar: "SK", badgeColor: "bg-amber-600 text-white" },
+  { name: "Finance & Accounts", username: "accountant", email: "accounts@workmanservices.pk", role: "accountant", designation: "Chief Financial Accountant", department: "Finance & Accounts", avatar: "AC", badgeColor: "bg-emerald-600 text-white" },
+  { name: "Call Center Intake", username: "callcenter", email: "support@workmanservices.pk", role: "call_center", designation: "Customer Care & Intake Lead", department: "Customer Care & Dispatch", avatar: "CC", badgeColor: "bg-teal-600 text-white" },
+  { name: "Procurement Officer", username: "procurement", email: "procurement@workmanservices.pk", role: "purchasing", designation: "Procurement & Sourcing Lead", department: "Purchasing", avatar: "PO", badgeColor: "bg-orange-600 text-white" },
+  { name: "Human Resources", username: "hr", email: "hr@workmanservices.pk", role: "hr", designation: "Human Resources Manager", department: "Human Resources", avatar: "HR", badgeColor: "bg-pink-600 text-white" },
+  { name: "Counter Cashier", username: "cashier", email: "cashier@workmanservices.pk", role: "cashier", designation: "Counter Cashier & POS Controller", department: "Cash Desk & Settlements", avatar: "CS", badgeColor: "bg-cyan-600 text-white" },
+  { name: "Internal Auditor", username: "auditor", email: "audit@workmanservices.pk", role: "auditor", designation: "Internal Compliance Auditor", department: "Governance & Internal Audit", avatar: "AU", badgeColor: "bg-slate-700 text-white" },
 ] as const;
 
 export function demoLoginEnabled() {

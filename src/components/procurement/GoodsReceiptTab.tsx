@@ -72,7 +72,7 @@ export default function GoodsReceiptTab({
   // Create GRN Modal State
   const [showCreateModal, setShowCreateModal] = useState(Boolean(presetPoForGrn));
   const [selectedPoId, setSelectedPoId] = useState<string>(presetPoForGrn?.id || "");
-  const [receivedBy, setReceivedBy] = useState("Bilal Sheikh (Storekeeper)");
+  const [receivedBy, setReceivedBy] = useState(() => `${activeUser?.name || currentPersona?.name || "Warehouse Storekeeper"} (Storekeeper)`);
   const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [warehouseLocation, setWarehouseLocation] = useState("Central Warehouse - Lahore");
   const [deliveryChallan, setDeliveryChallan] = useState("");

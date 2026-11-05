@@ -428,7 +428,7 @@ export default function TaxInvoiceDocument({
 
           <div>
             <div className="border-b border-zinc-400 pb-1 mb-1 font-mono text-zinc-700 font-semibold">
-              Fatima Noor
+              {job.accountantName || job.verifiedBy || "Finance & Accounts"}
             </div>
             <span className="text-[10px] font-bold text-zinc-700 uppercase">
               Audited by Finance

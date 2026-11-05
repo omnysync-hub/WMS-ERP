@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
         advanceDeduction: Number(body.advanceDeduction) || 0,
         expenseAdjustment: Number(body.expenseAdjustment) || 0,
         disbursingAccountCode: body.disbursingAccountCode,
-        settledBy: body.settledBy || "Fatima Noor (Accountant)",
+        settledBy: body.settledBy || "Chief Accountant",
       });
       return NextResponse.json({ settlement });
     }

@@ -156,7 +156,7 @@ async function seedInitialAuditData() {
         entityId: j1.id,
         entityNumber: j1.jobNumber,
         action: "Discount applied: PKR 4,500 on 2-Ton Inverter Compressor",
-        actorName: "Fatima Noor",
+        actorName: "Finance & Accounts",
         actorRole: "accountant",
         stateBefore: JSON.stringify({ discountAmount: 0, discountReason: null }),
         stateAfter: JSON.stringify({ discountAmount: 4500, discountReason: "Mid-job distributor price-match" }),
@@ -210,7 +210,7 @@ async function seedInitialAuditData() {
         entityId: "demo-job-002",
         entityNumber: "JOB-2026-0002",
         action: "Discount applied: PKR 4,500 on 2-Ton Inverter Compressor",
-        actorName: "Fatima Noor",
+        actorName: "Finance & Accounts",
         actorRole: "accountant",
         stateBefore: JSON.stringify({ discountAmount: 0, discountReason: null }),
         stateAfter: JSON.stringify({ discountAmount: 4500, discountReason: "Mid-job distributor price-match" }),
@@ -225,10 +225,10 @@ async function seedInitialAuditData() {
   // Seed sample real-time click and telemetry events
   const sampleActivities = [
     {
-      actorName: "Haris Qureshi",
+      actorName: "System Administrator",
       actorRole: "admin",
       category: "ROLE_SWITCH",
-      action: "Switched active persona to Administrator (Haris Qureshi)",
+      action: "Switched active persona to Administrator",
       target: "Topbar: UserProfileMenu",
       metadata: { department: "Executive Management", permissions: "Full Access" },
       timestamp: new Date(Date.now() - 3600000 * 4),
@@ -243,7 +243,7 @@ async function seedInitialAuditData() {
       timestamp: new Date(Date.now() - 3600000 * 3.5),
     },
     {
-      actorName: "Fatima Noor",
+      actorName: "Finance & Accounts",
       actorRole: "accountant",
       category: "NAVIGATION",
       action: "Navigated to Accounts & Ledgers screen",
@@ -252,7 +252,7 @@ async function seedInitialAuditData() {
       timestamp: new Date(Date.now() - 3600000 * 2.8),
     },
     {
-      actorName: "Bilal Sheikh",
+      actorName: "Warehouse Storekeeper",
       actorRole: "storekeeper",
       category: "DATA_MUTATION",
       action: "Issued 2x R410A Refrigerant Cylinders to Technician Ali Hassan",
@@ -261,7 +261,7 @@ async function seedInitialAuditData() {
       timestamp: new Date(Date.now() - 3600000 * 2.1),
     },
     {
-      actorName: "Fatima Noor",
+      actorName: "Finance & Accounts",
       actorRole: "accountant",
       category: "UI_CLICK",
       action: "Clicked 'Approve Discount' on Job #JOB-2026-0001",
@@ -288,7 +288,7 @@ async function seedInitialAuditData() {
       timestamp: new Date(Date.now() - 3600000 * 0.4),
     },
     {
-      actorName: "Haris Qureshi",
+      actorName: "System Administrator",
       actorRole: "admin",
       category: "SEARCH",
       action: "Queried Universal Search for 'Ali Hassan'",

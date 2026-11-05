@@ -18,6 +18,7 @@ import ReceiveTechnicianCashDrawer from "@/components/drawers/ReceiveTechnicianC
 import JobRemarksCard from "@/components/jobs/JobRemarksCard";
 import JobBillingDiscountPanel from "@/components/jobs/JobBillingDiscountPanel";
 import { cn, formatCurrency, formatDateTime, formatJobType, isServiceItem } from "@/lib/utils";
+import { isJobCompleted as checkJobCompleted } from "@/lib/jobStatus";
 import {
   ArrowLeft,
   User,
@@ -45,6 +46,7 @@ import {
   Undo2,
   Eye,
   Download,
+  Camera,
   Maximize2,
   Printer,
   Sparkles,
@@ -65,14 +67,17 @@ export default function JobDetailPage() {
     activeRole === "storekeeper" ||
     currentPersona?.role === "storekeeper" ||
     (activeRole || "").toLowerCase().includes("store");
-  const isAccountant = activeRole === "accountant";
+  const isAccountant =
+    activeRole === "accountant" ||
+    currentPersona?.role === "accountant" ||
+    (activeRole || "").toLowerCase().includes("account");
   const isAdmin = activeRole === "admin";
   const isDispatcher = activeRole === "dispatcher";
   const isCallCenter = activeRole === "call_center";
   const isRestrictedRole = isDispatcher || isCallCenter;
   const canViewFinancials = hasPermission("jobs.view_financials");
   const canAddService = hasPermission("jobs.add_service");
-  const canIssueStock = hasPermission("jobs.issue_stock");
+  const canIssueStock = hasPermission("jobs.issue_stock") || isAccountant || isAdmin;
   const canStockReturn = hasPermission("jobs.stock_return");
   const canMisplacedItem = hasPermission("jobs.misplaced_item");
   const canGenerateInvoice = hasPermission("jobs.generate_invoice");
@@ -155,7 +160,7 @@ export default function JobDetailPage() {
           action: "give_item_discount",
           itemId: selectedItemToDiscount.id,
           discountAmount: Number(approvedDiscountAmount),
-          actor: "Fatima Noor (Accountant)",
+          actor: `${currentPersona.name} (${currentPersona.designation || "Finance"})`,
         }),
       });
       if (!res.ok) {
@@ -171,8 +176,8 @@ export default function JobDetailPage() {
         jobId: job.id,
         jobNumber: job.jobNumber,
         technicianId: job.assignedTechnicianId,
-        actor: "Accountant Fatima Noor",
-        message: `Accountant Fatima Noor approved $${approvedDiscountAmount} discount on ${selectedItemToDiscount.description}`,
+        actor: currentPersona.name,
+        message: `${currentPersona.name} approved $${approvedDiscountAmount} discount on ${selectedItemToDiscount.description}`,
       });
     } catch (e: any) {
       alert(e.message);
@@ -257,6 +262,8 @@ export default function JobDetailPage() {
   const effectiveBillAmount = hasAnyActual ? actualTotal : plannedTotal;
   const netPayable = Math.max(0, effectiveBillAmount - (job.discountAmount || 0));
 
+  const isJobCompleted = checkJobCompleted(job);
+
   // Build state machine timeline steps
   const standardStatuses = [
     "Created",
@@ -317,7 +324,7 @@ export default function JobDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "finalize",
-          actor: "Fatima Noor (Accountant)",
+          actor: `${currentPersona.name} (${currentPersona.designation || "Finance"})`,
         }),
       });
       if (!res.ok) {
@@ -459,74 +466,7 @@ export default function JobDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            {isStorekeeper ? (
-              // Storekeeper actions: issue warehouse stock and record store returns
-              <>
-                {canIssueStock && (
-                  <button
-                    type="button"
-                    onClick={() => openIssueInventoryModal()}
-                    className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-500 hover:bg-amber-600 text-xs font-bold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <Package className="w-3.5 h-3.5" />
-                    + Issue Warehouse Stock
-                  </button>
-                )}
-                {canStockReturn && (
-                  <button
-                    type="button"
-                    onClick={() => setStockReturnDrawerOpen(true)}
-                    className="h-8 px-3 rounded-lg border border-emerald-400 bg-emerald-600 hover:bg-emerald-700 text-xs font-bold text-white inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Record Store Return
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                {canIssueStock && (
-                  <button
-                    type="button"
-                    onClick={() => openIssueInventoryModal()}
-                    className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <Package className="w-3.5 h-3.5 text-amber-700" />
-                    + Issue Warehouse Stock
-                  </button>
-                )}
-                {canStockReturn && !isAccountant && (
-                  <button
-                    type="button"
-                    onClick={() => setStockReturnDrawerOpen(true)}
-                    className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
-                    Record Store Return
-                  </button>
-                )}
-                {canMisplacedItem && (
-                  <button
-                    type="button"
-                    onClick={() => setMisplacedDrawerOpen(true)}
-                    className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
-                    Report Misplaced Item
-                  </button>
-                )}
-
-                {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
-                  <button
-                    type="button"
-                    onClick={() => setAddServiceDrawerOpen(true)}
-                    className="h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-emerald-700" />
-                    + Add Service / Item
-                  </button>
-                )}
-                {canViewFinancials && (canGenerateInvoice || job.invoice) && !isRestrictedRole && (
+            {canViewFinancials && (canGenerateInvoice || job.invoice) && !isRestrictedRole && (
                   <button
                     type="button"
                     onClick={() => setTaxInvoiceDrawerOpen(true)}
@@ -545,17 +485,6 @@ export default function JobDetailPage() {
                   <Printer className="w-3.5 h-3.5 text-[#0D7A5F]" />
                   Print Work Order
                 </button>
-
-                {canViewFinancials && !job.finalizedAt && !isRestrictedRole && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDiscountDrawer(true)}
-                    className="h-8 px-3 rounded-lg border border-[#E4E4E7] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                  >
-                    <Percent className="w-3.5 h-3.5 text-[#D97706]" />
-                    Mid-Job Discount
-                  </button>
-                )}
 
                 {(canGenerateInvoice || canCollectPayment) && job.status === "CompletedPendingVerification" && !job.finalizedAt && (
                   <button
@@ -600,8 +529,6 @@ export default function JobDetailPage() {
                     Audited & Verified
                   </span>
                 )}
-              </>
-            )}
           </div>
         }
       />
@@ -727,107 +654,13 @@ export default function JobDetailPage() {
                 <div className="sm:col-span-2 pt-2">
                   <JobRemarksCard
                     remarks={job.remarks}
-                    showCustomerPayment={canViewFinancials && !isRestrictedRole}
-                    showUnusedStockReason={!isRestrictedRole}
-                    showFieldExecution={!isStorekeeper}
-                    showPhotosCard={!isStorekeeper}
+                    showCustomerPayment={canViewFinancials && !isRestrictedRole && !isAccountant}
+                    showUnusedStockReason={!isRestrictedRole && !isAccountant}
+                    showFieldExecution={!isStorekeeper && !isAccountant}
+                    showPhotosCard={!isStorekeeper && !isAccountant}
                   />
                 </div>
               )}
-
-              {(() => {
-                let photos: string[] = [];
-                try {
-                  const raw = job.completionPhotos;
-                  if (typeof raw === "string" && raw.trim()) {
-                    const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed)) photos = parsed.filter((p: unknown) => typeof p === "string");
-                  }
-                } catch {
-                  photos = [];
-                }
-                if (photos.length === 0 || isStorekeeper) return null;
-                return (
-                  <div className="sm:col-span-2 pt-3 border-t border-[#E4E4E7]">
-                    <div className="flex items-center justify-between mb-2.5">
-                      <p className="text-[11px] font-semibold text-[#71717A] uppercase tracking-wider flex items-center gap-1.5">
-                        <span>Completion photos ({photos.length})</span>
-                      </p>
-                      {photos.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            photos.forEach((src, idx) => {
-                              setTimeout(() => {
-                                downloadImageFile(src, `job-${job.jobNumber}-photo-${idx + 1}.png`);
-                              }, idx * 250);
-                            });
-                          }}
-                          className="text-[11px] font-semibold text-[#0D7A5F] hover:text-[#0A624C] hover:underline inline-flex items-center gap-1 transition"
-                          title="Download all completion photos"
-                        >
-                          <Download className="w-3 h-3" />
-                          Download All ({photos.length})
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      {photos.map((src, i) => (
-                        <div
-                          key={i}
-                          className="group relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border-2 border-[#E4E4E7] hover:border-[#0D7A5F] bg-zinc-100 shadow-xs hover:shadow-md transition cursor-pointer"
-                          onClick={() => {
-                            setLightboxImages(photos);
-                            setLightboxIndex(i);
-                            setLightboxOpen(true);
-                          }}
-                          title={`Click to view Photo ${i + 1}`}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={src}
-                            alt={`Job completion ${i + 1}`}
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                          />
-
-                          {/* Hover Action Overlay */}
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setLightboxImages(photos);
-                                setLightboxIndex(i);
-                                setLightboxOpen(true);
-                              }}
-                              className="p-1.5 rounded-lg bg-white/90 hover:bg-white text-zinc-900 shadow-md transition"
-                              title="Open full image viewer"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                downloadImageFile(src, `job-${job.jobNumber}-photo-${i + 1}.png`);
-                              }}
-                              className="p-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white shadow-md transition"
-                              title="Download photo"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                          </div>
-
-                          {/* Index Badge */}
-                          <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-mono font-bold text-white group-hover:opacity-0 transition-opacity">
-                            #{i + 1}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           </div>
         </div>
@@ -1074,7 +907,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
+                  {!isJobCompleted && canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
                   <button
                     type="button"
                     onClick={() => setAddServiceDrawerOpen(true)}
@@ -1127,7 +960,12 @@ export default function JobDetailPage() {
             const inventoryActualTotal = inventoryItems.reduce((s: number, it: any) => {
               const qty = it.quantityActual !== null && it.quantityActual !== undefined ? it.quantityActual : it.quantityPlanned;
               return s + (qty || 0) * (it.unitRate || 0);
-            }, 0);            const parseItemPricing = (item: any) => {
+            }, 0);
+
+            const hasPendingItemDiscount = (allItems || []).some((it: any) =>
+              Boolean(it.description?.match(/\[Discount Requested:\s*\$?([0-9.]+)/i))
+            );
+            const showDiscountColumn = !job.finalizedAt;            const parseItemPricing = (item: any) => {
               const desc = item.description || "";
               const matchApproved = desc.match(/\[Discount Approved:\s*-?\$?([0-9.]+),\s*Rate:\s*\$?([0-9.]+)\s*->\s*\$?([0-9.]+)\]/i);
               const matchRequested = desc.match(/\[Discount Requested:\s*\$?([0-9.]+)/i);
@@ -1269,26 +1107,39 @@ export default function JobDetailPage() {
                       </td>
 
                       {/* 7. Discount Action */}
-                      <td className="py-2.5 px-4 text-right">
-                        {!job.finalizedAt && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedItemToDiscount(item);
-                              const match = item.description?.match(/\[Discount Requested: \$?([0-9.]+)/i);
-                              setApprovedDiscountAmount(match ? match[1] : "");
-                              setItemDiscountModalOpen(true);
-                            }}
-                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition shadow-2xs ${
-                              pricing.isPendingDiscount
-                                ? "bg-amber-600 hover:bg-amber-700 text-white"
-                                : "bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B]"
-                            }`}
-                          >
-                            {pricing.isPendingDiscount ? "Authorize Discount" : "Give Discount"}
-                          </button>
-                        )}
-                      </td>
+                      {showDiscountColumn && (
+                        <td className="py-2.5 px-4 text-right">
+                          {pricing.isPendingDiscount ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedItemToDiscount(item);
+                                const match = item.description?.match(/\[Discount Requested: \$?([0-9.]+)/i);
+                                setApprovedDiscountAmount(match ? match[1] : "");
+                                setItemDiscountModalOpen(true);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg transition shadow-2xs bg-amber-600 hover:bg-amber-700 text-white"
+                            >
+                              Authorize Discount
+                            </button>
+                          ) : !job.finalizedAt ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedItemToDiscount(item);
+                                const match = item.description?.match(/\[Discount Requested: \$?([0-9.]+)/i);
+                                setApprovedDiscountAmount(match ? match[1] : "");
+                                setItemDiscountModalOpen(true);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg transition shadow-2xs bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B]"
+                            >
+                              Give Discount
+                            </button>
+                          ) : (
+                            <span className="text-[#A1A1AA] text-xs font-mono">—</span>
+                          )}
+                        </td>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1381,34 +1232,14 @@ export default function JobDetailPage() {
                       </div>
                     )}
 
-                    {!isStorekeeper && canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
-                      <button
-                        type="button"
-                        onClick={() => setAddServiceDrawerOpen(true)}
-                        className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
-                      >
-                        <Plus className="w-3 h-3" />
-                        + Add Service
-                      </button>
-                    )}
 
-                    {canIssueStock && (
-                      <button
-                        type="button"
-                        onClick={() => openIssueInventoryModal()}
-                        className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition flex items-center gap-1 shadow-2xs"
-                      >
-                        <Package className="w-3 h-3 text-amber-700" />
-                        + Issue Stock
-                      </button>
-                    )}
                   </div>
                 </div>
 
                 {/* 1. SECTION: SERVICES & TECHNICAL LABOR */}
                 {!isStorekeeper && (deliverableActiveTab === "all" || deliverableActiveTab === "services") && (
                   <div className="border-b border-[#E4E4E7]">
-                    <div className="px-5 py-2.5 bg-emerald-50/50 border-b border-emerald-100/80 flex items-center justify-between">
+                    <div className="px-5 py-2.5 bg-emerald-50/50 border-b border-emerald-100/80 flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <Wrench className="w-4 h-4 text-[#0D7A5F]" />
                         <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
@@ -1418,13 +1249,14 @@ export default function JobDetailPage() {
                           • Diagnostic inspections, maintenance tasks & service fees
                         </span>
                       </div>
-                      {!isStorekeeper && canViewFinancials && !isRestrictedRole && (
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {!isStorekeeper && canViewFinancials && !isRestrictedRole && (
                           <span className="text-xs font-mono font-bold text-emerald-900 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded">
                             Subtotal: {formatCurrency(servicesActualTotal)}
                           </span>
-                        </div>
-                      )}
+                        )}
+
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -1439,7 +1271,9 @@ export default function JobDetailPage() {
                                 <th className="py-2 px-4 text-center">Used Qty</th>
                                 <th className="py-2 px-4 text-right">Discounted Price</th>
                                 <th className="py-2 px-4 text-right">Total</th>
-                                <th className="py-2 px-4 text-right">Discount Action</th>
+                                {showDiscountColumn && (
+                                  <th className="py-2 px-4 text-right">Discount Action</th>
+                                )}
                               </>
                             ) : (
                               <>
@@ -1456,10 +1290,20 @@ export default function JobDetailPage() {
                           ) : (
                             <tr>
                               <td
-                                colSpan={!isStorekeeper && canViewFinancials && !isRestrictedRole ? 7 : 4}
-                                className="py-6 text-center text-[#71717A] text-xs italic bg-white"
+                                colSpan={!isStorekeeper && canViewFinancials && !isRestrictedRole ? (showDiscountColumn ? 7 : 6) : 4}
+                                className="py-8 text-center text-[#71717A] text-xs bg-white"
                               >
-                                No technical service or labor items recorded. Use &quot;+ Add Service&quot; to log work scopes.
+                                <p className="italic">No technical service or labor items recorded.</p>
+                                {!isJobCompleted && canAddService && !isRestrictedRole && canAddServiceOrItem(job) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAddServiceDrawerOpen(true)}
+                                    className="mt-2.5 h-8 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                                  >
+                                    <Plus className="w-3.5 h-3.5 text-emerald-700" />
+                                    Add Service
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           )}
@@ -1472,7 +1316,7 @@ export default function JobDetailPage() {
                 {/* 2. SECTION: INVENTORY, SPARE PARTS & MATERIALS */}
                 {(isStorekeeper || deliverableActiveTab === "all" || deliverableActiveTab === "inventory") && (
                   <div>
-                    <div className="px-5 py-2.5 bg-blue-50/50 border-b border-blue-100/80 flex items-center justify-between">
+                    <div className="px-5 py-2.5 bg-blue-50/50 border-b border-blue-100/80 flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <Package className="w-4 h-4 text-blue-700" />
                         <span className="text-xs font-bold text-blue-950 uppercase tracking-wider">
@@ -1486,13 +1330,43 @@ export default function JobDetailPage() {
                             : "• Physical parts, consumables & appliances deducted from warehouse"}
                         </span>
                       </div>
-                      {!isStorekeeper && canViewFinancials && !isRestrictedRole && (
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {!isStorekeeper && canViewFinancials && !isRestrictedRole && (
                           <span className="text-xs font-mono font-bold text-blue-900 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded">
                             Subtotal: {formatCurrency(inventoryActualTotal)}
                           </span>
-                        </div>
-                      )}
+                        )}
+                        {canIssueStock && (
+                          <button
+                            type="button"
+                            onClick={() => openIssueInventoryModal()}
+                            className="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                          >
+                            <Package className="w-3.5 h-3.5 text-amber-700" />
+                            + Issue Warehouse Stock
+                          </button>
+                        )}
+                        {canStockReturn && (!isAccountant || isStorekeeper) && (
+                          <button
+                            type="button"
+                            onClick={() => setStockReturnDrawerOpen(true)}
+                            className="h-8 px-3 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-blue-700" />
+                            Record Store Return
+                          </button>
+                        )}
+                        {canMisplacedItem && (
+                          <button
+                            type="button"
+                            onClick={() => setMisplacedDrawerOpen(true)}
+                            className="h-8 px-3 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-xs font-bold text-rose-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                            Report Misplaced Item
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -1507,7 +1381,9 @@ export default function JobDetailPage() {
                                 <th className="py-2 px-4 text-center">Used Qty</th>
                                 <th className="py-2 px-4 text-right">Discounted Price</th>
                                 <th className="py-2 px-4 text-right">Total</th>
-                                <th className="py-2 px-4 text-right">Discount Action</th>
+                                {showDiscountColumn && (
+                                  <th className="py-2 px-4 text-right">Discount Action</th>
+                                )}
                               </>
                             ) : (
                               <>
@@ -1524,12 +1400,24 @@ export default function JobDetailPage() {
                           ) : (
                             <tr>
                               <td
-                                colSpan={!isStorekeeper && canViewFinancials && !isRestrictedRole ? 7 : 4}
-                                className="py-6 text-center text-[#71717A] text-xs italic bg-white"
+                                colSpan={!isStorekeeper && canViewFinancials && !isRestrictedRole ? (showDiscountColumn ? 7 : 6) : 4}
+                                className="py-8 text-center text-[#71717A] text-xs bg-white"
                               >
-                                {isStorekeeper
-                                  ? "No warehouse materials have been issued by the storekeeper yet."
-                                  : "No physical spare parts or inventory items assigned to this work order."}
+                                <p className="italic">
+                                  {isStorekeeper
+                                    ? "No warehouse materials have been issued by the storekeeper yet."
+                                    : "No physical spare parts or inventory items assigned to this work order."}
+                                </p>
+                                {canIssueStock && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openIssueInventoryModal()}
+                                    className="mt-2.5 h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-xs font-bold text-amber-900 inline-flex items-center gap-1.5 transition shadow-xs"
+                                  >
+                                    <Package className="w-3.5 h-3.5 text-amber-700" />
+                                    + Issue Warehouse Stock
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           )}
@@ -1590,8 +1478,8 @@ export default function JobDetailPage() {
             <JobBillingDiscountPanel job={job} onChanged={fetchJob} />
           )}
 
-          {/* Field Settlements & Customer Collections (Masked if lacks financial permission or restricted role) */}
-          {canViewFinancials && !isRestrictedRole && (
+          {/* Field Settlements & Customer Collections (Hidden if Office Collection, FOC, lacks permission, or restricted role) */}
+          {canViewFinancials && !isRestrictedRole && !job.isFoc && job.paymentCollectionMode !== "office" && (
             <div className="space-y-6">
               {/* 3. SECTION: FIELD SETTLEMENT & CUSTOMER COLLECTIONS */}
               {(() => {
@@ -1626,7 +1514,7 @@ export default function JobDetailPage() {
                             className="px-2.5 py-1 text-xs font-bold text-[#0D7A5F] bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1 shadow-2xs"
                           >
                             <Plus className="w-3 h-3" />
-                            <span>+ Receive Cash</span>
+                            <span>Receive Cash</span>
                           </button>
                         )}
                       </div>
@@ -1787,6 +1675,103 @@ export default function JobDetailPage() {
             </div>
           )}
 
+        {/* FIELD COMPLETION PHOTOS SECTION */}
+        {(() => {
+          let photos: string[] = [];
+          try {
+            const raw = job.completionPhotos;
+            if (typeof raw === "string" && raw.trim()) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) photos = parsed.filter((p: unknown) => typeof p === "string");
+            }
+          } catch {
+            photos = [];
+          }
+          if (photos.length === 0 || isStorekeeper) return null;
+          return (
+            <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs p-5 space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-[#0D7A5F]" />
+                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                    Completion Photos ({photos.length})
+                  </h3>
+                </div>
+                {photos.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      photos.forEach((src, idx) => {
+                        setTimeout(() => {
+                          downloadImageFile(src, `job-${job.jobNumber}-photo-${idx + 1}.png`);
+                        }, idx * 250);
+                      });
+                    }}
+                    className="text-xs font-semibold text-[#0D7A5F] hover:text-[#0A624C] hover:underline inline-flex items-center gap-1 transition"
+                    title="Download all completion photos"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download All ({photos.length})</span>
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-3 pt-1">
+                {photos.map((src, i) => (
+                  <div
+                    key={i}
+                    className="group relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border-2 border-[#E4E4E7] hover:border-[#0D7A5F] bg-zinc-100 shadow-xs hover:shadow-md transition cursor-pointer"
+                    onClick={() => {
+                      setLightboxImages(photos);
+                      setLightboxIndex(i);
+                      setLightboxOpen(true);
+                    }}
+                    title={`Click to view Photo ${i + 1}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt={`Job completion ${i + 1}`}
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+
+                    {/* Hover Action Overlay */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLightboxImages(photos);
+                          setLightboxIndex(i);
+                          setLightboxOpen(true);
+                        }}
+                        className="p-1.5 rounded-lg bg-white/90 hover:bg-white text-zinc-900 shadow-md transition"
+                        title="Open full image viewer"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadImageFile(src, `job-${job.jobNumber}-photo-${i + 1}.png`);
+                        }}
+                        className="p-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white shadow-md transition"
+                        title="Download photo"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Index Badge */}
+                    <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-mono font-bold text-white group-hover:opacity-0 transition-opacity">
+                      #{i + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* MID-JOB DISCOUNT DRAWER */}

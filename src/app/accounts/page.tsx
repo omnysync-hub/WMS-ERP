@@ -15,6 +15,7 @@ import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import CoaManagerModal from "@/components/accounts/CoaManagerModal";
 import StatementOfAccountsTab from "@/components/accounts/StatementOfAccountsTab";
 import SideDrawer from "@/components/ui/SideDrawer";
+import { useRole } from "@/contexts/RoleContext";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
 import {
@@ -62,6 +63,8 @@ import {
 } from "lucide-react";
 
 export default function AccountsPage() {
+  const { currentPersona, activeUser } = useRole();
+  const currentActor = `${activeUser?.name || currentPersona?.name || "Accountant"}`;
   const [activeTab, setActiveTab] = useState<
     | "ledgers"
     | "statements"
@@ -488,7 +491,7 @@ export default function AccountsPage() {
           jobId: discount.jobId,
           itemId: discount.itemId,
           discountAmount: amountToApprove,
-          accountantName: "Fatima Noor (Accountant)",
+          accountantName: currentActor,
         }),
       });
 
@@ -498,7 +501,7 @@ export default function AccountsPage() {
       }
 
       realtimeSync.publish("DISCOUNT_GRANTED", {
-        actor: "Fatima Noor (Accountant)",
+        actor: currentActor,
         message: `Accountant approved $${amountToApprove} discount on Job #${discount.jobNumber}`,
         jobId: discount.jobId,
         payload: {
@@ -535,7 +538,7 @@ export default function AccountsPage() {
           jobId: discount.jobId,
           itemId: discount.itemId,
           reason: "Discount declined by accounting department",
-          accountantName: "Fatima Noor (Accountant)",
+          accountantName: currentActor,
         }),
       });
 
@@ -545,7 +548,7 @@ export default function AccountsPage() {
       }
 
       realtimeSync.publish("JOB_UPDATED", {
-        actor: "Fatima Noor (Accountant)",
+        actor: currentActor,
         jobId: discount.jobId,
         message: `Discount request declined on Job #${discount.jobNumber}`,
       });
@@ -572,7 +575,7 @@ export default function AccountsPage() {
           amount: Number(paymentAmount),
           paymentMethod,
           notes: paymentNotes || `Customer payment from ${selectedCustomer.name}`,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActor,
         }),
       });
 
@@ -625,7 +628,7 @@ export default function AccountsPage() {
           paymentMethod: jobPaymentMethod,
           receivingAccountCode: jobPaymentAccount,
           notes: jobPaymentNotes,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActor,
         }),
       });
 
@@ -665,7 +668,7 @@ export default function AccountsPage() {
           technicianId: selectedTechId,
           amount: Number(advanceAmount),
           notes: advanceNotes || "Cash advance float disbursed by accountant",
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActor,
         }),
       });
 
@@ -694,7 +697,7 @@ export default function AccountsPage() {
         action: actionName,
         vendorName: selectedVendor.name,
         memo: vendorPayMemo || `Supplier payment to ${selectedVendor.name}`,
-        actorName: "Fatima Noor (Accountant)",
+        actorName: currentActor,
       };
 
       if (isDbVendor) {
@@ -753,7 +756,7 @@ export default function AccountsPage() {
           amount: Number(newExpenseAmount),
           memo: newExpenseMemo || "Operating business expense",
           receiptRef: newExpenseRef || undefined,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActor,
         }),
       });
 
@@ -790,7 +793,7 @@ export default function AccountsPage() {
           action: "manual_journal_entry",
           memo: manualMemo || "Manual General Journal Adjustment",
           lines: manualLines.filter((l) => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0)),
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActor,
         }),
       });
 
@@ -821,7 +824,7 @@ export default function AccountsPage() {
         body: JSON.stringify({
           action: "acknowledge_return",
           stockReturnId,
-          storeKeeperName: "Bilal Sheikh (Storekeeper)",
+          storeKeeperName: "Warehouse Storekeeper",
         }),
       });
       if (!res.ok) throw new Error("Failed to acknowledge stock return");
@@ -829,12 +832,12 @@ export default function AccountsPage() {
       if (settlementJob) {
         const updatedReturns = settlementJob.stockReturns?.map((sr: any) =>
           sr.id === stockReturnId
-            ? { ...sr, acknowledgedAt: new Date().toISOString(), acknowledgedBy: "Bilal Sheikh (Storekeeper)" }
+            ? { ...sr, acknowledgedAt: new Date().toISOString(), acknowledgedBy: "Warehouse Storekeeper" }
             : sr
         );
         setSettlementJob({ ...settlementJob, stockReturns: updatedReturns });
       }
-      setActionSuccessMsg("Stock return acknowledged by Storekeeper Bilal Sheikh. Settlement clearance unlocked.");
+      setActionSuccessMsg("Stock return acknowledged by Warehouse Storekeeper. Settlement clearance unlocked.");
       loadData();
     } catch (e: any) {
       alert(e.message);
@@ -939,7 +942,7 @@ export default function AccountsPage() {
           partialPayoutAmount: isPartialPayoutEnabled ? Number(partialPayoutAmount) : undefined,
           adhocExpenses,
           finalizeAndLock: syncAndLockJob,
-          settledBy: "Fatima Noor (Accountant)",
+          settledBy: currentActor,
         }),
       });
 
@@ -983,7 +986,7 @@ export default function AccountsPage() {
           amount: Number(cashFormAmount),
           memo: cashFormMemo,
           partyName: cashFormParty,
-          actorName: "Fatima Noor (Accountant)",
+          actorName: currentActor,
         }),
       });
       const data = await res.json();
@@ -3898,7 +3901,7 @@ export default function AccountsPage() {
                     <span>Accountant Clearance Locked — Store Return Required</span>
                   </div>
                   <p className="text-[11px] text-[#B91C1C] leading-relaxed">
-                    Technician <strong>{settlementJob.assignedTechnician?.name || "Technician"}</strong> has unused items that must be checked in with Storekeeper Bilal Sheikh.
+                    Technician <strong>{settlementJob.assignedTechnician?.name || "Technician"}</strong> has unused items that must be checked in with the Warehouse Storekeeper.
                   </p>
 
                   <div className="p-2.5 bg-white rounded-lg border border-rose-200 text-[#18181B] space-y-1">
@@ -3928,7 +3931,7 @@ export default function AccountsPage() {
                       className="w-full py-2.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      Storekeeper Bilal Sheikh: Sign-Off & Acknowledge Return
+                      Warehouse Storekeeper: Sign-Off & Acknowledge Return
                     </button>
                   )}
                 </div>

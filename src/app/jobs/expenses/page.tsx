@@ -48,6 +48,8 @@ interface ClaimItem {
   paidAt: string | null;
   createdAt: string;
   isPartial: boolean;
+  isJobCompleted?: boolean;
+  jobStatus?: string;
 }
 
 interface HandledJob {
