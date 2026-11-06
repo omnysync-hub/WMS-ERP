@@ -1031,8 +1031,13 @@ export default function JobDetailPage() {
                 .replace(/\s*\[Product\]/gi, "")
                 .replace(/\s*\[Service Added by.*?\]/gi, "")
                 .replace(/\s*\[Issued by Storekeeper\]/gi, "")
+                .replace(/\s*Issued by Storekeeper/gi, "")
                 .replace(/\s*\[Issued by.*?\]/gi, "")
                 .replace(/\s*\[Discount.*?\]/gi, "")
+                .replace(/\[\s*([^\]]+?)\s*\]/g, "$1")
+                .replace(/\(\s*([^\)]+?)\s*\)/g, " - $1")
+                .replace(/\s+-\s+-\s+/g, " - ")
+                .replace(/\s{2,}/g, " ")
                 .trim();
 
               const brandMatch = (job.remarks || "").match(/Brand:\s*([^|\]]+)/i);

@@ -149,12 +149,12 @@ export class MobilePushService {
       const isUrgent =
         isJobRing || priority === "urgent" || priority === "high";
       const channelId = isJobRing
-        ? "job-ring-v3"
+        ? "job-ring-v5"
         : isUrgent
-          ? "urgent-dispatch-v2"
+          ? "urgent-dispatch-v3"
           : "general-dispatch";
       const sound = isJobRing
-        ? "job_ring.wav"
+        ? "ringtone.mp3"
         : isUrgent
           ? "alert_chime.wav"
           : "default";
@@ -171,7 +171,7 @@ export class MobilePushService {
           actionRequired,
           ...payload,
         },
-        priority: isUrgent ? "high" : "default",
+        priority: "high",
         channelId,
         _contentAvailable: true,
       }));

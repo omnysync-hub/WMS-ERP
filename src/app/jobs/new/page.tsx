@@ -445,8 +445,12 @@ export default function FastJobIntakePage() {
       const jobItems = rows.map((r) => {
         const qty = Math.max(0, Number(r.qty) || 0);
         const rate = Math.max(0, Number(r.charges) || 0);
+        const prefix = [r.product, r.brand].filter(Boolean).join(" - ");
+        const main = r.typeOfWork || "Service";
+        const suffix = r.remarks ? ` - ${r.remarks}` : "";
+        const desc = prefix ? `${prefix} - ${main}${suffix}` : `${main}${suffix}`;
         return {
-          description: `[${r.product || "HVAC"} - ${r.brand || "Standard"}] ${r.typeOfWork}${r.remarks ? ` (${r.remarks})` : ""}`,
+          description: desc,
           quantityPlanned: qty,
           unitRate: rate,
           isProduct: false,

@@ -369,7 +369,7 @@ export async function POST(req: NextRequest) {
           createdJobItem = await prisma.jobItem.create({
             data: {
               jobId: invReq.jobId,
-              description: `${product.name} (${product.sku}) [Issued by Storekeeper]`,
+              description: `${product.name}${product.sku ? ` - ${product.sku}` : ""} - Issued by Storekeeper`,
               quantityPlanned: Number(quantity),
               quantityActual: Number(quantity),
               unitRate: product.unitPrice,

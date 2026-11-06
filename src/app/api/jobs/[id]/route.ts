@@ -166,6 +166,8 @@ const ACTION_PERMISSION: Record<string, string> = {
   pause: "jobs.pause",
   complete: "jobs.complete",
   update_item_usage: "jobs.complete",
+  save_inventory_usage: "jobs.complete",
+  update_inventory_usage: "jobs.complete",
   request_item_discount: "jobs.request_discount",
   request_discount: "jobs.request_discount",
   approve_discount_request: "jobs.approve_discount",
@@ -201,6 +203,8 @@ const TECH_OWNED_ACTIONS = new Set([
   "pause",
   "complete",
   "update_item_usage",
+  "save_inventory_usage",
+  "update_inventory_usage",
   "request_item_discount",
   "request_discount",
   "add_service",
@@ -340,6 +344,17 @@ export async function PATCH(
           actor
         );
         break;
+
+      case "save_inventory_usage":
+      case "update_inventory_usage": {
+        const itemsList = Array.isArray(payload.items) ? payload.items : [payload];
+        result = await JobsService.saveInventoryUsage(
+          params.id,
+          itemsList,
+          actor
+        );
+        break;
+      }
 
       case "request_item_discount":
         result = await JobsService.requestItemDiscount(
