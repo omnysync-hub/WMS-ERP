@@ -23,6 +23,7 @@ interface JobRemarksCardProps {
   showUnusedStockReason?: boolean;
   showFieldExecution?: boolean;
   showPhotosCard?: boolean;
+  showPrimaryDiagnosis?: boolean;
 }
 
 export interface ParsedEquipment {
@@ -143,12 +144,16 @@ export default function JobRemarksCard({
   showUnusedStockReason,
   showFieldExecution,
   showPhotosCard: propShowPhotosCard,
+  showPrimaryDiagnosis,
 }: JobRemarksCardProps) {
   const { activeRole, currentRole, currentPersona, hasPermission } = useRole();
   const effectiveRole = (activeRole || currentRole || currentPersona?.role || "").toLowerCase();
   const isStorekeeper = effectiveRole === "storekeeper" || effectiveRole.includes("store");
   const isAccountant = effectiveRole === "accountant" || effectiveRole.includes("account");
   const isRestrictedRole = ["dispatcher", "call_center"].includes(effectiveRole);
+
+  const canSeePrimaryDiagnosis =
+    showPrimaryDiagnosis !== undefined ? showPrimaryDiagnosis : !isStorekeeper;
 
   const canSeeFieldExecution =
     showFieldExecution !== undefined
@@ -175,6 +180,7 @@ export default function JobRemarksCard({
   }
 
   const parsed = parseJobRemarks(remarks);
+  const showPrimaryDiagnosisCard = Boolean(parsed.primaryDiagnosis && canSeePrimaryDiagnosis);
   const showPaymentCard = Boolean(parsed.customerPayment && canSeePayment);
   const showUnusedStockCard = Boolean(parsed.unusedStockReason && canSeeUnusedStock);
   const showPhotosCard = Boolean(parsed.proofPhotos && canSeePhotosCard);
@@ -182,7 +188,7 @@ export default function JobRemarksCard({
 
   const hasStructuredData =
     Boolean(parsed.equipment) ||
-    Boolean(parsed.primaryDiagnosis) ||
+    showPrimaryDiagnosisCard ||
     showFieldExecutionCard ||
     showPaymentCard ||
     showUnusedStockCard ||
@@ -300,8 +306,8 @@ export default function JobRemarksCard({
           </div>
         )}
 
-        {/* Primary Diagnosis / Reported Issue */}
-        {parsed.primaryDiagnosis && (
+        {/* Primary Diagnosis / Reported Issue (Hidden for Storekeeper) */}
+        {showPrimaryDiagnosisCard && (
           <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-4">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-900 uppercase tracking-wider mb-1.5">
               <AlertCircle className="w-3.5 h-3.5 text-amber-600" />

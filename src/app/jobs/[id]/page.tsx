@@ -750,127 +750,7 @@ export default function JobDetailPage() {
             )}
           </div>
 
-          {/* Central Warehouse Material & Inventory Issuance Card (Strictly visible only to Warehouse Storekeeper) */}
-          {isStorekeeper && (
-            <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-amber-100">
-                <div className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-amber-700" />
-                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                    Warehouse Inventory & Material Issuance
-                  </h3>
-                </div>
-              </div>
 
-              {/* Material Requests Table / List */}
-              <div className="space-y-2">
-                <p className="text-[11px] font-bold text-[#71717A] uppercase">
-                  Technician Material Requests ({job.inventoryRequests?.length || 0})
-                </p>
-                {!job.inventoryRequests || job.inventoryRequests.length === 0 ? (
-                  <div className="py-5 text-center bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] space-y-2">
-                    <p className="text-xs text-[#A1A1AA]">
-                      No material requests logged for this work order.
-                    </p>
-                    {canIssueStock && (
-                      <button
-                        type="button"
-                        onClick={() => openIssueInventoryModal()}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Issue Stock Directly
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {job.inventoryRequests.map((req: any) => {
-                      const reqQty = Number(req.qtyRequested || 0);
-                      const issuedQty = Number(req.qtyIssued || 0);
-                      const pendingQty = Math.max(0, reqQty - issuedQty);
-                      const isFullyIssued =
-                        req.status === "issued" || (reqQty > 0 && issuedQty >= reqQty);
-                      const isPartial = !isFullyIssued && issuedQty > 0;
-
-                      return (
-                        <div
-                          key={req.id}
-                          className="p-3 bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] text-xs flex items-center justify-between gap-3"
-                        >
-                          <div className="space-y-1">
-                            <p className="font-bold text-[#18181B]">{req.item}</p>
-                            <div className="flex items-center gap-2 text-[11px] text-[#71717A] flex-wrap">
-                              <span>
-                                Req Qty: <strong className="font-mono text-[#18181B]">{reqQty}</strong>
-                              </span>
-                              <span>•</span>
-                              <span className={issuedQty > 0 ? "text-emerald-700 font-semibold" : ""}>
-                                Issued: <strong className="font-mono">{issuedQty}</strong>
-                              </span>
-                              <span>•</span>
-                              <span className={pendingQty > 0 ? "text-amber-800 font-semibold" : ""}>
-                                Pending / Left: <strong className="font-mono">{pendingQty}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>{formatDateTime(req.createdAt)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <StatusBadge
-                              status={
-                                isFullyIssued
-                                  ? "issued"
-                                  : isPartial
-                                  ? "partially_issued"
-                                  : "pending"
-                              }
-                            />
-                            {!isFullyIssued && req.status !== "rejected" && canIssueStock && (
-                              <button
-                                type="button"
-                                onClick={() => openIssueInventoryModal(req)}
-                                className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-[11px] font-bold rounded-md shadow-2xs transition inline-flex items-center gap-1"
-                              >
-                                {isPartial ? "Issue Remaining Stock" : "Fulfill & Issue"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Stock Returns from Technician */}
-              {job.stockReturns && job.stockReturns.length > 0 && (
-                <div className="pt-3 border-t border-[#E4E4E7] space-y-2">
-                  <p className="text-[11px] font-bold text-[#71717A] uppercase">
-                    Unused Parts Returned to Warehouse
-                  </p>
-                  <div className="space-y-1.5">
-                    {job.stockReturns.map((ret: any) => (
-                      <div
-                        key={ret.id}
-                        className="p-2.5 bg-emerald-50/50 border border-emerald-200 rounded-lg text-xs flex items-center justify-between"
-                      >
-                        <div>
-                          <span className="font-semibold text-emerald-950">{ret.item}</span>
-                          <span className="text-[11px] text-emerald-800 ml-2 font-mono">
-                            Qty: {ret.qtyReturned}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-emerald-700">
-                          {ret.acknowledgedAt ? `✓ Acknowledged` : "Awaiting Storekeeper Sign-off"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Lifecycle State Machine Vertical Stepper (Hidden for Storekeeper) */}
           {!isStorekeeper && (
@@ -886,8 +766,148 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      {/* FULL-WIDTH VIEWPORT SECTIONS: Reconciliation, Deliverables & Settlements */}
+      {/* FULL-WIDTH VIEWPORT SECTIONS: Warehouse Material Issuance, Reconciliation, Deliverables & Settlements */}
       <div className="space-y-6">
+        {/* Central Warehouse Material & Inventory Issuance Card (Full Viewport Width for Storekeeper) */}
+        {isStorekeeper && (
+          <div className="bg-white rounded-xl border border-amber-200 shadow-xs p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-amber-100 flex-wrap gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center shrink-0">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
+                    Warehouse Inventory & Material Issuance
+                  </h3>
+                  <p className="text-[11px] text-[#71717A]">
+                    Central store material dispatches, technician parts requests & returns
+                  </p>
+                </div>
+              </div>
+              {canIssueStock && (
+                <button
+                  type="button"
+                  onClick={() => openIssueInventoryModal()}
+                  className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Issue Warehouse Stock</span>
+                </button>
+              )}
+            </div>
+
+            {/* Material Requests Table / List */}
+            <div className="space-y-2">
+              <p className="text-[11px] font-bold text-[#71717A] uppercase">
+                Technician Material Requests ({job.inventoryRequests?.length || 0})
+              </p>
+              {!job.inventoryRequests || job.inventoryRequests.length === 0 ? (
+                <div className="py-6 text-center bg-[#FAFAFA] rounded-lg border border-[#E4E4E7] space-y-2">
+                  <p className="text-xs text-[#A1A1AA]">
+                    No material requests logged for this work order.
+                  </p>
+                  {canIssueStock && (
+                    <button
+                      type="button"
+                      onClick={() => openIssueInventoryModal()}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Issue Stock Directly
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {job.inventoryRequests.map((req: any) => {
+                    const reqQty = Number(req.qtyRequested || 0);
+                    const issuedQty = Number(req.qtyIssued || 0);
+                    const pendingQty = Math.max(0, reqQty - issuedQty);
+                    const isFullyIssued =
+                      req.status === "issued" || (reqQty > 0 && issuedQty >= reqQty);
+                    const isPartial = !isFullyIssued && issuedQty > 0;
+
+                    return (
+                      <div
+                        key={req.id}
+                        className="p-3.5 bg-[#FAFAFA] hover:bg-amber-50/20 rounded-lg border border-[#E4E4E7] text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition shadow-2xs"
+                      >
+                        <div className="space-y-1">
+                          <p className="font-bold text-[#18181B] text-sm">{req.item}</p>
+                          <div className="flex items-center gap-3 text-xs text-[#71717A] flex-wrap">
+                            <span>
+                              Req Qty: <strong className="font-mono text-[#18181B]">{reqQty}</strong>
+                            </span>
+                            <span>•</span>
+                            <span className={issuedQty > 0 ? "text-emerald-700 font-semibold" : ""}>
+                              Issued: <strong className="font-mono">{issuedQty}</strong>
+                            </span>
+                            <span>•</span>
+                            <span className={pendingQty > 0 ? "text-amber-800 font-semibold" : ""}>
+                              Pending / Left: <strong className="font-mono">{pendingQty}</strong>
+                            </span>
+                            <span>•</span>
+                            <span>{formatDateTime(req.createdAt)}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StatusBadge
+                            status={
+                              isFullyIssued
+                                ? "issued"
+                                : isPartial
+                                ? "partially_issued"
+                                : "pending"
+                            }
+                          />
+                          {!isFullyIssued && req.status !== "rejected" && canIssueStock && (
+                            <button
+                              type="button"
+                              onClick={() => openIssueInventoryModal(req)}
+                              className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-lg shadow-2xs transition inline-flex items-center gap-1.5"
+                            >
+                              <Package className="w-3.5 h-3.5" />
+                              <span>{isPartial ? "Issue Remaining Stock" : "Fulfill & Issue"}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Stock Returns from Technician */}
+            {job.stockReturns && job.stockReturns.length > 0 && (
+              <div className="pt-3 border-t border-[#E4E4E7] space-y-2">
+                <p className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
+                  Unused Parts Returned to Warehouse ({job.stockReturns.length})
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {job.stockReturns.map((ret: any) => (
+                    <div
+                      key={ret.id}
+                      className="p-3 bg-emerald-50/50 border border-emerald-200 rounded-lg text-xs flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <span className="font-bold text-emerald-950 text-sm block">{ret.item}</span>
+                        <span className="text-xs text-emerald-800 font-mono">
+                          Qty Returned: <strong className="font-bold">{ret.qtyReturned}</strong>
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-medium text-emerald-800 bg-emerald-100/80 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                        {ret.acknowledgedAt ? `✓ Acknowledged` : "Awaiting Storekeeper Sign-off"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
 
         {/* ACCOUNTANT SUPER-VIEW FINANCIAL & STOCK RECONCILIATION SUMMARY */}
           {(isAccountant || isAdmin) && (
