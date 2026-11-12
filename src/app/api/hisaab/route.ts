@@ -88,6 +88,12 @@ export async function POST(req: NextRequest) {
     if (!jobBilling) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
+    if (!isJobCompleted(jobBilling)) {
+      return NextResponse.json(
+        { error: `Job ${jobBilling.jobNumber} must be completed before expenses or collections can be settled.` },
+        { status: 400 }
+      );
+    }
     const techCollects = JobsService.technicianCollectsPayment(jobBilling);
     if (!techCollects && (Number(amountCollected) || 0) > 0) {
       return NextResponse.json(

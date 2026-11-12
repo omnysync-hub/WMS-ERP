@@ -160,6 +160,8 @@ export async function GET(req: NextRequest) {
             isPartial:
               c.note?.includes("[Partially Cleared") ||
               c.note?.includes("[Remaining Balance"),
+            isJobCompleted: isJobCompleted(c.job),
+            jobStatus: c.job?.status,
           })),
           jobs: handledJobs.map((j) => ({
             id: j.id,
@@ -279,17 +281,25 @@ export async function POST(req: NextRequest) {
           status: "pending",
           ...(day ? { createdAt: { gte: day.start, lt: day.end } } : {}),
         },
+        include: { job: true },
         orderBy: { createdAt: "asc" },
       });
 
-      if (pendingClaims.length === 0) {
+      // Claims can only be cleared if the underlying job is completed
+      const eligibleClaims = pendingClaims.filter((c) => isJobCompleted(c.job));
+
+      if (eligibleClaims.length === 0) {
         return NextResponse.json(
-          { error: "No pending expense claims to clear for this technician" },
+          {
+            error: pendingClaims.length > 0
+              ? "Cannot clear expenses: the associated work order(s) must be completed by the technician first."
+              : "No pending expense claims to clear for this technician",
+          },
           { status: 400 }
         );
       }
 
-      const totalPending = pendingClaims.reduce((sum, c) => sum + c.amount, 0);
+      const totalPending = eligibleClaims.reduce((sum, c) => sum + c.amount, 0);
       let remainingFund =
         amountToPay !== undefined && amountToPay !== null && Number(amountToPay) > 0
           ? Math.min(Number(amountToPay), totalPending)
@@ -302,9 +312,9 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Disburse across technician's pending claims in sequence
+      // Disburse across technician's eligible pending claims in sequence
       const clearedClaims = [];
-      for (const claim of pendingClaims) {
+      for (const claim of eligibleClaims) {
         if (remainingFund <= 0) break;
         const payThis = Math.min(remainingFund, claim.amount);
         const updated = await JobsService.clearExpense(

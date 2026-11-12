@@ -918,14 +918,24 @@ export default function TechnicianExpensesPage() {
                                   {/* Action */}
                                   <td className="py-2.5 px-4 text-right">
                                     {claim.status === "pending" ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => openClearClaim(claim, tech.name)}
-                                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white transition shadow-2xs inline-flex items-center gap-1"
-                                      >
-                                        <CheckCircle2 className="w-3 h-3" />
-                                        Clear Claim
-                                      </button>
+                                      claim.isJobCompleted === false ? (
+                                        <span
+                                          className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-500 border border-zinc-200 text-[10px] font-semibold cursor-not-allowed inline-flex items-center gap-1"
+                                          title="Expenses can only be cleared after the job is completed by the technician."
+                                        >
+                                          <Clock className="w-3 h-3 text-amber-500" />
+                                          Job Incomplete
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => openClearClaim(claim, tech.name)}
+                                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white transition shadow-2xs inline-flex items-center gap-1"
+                                        >
+                                          <CheckCircle2 className="w-3 h-3" />
+                                          Clear Claim
+                                        </button>
+                                      )
                                     ) : (
                                       <span className="text-emerald-700 font-mono text-[11px] font-semibold">
                                         ✓ Reconciled
