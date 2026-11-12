@@ -72,8 +72,24 @@ async function main() {
           }
         }
 
-        // 4. Custom (non-standard) accounts still parked under an old -GRP code are already
-        //    re-linked by id; nothing to do. Report any leftover old-format codes.
+        // 4. Custom (non-standard) posting accounts with no parent go under the new group for their
+        //    type (e.g. a second bank account under 1110 Cash & Bank). Their codes are left as is.
+        const standardCodes = new Set(STANDARD_COA_DEFINITIONS.map((d) => d.code));
+        const groupForType: Record<string, string> = {
+          asset: "1110", contra_asset: "1510", liability: "2110", equity: "3110",
+          revenue: "4110", contra_revenue: "4120", expense: "6210", contra_expense: "5110",
+        };
+        const orphans = await tx.account.findMany({ where: { level: 4, parentId: null } });
+        for (const o of orphans) {
+          if (standardCodes.has(o.code)) continue;
+          const groupCode = groupForType[o.type];
+          const group = groupCode ? await tx.account.findUnique({ where: { code: groupCode } }) : null;
+          if (!group) continue;
+          await tx.account.update({ where: { id: o.id }, data: { parentId: group.id } });
+          log.push(`parent  ${o.code.padEnd(6)} ${o.name} -> ${groupCode}`);
+        }
+
+        // Report any leftover old-format group codes (custom groups are left as is).
         const leftovers = await tx.account.findMany({ where: { code: { endsWith: "-GRP" } }, select: { code: true, name: true } });
         for (const l of leftovers) log.push(`WARN    leftover group ${l.code} ${l.name} (custom group, left as is)`);
 
