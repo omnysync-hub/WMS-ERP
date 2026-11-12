@@ -410,7 +410,7 @@ function HrmPayrollContent() {
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
-      setNotification("Payroll approved! Ready for finance payout disbursement.");
+      setNotification("Payroll approved: salaries posted to Salaries Payable (WHT and EOBI booked). Ready for payment.");
       setSelectedPayrollRunForDetail((prev: any) =>
         prev?.id === runId ? { ...prev, status: "Approved" } : prev
       );
@@ -422,9 +422,10 @@ function HrmPayrollContent() {
 
   // Handle Payroll Payout
   const handleDisbursePayroll = async (runId: string) => {
-    if (!confirm("Disburse payroll now? This will issue payment via WPS Bank transfer and record salary expense.")) {
+    if (!confirm("Pay this payroll now? This clears Salaries Payable against the operating bank account.")) {
       return;
     }
+    const paidFromAccountCode = (prompt("Pay from which cash/bank account code? (blank = mapped payroll bank, e.g. 11103 Bank, 11101 Cash)", "") || "").trim();
     try {
       const res = await fetch("/api/hrm/payroll", {
         method: "POST",
@@ -432,10 +433,11 @@ function HrmPayrollContent() {
         body: JSON.stringify({
           action: "disburse",
           runId,
+          ...(paidFromAccountCode ? { paidFromAccountCode } : {}),
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
-      setNotification("Payroll disbursed and posted through Accounts Posting Engine!");
+      setNotification("Payroll paid: Salaries Payable cleared against bank / cash.");
       setSelectedPayrollRunForDetail((prev: any) =>
         prev?.id === runId ? { ...prev, status: "Paid" } : prev
       );

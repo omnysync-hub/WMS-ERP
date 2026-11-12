@@ -272,6 +272,8 @@ export default function CoaManagerModal({
                   <option value="revenue">Revenue</option>
                   <option value="expense">Expense</option>
                   <option value="contra_revenue">Contra-Revenue</option>
+                  <option value="contra_asset">Contra-Asset</option>
+                  <option value="contra_expense">Contra-Expense</option>
                 </select>
               </div>
             </div>

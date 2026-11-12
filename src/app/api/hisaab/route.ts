@@ -131,12 +131,10 @@ export async function POST(req: NextRequest) {
     // If the technician already reported a field collection at completeJob, that row is
     // CONFIRMED/CONSUMED here (updated in place, status -> posted) instead of creating a
     // second settlement, and GL is synced to the confirmed amount exactly once (delta-only).
-    const [cashAccount, arAccount] = collected > 0
-      ? await Promise.all([
-          AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" }),
-          AccountMappingService.resolveAccount({ transactionType: "settlement_collection_receivable" }),
-        ])
-      : [null, null];
+    // Field collection -> 11105 Cash with Technician (surrendered to the vault after expenses, step 4b).
+    const cashAccount = collected > 0
+      ? await AccountMappingService.resolveAccount({ transactionType: "settlement_collection_vault" })
+      : null;
     const meansLabel = paymentMeans ? `via ${String(paymentMeans).toUpperCase()}` : "in cash";
 
     const settlement = await prisma.$transaction(async (tx) => {
@@ -191,12 +189,14 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      if (cashAccount && arAccount) {
+      if (cashAccount) {
+        // Invoiced job -> Cr AR; not invoiced yet -> Cr 21105 Customer Advances.
+        const creditSide = await JobsService.collectionCreditAccount(tx, jobId);
         const gl = await JobsService.syncSettlementCollectionGL(tx, {
           settlementId: saved.id,
           targetAmount: collected,
           vaultAccountId: cashAccount.id,
-          receivableAccountId: arAccount.id,
+          receivableAccountId: creditSide.account.id,
           memo: `Field collection ${meansLabel} from customer on Job (Settled by ${settledBy})`,
           postedBy: settledBy,
           refType: "settlement_collection",
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
         if (gl.delta !== 0 && jobBilling.customerId && !jobBilling.isFoc) {
           await SubLedgerService.recordCustomerEntry({
             customerId: jobBilling.customerId,
-            entryType: "payment",
+            entryType: creditSide.isAdvance ? "advance" : "payment",
             documentNumber: `REC-${jobBilling.jobNumber}`,
             debit: gl.delta < 0 ? Math.abs(gl.delta) : 0,
             credit: gl.delta > 0 ? gl.delta : 0,
@@ -242,9 +242,13 @@ export async function POST(req: NextRequest) {
 
         // Accounts lookup via AccountMappingService
         const expenseCostingAccount = await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_expense" });
+        // Default: paid out of the technician's field collection (Cr 11105). If he collected nothing,
+        // the office pays him from petty cash (expense_reimbursement_disbursing) instead.
         const disbursingAccount = disbursingAccountCode
           ? await AccountsPostingService.getCashBankAccountByCode(disbursingAccountCode)
-          : await AccountMappingService.resolveAccount({ transactionType: "tech_expense_settlement_vault" });
+          : await AccountMappingService.resolveAccount({
+              transactionType: collected > 0 ? "tech_expense_settlement_vault" : "expense_reimbursement_disbursing",
+            });
 
         // Claim updates, the GL entry and the technician ledger are saved together (all or nothing).
         await prisma.$transaction(async (tx) => {
@@ -378,6 +382,21 @@ export async function POST(req: NextRequest) {
           });
         }, { maxWait: 10000, timeout: 30000 });
       }
+    }
+
+    // 4b. Surrender: what is left in 11105 Cash with Technician for this settlement (collection less
+    // expenses paid out of it) is handed to the office vault: Dr 11101 / Cr 11105.
+    if (collected > 0) {
+      await prisma.$transaction(
+        (tx) =>
+          JobsService.sweepTechnicianCashToVault(tx, {
+            settlementId: settlement.id,
+            postedBy: settledBy,
+            technicianId,
+            memo: `Daily Hisaab: technician cash surrendered to vault for Job ${jobBilling.jobNumber}`,
+          }),
+        { maxWait: 10000, timeout: 30000 }
+      );
     }
 
     // 6. Sync & Lock Record (if requested by accountant)

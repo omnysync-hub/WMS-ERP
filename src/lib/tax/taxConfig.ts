@@ -8,7 +8,12 @@
  */
 
 export type TaxKind = "sales_tax" | "services_tax" | "withholding" | "other";
-export type TaxAccountRole = "sales_tax_payable" | "input_tax_receivable" | "vendor_payment_wht" | "wht_receivable";
+export type TaxAccountRole =
+  | "sales_tax_payable"
+  | "services_tax_payable"
+  | "input_tax_receivable"
+  | "vendor_payment_wht"
+  | "wht_receivable";
 
 export type TaxRateConfig = {
   id: string;
@@ -143,16 +148,17 @@ export function normalizeTaxPolicy(input: unknown): TaxPolicy {
 
 export const TAX_KINDS: { value: TaxKind; label: string; defaultRole: TaxAccountRole; appliesTo: TaxRateConfig["appliesTo"] }[] = [
   { value: "sales_tax", label: "Sales tax / GST (FBR)", defaultRole: "sales_tax_payable", appliesTo: "both" },
-  { value: "services_tax", label: "Services tax (PRA / SRB / KPRA / BRA)", defaultRole: "sales_tax_payable", appliesTo: "sales" },
+  { value: "services_tax", label: "Services tax (PRA / SRB / KPRA / BRA)", defaultRole: "services_tax_payable", appliesTo: "sales" },
   { value: "withholding", label: "Withholding tax (WHT)", defaultRole: "vendor_payment_wht", appliesTo: "purchases" },
   { value: "other", label: "Other", defaultRole: "sales_tax_payable", appliesTo: "both" },
 ];
 
 export const TAX_ACCOUNT_ROLES: { value: TaxAccountRole; label: string; defaultCode: string }[] = [
-  { value: "sales_tax_payable", label: "Sales tax payable (output tax)", defaultCode: "2210" },
-  { value: "input_tax_receivable", label: "Input tax (claimable) - 1170 Input Sales Tax Recoverable", defaultCode: "1170" },
-  { value: "vendor_payment_wht", label: "WHT payable (deducted from suppliers)", defaultCode: "2200" },
-  { value: "wht_receivable", label: "WHT deducted by customers - 1160 Advance Income Tax", defaultCode: "1160" },
+  { value: "sales_tax_payable", label: "Output sales tax payable - FBR goods (21201)", defaultCode: "21201" },
+  { value: "services_tax_payable", label: "Sales tax on services payable - PRA/SRB (21202)", defaultCode: "21202" },
+  { value: "input_tax_receivable", label: "Input tax (claimable) - 11204 Input Sales Tax Recoverable", defaultCode: "11204" },
+  { value: "vendor_payment_wht", label: "WHT payable - suppliers Sec 153 (21203)", defaultCode: "21203" },
+  { value: "wht_receivable", label: "WHT deducted by customers - 11203 Advance Income Tax", defaultCode: "11203" },
 ];
 
 export function normalizeTaxRates(input: unknown): TaxRateConfig[] {
@@ -161,9 +167,12 @@ export function normalizeTaxRates(input: unknown): TaxRateConfig[] {
     .filter((r: any) => r && typeof r === "object")
     .map((r: any, i: number): TaxRateConfig => {
       const type: TaxKind = ["sales_tax", "services_tax", "withholding", "other"].includes(r.type) ? r.type : "other";
-      const role = TAX_ACCOUNT_ROLES.some((x) => x.value === r.accountRole)
+      let role = TAX_ACCOUNT_ROLES.some((x) => x.value === r.accountRole)
         ? (r.accountRole as TaxAccountRole)
         : TAX_KINDS.find((k) => k.value === type)!.defaultRole;
+      // Services tax (PRA / SRB) is filed separately from FBR goods tax: rates saved before the
+      // split (role "sales_tax_payable") now post to the services tax account.
+      if (type === "services_tax" && role === "sales_tax_payable") role = "services_tax_payable";
       return {
         id: String(r.id || `tax-${i + 1}`),
         name: String(r.name || "").trim(),

@@ -25,10 +25,13 @@ export async function GET(req: NextRequest) {
   }
 
   const roles = [
-    { role: "sales_tax_payable", label: "Output tax (sales tax charged to customers)", normal: "credit" as const },
+    { role: "sales_tax_payable", label: "Output sales tax on goods - FBR (21201)", normal: "credit" as const },
+    { role: "services_tax_payable", label: "Sales tax on services - PRA / SRB (21202)", normal: "credit" as const },
     { role: "input_tax_receivable", label: "Input tax (claimable on supplier bills)", normal: "debit" as const },
     { role: "vendor_payment_wht", label: "WHT deducted from suppliers (payable to FBR)", normal: "credit" as const },
     { role: "wht_receivable", label: "WHT deducted by customers (claimable)", normal: "debit" as const },
+    { role: "payroll_wht_payable", label: "WHT deducted from salaries - Sec 149 (21204)", normal: "credit" as const },
+    { role: "payroll_eobi_payable", label: "EOBI / PESSI payable (21205)", normal: "credit" as const },
   ];
 
   const gl = [];

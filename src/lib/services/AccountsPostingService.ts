@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { currentAccountCode } from "@/lib/constants/chartOfAccountsHierarchy";
 
 /** Prisma client or interactive-transaction client. */
 export type DbClient = Prisma.TransactionClient | typeof prisma;
@@ -448,9 +449,9 @@ export class AccountsPostingService {
    * Does NOT auto-provision or create accounts on the fly.
    */
   static async getAccountByCode(code: string, db: DbClient = prisma) {
-    const account = await db.account.findUnique({
-      where: { code },
-    });
+    const account =
+      (await db.account.findUnique({ where: { code } })) ||
+      (await db.account.findUnique({ where: { code: currentAccountCode(code) } }));
     if (!account) {
       throw new Error(`Account with code '${code}' not found in Chart of Accounts.`);
     }
@@ -459,14 +460,20 @@ export class AccountsPostingService {
 
   /**
    * Resolve a money account (cash / bank) by code. Rejects anything that is not an active
-   * posting account under the "Cash & Bank" group (1110-GRP) or linked to a Financial Account,
+   * posting account under the "Cash & Bank" group (1110) or linked to a Financial Account,
    * so receipts / payments can never be booked against revenue, expense or AR by mistake.
    */
   static async getCashBankAccountByCode(code: string, db: DbClient = prisma) {
-    const account = await db.account.findUnique({
-      where: { code },
-      include: { parent: { select: { code: true } }, financialAccount: { select: { id: true } } },
-    });
+    // Old 4-digit codes (e.g. "1000", "1010") still sent by older clients resolve to the 5-digit ledger.
+    const account =
+      (await db.account.findUnique({
+        where: { code },
+        include: { parent: { select: { code: true } }, financialAccount: { select: { id: true } } },
+      })) ||
+      (await db.account.findUnique({
+        where: { code: currentAccountCode(code) },
+        include: { parent: { select: { code: true } }, financialAccount: { select: { id: true } } },
+      }));
     if (!account) throw new Error(`Account with code '${code}' not found in Chart of Accounts.`);
     if (!AccountsPostingService.isCashBankAccount(account)) {
       throw new Error(`Account ${account.code} (${account.name}) is not a cash or bank account. Choose a Cash & Bank account.`);
@@ -485,7 +492,7 @@ export class AccountsPostingService {
       account.type === "asset" &&
       account.level === 4 &&
       account.isActive &&
-      (account.parent?.code === "1110-GRP" || !!account.financialAccount)
+      (account.parent?.code === "1110" || !!account.financialAccount)
     );
   }
 }

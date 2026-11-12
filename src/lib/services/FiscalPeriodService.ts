@@ -162,7 +162,7 @@ export class FiscalPeriodService {
     // Fetch all nominal accounts (Revenue & Expense) with their journal lines for this fiscal year
     const nominalAccounts = await prisma.account.findMany({
       where: {
-        type: { in: ["revenue", "contra_revenue", "expense"] },
+        type: { in: ["revenue", "contra_revenue", "expense", "contra_expense"] },
         isActive: true,
       },
       include: {
@@ -184,27 +184,18 @@ export class FiscalPeriodService {
     const closingLines: Array<{ accountId: string; debit: number; credit: number }> = [];
     let netIncome = 0; // Total Revenue - Total Expenses
 
+    // Works for every P&L type (revenue, contra-revenue, expense, contra-expense) and for
+    // balances on the "wrong" side: each account is closed by posting its net debit/credit back.
     for (const acc of nominalAccounts) {
-      let balance = 0;
-      for (const line of acc.journalLines) {
-        if (acc.type === "revenue") {
-          balance += line.credit - line.debit;
-        } else if (acc.type === "contra_revenue" || acc.type === "expense") {
-          balance += line.debit - line.credit;
-        }
-      }
-
-      const roundedBal = Math.round(balance * 100) / 100;
-      if (Math.abs(roundedBal) > 0.01) {
-        if (acc.type === "revenue") {
-          // Zero out revenue: Debit Revenue for balance, Credit Retained Earnings
-          closingLines.push({ accountId: acc.id, debit: roundedBal, credit: 0 });
-          netIncome += roundedBal;
-        } else if (acc.type === "contra_revenue" || acc.type === "expense") {
-          // Zero out expense: Credit Expense for balance, Debit Retained Earnings
-          closingLines.push({ accountId: acc.id, debit: 0, credit: roundedBal });
-          netIncome -= roundedBal;
-        }
+      const netDebit = Math.round(acc.journalLines.reduce((s, l) => s + (l.debit - l.credit), 0) * 100) / 100;
+      if (Math.abs(netDebit) > 0.01) {
+        closingLines.push(
+          netDebit > 0
+            ? { accountId: acc.id, debit: 0, credit: netDebit }
+            : { accountId: acc.id, debit: -netDebit, credit: 0 }
+        );
+        // Net income = credits - debits across all P&L accounts.
+        netIncome -= netDebit;
       }
     }
 

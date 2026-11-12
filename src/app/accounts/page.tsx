@@ -139,7 +139,7 @@ export default function AccountsPage() {
   const [selectedJobForPayment, setSelectedJobForPayment] = useState<any>(null);
   const [jobPaymentAmount, setJobPaymentAmount] = useState("");
   const [jobPaymentMethod, setJobPaymentMethod] = useState("bank_transfer");
-  const [jobPaymentAccount, setJobPaymentAccount] = useState("1010");
+  const [jobPaymentAccount, setJobPaymentAccount] = useState("11103");
   const [jobPaymentNotes, setJobPaymentNotes] = useState("");
   const [isSubmittingJobPayment, setIsSubmittingJobPayment] = useState(false);
 
@@ -170,7 +170,7 @@ export default function AccountsPage() {
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [newExpensePayee, setNewExpensePayee] = useState("");
   const [newExpenseAccount, setNewExpenseAccount] = useState("");
-  const [newExpenseDisbursing, setNewExpenseDisbursing] = useState("1000");
+  const [newExpenseDisbursing, setNewExpenseDisbursing] = useState("11101");
   const [newExpenseAmount, setNewExpenseAmount] = useState("");
   const [newExpenseMemo, setNewExpenseMemo] = useState("");
   const [newExpenseRef, setNewExpenseRef] = useState("");
@@ -209,7 +209,7 @@ export default function AccountsPage() {
   const [coaLevelFilter, setCoaLevelFilter] = useState<"ALL" | "1" | "2" | "3" | "4">("ALL");
   const [coaTypeFilter, setCoaTypeFilter] = useState<string>("ALL");
   const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(
-    new Set(["1000-GRP", "1100-GRP", "2000-GRP", "2100-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
+    new Set(["10", "11", "20", "21", "30", "40", "50", "60"])
   );
   const [selectedAccountDrilldown, setSelectedAccountDrilldown] = useState<any>(null);
   const [accountLedgerLines, setAccountLedgerLines] = useState<any[]>([]);
@@ -230,9 +230,9 @@ export default function AccountsPage() {
   const [cashbookLoading, setCashbookLoading] = useState(false);
   const [showRecordCashModal, setShowRecordCashModal] = useState(false);
   const [cashFormType, setCashFormType] = useState<"receipt" | "payment" | "transfer">("receipt");
-  const [cashFormAccount, setCashFormAccount] = useState("1000");
-  const [cashFormContra, setCashFormContra] = useState("4000");
-  const [cashFormTransferTo, setCashFormTransferTo] = useState("1010");
+  const [cashFormAccount, setCashFormAccount] = useState("11101");
+  const [cashFormContra, setCashFormContra] = useState("41101");
+  const [cashFormTransferTo, setCashFormTransferTo] = useState("11103");
   const [cashFormAmount, setCashFormAmount] = useState("");
   const [cashFormMemo, setCashFormMemo] = useState("");
   const [cashFormParty, setCashFormParty] = useState("");
@@ -253,7 +253,7 @@ export default function AccountsPage() {
   const [amountCollected, setAmountCollected] = useState("");
   const [customerPaymentMeans, setCustomerPaymentMeans] = useState("cash");
   const [selectedPaidExpenses, setSelectedPaidExpenses] = useState<string[]>([]);
-  const [disbursingAccountCode, setDisbursingAccountCode] = useState("1000");
+  const [disbursingAccountCode, setDisbursingAccountCode] = useState("11101");
   const [adhocExpenses, setAdhocExpenses] = useState<{ amount: number; note: string }[]>([]);
   const [newAdhocAmount, setNewAdhocAmount] = useState("");
   const [newAdhocNote, setNewAdhocNote] = useState("");
@@ -600,7 +600,7 @@ export default function AccountsPage() {
     });
     setJobPaymentAmount(String(job.balanceDue ?? job.amount ?? ""));
     setJobPaymentMethod("bank_transfer");
-    setJobPaymentAccount(cashAccounts[0]?.code || "1010");
+    setJobPaymentAccount(cashAccounts[0]?.code || "11103");
     setJobPaymentNotes(
       job.isFoc
         ? `FOC settlement payment for Work Order ${job.jobNumber} (${defaultCompany || job.companyName || "Principal Partner"})`
@@ -703,7 +703,7 @@ export default function AccountsPage() {
       if (isDbVendor) {
         payload.vendorId = selectedVendor.id;
         payload.grossAmount = Number(vendorPayAmount);
-        payload.paymentAccountCode = "1000";
+        payload.paymentAccountCode = "11101";
         payload.cprNumber = vendorCprNumber || undefined;
       } else {
         payload.amount = Number(vendorPayAmount);
@@ -2369,6 +2369,8 @@ export default function AccountsPage() {
                     <option value="revenue">Revenue</option>
                     <option value="expense">Expenses</option>
                     <option value="contra_revenue">Contra-Revenue</option>
+                    <option value="contra_asset">Contra-Asset</option>
+                    <option value="contra_expense">Contra-Expense</option>
                   </select>
                 </div>
 
@@ -4247,37 +4249,37 @@ export default function AccountsPage() {
                   >
                     {cashFormType === "receipt" ? (
                       <>
-                        <option value="4000">4000 — Service Revenue – Installation</option>
-                        <option value="4001">4001 — Service Revenue – Repair & Maintenance</option>
-                        <option value="4010">4010 — Goods Revenue – Parts & Products Sold to Customers</option>
-                        <option value="4002">4002 — POS Counter Sales Revenue</option>
-                        <option value="4900">4900 — Other Income</option>
-                        <option value="1100">1100 — Accounts Receivable (Customer Clearance)</option>
-                        <option value="3000">3000 — Owner Capital / Equity Injection</option>
+                        <option value="41101">41101 — Service Revenue – Installation</option>
+                        <option value="41102">41102 — Service Revenue – Repair & Maintenance</option>
+                        <option value="41103">41103 — Goods Revenue – Parts & Products Sold to Customers</option>
+                        <option value="41104">41104 — POS Counter Sales Revenue</option>
+                        <option value="42101">42101 — Other Income</option>
+                        <option value="11201">11201 — Accounts Receivable (Customer Clearance)</option>
+                        <option value="31101">31101 — Owner Capital / Equity Injection</option>
                       </>
                     ) : (
                       <>
-                        <option value="5100">5100 — Job Fuel & Conveyance</option>
-                        <option value="5110">5110 — Job Food & Meals</option>
-                        <option value="5130">5130 — Other Direct Job Costs</option>
-                        <option value="6100">6100 — Staff Travel & Conveyance (Non-Job)</option>
-                        <option value="6200">6200 — General Office Overheads</option>
-                        <option value="6210">6210 — Office Supplies & Stationery</option>
-                        <option value="6220">6220 — Executive Meals & Entertainment</option>
-                        <option value="6230">6230 — Repairs & Maintenance</option>
-                        <option value="6240">6240 — Vehicle Running Costs</option>
-                        <option value="6310">6310 — Electricity</option>
-                        <option value="6320">6320 — Water</option>
-                        <option value="6330">6330 — Internet</option>
-                        <option value="6340">6340 — Telephone & Mobile</option>
-                        <option value="6400">6400 — Rent</option>
-                        <option value="6500">6500 — Bank Charges</option>
-                        <option value="6600">6600 — Marketing & Advertising</option>
-                        <option value="6900">6900 — Miscellaneous Expenses</option>
-                        <option value="6000">6000 — Salaries & Wages</option>
-                        <option value="2000">2000 — Accounts Payable (Vendor Payment)</option>
-                        <option value="2100">2100 — Technician Reimbursement Settlement</option>
-                        <option value="3100">3100 — Owner Drawings</option>
+                        <option value="52101">52101 — Job Fuel & Conveyance</option>
+                        <option value="52102">52102 — Job Food & Meals</option>
+                        <option value="52105">52105 — Other Direct Job Costs</option>
+                        <option value="62101">62101 — Staff Travel & Conveyance (Non-Job)</option>
+                        <option value="62102">62102 — General Office Overheads</option>
+                        <option value="62103">62103 — Office Supplies & Stationery</option>
+                        <option value="62104">62104 — Executive Meals & Entertainment</option>
+                        <option value="62105">62105 — Repairs & Maintenance</option>
+                        <option value="62106">62106 — Vehicle Running Costs</option>
+                        <option value="63101">63101 — Electricity</option>
+                        <option value="63102">63102 — Water</option>
+                        <option value="63103">63103 — Internet</option>
+                        <option value="63104">63104 — Telephone & Mobile</option>
+                        <option value="64102">64102 — Rent</option>
+                        <option value="64103">64103 — Bank Charges</option>
+                        <option value="64104">64104 — Marketing & Advertising</option>
+                        <option value="64109">64109 — Miscellaneous Expenses</option>
+                        <option value="61101">61101 — Salaries & Wages</option>
+                        <option value="21101">21101 — Accounts Payable (Vendor Payment)</option>
+                        <option value="21103">21103 — Technician Reimbursement Settlement</option>
+                        <option value="31102">31102 — Owner Drawings</option>
                       </>
                     )}
                   </select>

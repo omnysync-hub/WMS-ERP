@@ -59,7 +59,7 @@ export default function PaymentsTab({
     return "";
   });
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
-  const [bankAccountId, setBankAccountId] = useState("1010");
+  const [bankAccountId, setBankAccountId] = useState("11103");
   const [accountingConfig, setAccountingConfig] = useState<any>(null);
   const [reference, setReference] = useState("");
   const [whtAmount, setWhtAmount] = useState("0");

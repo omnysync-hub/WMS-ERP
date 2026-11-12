@@ -83,9 +83,9 @@ export default function FixedAssetsTab() {
           salvageValue: Number(salvageValue) || 0,
           usefulLifeMonths: Number(usefulLifeMonths) || 60,
           inServiceDate,
-          assetAccountCode: "1500",
-          depExpenseAccountCode: "6350",
-          accumDepAccountCode: "1590",
+          assetAccountCode: "15101",
+          depExpenseAccountCode: "64101",
+          accumDepAccountCode: "15190",
         }),
       });
       const data = await res.json();

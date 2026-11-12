@@ -15,7 +15,7 @@ model Account {
   id               String                @id @default(uuid())
   code             String                @unique // NOTE: per-company @@unique([companyId, code]) deferred — single-company DEFAULT polish; changing would need careful data migration
   name             String
-  type             String // asset, liability, equity, revenue, expense, contra_revenue
+  type             String // asset, contra_asset, liability, equity, revenue, contra_revenue, expense, contra_expense
   description      String?
   isActive         Boolean               @default(true)
   isSystem         Boolean               @default(false)
@@ -803,7 +803,7 @@ model CustomerLedgerEntry {
   customerId     String
   customer       Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   postingDate    DateTime  @default(now())
-  entryType      String // invoice, payment, credit_note, opening_balance
+  entryType      String // invoice, payment, credit_note, opening_balance, advance
   documentNumber String // INV-2026-0001, REC-2026-0001
   journalEntryId String?
   debit          Float     @default(0)
@@ -838,7 +838,7 @@ model VendorLedgerEntry {
 
 model BankStatementLine {
   id                   String    @id @default(uuid())
-  bankAccountId        String // Level 4 Account code or ID, e.g. "1010"
+  bankAccountId        String // Level 4 Account code or ID, e.g. "11103"
   statementDate        DateTime
   valueDate            DateTime?
   description          String
@@ -865,9 +865,9 @@ model FixedAsset {
   salvageValue            Float    @default(0)
   usefulLifeMonths        Int      @default(60)
   depreciationMethod      String   @default("straight_line") // straight_line
-  assetAccountCode        String   @default("1500") // schema default only; create path resolves via fixed_asset_cost mapping
-  accumDeprAccountCode    String   @default("1590") // resolved via accumulated_depreciation mapping at create time
-  deprExpenseAccountCode  String   @default("6350") // resolved via depreciation_expense mapping at create time
+  assetAccountCode        String   @default("15101") // schema default only; create path resolves via fixed_asset_cost mapping
+  accumDeprAccountCode    String   @default("15190") // resolved via accumulated_depreciation mapping at create time
+  deprExpenseAccountCode  String   @default("64101") // resolved via depreciation_expense mapping at create time
   accumulatedDepreciation Float    @default(0)
   bookValue               Float
   lastDepreciationPeriod  String? // e.g. "2026-09"
@@ -1049,6 +1049,12 @@ model Employee {
   employmentType         String                       @default("Full-time") // Full-time, Contract, Probation, Part-time
   joinDate               DateTime                     @default(now())
   salary                 Float                        @default(0)
+  /// Monthly income tax withheld from salary (Sec 149) -> 21204 WHT Payable – Salaries
+  monthlyIncomeTax       Float                        @default(0)
+  /// Monthly EOBI / PESSI deducted from the employee -> 21205 EOBI / PESSI Payable
+  eobiEmployeeShare      Float                        @default(0)
+  /// Monthly employer EOBI / PESSI contribution (61102 expense / 21205 payable)
+  eobiEmployerShare      Float                        @default(0)
   status                 String                       @default("Active") // Active, On Leave, Resigning, Terminated, Inactive
   probationEndDate       DateTime?
   probationStatus        String?                      @default("Confirmed") // On Probation, Confirmed
@@ -1174,12 +1180,15 @@ model EmployeeAdvance {
 model PayrollRun {
   id              String    @id @default(uuid())
   period          String // e.g. "September 2026"
-  status          String    @default("Draft") // Draft, Approved, Paid
+  status          String    @default("Draft") // Draft, Approved (accrued: Dr salary exp / Cr 21106 Salaries Payable), Paid
   approvedBy      String?
   approvedAt      DateTime?
   totalGross      Float     @default(0)
   totalDeductions Float     @default(0)
   totalNet        Float     @default(0)
+  /// Step 2 payment: Dr 21106 Salaries Payable / Cr this cash/bank account
+  paidFromAccountCode String?
+  paidAt          DateTime?
   payslips        Payslip[]
   createdAt       DateTime  @default(now())
 }
@@ -1192,6 +1201,12 @@ model Payslip {
   employee          Employee   @relation(fields: [employeeId], references: [id])
   grossSalary       Float
   advanceDeduction  Float      @default(0)
+  /// Income tax withheld (Sec 149) -> 21204
+  taxDeduction      Float      @default(0)
+  /// Employee EOBI / PESSI share -> 21205
+  eobiDeduction     Float      @default(0)
+  /// Employer EOBI / PESSI share (expense 61102, payable 21205) - not deducted from net pay
+  employerEobi      Float      @default(0)
   expenseAdjustment Float      @default(0)
   netSalary         Float
   settledClaimIds   String[]   @default([]) // carried-forward JobExpenseClaim ids included in this payslip

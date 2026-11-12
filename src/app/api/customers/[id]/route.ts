@@ -5,6 +5,7 @@ import { requireJobsPermission, requirePermission } from "@/lib/auth/erpActor";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
+import { CustomerReceiptService, type ReceiptMode } from "@/lib/services/CustomerReceiptService";
 import { AuditService } from "@/lib/services/AuditService";
 
 export async function GET(
@@ -140,6 +141,7 @@ export async function POST(
     const { id } = await params;
     const body = await req.json();
     const { entryType, documentNumber, notes, receivingAccountCode } = body;
+    const receiptMode = ["cash", "bank", "wallet"].includes(String(body.receiptMode)) ? (body.receiptMode as ReceiptMode) : null;
     const actorName = gate.actor.name || "Accounts Officer";
     const amount = Math.round(Number(body.amount) * 100) / 100;
 
@@ -172,21 +174,72 @@ export async function POST(
       });
       let contraAccountId: string;
       if (entryType === "payment") {
-        // Money can only be received into a cash or bank account.
-        const explicit = typeof receivingAccountCode === "string" && receivingAccountCode.trim()
-          ? await AccountsPostingService.getCashBankAccountByCode(receivingAccountCode.trim(), tx)
+        // Money can only be received into a cash or bank account; the receipt mode picks it
+        // (Cash -> 11101, Bank -> 11103, Wallet -> 11104) unless an account is chosen explicitly.
+        const receiving = await CustomerReceiptService.receivingAccount(tx, {
+          receivingAccountCode: typeof receivingAccountCode === "string" ? receivingAccountCode.trim() : null,
+          mode: receiptMode,
+          paymentMethod: body.paymentMethod,
+        });
+        // On-account payment: it clears what the customer owes on AR; anything beyond that is an
+        // advance (Cr 21105), so AR is never pushed negative.
+        const arAgg = await tx.journalLine.aggregate({
+          where: {
+            accountId: arAccount.id,
+            partyType: "customer",
+            partyId: customer.id,
+            journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
+          },
+          _sum: { debit: true, credit: true },
+        });
+        const arOpen = Math.max(0, Math.round(((arAgg._sum.debit || 0) - (arAgg._sum.credit || 0)) * 100) / 100);
+        const toAr = Math.min(amount, arOpen);
+        const toAdvance = Math.round((amount - toAr) * 100) / 100;
+        if (toAr <= 0.005) {
+          // Nothing owed: the whole payment is an advance.
+          return CustomerReceiptService.recordAdvance(tx, {
+            customerId: customer.id,
+            amount,
+            receivingAccount: receiving,
+            memo: `Customer advance ${docNo} - ${customer.name}`,
+            postedBy: actorName,
+            refId: customer.id,
+            documentNumber: docNo,
+          }).then(() => tx.customerLedgerEntry.findFirst({ where: { customerId: customer.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }));
+        }
+        const advAccount = toAdvance > 0.005
+          ? await AccountMappingService.resolveAccount({ transactionType: "customer_advance_liability", prismaClient: tx })
           : null;
-        const receiving = explicit || (await AccountMappingService.resolveAccount({
-          transactionType: "customer_payment_receiving",
-          prismaClient: tx,
-        }));
-        contraAccountId = receiving.id;
+        const journal = await AccountsPostingService.post({
+          memo: `Customer payment ${docNo} - ${customer.name}${advAccount ? ` (PKR ${toAdvance} kept as advance)` : ""}`,
+          refType: "customer_payment",
+          refId: customer.id,
+          postedBy: actorName,
+          lines: [
+            { accountId: receiving.id, debit: amount, credit: 0 },
+            { accountId: arAccount.id, debit: 0, credit: toAr, partyType: "customer", partyId: customer.id },
+            ...(advAccount
+              ? [{ accountId: advAccount.id, debit: 0, credit: toAdvance, partyType: "customer", partyId: customer.id }]
+              : []),
+          ],
+          tx,
+        });
+        return SubLedgerService.recordCustomerEntry({
+          customerId: customer.id,
+          entryType: "payment",
+          documentNumber: docNo,
+          journalEntryId: journal.id,
+          debit: 0,
+          credit: amount,
+          notes: (typeof notes === "string" && notes.trim().slice(0, 500)) || `Customer payment recorded by ${actorName}`,
+          tx,
+        });
       } else {
-        // Credit note reduces revenue (Discounts Allowed); a debit adjustment is Other Income.
+        // Credit note = sales return (41201 Sales Returns & Credit Notes); a manual invoice is service
+        // revenue; any other debit adjustment is Other Income.
         const revenue = await AccountMappingService.resolveAccount({
-          // Manual invoices are service revenue (4020); other debit adjustments stay Other Income.
           transactionType:
-            entryType === "credit_note" ? "job_revenue_discount" : entryType === "invoice" ? "job_revenue_repair" : "other_income",
+            entryType === "credit_note" ? "sales_return_contra" : entryType === "invoice" ? "job_revenue_repair" : "other_income",
           prismaClient: tx,
         });
         contraAccountId = revenue.id;

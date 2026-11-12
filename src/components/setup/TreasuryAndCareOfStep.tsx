@@ -19,7 +19,7 @@ const blankCareOf = (ledgerAccountId = "") => ({ _key: key(), id: "", companyNam
 
 export default function TreasuryAndCareOfStep(props: Props) {
   const assetAccounts = props.accounts.filter((account) => account.type === "asset" && account.level >= 4 && account.isActive);
-  const defaultAr = assetAccounts.find((account) => account.code === "1100")?.id || "";
+  const defaultAr = assetAccounts.find((account) => account.code === "11201")?.id || "";
   const [financialAccounts, setFinancialAccounts] = useState<any[]>([blankFinancial()]);
   const [careOfParties, setCareOfParties] = useState<any[]>([]);
 

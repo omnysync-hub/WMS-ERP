@@ -4,12 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { JobsService } from "@/lib/services/JobsService";
+import { CustomerReceiptService, type ReceiptMode } from "@/lib/services/CustomerReceiptService";
 import { AuditService } from "@/lib/services/AuditService";
 import {
   buildChartOfAccountsTree,
   flattenChartOfAccounts,
   STANDARD_COA_DEFINITIONS,
 } from "@/lib/constants/chartOfAccountsHierarchy";
+import { ACCOUNT_TYPES, isDebitNormal, signedLineBalance, typeFitsGroup } from "@/lib/accountTypes";
 import { FinancialReportingService } from "@/lib/services/FinancialReportingService";
 import { BankReconciliationService } from "@/lib/services/BankReconciliationService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
@@ -136,7 +138,7 @@ export async function GET(req: NextRequest) {
           : await prisma.account.findMany({
               where: {
                 OR: [
-                  { code: "1010" },
+                  { code: "11103" },
                   { code: { startsWith: "101" } },
                   { name: { contains: "Bank", mode: "insensitive" } },
                 ],
@@ -1157,7 +1159,7 @@ export async function GET(req: NextRequest) {
       }
 
       let runningBalance = 0;
-      const isNormalDebit = ["asset", "expense", "contra_revenue"].includes(acc.type);
+      const isNormalDebit = isDebitNormal(acc.type);
 
       const lines = acc.journalLines.map((jl) => {
         if (isNormalDebit) {
@@ -1302,7 +1304,7 @@ export async function GET(req: NextRequest) {
         : await prisma.account.findMany({
             where: {
               OR: [
-                { code: { in: ["1000", "1005", "1010"] } },
+                { code: { in: ["11101", "11102", "11103"] } },
                 { name: { contains: "Cash", mode: "insensitive" } },
                 { name: { contains: "Bank", mode: "insensitive" } },
               ],
@@ -1419,11 +1421,7 @@ export async function GET(req: NextRequest) {
     const accountsWithBalance = accounts.map((acc) => {
       let balance = 0;
       for (const line of acc.journalLines) {
-        if (["asset", "expense", "contra_revenue"].includes(acc.type)) {
-          balance += line.debit - line.credit;
-        } else {
-          balance += line.credit - line.debit;
-        }
+        balance += signedLineBalance(acc.type, line.debit, line.credit);
       }
       return {
         id: acc.id,
@@ -1647,6 +1645,7 @@ export async function POST(req: NextRequest) {
           invoiceId,
           amount,
           paymentMethod = "cash",
+          receiptMode,
           receivingAccountCode,
           notes,
           actorName = "Finance & Accounts",
@@ -1656,6 +1655,7 @@ export async function POST(req: NextRequest) {
         if (!numAmount || numAmount <= 0) {
           return NextResponse.json({ error: "Invalid payment amount" }, { status: 400 });
         }
+        const mode = ["cash", "bank", "wallet"].includes(String(receiptMode)) ? (receiptMode as ReceiptMode) : null;
 
         let targetInvoice = null;
         let effectiveCustomerId = customerId;
@@ -1707,14 +1707,25 @@ export async function POST(req: NextRequest) {
         }
 
         const journal = await prisma.$transaction(async (tx) => {
-          const cashAcc = receivingAccountCode
-            ? await AccountsPostingService.getCashBankAccountByCode(receivingAccountCode, tx)
-            : await AccountMappingService.resolveAccount({
-                transactionType: "customer_payment_receiving",
-                prismaClient: tx,
-              });
+          // Receipt mode decides the ledger: Cash -> 11101, Bank -> 11103, Wallet -> 11104.
+          const cashAcc = await CustomerReceiptService.receivingAccount(tx, {
+            receivingAccountCode,
+            mode,
+            paymentMethod,
+          });
           if (!cashAcc || !cashAcc.isActive || cashAcc.type !== "asset" || cashAcc.level < 4) {
             throw new Error("Receiving account must be an active level-4 asset account.");
+          }
+          // No invoice: this is a customer advance (Cr 21105), never a bare AR credit.
+          if (!invoiceId) {
+            return CustomerReceiptService.recordAdvance(tx, {
+              customerId: effectiveCustomerId,
+              amount: numAmount,
+              receivingAccount: cashAcc,
+              memo: notes || `Customer advance received via ${paymentMethod.toUpperCase()} (no invoice yet)`,
+              postedBy: actorName,
+              documentNumber: `ADV-${Date.now().toString().slice(-6)}`,
+            });
           }
           const arAcc = await AccountMappingService.resolveAccount({
             transactionType: "customer_payment_receivable",
@@ -1723,10 +1734,11 @@ export async function POST(req: NextRequest) {
           const posted = await AccountsPostingService.post({
             memo: notes || `Customer payment received via ${paymentMethod.toUpperCase()}`,
             refType: "customer_payment",
-            refId: invoiceId || customerId || null,
+            refId: invoiceId,
+            postedBy: actorName,
             lines: [
               { accountId: cashAcc.id, debit: numAmount, credit: 0 },
-              { accountId: arAcc.id, debit: 0, credit: numAmount },
+              { accountId: arAcc.id, debit: 0, credit: numAmount, partyType: "customer", partyId: effectiveCustomerId },
             ],
             tx,
           });
@@ -1749,7 +1761,7 @@ export async function POST(req: NextRequest) {
           await SubLedgerService.recordCustomerEntry({
             customerId: effectiveCustomerId,
             entryType: "payment",
-            documentNumber: targetInvoice ? targetInvoice.invoiceNumber : `PAY-${Date.now().toString().slice(-6)}`,
+            documentNumber: targetInvoice!.invoiceNumber,
             journalEntryId: posted.id,
             debit: 0,
             credit: numAmount,
@@ -1832,6 +1844,7 @@ export async function POST(req: NextRequest) {
           const receipt = await JobsService.recordOfficeJobReceipt(job.id, numAmount, actorName, {
             receivingAccountCode,
             paymentMethod,
+            receiptMode: ["cash", "bank", "wallet"].includes(String(payload.receiptMode)) ? payload.receiptMode : null,
             notes,
             whtAmount: payload.whtAmount,
           });
@@ -2232,7 +2245,7 @@ export async function POST(req: NextRequest) {
           depExpenseAccountCode,
           accumDepAccountCode,
           // Vehicles / tools / machinery live in 1510; office equipment & other assets in 1500.
-          ...(assetAccountCode ? {} : /vehicle|tool|machin|equipment.*(field|workshop)/i.test(String(category || "")) ? { assetAccountCode: "1510" } : {}),
+          ...(assetAccountCode ? {} : /vehicle|tool|machin|equipment.*(field|workshop)/i.test(String(category || "")) ? { assetAccountCode: "15102" } : {}),
         });
 
         // Purchase journal: Dr fixed-asset account / Cr cash-bank (paid now) or 2000 AP (on credit).
@@ -2483,7 +2496,7 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           );
         }
-        const validTypes = new Set(["asset", "liability", "equity", "revenue", "expense", "contra_revenue"]);
+        const validTypes = new Set<string>(ACCOUNT_TYPES);
         if (!validTypes.has(type)) {
           return NextResponse.json({ error: `Unsupported account type '${type}'.` }, { status: 400 });
         }
@@ -2495,7 +2508,7 @@ export async function POST(req: NextRequest) {
 
           if (parentId) {
             const parent = await tx.account.findUnique({ where: { id: parentId } });
-            if (!parent || !parent.isActive || parent.level !== 3 || !(parent.type === type || (type === "contra_revenue" && parent.type === "revenue"))) {
+            if (!parent || !parent.isActive || parent.level !== 3 || !typeFitsGroup(type, parent.type)) {
               throw new Error("Parent must be an active level-3 account with the same classification.");
             }
           }
@@ -2544,7 +2557,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Choose a parent group for the new account." }, { status: 400 });
           }
           const parentGroup = await prisma.account.findUnique({ where: { id: parentId } });
-          const typeOk = parentGroup && (parentGroup.type === type || (type === "contra_revenue" && parentGroup.type === "revenue"));
+          const typeOk = parentGroup && typeFitsGroup(type, parentGroup.type);
           if (!parentGroup || !parentGroup.isActive || parentGroup.level !== 3 || !typeOk) {
             return NextResponse.json({ error: "The parent must be an active group (Level 3) of the same account type." }, { status: 400 });
           }
@@ -2714,7 +2727,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "A valid array of accounts is required" }, { status: 400 });
         }
 
-        const VALID_ACCOUNT_TYPES = ["asset", "liability", "equity", "revenue", "expense", "contra_revenue"];
+        const VALID_ACCOUNT_TYPES: string[] = [...ACCOUNT_TYPES];
         const seenCodes = new Set<string>();
         const errors: string[] = [];
         let createdCount = 0;

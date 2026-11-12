@@ -132,7 +132,7 @@ export default function TechnicianExpensesPage() {
 
   const [clearanceMode, setClearanceMode] = useState<"full" | "partial">("full");
   const [partialAmount, setPartialAmount] = useState<string>("");
-  const [disbursingAccountCode, setDisbursingAccountCode] = useState<string>("1000");
+  const [disbursingAccountCode, setDisbursingAccountCode] = useState<string>("11101");
   const [paymentNotes, setPaymentNotes] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string>("");
@@ -1014,10 +1014,10 @@ export default function TechnicianExpensesPage() {
                   onChange={(e) => setDisbursingAccountCode(e.target.value)}
                   className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-semibold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
                 >
-                  <option value="1000">1000 — Cash on Hand / Main Drawer (Cash Box / Office Safe)</option>
-                  <option value="1005">1005 — Petty Cash – Expenses</option>
-                  <option value="1010">1010 — Operating Bank Account</option>
-                  <option value="2100">2100 — Technician Payable Clearing (Owed to Technician)</option>
+                  <option value="11101">11101 — Cash on Hand / Main Drawer (Cash Box / Office Safe)</option>
+                  <option value="11102">11102 — Petty Cash – Expenses</option>
+                  <option value="11103">11103 — Operating Bank Account</option>
+                  <option value="21103">21103 — Technician Payable Clearing (Owed to Technician)</option>
                 </select>
                 <p className="text-[10px] text-[#71717A] mt-1 font-mono">
                   GL Impact: Dr the expense account of each claim's category (fuel, meals, other job costs ...) | Cr {disbursingAccountCode}

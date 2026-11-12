@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { AccountMappingService } from "./AccountMappingService";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { buildChartOfAccountsTree } from "@/lib/constants/chartOfAccountsHierarchy";
+import { accountClass, classContribution, PROFIT_AND_LOSS_TYPES, signedLineBalance } from "@/lib/accountTypes";
 
 export class FinancialReportingService {
   /**
@@ -92,11 +93,7 @@ export class FinancialReportingService {
         accountDebitSum += line.debit;
         accountCreditSum += line.credit;
 
-        if (["asset", "expense", "contra_revenue"].includes(acc.type)) {
-          balance += line.debit - line.credit;
-        } else {
-          balance += line.credit - line.debit;
-        }
+        balance += signedLineBalance(acc.type, line.debit, line.credit);
       }
 
       totalDebits += accountDebitSum;
@@ -146,27 +143,32 @@ export class FinancialReportingService {
     const tb = await this.getTrialBalance(asOfDate);
 
     // Group accounts by Type
-    const assetAccounts = tb.accounts.filter((a) => a.type === "asset");
+    // Contra-assets (15190 Accumulated Depreciation) are listed with the assets as a minus figure.
+    const assetAccounts = tb.accounts
+      .filter((a) => accountClass(a.type) === "asset")
+      .map((a) => (a.type === "contra_asset" ? { ...a, balance: -a.balance } : a));
     const liabilityAccounts = tb.accounts.filter((a) => a.type === "liability");
+    // Long-term liabilities = the "22" group; everything else is current.
+    const longTermGroup = await this.groupMembersByCode("22");
     const equityAccounts = tb.accounts.filter((a) => a.type === "equity");
-    const revenueAccounts = tb.accounts.filter((a) => a.type === "revenue" || a.type === "contra_revenue");
-    const expenseAccounts = tb.accounts.filter((a) => a.type === "expense");
+    const revenueAccounts = tb.accounts.filter((a) => accountClass(a.type) === "revenue");
+    const expenseAccounts = tb.accounts.filter((a) => accountClass(a.type) === "expense");
 
     const totalAssets = Math.round(assetAccounts.reduce((sum, a) => sum + a.balance, 0) * 100) / 100;
     const totalLiabilities = Math.round(liabilityAccounts.reduce((sum, a) => sum + a.balance, 0) * 100) / 100;
     const baseEquity = Math.round(equityAccounts.reduce((sum, a) => sum + a.balance, 0) * 100) / 100;
 
     // Current Year Net Income (Revenue - Expenses) that hasn't been closed into Retained Earnings yet
-    const currentRevenue = revenueAccounts.reduce((sum, a) => sum + (a.type === "contra_revenue" ? -a.balance : a.balance), 0);
-    const currentExpenses = expenseAccounts.reduce((sum, a) => sum + a.balance, 0);
+    const currentRevenue = revenueAccounts.reduce((sum, a) => sum + classContribution(a.type, a.balance), 0);
+    const currentExpenses = expenseAccounts.reduce((sum, a) => sum + classContribution(a.type, a.balance), 0);
     const currentPeriodNetIncome = Math.round((currentRevenue - currentExpenses) * 100) / 100;
 
     const totalEquity = Math.round((baseEquity + currentPeriodNetIncome) * 100) / 100;
     const totalLiabilitiesAndEquity = Math.round((totalLiabilities + totalEquity) * 100) / 100;
     const accountingEquationDifference = Math.round((totalAssets - totalLiabilitiesAndEquity) * 100) / 100;
 
-    // Fixed assets = the group of the account mapped to fixed_asset_cost (fallback: legacy 15xx codes).
-    const fixedGroup = await this.mappedGroupMembers(["fixed_asset_cost"]);
+    // Fixed assets = the "15" Fixed Assets group (fallback: group of the account mapped to fixed_asset_cost, then 15xxx codes).
+    const fixedGroup = (await this.groupMembersByCode("15")) || (await this.mappedGroupMembers(["fixed_asset_cost"]));
     const isFixed = (a: { id: string; code: string }) => (fixedGroup ? fixedGroup.has(a.id) : a.code.startsWith("15"));
     const currentAssetsList = assetAccounts.filter((a) => !isFixed(a));
     const fixedAssetsList = assetAccounts.filter((a) => isFixed(a));
@@ -192,8 +194,12 @@ export class FinancialReportingService {
         total: totalLiabilities,
         accounts: liabilityAccounts,
         currentLiabilities: {
-          total: totalLiabilities,
-          accounts: liabilityAccounts,
+          total: Math.round(liabilityAccounts.filter((a) => !longTermGroup?.has(a.id)).reduce((s, a) => s + a.balance, 0) * 100) / 100,
+          accounts: liabilityAccounts.filter((a) => !longTermGroup?.has(a.id)),
+        },
+        longTermLiabilities: {
+          total: Math.round(liabilityAccounts.filter((a) => longTermGroup?.has(a.id)).reduce((s, a) => s + a.balance, 0) * 100) / 100,
+          accounts: liabilityAccounts.filter((a) => longTermGroup?.has(a.id)),
         },
       },
       equity: {
@@ -222,7 +228,7 @@ export class FinancialReportingService {
         },
         // Deactivated accounts keep their history in the P&L for the period.
         account: {
-          type: { in: ["revenue", "contra_revenue", "expense"] },
+          type: { in: [...PROFIT_AND_LOSS_TYPES] },
         },
       },
       include: {
@@ -239,32 +245,28 @@ export class FinancialReportingService {
       }
 
       const item = accountMap.get(acc.code)!;
-      if (acc.type === "revenue") {
-        item.balance += line.credit - line.debit;
-      } else if (acc.type === "contra_revenue" || acc.type === "expense") {
-        item.balance += line.debit - line.credit;
-      }
+      item.balance += signedLineBalance(acc.type, line.debit, line.credit);
     }
 
     const accountsList = Array.from(accountMap.values());
 
-    const revenueAccounts = accountsList.filter((a) => a.type === "revenue" || a.type === "contra_revenue");
-    // COGS = expense accounts in the group of the mapped cost-of-sales accounts (fallback: legacy 5xxx codes).
-    const cogsGroup = (await this.groupMembersByCode("5000-GRP")) ||
+    const revenueAccounts = accountsList.filter((a) => accountClass(a.type) === "revenue");
+    // Cost of sales = everything under the "50" group (materials + direct job costs incl. technician wages).
+    const cogsGroup = (await this.groupMembersByCode("50")) ||
       (await this.mappedGroupMembers(["inventory_cogs_expense", "inventory_return_cogs"]));
     const isCogs = (a: { id: string; code: string; type: string }) =>
-      a.type === "expense" && (cogsGroup ? cogsGroup.has(a.id) : a.code.startsWith("5"));
+      accountClass(a.type) === "expense" && (cogsGroup ? cogsGroup.has(a.id) : a.code.startsWith("5"));
     const cogsAccounts = accountsList.filter((a) => isCogs(a));
-    const opexAccounts = accountsList.filter((a) => a.type === "expense" && !isCogs(a));
+    const opexAccounts = accountsList.filter((a) => accountClass(a.type) === "expense" && !isCogs(a));
 
     const totalGrossRevenue = Math.round(
-      revenueAccounts.reduce((sum, a) => sum + (a.type === "contra_revenue" ? -a.balance : a.balance), 0) * 100
+      revenueAccounts.reduce((sum, a) => sum + classContribution(a.type, a.balance), 0) * 100
     ) / 100;
 
-    const totalCogs = Math.round(cogsAccounts.reduce((sum, a) => sum + a.balance, 0) * 100) / 100;
+    const totalCogs = Math.round(cogsAccounts.reduce((sum, a) => sum + classContribution(a.type, a.balance), 0) * 100) / 100;
     const grossProfit = Math.round((totalGrossRevenue - totalCogs) * 100) / 100;
 
-    const totalOpex = Math.round(opexAccounts.reduce((sum, a) => sum + a.balance, 0) * 100) / 100;
+    const totalOpex = Math.round(opexAccounts.reduce((sum, a) => sum + classContribution(a.type, a.balance), 0) * 100) / 100;
     const netOperatingProfit = Math.round((grossProfit - totalOpex) * 100) / 100;
 
     return {
@@ -325,11 +327,11 @@ export class FinancialReportingService {
 
     const [deprAcc, arAcc, invAcc, apAcc, cashAcc, bankAcc] = await Promise.all([
       resolveSafe("depreciation_expense", "5", "expense"),
-      resolveSafe("ar_control", "1100", "asset"),
-      resolveSafe("inventory_cogs_asset", "1200", "asset"),
-      resolveSafe("ap_control", "2000", "liability"),
-      resolveSafe("customer_payment_receiving", "1000", "asset"),
-      resolveSafe("bank_operating", "1010", "asset"),
+      resolveSafe("ar_control", "11201", "asset"),
+      resolveSafe("inventory_cogs_asset", "11301", "asset"),
+      resolveSafe("ap_control", "21101", "liability"),
+      resolveSafe("customer_payment_receiving", "11101", "asset"),
+      resolveSafe("bank_operating", "11103", "asset"),
     ]);
     // Cash = every active cash/bank account (cash drawer, petty cash, banks), not only the two mapped ones.
     const configuredCash = await prisma.financialAccount.findMany({ where: { isActive: true }, select: { ledgerAccountId: true } });

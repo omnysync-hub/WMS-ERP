@@ -94,7 +94,7 @@ export default function EmployeeProfilePage() {
   const [dailyRate, setDailyRate] = useState("200");
   const [advanceDeduction, setAdvanceDeduction] = useState("500");
   const [expenseAdjustment, setExpenseAdjustment] = useState("0");
-  const [disbursingAccount, setDisbursingAccount] = useState("1010");
+  const [disbursingAccount, setDisbursingAccount] = useState("11103");
   const [isSettling, setIsSettling] = useState(false);
 
   async function loadEmployee() {
@@ -1513,8 +1513,8 @@ export default function EmployeeProfilePage() {
                           onChange={(e) => setDisbursingAccount(e.target.value)}
                           className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg font-mono text-xs"
                         >
-                          <option value="1010">1010 - Operating Bank Account (WPS Transfer)</option>
-                          <option value="1000">1000 - Main Cash Drawer</option>
+                          <option value="11103">11103 - Operating Bank Account (WPS Transfer)</option>
+                          <option value="11101">11101 - Main Cash Drawer</option>
                         </select>
                       </div>
 

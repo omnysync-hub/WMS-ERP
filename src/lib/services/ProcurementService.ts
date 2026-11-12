@@ -1495,11 +1495,13 @@ export class ProcurementService {
     const now = new Date();
 
     // 1. Post to General Ledger:
-    // Debit: 2050 GR/IR Clearing Account (for received PO value cleared)
-    // Debit/Credit: 5050 Purchase Price Variance (if price varied from PO)
-    // Credit: 2000 Accounts Payable (for total amount vendor is owed — NET of supplier discounts)
-    // Supplier discounts (line + bill level) are already inside priceVariance (net cost vs PO cost),
-    // so they reduce purchase cost through the vendor_bill_ppv credit; GR/IR clears at PO value.
+    // Debit:  21102 GR/IR Clearing (received PO value cleared)
+    // Debit/Credit: 51105 Purchase Price Variance (billed list price vs PO price)
+    // Credit: 42102 Discount Received from Suppliers (line + bill discounts) - kept apart from variance
+    // Debit:  11204 Input Tax (claimable) or 62107 Non-Claimable Sales Tax
+    // Credit: 21101 Accounts Payable (what the vendor is owed, net of discounts)
+    // priceVariance is net cost vs PO cost (discounts inside it), so the pure price variance is
+    // priceVariance + discounts.
     const { policy: taxPolicyForBill } = await TaxSettingsService.load();
     // GL journal, vendor sub-ledger and invoice status are written in ONE transaction, and the
     // journal carries an idempotency key, so a double click / retry can never post the bill twice.
@@ -1518,7 +1520,16 @@ export class ProcurementService {
           const ppvAccount = await AccountMappingService.resolveAccount({ transactionType: "vendor_bill_ppv", prismaClient: tx });
 
           const totalPayable = invoice.totalAmount;
-          const priceVariance = invoice.priceVariance; // Positive means invoice > PO (Debit PPV expense)
+          const supplierDiscount =
+            Math.round(((Number(invoice.discountAmount) || 0) + (Number(invoice.lineDiscountTotal) || 0)) * 100) / 100;
+          // Without a mapped discount account the discount stays inside the variance (old behaviour).
+          const discountAccount =
+            supplierDiscount > 0.005
+              ? await AccountMappingService.resolveAccountOptional({ transactionType: "vendor_bill_discount_received", prismaClient: tx })
+              : null;
+          const discountCredit = discountAccount ? supplierDiscount : 0;
+          const netPriceVariance = invoice.priceVariance; // Positive means invoice > PO (after discounts)
+          const priceVariance = Math.round((netPriceVariance + discountCredit) * 100) / 100; // list price vs PO
           // Sales tax on the bill: claimable input tax (Settings > Taxes) or, if not claimable, a cost.
           // GR/IR always clears at the tax-free value.
           const billTax = Math.round((Number(invoice.taxAmount) || 0) * 100) / 100;
@@ -1529,7 +1540,7 @@ export class ProcurementService {
                   prismaClient: tx,
                 })
               : null;
-          const grirDebit = Math.round((totalPayable - billTax - priceVariance) * 100) / 100;
+          const grirDebit = Math.round((totalPayable - billTax - netPriceVariance) * 100) / 100;
 
           const lines: any[] = [];
           if (grirDebit > 0) lines.push({ accountId: grirAccount.id, debit: grirDebit, credit: 0 });
@@ -1540,6 +1551,9 @@ export class ProcurementService {
             lines.push({ accountId: ppvAccount.id, debit: priceVariance, credit: 0 });
           } else if (priceVariance < -0.01) {
             lines.push({ accountId: ppvAccount.id, debit: 0, credit: Math.abs(priceVariance) });
+          }
+          if (discountAccount && discountCredit > 0) {
+            lines.push({ accountId: discountAccount.id, debit: 0, credit: discountCredit });
           }
           lines.push({ accountId: apAccount.id, debit: 0, credit: totalPayable });
 

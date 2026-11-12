@@ -47,7 +47,7 @@ export default function CoaManagerTree({
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set(["1000-GRP", "2000-GRP", "3000-GRP", "4000-GRP", "5000-GRP", "6000-GRP"])
+    new Set(["10", "20", "30", "40", "50", "60"])
   );
 
   // Modal states
@@ -401,6 +401,8 @@ export default function CoaManagerTree({
               <option value="revenue">Revenue</option>
               <option value="expense">Expenses</option>
               <option value="contra_revenue">Contra Revenue</option>
+              <option value="contra_asset">Contra Asset</option>
+              <option value="contra_expense">Contra Expense</option>
             </select>
 
             {/* Status Filter */}

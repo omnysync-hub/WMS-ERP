@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { generateGrnNumber } from "@/lib/sequenceUtils";
+import { currentAccountCode } from "@/lib/constants/chartOfAccountsHierarchy";
 
 const RECEIVABLE_PO_STATUSES = ["approved", "sent_to_vendor", "sent", "partially_received"];
 
@@ -503,7 +504,7 @@ export class InventoryService {
         let cashAccount;
         if (paidFromAccountCode) {
           const ap = await AccountMappingService.resolveAccount({ transactionType: "ap_control", prismaClient: tx });
-          cashAccount = String(paidFromAccountCode) === ap.code
+          cashAccount = currentAccountCode(String(paidFromAccountCode)) === ap.code || String(paidFromAccountCode) === ap.code
             ? ap
             : await AccountsPostingService.getCashBankAccountByCode(String(paidFromAccountCode), tx);
         } else {

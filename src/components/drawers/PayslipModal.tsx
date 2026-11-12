@@ -22,6 +22,9 @@ export default function PayslipModal({
   const emp = payslip.employee || {};
   const gross = Number(payslip.grossSalary || 0);
   const advanceDeduction = Number(payslip.advanceDeduction || 0);
+  const taxDeduction = Number(payslip.taxDeduction || 0);
+  const eobiDeduction = Number(payslip.eobiDeduction || 0);
+  const totalDeductions = advanceDeduction + taxDeduction + eobiDeduction;
   const expenseAdj = Number(payslip.expenseAdjustment || 0);
   const net = Number(payslip.netSalary || 0);
 
@@ -164,13 +167,21 @@ export default function PayslipModal({
                   {advanceDeduction > 0 ? `-${formatCurrency(advanceDeduction)}` : "PKR 0"}
                 </span>
               </div>
-              <div className="flex justify-between items-center text-[#71717A]">
-                <span>Statutory Taxes / Penalties</span>
-                <span className="font-mono">PKR 0</span>
+              <div className="flex justify-between items-center">
+                <span className="text-[#71717A]">Income Tax Withheld (Sec 149)</span>
+                <span className="font-mono text-rose-600 font-semibold">
+                  {taxDeduction > 0 ? `-${formatCurrency(taxDeduction)}` : "PKR 0"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[#71717A]">EOBI / PESSI (Employee Share)</span>
+                <span className="font-mono text-rose-600 font-semibold">
+                  {eobiDeduction > 0 ? `-${formatCurrency(eobiDeduction)}` : "PKR 0"}
+                </span>
               </div>
               <div className="border-t border-[#F4F4F5] pt-2 flex justify-between font-bold text-rose-700">
                 <span>Total Deductions</span>
-                <span className="font-mono">-{formatCurrency(advanceDeduction)}</span>
+                <span className="font-mono">-{formatCurrency(totalDeductions)}</span>
               </div>
             </div>
           </div>

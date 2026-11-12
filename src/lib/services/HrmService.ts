@@ -166,6 +166,9 @@ export class HrmService {
       designation,
       employmentType,
       salary,
+      monthlyIncomeTax,
+      eobiEmployeeShare,
+      eobiEmployerShare,
       reportingManagerId,
       status,
       probationStatus,
@@ -189,6 +192,10 @@ export class HrmService {
     if (designation !== undefined) updatePayload.designation = designation;
     if (employmentType !== undefined) updatePayload.employmentType = employmentType;
     if (salary !== undefined) updatePayload.salary = Number(salary) || 0;
+    // Payroll statutory deductions (WHT Sec 149, EOBI / PESSI) used by every payroll run.
+    if (monthlyIncomeTax !== undefined) updatePayload.monthlyIncomeTax = Math.max(0, Number(monthlyIncomeTax) || 0);
+    if (eobiEmployeeShare !== undefined) updatePayload.eobiEmployeeShare = Math.max(0, Number(eobiEmployeeShare) || 0);
+    if (eobiEmployerShare !== undefined) updatePayload.eobiEmployerShare = Math.max(0, Number(eobiEmployerShare) || 0);
     if (reportingManagerId !== undefined) updatePayload.reportingManagerId = reportingManagerId || null;
     if (status !== undefined) updatePayload.status = status;
     if (probationStatus !== undefined) updatePayload.probationStatus = probationStatus;
@@ -679,7 +686,7 @@ export class HrmService {
     dailyRate: number;
     advanceDeduction: number;
     expenseAdjustment?: number;
-    disbursingAccountCode?: string; // 1000 or 1010
+    disbursingAccountCode?: string; // 11101 cash or 11103 bank
     settledBy: string;
   }) {
     const employee = await prisma.employee.findUnique({
@@ -692,12 +699,14 @@ export class HrmService {
     const deductions = data.advanceDeduction;
     const netAmount = Math.max(0, grossAmount - deductions + (data.expenseAdjustment || 0));
 
-    // Get accounts via central AccountMappingService
+    // Get accounts via central AccountMappingService. Technician pay is cost of sales (52104),
+    // office staff pay is admin payroll (61101).
     const salaryExpenseAcc = await AccountMappingService.resolveAccount({
-      transactionType: "payroll_salaries_expense",
+      transactionType:
+        (employee.role || "").toLowerCase() === "technician" ? "payroll_technician_wages_expense" : "payroll_salaries_expense",
     });
     const disbursingAcc = data.disbursingAccountCode
-      ? await AccountsPostingService.getAccountByCode(data.disbursingAccountCode)
+      ? await AccountsPostingService.getCashBankAccountByCode(data.disbursingAccountCode)
       : await AccountMappingService.resolveAccount({
           transactionType: "payroll_net_disbursing",
         });

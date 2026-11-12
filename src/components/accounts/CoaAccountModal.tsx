@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Plus, Edit2, ShieldCheck, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { typeFitsGroup } from "@/lib/accountTypes";
 
 export interface CoaModalAccount {
   id: string;
@@ -79,7 +80,7 @@ export default function CoaAccountModal({
 
   // Level 3 parents that match the selected type
   const parentOptions = allAccounts.filter(
-    (a) => a.level === 3 && (type ? a.type === type || (type === "contra_revenue" && a.type === "revenue") : true)
+    (a) => a.level === 3 && (type ? typeFitsGroup(type, a.type) : true)
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -242,6 +243,8 @@ export default function CoaAccountModal({
                   ["revenue", "Revenue"],
                   ["expense", "Expense"],
                   ["contra_revenue", "Contra Revenue"],
+                  ["contra_asset", "Contra Asset"],
+                  ["contra_expense", "Contra Expense"],
                 ]
                   .filter(([value]) => !allowedTypes?.length || allowedTypes.includes(value))
                   .map(([value, label]) => (

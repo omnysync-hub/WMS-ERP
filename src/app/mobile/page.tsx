@@ -1099,7 +1099,7 @@ export default function MobileCompanionPage() {
             payeeName: technician.name,
             technicianId: technician.id,
             expenseAccountCode: expenseCategories.find((item) => item.code === expenseCategory)?.account?.code,
-            disbursingAccountCode: "1000",
+            disbursingAccountCode: "11101",
             amount: Number(expenseAmount),
             memo: expenseNote || "Field expense voucher",
             actorName: technician.name,

@@ -33,6 +33,9 @@ export default function EditEmployeeDrawer({
   const [designation, setDesignation] = useState("");
   const [employmentType, setEmploymentType] = useState("Full-time");
   const [salary, setSalary] = useState("0");
+  const [monthlyIncomeTax, setMonthlyIncomeTax] = useState("0");
+  const [eobiEmployeeShare, setEobiEmployeeShare] = useState("0");
+  const [eobiEmployerShare, setEobiEmployerShare] = useState("0");
   const [status, setStatus] = useState("Active");
   const [probationStatus, setProbationStatus] = useState("Confirmed");
   const [reportingManagerId, setReportingManagerId] = useState("");
@@ -60,6 +63,9 @@ export default function EditEmployeeDrawer({
       setDesignation(employee.designation || "");
       setEmploymentType(employee.employmentType || "Full-time");
       setSalary(String(employee.salary || 0));
+      setMonthlyIncomeTax(String(employee.monthlyIncomeTax || 0));
+      setEobiEmployeeShare(String(employee.eobiEmployeeShare || 0));
+      setEobiEmployerShare(String(employee.eobiEmployerShare || 0));
       setStatus(employee.status || "Active");
       setProbationStatus(employee.probationStatus || "Confirmed");
       setReportingManagerId(employee.reportingManagerId || "");
@@ -99,6 +105,9 @@ export default function EditEmployeeDrawer({
           designation: designation.trim() || role,
           employmentType,
           salary: Number(salary) || 0,
+          monthlyIncomeTax: Number(monthlyIncomeTax) || 0,
+          eobiEmployeeShare: Number(eobiEmployeeShare) || 0,
+          eobiEmployerShare: Number(eobiEmployerShare) || 0,
           status,
           probationStatus,
           reportingManagerId: reportingManagerId || null,
@@ -342,6 +351,48 @@ export default function EditEmployeeDrawer({
                   { value: "Part-time", label: "Part-time" },
                 ]}
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                Monthly Income Tax / WHT (PKR)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={monthlyIncomeTax}
+                onChange={(e) => setMonthlyIncomeTax(e.target.value)}
+                className="w-full h-9 px-3 text-xs font-mono font-bold bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs"
+              />
+              <p className="text-[10px] text-zinc-500 mt-0.5">Deducted each payroll run (Sec 149, 21204)</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                EOBI / PESSI – Employee (PKR)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={eobiEmployeeShare}
+                onChange={(e) => setEobiEmployeeShare(e.target.value)}
+                className="w-full h-9 px-3 text-xs font-mono font-bold bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs"
+              />
+              <p className="text-[10px] text-zinc-500 mt-0.5">Deducted from salary (21205)</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 mb-1">
+                EOBI / PESSI – Employer (PKR)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={eobiEmployerShare}
+                onChange={(e) => setEobiEmployerShare(e.target.value)}
+                className="w-full h-9 px-3 text-xs font-mono font-bold bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs"
+              />
+              <p className="text-[10px] text-zinc-500 mt-0.5">Company cost (61102), not deducted</p>
             </div>
           </div>
 

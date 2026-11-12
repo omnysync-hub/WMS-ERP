@@ -256,13 +256,20 @@ export default function PayrollRunDetailDrawer({
                         <td className="p-3 font-mono font-semibold">{formatCurrency(slip.grossSalary)}</td>
 
                         <td className="p-3 font-mono">
-                          {slip.advanceDeduction > 0 ? (
-                            <span className="text-rose-600 font-semibold">
-                              -{formatCurrency(slip.advanceDeduction)}
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400">PKR 0</span>
-                          )}
+                          {(() => {
+                            const ded =
+                              Number(slip.advanceDeduction || 0) + Number(slip.taxDeduction || 0) + Number(slip.eobiDeduction || 0);
+                            return ded > 0 ? (
+                              <span
+                                className="text-rose-600 font-semibold"
+                                title={`Advance ${formatCurrency(slip.advanceDeduction || 0)} | WHT ${formatCurrency(slip.taxDeduction || 0)} | EOBI ${formatCurrency(slip.eobiDeduction || 0)}`}
+                              >
+                                -{formatCurrency(ded)}
+                              </span>
+                            ) : (
+                              <span className="text-zinc-400">PKR 0</span>
+                            );
+                          })()}
                         </td>
 
                         <td className="p-3 font-mono">

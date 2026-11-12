@@ -573,7 +573,7 @@ export default function SetupWizardPage() {
                   Columns: <code className="font-mono bg-white/80 px-1 rounded">code, name, type, parentCode?, isActive?</code>
                 </p>
                 <p>
-                  <strong>type</strong> must be one of: asset, liability, equity, revenue, expense, contra_revenue.
+                  <strong>type</strong> must be one of: asset, contra_asset, liability, equity, revenue, contra_revenue, expense, contra_expense.
                   Codes must be unique. Only active level-4 (leaf) accounts can be mapped in the next step.
                 </p>
                 <p className="font-mono text-[10px] text-sky-900">
@@ -854,7 +854,7 @@ export default function SetupWizardPage() {
                   {accounts
                     .filter((a) => !skipCodes.has(a.code))
                     .map((acc) => {
-                      const isNormalDebit = ["asset", "expense", "contra_revenue"].includes(acc.type);
+                      const isNormalDebit = ["asset", "expense", "contra_revenue"].includes(acc.type); // contra_asset / contra_expense are credit-normal
                       return (
                         <tr key={acc.id} className="hover:bg-[#F9FAFB]">
                           <td className="py-2 px-4 font-mono font-bold text-[#0D7A5F]">{acc.code}</td>

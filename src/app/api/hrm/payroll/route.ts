@@ -75,7 +75,11 @@ export async function POST(req: NextRequest) {
       }
 
       case "disburse": {
-        const run = await PayrollService.disburseRun(runId);
+        // Step 2: Dr Salaries Payable / Cr the chosen bank or cash account (default: payroll_net_disbursing).
+        const run = await PayrollService.disburseRun(runId, {
+          paidFromAccountCode: typeof body.paidFromAccountCode === "string" && body.paidFromAccountCode.trim() ? body.paidFromAccountCode.trim() : null,
+          paidBy: gate.actor.name,
+        });
         return NextResponse.json(run);
       }
 

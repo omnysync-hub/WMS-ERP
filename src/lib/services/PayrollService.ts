@@ -65,16 +65,26 @@ export class PayrollService {
         expenseAdj = Math.max(0, Math.round((owed - paid) * 100) / 100);
       }
 
-      const net = Math.round((gross - advanceDeduction + expenseAdj) * 100) / 100;
+      // Statutory deductions (Accounts Linking #3): WHT on salary (Sec 149) and EOBI / PESSI.
+      const taxDeduction = Math.max(0, Math.round((emp.monthlyIncomeTax || 0) * 100) / 100);
+      const eobiDeduction = Math.max(0, Math.round((emp.eobiEmployeeShare || 0) * 100) / 100);
+      const employerEobi = Math.max(0, Math.round((emp.eobiEmployerShare || 0) * 100) / 100);
+      const net = Math.round((gross - advanceDeduction - taxDeduction - eobiDeduction + expenseAdj) * 100) / 100;
+      if (net < 0) {
+        throw new Error(`${emp.name}: deductions exceed the salary (net would be PKR ${net}). Fix the tax / EOBI settings of this employee.`);
+      }
 
       totalGross += gross;
-      totalDeductions += advanceDeduction;
+      totalDeductions += advanceDeduction + taxDeduction + eobiDeduction;
       totalNet += net;
 
       payslipData.push({
         employeeId: emp.id,
         grossSalary: gross,
         advanceDeduction,
+        taxDeduction,
+        eobiDeduction,
+        employerEobi,
         expenseAdjustment: expenseAdj,
         netSalary: net,
         settledClaimIds: expenseAdj > 0 ? settledClaimIds : [],
@@ -105,20 +115,97 @@ export class PayrollService {
   static async approveRun(payrollRunId: string, approverName: string) {
     const run = await prisma.payrollRun.findUnique({
       where: { id: payrollRunId },
+      include: { payslips: { include: { employee: true } } },
     });
     if (!run) throw new Error("Payroll run not found");
     if (run.status !== "Draft") {
       throw new Error(`Only Draft runs can be approved. Current status: ${run.status}`);
     }
 
-    return await prisma.payrollRun.update({
-      where: { id: payrollRunId },
-      data: {
-        status: "Approved",
-        approvedBy: approverName,
-        approvedAt: new Date(),
-      },
-    });
+    // Step 1 (Payroll Run): the salary cost is booked and the net pay becomes a liability.
+    const lines = await this.buildAccrualLines(run.payslips);
+    return prisma.$transaction(async (tx) => {
+      const claimed = await tx.payrollRun.updateMany({
+        where: { id: payrollRunId, status: "Draft" },
+        data: { status: "Approved", approvedBy: approverName, approvedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new Error("Payroll run is no longer a Draft. Refresh and retry.");
+      if (lines.length >= 2) {
+        await AccountsPostingService.post({
+          memo: `Payroll run ${run.period}: salaries accrued to Salaries Payable`,
+          refType: "payroll_accrual",
+          refId: run.id,
+          postedBy: approverName,
+          idempotencyKey: `payroll_accrual:${run.id}`,
+          lines,
+          tx,
+        });
+      }
+      return tx.payrollRun.findUnique({ where: { id: payrollRunId } });
+    }, { maxWait: 10000, timeout: 30000 });
+  }
+
+  /**
+   * Step 1 voucher ("Accounts Linking" #3):
+   *   Dr 52104 Technician Wages (technicians) / Dr 61101 Office Salaries (everyone else)   gross
+   *   Dr 61102 EOBI Employer Share                                                         employer EOBI
+   *   Dr 21103 Technician Payable                                                          expense claims paid via salary
+   *     Cr 21106 Salaries Payable   net pay
+   *     Cr 21204 WHT - Salaries     income tax deducted
+   *     Cr 21205 EOBI / PESSI       employee + employer EOBI
+   *     Cr 11202 Advances           advance recovered
+   */
+  private static async buildAccrualLines(
+    payslips: Array<{
+      employeeId: string;
+      grossSalary: number;
+      advanceDeduction: number;
+      taxDeduction: number;
+      eobiDeduction: number;
+      employerEobi: number;
+      expenseAdjustment: number;
+      netSalary: number;
+      employee?: { role?: string | null } | null;
+    }>
+  ) {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    type Slip = (typeof payslips)[number];
+    const sum = (f: (s: Slip) => number, only?: (s: Slip) => boolean) =>
+      r2(payslips.filter((s) => (only ? only(s) : true)).reduce((a, s) => a + (f(s) || 0), 0));
+    const isTech = (s: Slip) => (s.employee?.role || "").toLowerCase() === "technician";
+
+    const techGross = sum((s) => s.grossSalary, isTech);
+    const officeGross = sum((s) => s.grossSalary, (s) => !isTech(s));
+    const employerEobi = sum((s) => s.employerEobi);
+    const net = sum((s) => s.netSalary);
+    const wht = sum((s) => s.taxDeduction);
+    const eobi = r2(sum((s) => s.eobiDeduction) + employerEobi);
+
+    const role = (transactionType: string) => AccountMappingService.resolveAccount({ transactionType });
+    const lines: { accountId: string; debit: number; credit: number; partyType?: string; partyId?: string }[] = [];
+    if (techGross > 0) lines.push({ accountId: (await role("payroll_technician_wages_expense")).id, debit: techGross, credit: 0 });
+    if (officeGross > 0) lines.push({ accountId: (await role("payroll_salaries_expense")).id, debit: officeGross, credit: 0 });
+    if (employerEobi > 0) lines.push({ accountId: (await role("payroll_eobi_employer_expense")).id, debit: employerEobi, credit: 0 });
+    if (payslips.some((s) => s.expenseAdjustment > 0)) {
+      const techPayable = await role("tech_expense_settlement_payable");
+      for (const s of payslips) {
+        if (s.expenseAdjustment > 0) {
+          lines.push({ accountId: techPayable.id, debit: r2(s.expenseAdjustment), credit: 0, partyType: "technician", partyId: s.employeeId });
+        }
+      }
+    }
+    if (net > 0) lines.push({ accountId: (await role("payroll_salaries_payable")).id, debit: 0, credit: net });
+    if (wht > 0) lines.push({ accountId: (await role("payroll_wht_payable")).id, debit: 0, credit: wht });
+    if (eobi > 0) lines.push({ accountId: (await role("payroll_eobi_payable")).id, debit: 0, credit: eobi });
+    if (payslips.some((s) => s.advanceDeduction > 0)) {
+      const advAcc = await role("payroll_advance_deduction");
+      for (const s of payslips) {
+        if (s.advanceDeduction > 0) {
+          lines.push({ accountId: advAcc.id, debit: 0, credit: r2(s.advanceDeduction), partyType: "employee", partyId: s.employeeId });
+        }
+      }
+    }
+    return lines;
   }
 
   /**
@@ -144,7 +231,7 @@ export class PayrollService {
    * Debit Salary Expense, Debit Tech Payable (expenseAdj), Credit Cash/Bank, Credit Advance Recovery
    * Journal lines are balanced explicitly: debits == credits.
    */
-  static async disburseRun(payrollRunId: string) {
+  static async disburseRun(payrollRunId: string, opts?: { paidFromAccountCode?: string | null; paidBy?: string }) {
     const run = await prisma.payrollRun.findUnique({
       where: { id: payrollRunId },
       include: { payslips: { include: { employee: true } } },
@@ -154,44 +241,17 @@ export class PayrollService {
       throw new Error(`Payroll must be 'Approved' before disbursement. Current status: ${run.status}`);
     }
 
-    const totalExpenseAdj = Math.round(
-      run.payslips.reduce((sum, s) => sum + (s.expenseAdjustment || 0), 0) * 100
-    ) / 100;
-
-    // Accounts via AccountMappingService:
-    const salaryExpenseAccount = await AccountMappingService.resolveAccount({
-      transactionType: "payroll_salaries_expense",
+    // Step 2 (Payroll Payment): Dr 21106 Salaries Payable / Cr Bank or Cash.
+    const salariesPayable = await AccountMappingService.resolveAccount({ transactionType: "payroll_salaries_payable" });
+    const bankAccount = opts?.paidFromAccountCode
+      ? await AccountsPostingService.getCashBankAccountByCode(String(opts.paidFromAccountCode))
+      : await AccountMappingService.resolveAccount({ transactionType: "payroll_net_disbursing" });
+    // Runs approved before the two-step flow have no accrual yet: post Step 1 first.
+    const accrual = await prisma.journalEntry.findFirst({
+      where: { refType: "payroll_accrual", refId: run.id, status: "posted" },
+      select: { id: true },
     });
-    const bankAccount = await AccountMappingService.resolveAccount({
-      transactionType: "payroll_net_disbursing",
-    });
-    const advanceAccount = await AccountMappingService.resolveAccount({
-      transactionType: "payroll_advance_deduction",
-    });
-
-    // Balanced journal:
-    //   Dr Salary Expense     totalGross
-    //   Dr Tech Payable       totalExpenseAdj   (settle expense_owed liability into net pay)
-    //   Cr Bank / Cash        totalNet
-    //   Cr Advance Recovery   totalDeductions
-    // Debits = totalGross + totalExpenseAdj
-    // Credits = totalNet + totalDeductions = (totalGross - totalDeductions + totalExpenseAdj) + totalDeductions
-    const lines: { accountId: string; debit: number; credit: number }[] = [
-      { accountId: salaryExpenseAccount.id, debit: run.totalGross, credit: 0 },
-    ];
-
-    if (totalExpenseAdj > 0) {
-      const techPayableAccount = await AccountMappingService.resolveAccount({
-        transactionType: "tech_expense_settlement_payable",
-      });
-      lines.push({ accountId: techPayableAccount.id, debit: totalExpenseAdj, credit: 0 });
-    }
-
-    lines.push({ accountId: bankAccount.id, debit: 0, credit: run.totalNet });
-
-    if (run.totalDeductions > 0) {
-      lines.push({ accountId: advanceAccount.id, debit: 0, credit: run.totalDeductions });
-    }
+    const accrualLines = accrual ? null : await this.buildAccrualLines(run.payslips);
 
     return prisma.$transaction(async (tx) => {
       // Conditional claim prevents a double-click/retry from creating a second payroll journal.
@@ -203,13 +263,31 @@ export class PayrollService {
         throw new Error("Payroll run is no longer Approved (it may already be disbursed). Refresh and retry.");
       }
 
-      await AccountsPostingService.post({
-        memo: `Payroll disbursement for period ${run.period}`,
-        refType: "payroll",
-        refId: run.id,
-        lines,
-        tx,
-      });
+      if (accrualLines && accrualLines.length >= 2) {
+        await AccountsPostingService.post({
+          memo: `Payroll run ${run.period}: salaries accrued to Salaries Payable`,
+          refType: "payroll_accrual",
+          refId: run.id,
+          postedBy: opts?.paidBy || run.approvedBy || "System",
+          idempotencyKey: `payroll_accrual:${run.id}`,
+          lines: accrualLines,
+          tx,
+        });
+      }
+      if (run.totalNet > 0) {
+        await AccountsPostingService.post({
+          memo: `Payroll payment for period ${run.period} via ${bankAccount.name}`,
+          refType: "payroll",
+          refId: run.id,
+          postedBy: opts?.paidBy || "System",
+          idempotencyKey: `payroll_payment:${run.id}`,
+          lines: [
+            { accountId: salariesPayable.id, debit: run.totalNet, credit: 0 },
+            { accountId: bankAccount.id, debit: 0, credit: run.totalNet },
+          ],
+          tx,
+        });
+      }
 
       await tx.payslip.updateMany({
         where: { payrollRunId },
@@ -304,7 +382,7 @@ export class PayrollService {
 
       return tx.payrollRun.update({
         where: { id: payrollRunId },
-        data: { status: "Paid" },
+        data: { status: "Paid", paidAt: new Date(), paidFromAccountCode: bankAccount.code },
         include: { payslips: { include: { employee: true } } },
       });
     }, { maxWait: 10000, timeout: 30000 });

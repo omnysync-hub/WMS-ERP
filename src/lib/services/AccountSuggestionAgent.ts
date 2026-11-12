@@ -47,10 +47,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Vehicle Fuel & Petrol Expenses",
     category: "Field Operations",
     keywords: ["fuel", "petrol", "cng", "diesel", "filling station", "pump", "bike petrol", "van fuel", "mileage", "fueling"],
-    targetAccountCode: "5100",
+    targetAccountCode: "52101",
     targetAccountName: "Job Fuel & Conveyance",
     targetAccountType: "expense",
-    parentControlCode: "5210-GRP",
+    parentControlCode: "5210",
     applicableTransactionTypes: ["expense_reimbursement_expense", "tech_expense_settlement_expense"],
     baseConfidence: 0.94,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -61,10 +61,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Local Transit & Conveyance",
     category: "Field Operations",
     keywords: ["rickshaw", "rikshaw", "chingchi", "uber", "careem", "indrive", "fare", "transit", "metro", "bus fare", "commute", "cab fare"],
-    targetAccountCode: "5100",
+    targetAccountCode: "52101",
     targetAccountName: "Job Fuel & Conveyance",
     targetAccountType: "expense",
-    parentControlCode: "5210-GRP",
+    parentControlCode: "5210",
     applicableTransactionTypes: ["expense_reimbursement_expense", "tech_expense_settlement_expense"],
     baseConfidence: 0.91,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -95,10 +95,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
       "hardware store",
       "brazing rod",
     ],
-    targetAccountCode: "5130",
+    targetAccountCode: "52105",
     targetAccountName: "Other Direct Job Costs",
     targetAccountType: "expense",
-    parentControlCode: "5210-GRP",
+    parentControlCode: "5210",
     applicableTransactionTypes: ["expense_reimbursement_expense", "inventory_cogs_expense"],
     baseConfidence: 0.88,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -109,10 +109,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Staff Meals & Field Refreshments",
     category: "Field Operations",
     keywords: ["lunch", "dinner", "tea", "refreshment", "meals", "water bottle", "breakfast", "overtime meal", "food", "snacks"],
-    targetAccountCode: "5110",
+    targetAccountCode: "52102",
     targetAccountName: "Job Food & Meals",
     targetAccountType: "expense",
-    parentControlCode: "5210-GRP",
+    parentControlCode: "5210",
     applicableTransactionTypes: ["expense_reimbursement_expense", "tech_expense_settlement_expense"],
     baseConfidence: 0.86,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -123,10 +123,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Office Utilities & Electricity",
     category: "General & Admin",
     keywords: ["lesco", "wapda", "electricity bill", "k-electric", "gas bill", "sngpl", "utility bill", "water bill", "power bill"],
-    targetAccountCode: "6310",
+    targetAccountCode: "63101",
     targetAccountName: "Electricity",
     targetAccountType: "expense",
-    parentControlCode: "6310-GRP",
+    parentControlCode: "6310",
     applicableTransactionTypes: ["cashbook_contra_expense"],
     baseConfidence: 0.95,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -137,10 +137,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Internet & Telecom Subscriptions",
     category: "General & Admin",
     keywords: ["internet", "stormfiber", "ptcl", "nayatel", "fiber", "wifi", "data bundle", "sim card", "telecom", "phone bill", "mobile load", "zong", "jazz"],
-    targetAccountCode: "6330",
+    targetAccountCode: "63103",
     targetAccountName: "Internet",
     targetAccountType: "expense",
-    parentControlCode: "6310-GRP",
+    parentControlCode: "6310",
     applicableTransactionTypes: ["cashbook_contra_expense"],
     baseConfidence: 0.96,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -151,10 +151,10 @@ export const KNOWN_PATTERNS: PatternRule[] = [
     name: "Printer Ink & Office Stationery",
     category: "General & Admin",
     keywords: ["stationery", "photocopy", "printer ink", "toner", "paper rim", "stapler", "files", "office register", "invoice book"],
-    targetAccountCode: "6210",
+    targetAccountCode: "62103",
     targetAccountName: "Office Supplies & Stationery",
     targetAccountType: "expense",
-    parentControlCode: "6210-GRP",
+    parentControlCode: "6210",
     applicableTransactionTypes: ["cashbook_contra_expense"],
     baseConfidence: 0.93,
     explanationTemplate: (count, totalAmount, samples) =>
@@ -300,9 +300,9 @@ export class AccountSuggestionAgent {
         const currentMapping = mappingMap.get(tType);
         const isCurrentlyGenericOrDifferent =
           !currentMapping?.accountCode ||
-          currentMapping.accountCode === "6100" ||
-          currentMapping.accountCode === "6200" ||
-          currentMapping.accountCode === "5000" ||
+          currentMapping.accountCode === "62101" ||
+          currentMapping.accountCode === "62102" ||
+          currentMapping.accountCode === "51101" ||
           currentMapping.accountCode !== pattern.targetAccountCode;
 
         // If we found live transaction matches OR if the transaction type is mapped to a broad generic account
@@ -492,7 +492,7 @@ export class AccountSuggestionAgent {
         audit.proposedAccountCode,
         audit.proposedAccountName,
         audit.proposedAccountType || "expense",
-        audit.proposedParentCode || "5210-GRP",
+        audit.proposedParentCode || "5210",
         companyId
       );
       finalAccountId = createdAccount.id;

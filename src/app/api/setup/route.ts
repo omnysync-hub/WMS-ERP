@@ -833,7 +833,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Delegate through AccountsPostingService-compatible path by calling the same logic inline
-      const VALID_ACCOUNT_TYPES = ["asset", "liability", "equity", "revenue", "expense", "contra_revenue"];
+      const VALID_ACCOUNT_TYPES: string[] = ["asset", "contra_asset", "liability", "equity", "revenue", "contra_revenue", "expense", "contra_expense"];
       const seenCodes = new Set();
       const errors = [];
       let createdCount = 0;

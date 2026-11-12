@@ -256,6 +256,8 @@ export default function InventoryPurchasingPage() {
   const [restockUnitCost, setRestockUnitCost] = useState("");
   const [restockSource, setRestockSource] = useState("Local Wholesale Market (Karachi/Lahore)");
   const [restockNotes, setRestockNotes] = useState("");
+  // Accounts Linking: not every purchase is cash - pick Cash / Bank, or credit (Accounts Payable).
+  const [restockPaidFrom, setRestockPaidFrom] = useState("");
   const [isSubmittingStock, setIsSubmittingStock] = useState(false);
 
   // New Physical Product State
@@ -487,6 +489,7 @@ export default function InventoryPurchasingPage() {
           unitCost: restockUnitCost ? Number(restockUnitCost) : undefined,
           source: restockSource,
           notes: restockNotes,
+          ...(restockPaidFrom ? { paidFromAccountCode: restockPaidFrom } : {}),
         }),
       });
       if (!res.ok) {
@@ -3252,6 +3255,23 @@ export default function InventoryPurchasingPage() {
                     <option value="Gree / DWP Official Depot">Gree / DWP Official Depot</option>
                     <option value="Direct Cash Float Purchase">Direct Cash Float Purchase</option>
                     <option value="Physical Stock Audit Adjustment">Physical Stock Audit Adjustment</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
+                    Paid From
+                  </label>
+                  <select
+                    value={restockPaidFrom}
+                    onChange={(e) => setRestockPaidFrom(e.target.value)}
+                    className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
+                  >
+                    <option value="">Default (mapped: Cash on Hand 11101)</option>
+                    <option value="11101">11101 — Cash on Hand / Main Drawer</option>
+                    <option value="11102">11102 — Petty Cash</option>
+                    <option value="11103">11103 — Operating Bank Account</option>
+                    <option value="21101">21101 — On credit (Accounts Payable)</option>
                   </select>
                 </div>
 

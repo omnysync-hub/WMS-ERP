@@ -4,7 +4,7 @@ import { AccountMappingService } from "./AccountMappingService";
 
 export interface RecordCustomerEntryParams {
   customerId: string;
-  entryType: "invoice" | "payment" | "credit_note" | "opening_balance";
+  entryType: "invoice" | "payment" | "credit_note" | "opening_balance" | "advance";
   documentNumber: string;
   journalEntryId?: string;
   debit: number;

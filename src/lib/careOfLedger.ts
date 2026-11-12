@@ -5,7 +5,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
  * The client's chart has one receivables account (1100 Accounts Receivable); every care-of company
  * keeps its own sub-ledger balance under it.
  */
-export const CARE_OF_RECEIVABLE_CODE = "1100";
+export const CARE_OF_RECEIVABLE_CODE = "11201";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
