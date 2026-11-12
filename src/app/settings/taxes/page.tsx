@@ -278,7 +278,12 @@ export default function TaxSettingsPage() {
           <h2 className="text-sm font-bold">2. Job invoices</h2>
           <Toggle disabled={disabled} checked={policy.jobs.enabled} onChange={(v) => setJobs({ enabled: v })} label="Charge tax on job invoices" hint="Off = jobs are invoiced without tax (how it worked before)." />
           <div className="grid grid-cols-2 gap-2">
-            <div><span className="text-[11px] text-[#71717A]">Default rate</span><RateSelect disabled={disabled} value={policy.jobs.rateCode} onChange={(v) => setJobs({ rateCode: v })} rates={rates} purpose="sales" /></div>
+            <div><span className="text-[11px] text-[#71717A]">Default rate (services / labour, e.g. PRA)</span><RateSelect disabled={disabled} value={policy.jobs.rateCode} onChange={(v) => setJobs({ rateCode: v })} rates={rates} purpose="sales" /></div>
+            <div>
+              <span className="text-[11px] text-[#71717A]">Goods / parts rate (e.g. GST 18% to FBR) — optional</span>
+              <RateSelect disabled={disabled} value={policy.jobs.goodsRateCode ?? null} onChange={(v) => setJobs({ goodsRateCode: v })} rates={rates} purpose="sales" />
+              <p className="text-[10px] text-[#71717A] mt-0.5">When set, parts on a job invoice are taxed at this rate and labour at the default rate; each posts to its own tax account.</p>
+            </div>
             <div>
               <span className="text-[11px] text-[#71717A]">Job prices are</span>
               <select className={field} disabled={disabled} value={policy.jobs.pricesIncludeTax ? "inc" : "exc"} onChange={(e) => setJobs({ pricesIncludeTax: e.target.value === "inc" })}>

@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
+import { goodsShareOfItems } from "@/lib/jobRevenue";
 import {
   computeTax,
   findRate,
@@ -8,6 +9,8 @@ import {
   normalizeTaxPolicy,
   normalizeTaxRates,
   type TaxBreakdown,
+  type TaxComponent,
+  computeSplitTax,
   type TaxPolicy,
   type TaxRateConfig,
 } from "./taxConfig";
@@ -52,6 +55,33 @@ export class TaxSettingsService {
   ): Promise<JobTaxResult> {
     const { rates, policy } = await this.load(db);
     const invoice = await (db as PrismaClient).invoice.findFirst({ where: { jobId: job.id }, orderBy: { createdAt: "desc" } });
+    // Goods part of the invoice (store-issued / market-purchased lines), same rule as the revenue split.
+    const goodsGrossOf = async () => {
+      const items = await (db as PrismaClient).jobItem.findMany({ where: { jobId: job.id } });
+      return Math.round(gross * goodsShareOfItems(items) * 100) / 100;
+    };
+    const snapshotComponents = Array.isArray(invoice?.taxBreakdown) ? (invoice!.taxBreakdown as unknown as TaxComponent[]) : null;
+    if (invoice && invoice.taxApplied && snapshotComponents && snapshotComponents.length > 0) {
+      // Split invoice: re-use the rates it was raised with, on the current services / goods values.
+      const asRate = (c?: TaxComponent): TaxRateConfig | null =>
+        c
+          ? ({ id: `snapshot-${c.part}`, name: c.name, code: c.code, type: c.part === "goods" ? "sales_tax" : "services_tax", rate: c.ratePercent, appliesTo: "sales", inclusive: invoice.taxInclusive, isDefault: false, active: true, accountRole: c.accountRole } as TaxRateConfig)
+          : null;
+      const goodsGross = await goodsGrossOf();
+      const servicesRate = asRate(snapshotComponents.find((c) => c.part === "services"));
+      const goodsRate = asRate(snapshotComponents.find((c) => c.part === "goods"));
+      const b = computeSplitTax({
+        servicesGross: gross - goodsGross,
+        goodsGross,
+        discount,
+        services: { rate: servicesRate },
+        goods: { rate: goodsRate },
+        inclusive: invoice.taxInclusive,
+        applyAfterDiscount: policy.jobs.applyAfterDiscount,
+        rounding: policy.rounding,
+      });
+      return { ...b, rate: servicesRate || goodsRate, fromInvoice: true, rounding: policy.rounding };
+    }
     if (invoice) {
       const rateCfg = invoice.taxApplied && invoice.taxCode ? findRate(rates, invoice.taxCode) : null;
       const b = computeTax({
@@ -82,6 +112,24 @@ export class TaxSettingsService {
       careOfPartyId: job.careOfPartyId,
       customerTaxExempt: Boolean(exempt),
     });
+    // Separate goods rate (e.g. GST on parts) next to the job's services rate (e.g. PRA on labour).
+    const goodsRate = rate && policy.jobs.goodsRateCode ? findRate(rates, policy.jobs.goodsRateCode) : null;
+    if (rate && goodsRate) {
+      const goodsGross = await goodsGrossOf();
+      if (goodsGross > 0) {
+        const b = computeSplitTax({
+          servicesGross: gross - goodsGross,
+          goodsGross,
+          discount,
+          services: { rate },
+          goods: { rate: goodsRate },
+          inclusive: policy.jobs.pricesIncludeTax,
+          applyAfterDiscount: policy.jobs.applyAfterDiscount,
+          rounding: policy.rounding,
+        });
+        return { ...b, rate, fromInvoice: false, rounding: policy.rounding };
+      }
+    }
     const b = computeTax({
       gross,
       discount,
@@ -105,6 +153,8 @@ export class TaxSettingsService {
       rounding: result.rounding,
       taxAmount: result.tax,
       total: result.total,
+      /** Present when services and goods are taxed at different rates. */
+      components: result.components && result.components.length ? result.components : null,
     };
   }
 }

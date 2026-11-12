@@ -129,6 +129,9 @@ model Invoice {
   taxRate        Float    @default(0)
   taxInclusive   Boolean  @default(false)
   taxAmount      Float    @default(0)
+  /// Per-rate tax lines when services and goods are taxed separately
+  /// ([{part, code, name, ratePercent, accountRole, base, tax}]); null = one rate (taxCode / taxRate).
+  taxBreakdown   Json?
 }
 
 model Quotation {

@@ -181,58 +181,19 @@ export async function POST(
           mode: receiptMode,
           paymentMethod: body.paymentMethod,
         });
-        // On-account payment: it clears what the customer owes on AR; anything beyond that is an
-        // advance (Cr 21105), so AR is never pushed negative.
-        const arAgg = await tx.journalLine.aggregate({
-          where: {
-            accountId: arAccount.id,
-            partyType: "customer",
-            partyId: customer.id,
-            journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
-          },
-          _sum: { debit: true, credit: true },
-        });
-        const arOpen = Math.max(0, Math.round(((arAgg._sum.debit || 0) - (arAgg._sum.credit || 0)) * 100) / 100);
-        const toAr = Math.min(amount, arOpen);
-        const toAdvance = Math.round((amount - toAr) * 100) / 100;
-        if (toAr <= 0.005) {
-          // Nothing owed: the whole payment is an advance.
-          return CustomerReceiptService.recordAdvance(tx, {
-            customerId: customer.id,
-            amount,
-            receivingAccount: receiving,
-            memo: `Customer advance ${docNo} - ${customer.name}`,
-            postedBy: actorName,
-            refId: customer.id,
-            documentNumber: docNo,
-          }).then(() => tx.customerLedgerEntry.findFirst({ where: { customerId: customer.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }));
-        }
-        const advAccount = toAdvance > 0.005
-          ? await AccountMappingService.resolveAccount({ transactionType: "customer_advance_liability", prismaClient: tx })
-          : null;
-        const journal = await AccountsPostingService.post({
-          memo: `Customer payment ${docNo} - ${customer.name}${advAccount ? ` (PKR ${toAdvance} kept as advance)` : ""}`,
-          refType: "customer_payment",
-          refId: customer.id,
-          postedBy: actorName,
-          lines: [
-            { accountId: receiving.id, debit: amount, credit: 0 },
-            { accountId: arAccount.id, debit: 0, credit: toAr, partyType: "customer", partyId: customer.id },
-            ...(advAccount
-              ? [{ accountId: advAccount.id, debit: 0, credit: toAdvance, partyType: "customer", partyId: customer.id }]
-              : []),
-          ],
-          tx,
-        });
-        return SubLedgerService.recordCustomerEntry({
+        // On-account payment: settles open invoices (oldest first) and any other AR the customer owes;
+        // only the excess becomes an advance (Cr 21105), so AR is never pushed negative.
+        await CustomerReceiptService.receiveOnAccount(tx, {
           customerId: customer.id,
-          entryType: "payment",
+          amount,
+          receivingAccount: receiving,
+          memo: (typeof notes === "string" && notes.trim().slice(0, 300)) || `Customer payment ${docNo} - ${customer.name}`,
+          postedBy: actorName,
           documentNumber: docNo,
-          journalEntryId: journal.id,
-          debit: 0,
-          credit: amount,
-          notes: (typeof notes === "string" && notes.trim().slice(0, 500)) || `Customer payment recorded by ${actorName}`,
-          tx,
+        });
+        return tx.customerLedgerEntry.findFirst({
+          where: { customerId: customer.id },
+          orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
         });
       } else {
         // Credit note = sales return (41201 Sales Returns & Credit Notes); a manual invoice is service

@@ -67,6 +67,7 @@ function validatePolicy(policy: TaxPolicy, rates: TaxRateConfig[]): string | nul
   if (policy.jobs.enabled && !policy.jobs.rateCode && Object.keys(policy.jobs.byJobType).length === 0)
     return "Job invoices: choose the tax rate to charge.";
   if (!has(policy.jobs.rateCode, "sales")) return `Job invoices: "${policy.jobs.rateCode}" is not a sales tax rate.`;
+  if (!has(policy.jobs.goodsRateCode, "sales")) return `Job invoices: goods rate "${policy.jobs.goodsRateCode}" is not a sales tax rate.`;
   for (const [type, c] of Object.entries(policy.jobs.byJobType)) {
     if (c !== "exempt" && !has(c, "sales")) return `Job type "${type}": "${c}" is not a sales tax rate.`;
   }
@@ -104,6 +105,7 @@ export async function PUT(req: NextRequest) {
   const roleOf = (c: string | null) => rates.find((r) => r.code === c)?.accountRole || null;
   if (policy.jobs.enabled) {
     [policy.jobs.rateCode, ...Object.values(policy.jobs.byJobType)].forEach((c) => c && c !== "exempt" && needRoles.add(roleOf(c) || "sales_tax_payable"));
+    if (policy.jobs.goodsRateCode) needRoles.add(roleOf(policy.jobs.goodsRateCode) || "sales_tax_payable");
   }
   if (policy.pos.mode !== "off" && policy.pos.rateCode) needRoles.add(roleOf(policy.pos.rateCode) || "sales_tax_payable");
   if (policy.projects.enabled) needRoles.add(roleOf(policy.projects.rateCode) || "sales_tax_payable");

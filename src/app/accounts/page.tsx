@@ -10,6 +10,7 @@ import BankReconciliationTab from "@/components/accounts/BankReconciliationTab";
 import FixedAssetsTab from "@/components/accounts/FixedAssetsTab";
 import SubLedgerReconciliationTab from "@/components/accounts/SubLedgerReconciliationTab";
 import FocPaymentsTab from "@/components/accounts/FocPaymentsTab";
+import ReturnsTab from "@/components/accounts/ReturnsTab";
 import ReverseJournalEntryModal from "@/components/accounts/ReverseJournalEntryModal";
 import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import CoaManagerModal from "@/components/accounts/CoaManagerModal";
@@ -79,6 +80,7 @@ export default function AccountsPage() {
     | "fixedassets"
     | "subledgers"
     | "foc"
+    | "returns"
   >("ledgers");
 
   // Sync tab with URL query parameter (?tab=...)
@@ -103,6 +105,7 @@ export default function AccountsPage() {
             "fixedassets",
             "subledgers",
             "foc",
+            "returns",
           ].includes(tab)
         ) {
           setActiveTab(tab as any);
@@ -150,6 +153,8 @@ export default function AccountsPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
+  // Receipt mode (Accounts Linking #4): Cash -> 11101, Bank -> 11103, Wallet -> 11104. "" = from payment method.
+  const [paymentReceiptMode, setPaymentReceiptMode] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
 
   // Technician Ledger state
@@ -574,12 +579,13 @@ export default function AccountsPage() {
           customerId: selectedCustomer.id,
           amount: Number(paymentAmount),
           paymentMethod,
+          ...(paymentReceiptMode ? { receiptMode: paymentReceiptMode } : {}),
           notes: paymentNotes || `Customer payment from ${selectedCustomer.name}`,
           actorName: currentActor,
         }),
       });
 
-      if (!res.ok) throw new Error("Payment recording failed");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Payment recording failed");
 
       setShowPaymentModal(false);
       setPaymentAmount("");
@@ -2850,6 +2856,7 @@ export default function AccountsPage() {
       {/* ========================================================================= */}
       {activeTab === "subledgers" && <SubLedgerReconciliationTab />}
       {activeTab === "foc" && <FocPaymentsTab />}
+      {activeTab === "returns" && <ReturnsTab />}
 
       {/* ========================================================================= */}
       {/* DRAWER 1: CUSTOMER STATEMENT OF ACCOUNT */}
@@ -3362,6 +3369,21 @@ export default function AccountsPage() {
                 >
                   {(accountingConfig?.paymentMethods || []).map((item: any) => <option key={item.id || item.code} value={item.code}>{item.name}</option>)}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Received Into</label>
+                <select
+                  value={paymentReceiptMode}
+                  onChange={(e) => setPaymentReceiptMode(e.target.value)}
+                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
+                >
+                  <option value="">Auto (from payment method)</option>
+                  <option value="cash">Cash — 11101 Cash on Hand</option>
+                  <option value="bank">Bank — 11103 Operating Bank</option>
+                  <option value="wallet">Wallet — 11104 JazzCash / Easypaisa</option>
+                </select>
+                <p className="text-[10px] text-[#71717A] mt-0.5">With no open invoice the payment is kept as a customer advance (21105) and adjusted on the next invoice.</p>
               </div>
 
               <div>

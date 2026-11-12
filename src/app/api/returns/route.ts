@@ -11,6 +11,29 @@ export async function GET(req: NextRequest) {
     if (gate.error) return gate.error;
 
     const { searchParams } = new URL(req.url);
+    // Pick-lists for the credit / debit note forms.
+    if (searchParams.get("view") === "options") {
+      const [invoices, supplierBills, products, vendors] = await Promise.all([
+        prisma.invoice.findMany({
+          where: { status: { not: "cancelled" }, customerId: { not: null }, amount: { gt: 0 } },
+          select: { id: true, invoiceNumber: true, customerName: true, amount: true, status: true, taxRate: true, taxInclusive: true, taxAmount: true, taxBreakdown: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+          take: 300,
+        }),
+        prisma.supplierInvoice.findMany({
+          where: { matchStatus: { in: ["approved_for_payment", "paid"] } },
+          select: { id: true, invoiceNumber: true, referenceNumber: true, vendorId: true, subtotal: true, taxAmount: true, totalAmount: true, paidAmount: true },
+          orderBy: { createdAt: "desc" },
+          take: 300,
+        }),
+        prisma.product.findMany({
+          select: { id: true, name: true, sku: true, unit: true, costPrice: true, unitPrice: true, stockQuantity: true },
+          orderBy: { name: "asc" },
+        }),
+        prisma.vendor.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      ]);
+      return NextResponse.json({ success: true, invoices, supplierBills, products, vendors });
+    }
     const type = searchParams.get("type"); // "sales" or "purchase"
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
 

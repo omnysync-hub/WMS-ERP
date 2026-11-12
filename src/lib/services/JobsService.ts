@@ -12,7 +12,8 @@ import { MobilePushService } from "./MobilePushService";
 import { AuditService } from "./AuditService";
 import { TaxSettingsService } from "../tax/TaxSettingsService";
 import { computeTax, jobTaxRate } from "../tax/taxConfig";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { TaxComponent } from "../tax/taxConfig";
 import {
   JOB_REASSIGNABLE_STATUSES,
   canAddServiceOrItem,
@@ -24,6 +25,27 @@ import {
 
 /** Interactive transaction options: remote Postgres (Vercel) needs more than Prisma's 5s default. */
 const TX_OPTS = { maxWait: 10000, timeout: 30000 } as const;
+
+/**
+ * Tax fields stored on an invoice when it is raised. A split invoice (services + goods rates) keeps
+ * every rate in `taxBreakdown`, so re-finalizing re-uses exactly those rates.
+ */
+function invoiceTaxSnapshot(
+  taxRes: { rate?: { code: string; name: string } | null; ratePercent?: number; inclusive?: boolean; components?: TaxComponent[] } | null | undefined,
+  taxAmount: number
+) {
+  if (!(taxAmount > 0) || !taxRes) {
+    return { taxCode: null, taxName: null, taxRate: 0, taxInclusive: false, taxBreakdown: Prisma.DbNull };
+  }
+  const split = taxRes.components && taxRes.components.length > 0 ? taxRes.components : null;
+  return {
+    taxCode: taxRes.rate?.code ?? split?.[0]?.code ?? null,
+    taxName: split ? split.map((c) => `${c.name} ${c.ratePercent}%`).join(" + ") : taxRes.rate?.name ?? null,
+    taxRate: split ? split.find((c) => c.part === "services")?.ratePercent ?? split[0].ratePercent : taxRes.ratePercent ?? 0,
+    taxInclusive: Boolean(taxRes.inclusive),
+    taxBreakdown: split ? (split as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+  };
+}
 
 /** Settlement money-movement JE ref types (vault Dr / AR Cr and their adjustments). */
 const SETTLEMENT_GL_REF_TYPES = [
@@ -1758,9 +1780,30 @@ export class JobsService {
     const taxAmount = trueFoc ? focTaxAmount : taxRes?.tax || 0;
     const finalAmount = taxRes ? taxRes.total : Math.max(0, Math.round((gross - discount) * 100) / 100);
     const revenueGross = taxRes ? taxRes.revenueGross : trueFoc ? Math.round((gross - focTaxAmount) * 100) / 100 : gross;
-    const taxAccount = trueFoc
-      ? focTaxAccount
-      : taxAmount > 0 && taxRes?.rate ? await TaxSettingsService.accountFor(taxRes.rate, "sales_tax_payable") : null;
+    // Output tax lines: one per rate. A split invoice credits services tax (PRA/SRB, 21202) and goods
+    // tax (GST/FBR, 21201) separately ("Accounts Linking" 4a); otherwise one line on the job's rate.
+    const taxLines: { accountId: string; amount: number }[] = [];
+    const addTaxLine = (accountId: string, amount: number) => {
+      const r = Math.round(amount * 100) / 100;
+      if (!(r > 0)) return;
+      const existing = taxLines.find((t) => t.accountId === accountId);
+      if (existing) existing.amount = Math.round((existing.amount + r) * 100) / 100;
+      else taxLines.push({ accountId, amount: r });
+    };
+    if (trueFoc) {
+      if (focTaxAccount && focTaxAmount > 0) addTaxLine(focTaxAccount.id, focTaxAmount);
+    } else if (taxAmount > 0 && taxRes?.components?.length) {
+      for (const c of taxRes.components) {
+        const acc = await TaxSettingsService.accountFor(
+          { accountRole: c.accountRole },
+          c.part === "goods" ? "sales_tax_payable" : "services_tax_payable"
+        );
+        addTaxLine(acc.id, c.tax);
+      }
+    } else if (taxAmount > 0 && taxRes?.rate) {
+      addTaxLine((await TaxSettingsService.accountFor(taxRes.rate, "sales_tax_payable")).id, taxAmount);
+    }
+    const taxAccountIds = new Set(taxLines.map((t) => t.accountId));
 
     // Resolve accounts via AccountMappingService (read-only, before the write transaction)
     const arAccount = await AccountMappingService.resolveAccount({
@@ -1782,7 +1825,16 @@ export class JobsService {
         : null;
     const r2 = (n: number) => Math.round(n * 100) / 100;
     const revenueCredit = discount > 0 && discountAccount ? revenueGross : r2(finalAmount - taxAmount);
-    const goodsCredit = goodsAccount ? r2(revenueCredit * goodsShare) : 0;
+    // Goods revenue = goods value (less its own tax when prices include tax, less its share of the
+    // discount when there is no separate discount account); services take the rest, so it balances.
+    const goodsComponent = taxRes?.components?.find((c) => c.part === "goods");
+    const goodsGrossValue = r2(gross * goodsShare);
+    const goodsDiscount = gross > 0 ? r2((discount * goodsGrossValue) / gross) : 0;
+    const goodsCredit = !goodsAccount
+      ? 0
+      : taxRes?.components?.length
+        ? r2(goodsGrossValue - (taxRes.inclusive ? goodsComponent?.tax || 0 : 0) - (discount > 0 && discountAccount ? 0 : goodsDiscount))
+        : r2(revenueCredit * goodsShare);
     const serviceCredit = r2(revenueCredit - goodsCredit);
     const revenueCredits: { accountId: string; credit: number }[] = [];
     if (serviceCredit !== 0 || goodsCredit === 0) revenueCredits.push({ accountId: revAccount.id, credit: serviceCredit });
@@ -1800,8 +1852,8 @@ export class JobsService {
       postingLines.push({ accountId: arAccount.id, debit: finalAmount, credit: 0, ...arParty });
       for (const rc of revenueCredits) postingLines.push({ accountId: rc.accountId, debit: 0, credit: rc.credit });
     }
-    if (taxAccount && taxAmount > 0 && postingLines.length > 0) {
-      postingLines.push({ accountId: taxAccount.id, debit: 0, credit: taxAmount });
+    if (postingLines.length > 0) {
+      for (const t of taxLines) postingLines.push({ accountId: t.accountId, debit: 0, credit: t.amount });
     }
     const hasAmount = postingLines.some((l) => l.debit > 0 || l.credit > 0);
     return {
@@ -1812,7 +1864,8 @@ export class JobsService {
       taxAmount,
       finalAmount,
       arAccount,
-      taxAccount,
+      taxLines,
+      taxAccountIds,
       discountAccount,
       revenueCredits,
       postingLines,
@@ -1831,7 +1884,7 @@ export class JobsService {
     prep: Awaited<ReturnType<typeof JobsService.prepareJobRevenuePosting>>,
     accountantName: string
   ) {
-    const { trueFoc, finalAmount, arAccount, taxAccount, discountAccount, revenueCredits, postingLines, hasAmount, taxAmount } = prep;
+    const { trueFoc, finalAmount, arAccount, taxLines, taxAccountIds, discountAccount, revenueCredits, postingLines, hasAmount } = prep;
     const r2 = (n: number) => Math.round(n * 100) / 100;
     // Active (non-reversed) revenue entries for this job
     const activeRevenue = await tx.journalEntry.findMany({
@@ -1854,7 +1907,7 @@ export class JobsService {
     const bookedByRevenueAccount = new Map<string, number>();
     for (const je of activeRevenue) {
       for (const l of je.lines) {
-        if (l.accountId === arAccount.id || l.accountId === taxAccount?.id || l.accountId === discountAccount?.id) continue;
+        if (l.accountId === arAccount.id || taxAccountIds.has(l.accountId) || l.accountId === discountAccount?.id) continue;
         bookedByRevenueAccount.set(l.accountId, r2((bookedByRevenueAccount.get(l.accountId) || 0) + (l.credit - l.debit)));
       }
     }
@@ -1865,14 +1918,14 @@ export class JobsService {
     const revenueUnchanged = Array.from(new Set([...bookedByRevenueAccount.keys(), ...expectedByRevenueAccount.keys()])).every(
       (id) => Math.abs((bookedByRevenueAccount.get(id) || 0) - (expectedByRevenueAccount.get(id) || 0)) < 0.005
     );
-    const bookedTax = taxAccount
-      ? Math.round(
-          activeRevenue.reduce(
-            (sum, je) => sum + je.lines.filter((l) => l.accountId === taxAccount.id).reduce((a, l) => a + (l.credit - l.debit), 0),
-            0
-          ) * 100
-        ) / 100
-      : 0;
+    // Tax is compared account by account too (services tax vs goods tax).
+    const taxUnchanged = taxLines.every((t) => {
+      const booked = activeRevenue.reduce(
+        (sum, je) => sum + je.lines.filter((l) => l.accountId === t.accountId).reduce((a, l) => a + (l.credit - l.debit), 0),
+        0
+      );
+      return Math.abs(Math.round(booked * 100) / 100 - t.amount) < 0.005;
+    });
     // FOC jobs that already received company payments under the old flow (payment credited revenue
     // directly) must not get revenue booked again.
     const priorFocPayments = trueFoc
@@ -1883,7 +1936,7 @@ export class JobsService {
       : (activeRevenue.length > 0 || !hasAmount) &&
         Math.abs(bookedNet - finalAmount) < 0.005 &&
         revenueUnchanged &&
-        Math.abs(bookedTax - taxAmount) < 0.005;
+        taxUnchanged;
 
     let reversedEntryIds: string[] = [];
     let revenueEntryId: string | null = activeRevenue[0]?.id ?? null;
@@ -1976,10 +2029,7 @@ export class JobsService {
             taxApplied: true,
             subtotal: gross,
             discountAmount: discount,
-            taxCode: taxAmount > 0 ? taxRes?.rate?.code ?? null : null,
-            taxName: taxAmount > 0 ? taxRes?.rate?.name ?? null : null,
-            taxRate: taxAmount > 0 ? taxRes?.ratePercent ?? 0 : 0,
-            taxInclusive: taxAmount > 0 ? Boolean(taxRes?.inclusive) : false,
+            ...invoiceTaxSnapshot(taxRes, taxAmount),
             taxAmount,
           },
         });
@@ -3036,10 +3086,7 @@ export class JobsService {
             status: "unpaid",
             taxApplied: true,
             ...taxFields,
-            taxCode: taxFields.taxAmount > 0 ? taxRes?.rate?.code ?? null : null,
-            taxName: taxFields.taxAmount > 0 ? taxRes?.rate?.name ?? null : null,
-            taxRate: taxFields.taxAmount > 0 ? taxRes?.ratePercent ?? 0 : 0,
-            taxInclusive: taxFields.taxAmount > 0 ? Boolean(taxRes?.inclusive) : false,
+            ...invoiceTaxSnapshot(taxRes, taxFields.taxAmount),
           },
         });
       }

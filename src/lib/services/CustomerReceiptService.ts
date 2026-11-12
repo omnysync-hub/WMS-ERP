@@ -108,6 +108,105 @@ export class CustomerReceiptService {
     return journal;
   }
 
+  /**
+   * A payment that names no invoice ("on account"):
+   *   1. settles the customer's open invoices, oldest first (one customer_payment voucher per invoice),
+   *   2. then any other balance the customer owes on AR (opening balances, manual debits),
+   *   3. and only what is left over becomes a customer advance (Cr 21105).
+   * The customer's balance comes from the customer sub-ledger (kept for every invoice / payment).
+   */
+  static async receiveOnAccount(
+    tx: Tx,
+    params: { customerId: string; amount: number; receivingAccount: Account; memo: string; postedBy: string; documentNumber: string }
+  ) {
+    const amount = r2(params.amount);
+    if (!(amount > 0)) throw new Error("Payment amount must be greater than zero.");
+    const last = await tx.customerLedgerEntry.findFirst({
+      where: { customerId: params.customerId },
+      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    });
+    const owed = Math.max(0, r2(last?.runningBalance || 0));
+    let toAr = r2(Math.min(amount, owed));
+    const toAdvance = r2(amount - toAr);
+    const arAcc = await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receivable", prismaClient: tx });
+    const party = { partyType: "customer", partyId: params.customerId };
+    const settled: { invoiceNumber: string; amount: number }[] = [];
+    let firstJournalId: string | null = null;
+
+    // 1. Open invoices, oldest first.
+    const open = await tx.invoice.findMany({
+      where: { customerId: params.customerId, status: { in: ["unpaid", "partially_paid"] } },
+      orderBy: { createdAt: "asc" },
+    });
+    for (const inv of open) {
+      if (toAr <= 0.005) break;
+      const paid = await this.paidToDate(tx, inv.id);
+      const outstanding = r2(inv.amount - paid);
+      if (outstanding <= 0.005) continue;
+      const part = r2(Math.min(outstanding, toAr));
+      const je = await AccountsPostingService.post({
+        memo: `${params.memo} (against ${inv.invoiceNumber})`,
+        refType: "customer_payment",
+        refId: inv.id,
+        postedBy: params.postedBy,
+        lines: [
+          { accountId: params.receivingAccount.id, debit: part, credit: 0 },
+          { accountId: arAcc.id, debit: 0, credit: part, ...party },
+        ],
+        tx,
+      });
+      firstJournalId = firstJournalId || je.id;
+      await tx.invoice.update({
+        where: { id: inv.id },
+        data: { status: r2(paid + part) >= inv.amount - 0.01 ? "paid" : "partially_paid" },
+      });
+      settled.push({ invoiceNumber: inv.invoiceNumber, amount: part });
+      toAr = r2(toAr - part);
+    }
+    // 2. Remaining balance owed that is not on an invoice.
+    if (toAr > 0.005) {
+      const je = await AccountsPostingService.post({
+        memo: `${params.memo} (on account)`,
+        refType: "customer_payment",
+        refId: params.customerId,
+        postedBy: params.postedBy,
+        lines: [
+          { accountId: params.receivingAccount.id, debit: toAr, credit: 0 },
+          { accountId: arAcc.id, debit: 0, credit: toAr, ...party },
+        ],
+        tx,
+      });
+      firstJournalId = firstJournalId || je.id;
+    }
+    const arTotal = r2(amount - toAdvance);
+    if (arTotal > 0) {
+      await SubLedgerService.recordCustomerEntry({
+        customerId: params.customerId,
+        entryType: "payment",
+        documentNumber: params.documentNumber,
+        journalEntryId: firstJournalId || undefined,
+        debit: 0,
+        credit: arTotal,
+        notes: settled.length
+          ? `${params.memo} - settles ${settled.map((s) => `${s.invoiceNumber} (${s.amount})`).join(", ")}`
+          : params.memo,
+        tx,
+      });
+    }
+    // 3. Excess -> customer advance.
+    const advance = toAdvance > 0.005
+      ? await this.recordAdvance(tx, {
+          customerId: params.customerId,
+          amount: toAdvance,
+          receivingAccount: params.receivingAccount,
+          memo: `${params.memo} (advance, nothing owed)`,
+          postedBy: params.postedBy,
+          documentNumber: `${params.documentNumber}-ADV`,
+        })
+      : null;
+    return { toAr: arTotal, toAdvance, settled, journalEntryId: firstJournalId || advance?.id || null };
+  }
+
   /** Receipts (incl. advance adjustments and WHT) already settled against an invoice. */
   static async paidToDate(tx: Tx, invoiceId: string): Promise<number> {
     const prior = await tx.journalEntry.findMany({

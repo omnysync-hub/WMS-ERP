@@ -48,6 +48,12 @@ export type TaxPolicy = {
   jobs: ModuleTaxPolicy & {
     /** Per job type override: a rate code, or "exempt". Missing = use rateCode. */
     byJobType: Record<string, string>;
+    /**
+     * Rate for the GOODS part of a job invoice (parts issued / sold, e.g. GST 18% -> FBR 21201).
+     * When set, the job's own rate (rateCode / byJobType, e.g. PRA 16% -> 21202) applies only to the
+     * service / labour part. null = one rate on the whole invoice (old behaviour).
+     */
+    goodsRateCode: string | null;
     /** Charge tax on jobs that came through a care-of company (normal billing to the customer). */
     taxCareOfJobs: boolean;
     /** FOC jobs: treat the referring company's payment as tax-inclusive and split out the tax. */
@@ -86,6 +92,7 @@ export const DEFAULT_TAX_POLICY: TaxPolicy = {
     pricesIncludeTax: false,
     applyAfterDiscount: true,
     byJobType: {},
+    goodsRateCode: null,
     taxCareOfJobs: true,
     taxFocPayments: false,
   },
@@ -121,6 +128,7 @@ export function normalizeTaxPolicy(input: unknown): TaxPolicy {
     jobs: {
       ...mod(p.jobs, d.jobs),
       byJobType,
+      goodsRateCode: code(p.jobs?.goodsRateCode),
       taxCareOfJobs: bool(p.jobs?.taxCareOfJobs, d.jobs.taxCareOfJobs),
       taxFocPayments: bool(p.jobs?.taxFocPayments, d.jobs.taxFocPayments),
     },
@@ -222,7 +230,71 @@ export type TaxBreakdown = {
   revenueGross: number;
   inclusive: boolean;
   applyAfterDiscount: boolean;
+  /** Per-rate split when goods and services are taxed at different rates (job invoices). */
+  components?: TaxComponent[];
 };
+
+/** One tax line of an invoice (e.g. PRA 16% on services, GST 18% on goods). */
+export type TaxComponent = {
+  part: "services" | "goods";
+  code: string;
+  name: string;
+  ratePercent: number;
+  accountRole: TaxAccountRole | null;
+  /** Amount this rate is worked out on. */
+  base: number;
+  tax: number;
+};
+
+/**
+ * Tax on an invoice whose services and goods carry different rates ("Accounts Linking" 4a:
+ * installation 40,000 @ PRA 16% = 6,400 and parts 20,000 @ GST 18% = 3,600).
+ * The discount is shared between services and goods in proportion to their value.
+ */
+export function computeSplitTax(params: {
+  servicesGross: number;
+  goodsGross: number;
+  discount?: number;
+  services: { rate: TaxRateConfig | null };
+  goods: { rate: TaxRateConfig | null };
+  inclusive: boolean;
+  applyAfterDiscount: boolean;
+  rounding: TaxPolicy["rounding"];
+}): TaxBreakdown {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const sGross = r2(Math.max(0, params.servicesGross));
+  const gGross = r2(Math.max(0, params.goodsGross));
+  const gross = r2(sGross + gGross);
+  const discount = r2(Math.min(Math.max(0, params.discount || 0), gross));
+  const gDisc = gross > 0 ? r2((discount * gGross) / gross) : 0;
+  const sDisc = r2(discount - gDisc);
+  const components: TaxComponent[] = [];
+  const part = (name: "services" | "goods", partGross: number, partDisc: number, rate: TaxRateConfig | null) => {
+    const pct = Math.max(0, Number(rate?.rate) || 0);
+    const base = r2(params.applyAfterDiscount ? partGross - partDisc : partGross);
+    if (!rate || pct <= 0 || base <= 0) return 0;
+    const tax = r2(
+      params.inclusive ? roundTax((base * pct) / (100 + pct), params.rounding) : roundTax((base * pct) / 100, params.rounding)
+    );
+    components.push({ part: name, code: rate.code, name: rate.name, ratePercent: pct, accountRole: rate.accountRole ?? null, base, tax });
+    return tax;
+  };
+  const tax = r2(part("services", sGross, sDisc, params.services.rate) + part("goods", gGross, gDisc, params.goods.rate));
+  const taxableAmount = r2(components.reduce((s, c) => s + c.base, 0));
+  return {
+    gross,
+    discount,
+    taxableAmount,
+    // Effective rate across both parts (display only; postings use the components).
+    ratePercent: taxableAmount > 0 ? Math.round((tax / taxableAmount) * 10000) / 100 : 0,
+    tax,
+    total: params.inclusive ? r2(gross - discount) : r2(gross - discount + tax),
+    revenueGross: params.inclusive ? r2(gross - tax) : gross,
+    inclusive: params.inclusive,
+    applyAfterDiscount: params.applyAfterDiscount,
+    components,
+  };
+}
 
 /**
  * One formula for every module.

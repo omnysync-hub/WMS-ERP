@@ -86,8 +86,24 @@ export default function TaxInvoiceDocument({
         rounding: taxRule.rounding || { mode: "nearest", decimals: 2 },
       })
     : null;
-  const taxAmount = taxCalc?.tax || 0;
-  const netPayable = taxCalc ? taxCalc.total : Math.max(0, subtotal - discount - focWaiver);
+  // Split invoice (services tax + goods tax): print the stored per-rate lines and totals as raised.
+  const splitTaxLines: Array<{ part: string; name: string; ratePercent: number; tax: number }> | null = job?.isFoc
+    ? null
+    : inv?.taxApplied
+      ? Array.isArray(inv?.taxBreakdown) && inv.taxBreakdown.length > 0 && inv.taxAmount > 0
+        ? inv.taxBreakdown
+        : null
+      : !inv && draftTax?.enabled && Array.isArray(draftTax?.components) && draftTax.components.length > 0
+        ? draftTax.components
+        : null;
+  const taxAmount = splitTaxLines
+    ? Math.round(splitTaxLines.reduce((s, c) => s + (Number(c.tax) || 0), 0) * 100) / 100
+    : taxCalc?.tax || 0;
+  const netPayable = splitTaxLines
+    ? Number(inv ? inv.amount : draftTax?.total) || 0
+    : taxCalc
+      ? taxCalc.total
+      : Math.max(0, subtotal - discount - focWaiver);
 
   const invoiceDate = job.invoice?.createdAt
     ? new Date(job.invoice.createdAt)
@@ -384,14 +400,23 @@ export default function TaxInvoiceDocument({
                 <span className="font-mono">-{formatCurrency(focWaiver)}</span>
               </div>
             )}
-            <div className="flex justify-between text-zinc-600">
-              <span>
-                {taxCalc
-                  ? `${taxRule?.name || "Sales Tax"} @ ${Number(taxRule?.ratePercent) || 0}%${taxCalc.inclusive ? " (included)" : ""}:`
-                  : "Sales Tax:"}
-              </span>
-              <span className="font-mono text-zinc-700">{taxCalc ? formatCurrency(taxAmount) : "Not charged"}</span>
-            </div>
+            {splitTaxLines ? (
+              splitTaxLines.map((c, i) => (
+                <div key={`${c.part}-${i}`} className="flex justify-between text-zinc-600">
+                  <span>{`${c.name} @ ${Number(c.ratePercent) || 0}% on ${c.part === "goods" ? "goods" : "services"}${taxCalc?.inclusive ? " (included)" : ""}:`}</span>
+                  <span className="font-mono text-zinc-700">{formatCurrency(Number(c.tax) || 0)}</span>
+                </div>
+              ))
+            ) : (
+              <div className="flex justify-between text-zinc-600">
+                <span>
+                  {taxCalc
+                    ? `${taxRule?.name || "Sales Tax"} @ ${Number(taxRule?.ratePercent) || 0}%${taxCalc.inclusive ? " (included)" : ""}:`
+                    : "Sales Tax:"}
+                </span>
+                <span className="font-mono text-zinc-700">{taxCalc ? formatCurrency(taxAmount) : "Not charged"}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-base text-zinc-900 border-t-2 border-zinc-900 pt-2 mt-1">
               <span>Net Payable:</span>
               <span className="font-mono text-purple-900">{formatCurrency(netPayable)}</span>

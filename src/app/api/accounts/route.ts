@@ -1303,10 +1303,13 @@ export async function GET(req: NextRequest) {
           })
         : await prisma.account.findMany({
             where: {
+              level: 4,
+              isActive: true,
+              // 11105 Cash with Technicians is a clearing account, never a place money is received into.
+              code: { not: "11105" },
               OR: [
-                { code: { in: ["11101", "11102", "11103"] } },
-                { name: { contains: "Cash", mode: "insensitive" } },
-                { name: { contains: "Bank", mode: "insensitive" } },
+                { code: { in: ["11101", "11102", "11103", "11104"] } },
+                { parent: { code: "1110" } },
               ],
             },
             orderBy: { code: "asc" },
@@ -1716,15 +1719,16 @@ export async function POST(req: NextRequest) {
           if (!cashAcc || !cashAcc.isActive || cashAcc.type !== "asset" || cashAcc.level < 4) {
             throw new Error("Receiving account must be an active level-4 asset account.");
           }
-          // No invoice: this is a customer advance (Cr 21105), never a bare AR credit.
+          // No invoice named: settle what the customer owes (oldest invoices first); only the excess
+          // becomes a customer advance (Cr 21105). AR is never credited beyond what is owed.
           if (!invoiceId) {
-            return CustomerReceiptService.recordAdvance(tx, {
+            return CustomerReceiptService.receiveOnAccount(tx, {
               customerId: effectiveCustomerId,
               amount: numAmount,
               receivingAccount: cashAcc,
-              memo: notes || `Customer advance received via ${paymentMethod.toUpperCase()} (no invoice yet)`,
+              memo: notes || `Customer payment received via ${paymentMethod.toUpperCase()}`,
               postedBy: actorName,
-              documentNumber: `ADV-${Date.now().toString().slice(-6)}`,
+              documentNumber: `REC-${Date.now().toString().slice(-8)}`,
             });
           }
           const arAcc = await AccountMappingService.resolveAccount({

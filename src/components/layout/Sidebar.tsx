@@ -432,6 +432,7 @@ export default function Sidebar({
     { label: "Fixed Assets & Depr", tab: "fixedassets", icon: Layers },
     { label: "Sub-Ledger Drift & Aging", tab: "subledgers", icon: ArrowLeftRight },
     { label: "FOC Company Payments", tab: "foc", icon: Building },
+    { label: "Returns (Credit / Debit Notes)", tab: "returns", icon: ArrowLeftRight },
   ];
 
   const hasAccountsAccess =

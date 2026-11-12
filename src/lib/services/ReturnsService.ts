@@ -5,7 +5,7 @@ import { InventoryService } from "./InventoryService";
 import { SubLedgerService } from "./SubLedgerService";
 import { CustomerReceiptService } from "./CustomerReceiptService";
 import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
-import { findRate } from "@/lib/tax/taxConfig";
+import { findRate, type TaxComponent } from "@/lib/tax/taxConfig";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const TX = { maxWait: 10000, timeout: 30000 } as const;
@@ -48,14 +48,28 @@ export class ReturnsService {
 
     // Amounts entered at the invoice's own price basis (tax-inclusive invoices: price includes tax).
     const gross = r2(lines.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice), 0));
-    const rate = invoice.taxApplied && invoice.taxAmount > 0 ? Number(invoice.taxRate) || 0 : 0;
+    // Split invoices (services + goods rates): returned items carry the GOODS rate (e.g. GST 18%);
+    // a return with no stock item at all is a service credit at the services rate.
+    const breakdown = Array.isArray(invoice.taxBreakdown) ? (invoice.taxBreakdown as unknown as TaxComponent[]) : null;
+    const isGoodsReturn = lines.some((l) => l.productId) || !breakdown?.some((c) => c.part === "services");
+    const component = breakdown?.find((c) => c.part === (isGoodsReturn ? "goods" : "services")) || breakdown?.[0] || null;
+    const rate =
+      invoice.taxApplied && invoice.taxAmount > 0
+        ? component
+          ? Number(component.ratePercent) || 0
+          : Number(invoice.taxRate) || 0
+        : 0;
     const net = rate > 0 && invoice.taxInclusive ? r2(gross / (1 + rate / 100)) : gross;
     const tax = rate > 0 ? (invoice.taxInclusive ? r2(gross - net) : r2((net * rate) / 100)) : 0;
     const total = r2(net + tax);
     if (!(total > 0)) throw new Error("Credit note total must be greater than zero.");
 
     const { rates } = await TaxSettingsService.load();
-    const rateCfg = invoice.taxCode ? findRate(rates, invoice.taxCode, invoice.createdAt) : null;
+    const rateCfg = component
+      ? { accountRole: component.accountRole ?? (component.part === "goods" ? "sales_tax_payable" : "services_tax_payable") }
+      : invoice.taxCode
+        ? findRate(rates, invoice.taxCode, invoice.createdAt)
+        : null;
 
     return prisma.$transaction(async (tx) => {
       const prior = await tx.customerLedgerEntry.count({
