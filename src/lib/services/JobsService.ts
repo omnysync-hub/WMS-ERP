@@ -2996,7 +2996,8 @@ export class JobsService {
     if (!job) throw new Error("Job not found");
 
     // Guard: Invoices can only be raised after field work is completed
-    const isCompleted = ["CompletedPendingVerification", "Finalized"].includes(job.status);
+    // Any completed status counts (Completed, AwaitingFeedback, CompletedPendingVerification, Finalized, Verified ...).
+    const isCompleted = isJobCompleted(job);
     const existingInv = await prisma.invoice.findFirst({ where: { jobId: job.id } });
     if (!existingInv && !isCompleted) {
       throw new Error(

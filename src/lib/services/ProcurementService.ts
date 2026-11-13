@@ -1358,6 +1358,18 @@ export class ProcurementService {
     // Discount math (validates percent 0-100 and fixed amount <= subtotal) — throws before any write
     // Settings > Taxes: optionally work out the bill's sales tax from the configured purchase rate.
     let billTaxAmount = data.taxAmount;
+    // No tax entered on the bill: carry the tax % agreed on the PO lines over to the billed lines.
+    if ((billTaxAmount === undefined || billTaxAmount === null) && po) {
+      let poTax = 0;
+      for (const it of data.items) {
+        const poItem = po.items.find((p) => p.id === it.poItemId);
+        const pct = Number(poItem?.taxPercent) || 0;
+        if (!pct) continue;
+        const net = (Number(it.billedQuantity) || 0) * (Number(it.billedUnitPrice) || 0) * (1 - (Number(it.discountPercent) || 0) / 100);
+        poTax += (net * pct) / 100;
+      }
+      billTaxAmount = Math.round(poTax * 100) / 100;
+    }
     const { rates: taxRates, policy: taxPolicy } = await TaxSettingsService.load();
     if (taxPolicy.procurement.autoCalculate && taxPolicy.procurement.rateCode) {
       const rate = findRate(taxRates, taxPolicy.procurement.rateCode, data.invoiceDate ? new Date(data.invoiceDate) : new Date());
@@ -1634,7 +1646,23 @@ export class ProcurementService {
     if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
       throw new Error("Payment amount must be greater than zero.");
     }
-    const whtAmount = data.whtAmount == null ? 0 : Math.round(Number(data.whtAmount) * 100) / 100;
+    // WHT not given by the caller: apply the vendor's own WHT rate (Vendor master, Sec 153) when
+    // Settings > Taxes says WHT is deducted on supplier payments and the vendor is not exempt.
+    let whtAmount = data.whtAmount == null || (data.whtAmount as any) === "" ? NaN : Math.round(Number(data.whtAmount) * 100) / 100;
+    if (Number.isNaN(whtAmount)) {
+      whtAmount = 0;
+      const billForWht = await prisma.supplierInvoice.findUnique({
+        where: { id: data.supplierInvoiceId },
+        select: { subtotal: true, totalAmount: true, vendor: { select: { whtRate: true, whtExempt: true } } },
+      });
+      const rate = Number(billForWht?.vendor?.whtRate) || 0;
+      if (rate > 0 && !billForWht?.vendor?.whtExempt && (await TaxSettingsService.load()).policy.wht.deductOnSupplierPayments) {
+        // Same base as the payment screen: the bill value excluding sales tax, pro-rata for part payments.
+        const exTaxShare =
+          billForWht && billForWht.totalAmount > 0 && billForWht.subtotal > 0 ? billForWht.subtotal / billForWht.totalAmount : 1;
+        whtAmount = Math.round(((amountPaid * exTaxShare * rate) / 100) * 100) / 100;
+      }
+    }
     if (!Number.isFinite(whtAmount) || whtAmount < 0) {
       throw new Error("Withholding tax amount cannot be negative.");
     }
@@ -1682,7 +1710,7 @@ export class ProcurementService {
       const remainingBalance = Math.round((invoice.totalAmount - invoice.paidAmount) * 100) / 100;
       if (amountPaid > remainingBalance + 0.01) {
         throw new Error(
-          `Payment amount ($${amountPaid}) cannot exceed remaining balance of $${remainingBalance} on Invoice ${invoice.invoiceNumber}.`
+          `Payment amount (PKR ${amountPaid}) cannot exceed remaining balance of PKR ${remainingBalance} on Invoice ${invoice.invoiceNumber}.`
         );
       }
 

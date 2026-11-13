@@ -105,7 +105,7 @@ async function run() {
       jobType: "installation",
       assignedTechnicianId: tech.id,
       paymentCollectionMode: "office",
-      status: "InProgress",
+      status: "CompletedPendingVerification",
       items: {
         create: [
           { description: "AC installation service", quantityPlanned: 1, quantityActual: 1, unitRate: 40000 },
@@ -179,6 +179,11 @@ async function run() {
   });
   const adv = await JobsService.recordOfficeJobReceipt(jobB.id, 18000, ACTOR, { receiptMode: "cash", paymentMethod: "cash" });
   check("8a advance recorded", (adv as any).advance || 0, 18000);
+  // An invoice cannot be raised before the work is done.
+  let earlyInvoiceBlocked = 0;
+  await JobsService.generateCustomInvoice(jobB.id, "", ACTOR).catch(() => (earlyInvoiceBlocked = 1));
+  check("Invoice blocked while job not completed", earlyInvoiceBlocked, 1);
+  await prisma.job.update({ where: { id: jobB.id }, data: { status: "CompletedPendingVerification" } });
   const invB = await JobsService.generateCustomInvoice(jobB.id, "", ACTOR);
   check("8b invoice total", invB!.amount, 18000);
   const invBAfter = await prisma.invoice.findUnique({ where: { id: invB!.id } });
@@ -248,6 +253,26 @@ async function run() {
   check("Gross profit", is.grossProfit, 7200);
   check("Admin expenses", is.operatingExpenses.total, 65000);
   check("Net profit / (loss)", is.netIncome, -57800);
+
+  // ---------------- Controls ----------------
+  // Cash / bank can never go negative (vault holds 58,800).
+  let overdrawBlocked = 0;
+  await post("Overdraw attempt", [["64109", 999999, 0], ["11101", 0, 999999]]).catch(() => (overdrawBlocked = 1));
+  check("Cash overdraw blocked", overdrawBlocked, 1);
+  // The person who creates a PO cannot approve it.
+  const { ProcurementService } = await import("../src/lib/services/ProcurementService");
+  const vendor = await prisma.vendor.create({ data: { name: "PEL" } });
+  const po = await ProcurementService.createPurchaseOrder({
+    vendorId: vendor.id,
+    createdBy: "Buyer One",
+    items: [{ productId: m2.id, quantity: 1, unitCost: 1000, taxPercent: 18 } as any],
+  } as any);
+  check("PO total includes 18% tax", Math.round(po.totalAmount), 1180);
+  let selfApprovalBlocked = 0;
+  await ProcurementService.approvePurchaseOrder(po.id, "Buyer One").catch(() => (selfApprovalBlocked = 1));
+  check("PO self-approval blocked", selfApprovalBlocked, 1);
+  const approved = await ProcurementService.approvePurchaseOrder(po.id, "Manager Two");
+  check("PO approved by another user", approved.status === "approved" ? 1 : 0, 1);
 
   console.log(failures ? `\n${failures} check(s) FAILED` : "\nALL CHECKS PASSED");
   process.exitCode = failures ? 1 : 0;

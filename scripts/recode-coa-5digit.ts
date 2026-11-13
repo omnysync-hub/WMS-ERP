@@ -136,6 +136,19 @@ async function main() {
           if (n) await tx.bankStatementLine.update({ where: { id: bl.id }, data: { bankAccountId: n } });
         }
 
+        // 7. Purchase sales tax is recoverable input tax (Dr 11204), not an expense — the doc's
+        //    example books "Input Sales Tax 18,000". Settings saved under the old default (false)
+        //    still say "not claimable"; switch them on. It can be turned off again in Settings > Taxes.
+        const settings = await tx.companySettings.findFirst({ select: { id: true, taxPolicy: true } });
+        const policy = (settings?.taxPolicy && typeof settings.taxPolicy === "object" ? settings.taxPolicy : {}) as Record<string, any>;
+        if (settings && policy.procurement?.recordInputTax === false) {
+          await tx.companySettings.update({
+            where: { id: settings.id },
+            data: { taxPolicy: { ...policy, procurement: { ...policy.procurement, recordInputTax: true } } },
+          });
+          log.push("tax     procurement.recordInputTax: false -> true (supplier GST to 11204 Input Tax)");
+        }
+
         if (DRY) throw new DryRunRollback();
       },
       { maxWait: 20000, timeout: 300000 }

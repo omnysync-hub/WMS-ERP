@@ -1,4 +1,5 @@
 "use client";
+import { isJobCompleted as isJobCompletedStatus } from "@/lib/jobStatus";
 
 import React, { useEffect, useMemo, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
@@ -183,15 +184,11 @@ export default function TaxInvoiceDrawer({
       }));
   }, [lines]);
 
-  const isJobCompleted = Boolean(
-    job?.invoice ||
-    ["CompletedPendingVerification", "Finalized"].includes(job?.status) ||
-    job?.finalizedAt
-  );
+  const isJobCompleted = Boolean(job?.invoice) || isJobCompletedStatus(job);
 
   const handleSubmit = async (autoPrint = false) => {
     if (!isJobCompleted) {
-      setErrorMsg("Cannot generate invoice: Field work has not been completed yet (status must be CompletedPendingVerification or Finalized).");
+      setErrorMsg("Cannot generate invoice: Field work has not been completed yet (the technician must mark the job completed first).");
       return;
     }
     if (!customInvoiceNumber.trim()) {
@@ -357,7 +354,7 @@ export default function TaxInvoiceDrawer({
               <div>
                 <p className="font-bold">Job Not Completed</p>
                 <p className="text-[11px] text-amber-800 mt-0.5">
-                  Tax invoices can only be issued after field work is completed (Status: CompletedPendingVerification or Finalized). Current status is "{job?.status}".
+                  Tax invoices can only be issued after field work is completed (the technician must mark it completed). Current status is "{job?.status}".
                 </p>
               </div>
             </div>

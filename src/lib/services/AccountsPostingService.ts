@@ -154,34 +154,32 @@ export class AccountsPostingService {
           `Posting rejected: '${account.name}' (${account.code}) is a group account with ${childCount} sub-account(s). Post to one of its sub-accounts.`
         );
       }
+    }
 
-      // Prevent negative balances on cash and bank disbursement accounts
-      const isCashOrBank =
-        account.code.startsWith("1110") ||
-        account.code === "1000" ||
-        account.code === "1010" ||
-        account.name.toLowerCase().includes("petty cash") ||
-        account.name.toLowerCase().includes("cash on hand") ||
-        account.name.toLowerCase().includes("bank account");
-
-      if (
-        isCashOrBank &&
-        line.credit > 0 &&
-        !bypassBalanceCheck &&
-        refType !== "opening_balance" &&
-        refType !== "reversal"
-      ) {
-        const balanceResult = await db.journalLine.aggregate({
-          where: { accountId: account.id },
+    // 2b. No cash / bank account may go below zero (petty cash, vault, banks, wallets). Checked on
+    // the voucher's NET effect per account against posted entries only; money accounts are the
+    // Cash & Bank group (1110) or ledgers linked to a Financial Account. 11105 Cash with Technicians
+    // is a clearing account and is not checked. Opening balances and reversals are exempt.
+    if (!bypassBalanceCheck && refType !== "opening_balance" && refType !== "reversal" && refType !== "year_end_close") {
+      const netByAccount = new Map<string, number>();
+      for (const l of normalizedLines) {
+        netByAccount.set(l.accountId, Math.round(((netByAccount.get(l.accountId) || 0) + l.debit - l.credit) * 100) / 100);
+      }
+      for (const [accountId, net] of Array.from(netByAccount.entries())) {
+        if (net >= 0) continue;
+        const account = await db.account.findUnique({
+          where: { id: accountId },
+          include: { parent: { select: { code: true } }, financialAccount: { select: { id: true } } },
+        });
+        if (!account || account.code === "11105" || !AccountsPostingService.isCashBankAccount(account)) continue;
+        const bal = await db.journalLine.aggregate({
+          where: { accountId, journalEntry: { status: { in: ["posted", "reversed", "reversal"] } } },
           _sum: { debit: true, credit: true },
         });
-        const totalDebit = balanceResult._sum.debit || 0;
-        const totalCredit = balanceResult._sum.credit || 0;
-        const currentBalance = Math.round((totalDebit - totalCredit) * 100) / 100;
-
-        if (currentBalance < line.credit - 0.01) {
+        const available = Math.round(((bal._sum.debit || 0) - (bal._sum.credit || 0)) * 100) / 100;
+        if (available + net < -0.005) {
           throw new Error(
-            `Insufficient funds in ${account.name} (${account.code}). Available balance is PKR ${currentBalance.toLocaleString()}, but disbursement requires PKR ${line.credit.toLocaleString()}. Cannot disburse into negative cash/bank balance.`
+            `Insufficient funds in ${account.name} (${account.code}): available PKR ${available.toLocaleString()}, this entry needs PKR ${Math.abs(net).toLocaleString()}. A cash or bank account cannot go negative.`
           );
         }
       }

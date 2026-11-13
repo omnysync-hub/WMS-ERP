@@ -751,6 +751,8 @@ export class HrmService {
         accountId: advanceAcc.id,
         debit: 0,
         credit: deductions,
+        partyType: "employee",
+        partyId: employee.id,
       });
     }
 
@@ -785,6 +787,41 @@ export class HrmService {
           journalEntryId: journal.id,
         },
       });
+
+      // The advance deducted here is recovered in the GL (Cr 11202), so the employee's advance records
+      // must be marked recovered too (oldest first), or HRM keeps showing them as outstanding.
+      if (deductions > 0) {
+        let remaining = Math.round(deductions * 100) / 100;
+        const open = await tx.employeeAdvance.findMany({
+          where: { employeeId: employee.id, status: "approved" },
+          orderBy: { createdAt: "asc" },
+        });
+        for (const adv of open) {
+          if (remaining <= 0.005) break;
+          if (remaining >= adv.amount - 0.005) {
+            await tx.employeeAdvance.update({
+              where: { id: adv.id },
+              data: { status: "recovered", notes: `[Recovered in final settlement] ${adv.notes || ""}`.trim() },
+            });
+            remaining = Math.round((remaining - adv.amount) * 100) / 100;
+          } else {
+            await tx.employeeAdvance.update({
+              where: { id: adv.id },
+              data: { amount: remaining, status: "recovered", notes: `[Partly recovered PKR ${remaining} in final settlement] ${adv.notes || ""}`.trim() },
+            });
+            await tx.employeeAdvance.create({
+              data: {
+                employeeId: adv.employeeId,
+                amount: Math.round((adv.amount - remaining) * 100) / 100,
+                status: "approved",
+                approvedBy: adv.approvedBy,
+                notes: `Unrecovered balance after final settlement (original PKR ${adv.amount})`,
+              },
+            });
+            remaining = 0;
+          }
+        }
+      }
 
       if (expAdj > 0) {
         // Same clearing as payroll: the owed expenses are now paid out.
@@ -1140,11 +1177,14 @@ export class HrmService {
       recentJoiners,
       upcomingHolidays,
     ] = await Promise.all([
-      prisma.employee.count(),
+      // Headcount = current (active) employees, the same set Attendance lists; exited staff
+      // (Inactive / Terminated) are counted separately below.
+      prisma.employee.count({ where: { active: true } }),
       prisma.employee.count({ where: { active: true, status: "Active" } }),
-      prisma.employee.count({ where: { status: "On Leave" } }),
+      prisma.employee.count({ where: { active: true, status: "On Leave" } }),
       prisma.employee.groupBy({
         by: ["department"],
+        where: { active: true },
         _count: { id: true },
       }),
       prisma.jobRequisition.count({ where: { status: { in: ["Approved", "Open"] } } }),

@@ -188,10 +188,10 @@ export default function ThreeWayMatchTab({
       setInvoiceNumber(`INV-VND-${Date.now().toString().slice(-5)}`);
       rebuildBilledItems(poId, allMatchingIds);
 
-      // Auto-prefill tax from PO items
+      // Auto-prefill tax from PO items, on the quantity actually received (same as the billed lines)
       const poTax = (po.items || []).reduce((sum: number, it: any) => {
         const cost = Number(it.unitCost) || 0;
-        const qty = Number(it.quantity) || 0;
+        const qty = Number(it.quantityReceived || it.quantity) || 0;
         const disc = Number(it.discountPercent) || 0;
         const tax = Number(it.taxPercent) || 0;
         const sub = cost * qty * (1 - disc / 100);

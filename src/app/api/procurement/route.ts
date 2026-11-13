@@ -344,13 +344,15 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_po": {
-        payload.createdBy = payload.createdBy || actorName;
+        // Segregation of duties: the creator is the logged-in user, never a name sent by the browser.
+        payload.createdBy = actor.name;
         const po = await ProcurementService.createPurchaseOrder(payload);
         return NextResponse.json(po, { status: 201 });
       }
 
       case "approve_po": {
-        const po = await ProcurementService.approvePurchaseOrder(payload.id, actorName);
+        // Approver = the logged-in user (the creator cannot approve their own PO).
+        const po = await ProcurementService.approvePurchaseOrder(payload.id, actor.name);
         return NextResponse.json(po);
       }
 

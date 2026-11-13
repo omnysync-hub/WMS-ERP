@@ -101,12 +101,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provide both latitude and longitude, or neither." }, { status: 400 });
     }
 
-    // Check for existing duplicate phone number
-    const existing = await prisma.customer.findFirst({
-      where: {
-        phone: { contains: primaryDigits },
-      },
-    });
+    // Duplicate phone check: compares digits only, so "0300-1234567", "0300 1234567" and
+    // "03001234567" are the same number; the new primary and secondary numbers are both checked
+    // against every saved number (a saved phone may hold "primary / secondary").
+    const phoneDigitsToCheck = [primaryDigits];
+    if (typeof secPhone === "string" && secPhone.trim()) phoneDigitsToCheck.push(String(secPhone).replace(/\D/g, ""));
+    let existing: { id: string; name: string; phone: string } | null = null;
+    for (const digits of phoneDigitsToCheck) {
+      const rows = await prisma.$queryRaw<Array<{ id: string; name: string; phone: string }>>`
+        SELECT "id", "name", "phone" FROM "Customer"
+        WHERE regexp_replace("phone", '[^0-9]', '', 'g') LIKE ${"%" + digits + "%"}
+        LIMIT 1`;
+      if (rows.length) {
+        existing = rows[0];
+        break;
+      }
+    }
 
     if (existing && !body.allowDuplicatePhone) {
       return NextResponse.json(

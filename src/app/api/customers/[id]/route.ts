@@ -64,9 +64,12 @@ export async function GET(
       orderBy: { createdAt: "desc" },
     });
 
+    // Same rule as Accounts > Statements: the customer sub-ledger when it has entries, otherwise the
+    // invoices that are still open (cancelled invoices never count).
     let totalInvoiced = 0;
     let totalInvoicePaid = 0;
     for (const inv of customerInvoices) {
+      if (inv.status === "cancelled") continue;
       totalInvoiced += inv.amount;
       if (inv.status === "paid") totalInvoicePaid += inv.amount;
     }

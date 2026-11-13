@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
-import { currentAccountCode } from "@/lib/constants/chartOfAccountsHierarchy";
 import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -55,18 +54,10 @@ export async function POST(req: NextRequest) {
         prismaClient: tx,
       });
 
-      let disbursingAccount = null;
-      if (disbursingAccountCode) {
-        disbursingAccount = await tx.account.findFirst({
-          where: {
-            OR: [
-              { code: String(disbursingAccountCode) },
-              { code: currentAccountCode(String(disbursingAccountCode)) },
-            ],
-            isActive: true,
-          },
-        });
-      }
+      // The chosen account must be a real cash / bank ledger (old 4-digit codes are accepted).
+      let disbursingAccount: { id: string; code: string; name: string } | null = disbursingAccountCode
+        ? await AccountsPostingService.getCashBankAccountByCode(String(disbursingAccountCode), tx)
+        : null;
       if (!disbursingAccount) {
         disbursingAccount = await AccountMappingService.resolveAccount({
           transactionType: "advance_granted_disbursing",

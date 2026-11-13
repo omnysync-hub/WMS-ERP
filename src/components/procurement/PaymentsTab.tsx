@@ -469,7 +469,7 @@ export default function PaymentsTab({
                 </div>
                 {Number(whtAmount) > 0 && (
                   <div className="flex justify-between text-purple-700">
-                    <span>WHT Withheld (Credit 2120 WHT Payable):</span>
+                    <span>WHT Withheld (Credit 21203 WHT Payable – Suppliers):</span>
                     <strong>-{formatCurrency(Number(whtAmount) || 0)}</strong>
                   </div>
                 )}
