@@ -101,6 +101,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provide both latitude and longitude, or neither." }, { status: 400 });
     }
 
+    // Check for existing duplicate phone number
+    const existing = await prisma.customer.findFirst({
+      where: {
+        phone: { contains: primaryDigits },
+      },
+    });
+
+    if (existing && !body.allowDuplicatePhone) {
+      return NextResponse.json(
+        {
+          error: `A customer with this phone number already exists: "${existing.name}" (${existing.phone}). Please link to the existing customer or confirm duplicate registration.`,
+          existingCustomer: { id: existing.id, name: existing.name, phone: existing.phone },
+        },
+        { status: 409 }
+      );
+    }
+
     const customer = await prisma.customer.create({
       data: {
         name: name.trim(),

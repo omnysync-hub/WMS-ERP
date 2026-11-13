@@ -34,6 +34,7 @@ export default function IssueAdvanceDrawer({
   const [employeeId, setEmployeeId] = useState("");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
+  const [disbursingAccount, setDisbursingAccount] = useState<"11101" | "11103">("11101");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -88,6 +89,7 @@ export default function IssueAdvanceDrawer({
           employeeId: selectedEmployee?.id,
           amount: numAmount,
           reason: reason.trim(),
+          disbursingAccountCode: disbursingAccount,
         }),
       });
 
@@ -184,6 +186,37 @@ export default function IssueAdvanceDrawer({
           )}
         </div>
 
+        {/* Disbursing Account Selection */}
+        <div>
+          <label className="font-bold text-[#18181B] block mb-1">Disbursing Account *</label>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setDisbursingAccount("11101")}
+              className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                disbursingAccount === "11101"
+                  ? "border-[#0D7A5F] bg-emerald-50/50 text-[#0D7A5F] font-bold"
+                  : "border-[#E4E4E7] bg-white text-[#71717A] hover:bg-zinc-50"
+              }`}
+            >
+              <span>Cash on Hand</span>
+              <span className="font-mono text-[10px] text-[#71717A]">11101 (Vault / Petty Cash)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisbursingAccount("11103")}
+              className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                disbursingAccount === "11103"
+                  ? "border-[#0D7A5F] bg-emerald-50/50 text-[#0D7A5F] font-bold"
+                  : "border-[#E4E4E7] bg-white text-[#71717A] hover:bg-zinc-50"
+              }`}
+            >
+              <span>Bank Account</span>
+              <span className="font-mono text-[10px] text-[#71717A]">11103 (Bank Transfer)</span>
+            </button>
+          </div>
+        </div>
+
         {/* Reason / Purpose */}
         <div>
           <label className="font-bold text-[#18181B] block mb-1">Reason / Justification *</label>
@@ -205,11 +238,11 @@ export default function IssueAdvanceDrawer({
           </p>
           <div className="text-[#71717A] space-y-0.5">
             <div className="flex justify-between">
-              <span>Debit: 1120 Employee Advances Receivable</span>
+              <span>Debit: 11202 Employee Advances Receivable</span>
               <span className="font-mono text-[#18181B]">{amount ? formatCurrency(Number(amount)) : "PKR 0"}</span>
             </div>
             <div className="flex justify-between">
-              <span>Credit: 1010 Cash / Bank Account</span>
+              <span>Credit: {disbursingAccount === "11101" ? "11101 Cash on Hand" : "11103 Bank Account"}</span>
               <span className="font-mono text-[#18181B]">{amount ? formatCurrency(Number(amount)) : "PKR 0"}</span>
             </div>
             <div className="pt-1 border-t border-zinc-200 text-emerald-800 font-medium">

@@ -569,6 +569,7 @@ export async function GET(req: NextRequest) {
             take: 1,
           },
           purchaseOrders: true,
+          supplierInvoices: true,
         },
         orderBy: { name: "asc" },
       });
@@ -614,6 +615,7 @@ export async function GET(req: NextRequest) {
               take: 1,
             },
             purchaseOrders: true,
+            supplierInvoices: true,
           },
           orderBy: { name: "asc" },
         });
@@ -622,7 +624,20 @@ export async function GET(req: NextRequest) {
       const vendors = dbVendors.map((v) => {
         const totalPurchases = v.purchaseOrders.reduce((s, po) => s + po.totalAmount, 0);
         const latestEntry = v.vendorLedgerEntries[0];
-        const balanceDue = latestEntry ? latestEntry.runningBalance : Math.round(totalPurchases * 100) / 100;
+        let balanceDue = 0;
+        if (latestEntry) {
+          balanceDue = latestEntry.runningBalance;
+        } else {
+          // Purchase orders are commitments, not AP liabilities.
+          // Only approved/unpaid supplier bills constitute an Accounts Payable liability in GL.
+          const approvedInvoices = (v.supplierInvoices || []).filter(
+            (si: any) => si.matchStatus === "approved_for_payment" || si.paymentStatus === "partially_paid"
+          );
+          balanceDue = approvedInvoices.reduce(
+            (s: number, inv: any) => s + Math.max(0, inv.totalAmount - (inv.paidAmount || 0)),
+            0
+          );
+        }
 
         return {
           id: v.id,

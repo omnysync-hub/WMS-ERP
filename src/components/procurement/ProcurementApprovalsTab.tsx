@@ -124,7 +124,10 @@ export default function ProcurementApprovalsTab({
           actorName: approverActorName,
         }),
       });
-      if (!res.ok) throw new Error("Failed to approve PO");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to approve PO");
+      }
       toast.success("Purchase Order approved! Ready to dispatch to vendor.", { title: "PO Approved" });
       setInspectItem(null);
       onRefresh();

@@ -104,7 +104,16 @@ export default function PaymentsTab({
     const balance = Math.max(0, inv.totalAmount - (inv.paidAmount || 0));
     setPaymentAmount(String(balance));
 
-    setWhtAmount("0");
+    const v = inv.vendor;
+    const isWhtExempt = Boolean(v?.whtExempt);
+    const rate = Number(v?.whtRate) || 0;
+    if (!isWhtExempt && rate > 0) {
+      const base = Number(inv.subtotal) > 0 ? Number(inv.subtotal) : balance;
+      const calculatedWht = Math.round((base * (rate / 100)) * 100) / 100;
+      setWhtAmount(String(calculatedWht));
+    } else {
+      setWhtAmount("0");
+    }
 
     setReference(`FT-${Date.now().toString().slice(-6)}`);
     setNotes(`Settlement of 3-Way Matched Bill ${inv.invoiceNumber} for ${inv.vendor?.name}`);
@@ -414,6 +423,30 @@ export default function PaymentsTab({
                 />
               </div>
 
+              {/* Withholding Tax Deduction */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-[11px] font-mono text-[#71717A]">
+                    Withholding Tax (WHT) Deduction (PKR)
+                  </label>
+                  {selectedInvoice.vendor?.whtRate > 0 && !selectedInvoice.vendor?.whtExempt && (
+                    <span className="text-[10px] font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                      Vendor WHT: {selectedInvoice.vendor.whtRate}%
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max={paymentAmount}
+                  step="any"
+                  value={whtAmount}
+                  onChange={(e) => setWhtAmount(e.target.value)}
+                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                  placeholder="0"
+                />
+              </div>
+
               <div>
                 <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                   Bank Reference / Cheque #
@@ -434,10 +467,16 @@ export default function PaymentsTab({
                   <span>Accounts Payable Cleared (Debit):</span>
                   <strong>{formatCurrency(Number(paymentAmount) || 0)}</strong>
                 </div>
-                <div className="flex justify-between text-[#18181B]">
-                  <span>Net Outflow from Bank Account (Credit):</span>
-                  <strong className="text-emerald-800">
-                    {formatCurrency(Number(paymentAmount) || 0)}
+                {Number(whtAmount) > 0 && (
+                  <div className="flex justify-between text-purple-700">
+                    <span>WHT Withheld (Credit 2120 WHT Payable):</span>
+                    <strong>-{formatCurrency(Number(whtAmount) || 0)}</strong>
+                  </div>
+                )}
+                <div className="flex justify-between text-[#18181B] pt-1 border-t border-emerald-200">
+                  <span className="font-bold">Net Outflow from Bank Account (Credit):</span>
+                  <strong className="text-emerald-800 text-sm">
+                    {formatCurrency(Math.max(0, (Number(paymentAmount) || 0) - (Number(whtAmount) || 0)))}
                   </strong>
                 </div>
               </div>

@@ -127,6 +127,8 @@ export interface CreatePoInput {
   currency?: string;
   shippingAddress?: string;
   termsAndConditions?: string;
+  createdBy?: string;
+  actorName?: string;
   items: CreatePoItemInput[];
 }
 
@@ -898,6 +900,7 @@ export class ProcurementService {
         shippingAddress: data.shippingAddress || "Central Warehouse, Workshop St, Gulberg III, Lahore, Pakistan",
         termsAndConditions: data.termsAndConditions || "Standard Purchase Terms: 100% inspection upon receipt. Discrepancies reportable within 48h.",
         status: "draft",
+        createdBy: data.createdBy || data.actorName || null,
         totalAmount,
         whtAmount,
         netPayable,
@@ -923,6 +926,15 @@ export class ProcurementService {
   }
 
   static async approvePurchaseOrder(id: string, actorName = "Admin") {
+    const po = await prisma.purchaseOrder.findUnique({ where: { id } });
+    if (!po) throw new Error("Purchase order not found");
+
+    if (po.createdBy && actorName && po.createdBy.trim().toLowerCase() === actorName.trim().toLowerCase()) {
+      throw new Error(
+        `Segregation of Duties Violation: You cannot approve Purchase Order #${po.poNumber} because you created it (${po.createdBy}). An independent approver must review and approve this PO.`
+      );
+    }
+
     return await prisma.purchaseOrder.update({
       where: { id },
       data: {

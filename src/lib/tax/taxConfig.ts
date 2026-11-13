@@ -97,7 +97,7 @@ export const DEFAULT_TAX_POLICY: TaxPolicy = {
     taxFocPayments: false,
   },
   pos: { mode: "cashier", rateCode: null, pricesIncludeTax: false, applyAfterDiscount: true },
-  procurement: { recordInputTax: false, autoCalculate: false, rateCode: null, applyAfterDiscount: true },
+  procurement: { recordInputTax: true, autoCalculate: true, rateCode: null, applyAfterDiscount: true },
   projects: { enabled: false, rateCode: null, pricesIncludeTax: false, applyAfterDiscount: true },
   wht: { deductOnSupplierPayments: true, defaultRateCode: null, allowOnCustomerReceipts: false },
   rounding: { mode: "nearest", decimals: 2 },

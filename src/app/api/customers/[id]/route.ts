@@ -59,9 +59,26 @@ export async function GET(
     ).length;
 
     // Financial ledger calculations
-    const totalDebits = customer.customerLedgerEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
-    const totalCredits = customer.customerLedgerEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
-    const ledgerBalance = totalDebits - totalCredits;
+    const customerInvoices = await prisma.invoice.findMany({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    let totalInvoiced = 0;
+    let totalInvoicePaid = 0;
+    for (const inv of customerInvoices) {
+      totalInvoiced += inv.amount;
+      if (inv.status === "paid") totalInvoicePaid += inv.amount;
+    }
+
+    const subledgerDebits = customer.customerLedgerEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const subledgerCredits = customer.customerLedgerEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
+    const subledgerBalance = subledgerDebits - subledgerCredits;
+
+    const invoiceDue = Math.round((totalInvoiced - totalInvoicePaid) * 100) / 100;
+    const ledgerBalance = customer.customerLedgerEntries.length > 0 ? subledgerBalance : invoiceDue;
+    const totalDebits = Math.max(subledgerDebits, totalInvoiced);
+    const totalCredits = Math.max(subledgerCredits, totalInvoicePaid);
 
     // Collect all complaints / feedback calls across all jobs
     const allFeedbackCalls = customer.jobs.flatMap((j) =>
@@ -116,6 +133,7 @@ export async function GET(
         ledgerBalance,
         totalFeedbackCalls: allFeedbackCalls.length,
       },
+      invoices: customerInvoices,
       allFeedbackCalls,
       equipmentHistory,
     });

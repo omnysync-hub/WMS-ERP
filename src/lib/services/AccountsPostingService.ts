@@ -23,6 +23,7 @@ export interface PostEntryParams {
   requiresApproval?: boolean;
   approvedBy?: string;
   bypassPeriodLock?: boolean;
+  bypassBalanceCheck?: boolean;
   lines: PostLineItem[];
   /**
    * Business idempotency key (unique in DB). A second post with the same key fails with a
@@ -58,6 +59,7 @@ export class AccountsPostingService {
       requiresApproval = false,
       approvedBy,
       bypassPeriodLock = false,
+      bypassBalanceCheck = false,
       lines,
       idempotencyKey,
       tx: outerTx,
@@ -151,6 +153,37 @@ export class AccountsPostingService {
         throw new Error(
           `Posting rejected: '${account.name}' (${account.code}) is a group account with ${childCount} sub-account(s). Post to one of its sub-accounts.`
         );
+      }
+
+      // Prevent negative balances on cash and bank disbursement accounts
+      const isCashOrBank =
+        account.code.startsWith("1110") ||
+        account.code === "1000" ||
+        account.code === "1010" ||
+        account.name.toLowerCase().includes("petty cash") ||
+        account.name.toLowerCase().includes("cash on hand") ||
+        account.name.toLowerCase().includes("bank account");
+
+      if (
+        isCashOrBank &&
+        line.credit > 0 &&
+        !bypassBalanceCheck &&
+        refType !== "opening_balance" &&
+        refType !== "reversal"
+      ) {
+        const balanceResult = await db.journalLine.aggregate({
+          where: { accountId: account.id },
+          _sum: { debit: true, credit: true },
+        });
+        const totalDebit = balanceResult._sum.debit || 0;
+        const totalCredit = balanceResult._sum.credit || 0;
+        const currentBalance = Math.round((totalDebit - totalCredit) * 100) / 100;
+
+        if (currentBalance < line.credit - 0.01) {
+          throw new Error(
+            `Insufficient funds in ${account.name} (${account.code}). Available balance is PKR ${currentBalance.toLocaleString()}, but disbursement requires PKR ${line.credit.toLocaleString()}. Cannot disburse into negative cash/bank balance.`
+          );
+        }
       }
     }
 

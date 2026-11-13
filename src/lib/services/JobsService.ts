@@ -2995,6 +2995,15 @@ export class JobsService {
     });
     if (!job) throw new Error("Job not found");
 
+    // Guard: Invoices can only be raised after field work is completed
+    const isCompleted = ["CompletedPendingVerification", "Finalized"].includes(job.status);
+    const existingInv = await prisma.invoice.findFirst({ where: { jobId: job.id } });
+    if (!existingInv && !isCompleted) {
+      throw new Error(
+        `Cannot generate an invoice for Work Order #${job.jobNumber} while status is "${job.status}". The job must be completed ("CompletedPendingVerification" or "Finalized") before an invoice can be issued.`
+      );
+    }
+
     // If manual items are provided by accounting, update JobItem records
     if (Array.isArray(manualItems) && manualItems.length > 0) {
       await prisma.jobItem.deleteMany({ where: { jobId: job.id } });

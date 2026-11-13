@@ -196,6 +196,16 @@ export default function PurchaseOrdersTab({
     0
   );
 
+  const calculatedTaxTotal = items.reduce((sum, it) => {
+    const sub =
+      (Number(it.quantity) || 0) *
+      (Number(it.unitCost) || 0) *
+      (1 - (Number(it.discountPercent) || 0) / 100);
+    return sum + sub * ((Number(it.taxPercent) || 0) / 100);
+  }, 0);
+
+  const calculatedTotalPayable = calculatedSubtotal + calculatedTaxTotal;
+
 
   const eligiblePrsForPo = (prs || []).filter(
     (p) => p.status === "approved" || p.status === "partially_converted"
@@ -333,6 +343,8 @@ export default function PurchaseOrdersTab({
                 paymentTerms,
                 shippingAddress,
                 termsAndConditions,
+                createdBy: activeUser?.name || currentPersona?.name || currentRole,
+                actorName: activeUser?.name || currentPersona?.name || currentRole,
                 items,
               }
         ),
@@ -367,7 +379,10 @@ export default function PurchaseOrdersTab({
           notes,
         }),
       });
-      if (!res.ok) throw new Error("Failed to approve PO");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to approve PO");
+      }
       setPoToApprove(null);
       setApprovalNotes("");
       onRefresh();
@@ -1123,13 +1138,23 @@ export default function PurchaseOrdersTab({
               </div>
 
               {/* Total Summary */}
-              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
-                <span className="text-[#18181B] font-semibold">
-                  Purchase Order Total Payable:
-                </span>
-                <span className="text-base font-extrabold font-mono text-emerald-700">
-                  {formatCurrency(calculatedSubtotal)}
-                </span>
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-[#71717A]">
+                  <span>Subtotal (Excl. Tax):</span>
+                  <span className="font-mono font-bold text-slate-800">{formatCurrency(calculatedSubtotal)}</span>
+                </div>
+                {calculatedTaxTotal > 0 && (
+                  <div className="flex items-center justify-between text-purple-700">
+                    <span>Sales Tax / GST:</span>
+                    <span className="font-mono font-bold">+{formatCurrency(calculatedTaxTotal)}</span>
+                  </div>
+                )}
+                <div className="pt-1.5 border-t border-emerald-200 flex items-center justify-between">
+                  <span className="text-[#18181B] font-bold">Purchase Order Total Payable:</span>
+                  <span className="text-base font-extrabold font-mono text-emerald-700">
+                    {formatCurrency(calculatedTotalPayable)}
+                  </span>
+                </div>
               </div>
         </form>
       </SideDrawer>

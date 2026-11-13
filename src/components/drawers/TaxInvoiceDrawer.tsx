@@ -183,7 +183,17 @@ export default function TaxInvoiceDrawer({
       }));
   }, [lines]);
 
+  const isJobCompleted = Boolean(
+    job?.invoice ||
+    ["CompletedPendingVerification", "Finalized"].includes(job?.status) ||
+    job?.finalizedAt
+  );
+
   const handleSubmit = async (autoPrint = false) => {
+    if (!isJobCompleted) {
+      setErrorMsg("Cannot generate invoice: Field work has not been completed yet (status must be CompletedPendingVerification or Finalized).");
+      return;
+    }
     if (!customInvoiceNumber.trim()) {
       setErrorMsg("Please enter an official invoice number.");
       return;
@@ -310,8 +320,8 @@ export default function TaxInvoiceDrawer({
                 <button
                   type="button"
                   onClick={() => handleSubmit(false)}
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-950 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5"
+                  disabled={isSubmitting || !isJobCompleted}
+                  className="px-4 py-2 bg-purple-100 hover:bg-purple-200 disabled:opacity-50 text-purple-950 rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5 text-purple-800" />
                   {isSubmitting ? "Saving..." : "Save Invoice"}
@@ -319,7 +329,7 @@ export default function TaxInvoiceDrawer({
                 <button
                   type="button"
                   onClick={() => handleSubmit(true)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !isJobCompleted}
                   className="px-4 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
                 >
                   <Printer className="w-3.5 h-3.5" />
@@ -341,6 +351,17 @@ export default function TaxInvoiceDrawer({
         />
       ) : (
         <div className="space-y-5 text-xs">
+          {!isJobCompleted && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Job Not Completed</p>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  Tax invoices can only be issued after field work is completed (Status: CompletedPendingVerification or Finalized). Current status is "{job?.status}".
+                </p>
+              </div>
+            </div>
+          )}
           {errorMsg && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />

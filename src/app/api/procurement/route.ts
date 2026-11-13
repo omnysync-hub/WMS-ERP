@@ -344,6 +344,7 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_po": {
+        payload.createdBy = payload.createdBy || actorName;
         const po = await ProcurementService.createPurchaseOrder(payload);
         return NextResponse.json(po, { status: 201 });
       }

@@ -507,7 +507,7 @@ export default function AccountsPage() {
 
       realtimeSync.publish("DISCOUNT_GRANTED", {
         actor: currentActor,
-        message: `Accountant approved $${amountToApprove} discount on Job #${discount.jobNumber}`,
+        message: `Accountant approved PKR ${amountToApprove} discount on Job #${discount.jobNumber}`,
         jobId: discount.jobId,
         payload: {
           itemId: discount.itemId,
@@ -515,7 +515,7 @@ export default function AccountsPage() {
         },
       });
 
-      setActionSuccessMsg(`Approved discount of $${amountToApprove} for ${discount.customerName} on Job #${discount.jobNumber}.`);
+      setActionSuccessMsg(`Approved discount of PKR ${amountToApprove} for ${discount.customerName} on Job #${discount.jobNumber}.`);
       setModifyingDiscount(null);
       loadData();
     } catch (e: any) {
@@ -3691,7 +3691,7 @@ export default function AccountsPage() {
 
             <div className="space-y-2">
               <p className="text-[#71717A]">
-                Tech requested: <strong>${modifyingDiscount.requestedDiscount}</strong> on{" "}
+                Tech requested: <strong>PKR {modifyingDiscount.requestedDiscount}</strong> on{" "}
                 <strong>{modifyingDiscount.itemDescription}</strong>.
               </p>
               <div>
@@ -3797,7 +3797,7 @@ export default function AccountsPage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        placeholder="Debit ($)"
+                        placeholder="Debit (PKR)"
                         value={line.debit}
                         onChange={(e) => {
                           const updated = [...manualLines];
@@ -3811,7 +3811,7 @@ export default function AccountsPage() {
                         type="number"
                         min="0"
                         step="0.01"
-                        placeholder="Credit ($)"
+                        placeholder="Credit (PKR)"
                         value={line.credit}
                         onChange={(e) => {
                           const updated = [...manualLines];
@@ -4005,7 +4005,7 @@ export default function AccountsPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount Collected ($) *</label>
+                    <label className="text-xs font-semibold text-[#71717A] block mb-1">Amount Collected (PKR) *</label>
                     <input
                       type="number"
                       disabled={

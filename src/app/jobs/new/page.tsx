@@ -435,10 +435,38 @@ export default function FastJobIntakePage() {
           }),
         });
         const custData = await createCustRes.json();
-        if (!createCustRes.ok) {
+        if (createCustRes.status === 409) {
+          const proceed = window.confirm(
+            `${custData.error}\n\nDo you want to register a duplicate customer profile anyway? Click OK to proceed, or Cancel to link this job to existing customer "${custData.existingCustomer?.name}".`
+          );
+          if (proceed) {
+            const retryRes = await fetch("/api/customers", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: customerName.trim(),
+                phone: customerMobile.trim(),
+                secPhone: customerSecMobile.trim() || undefined,
+                addressText: customerAddress.trim(),
+                lat: customerLat || undefined,
+                lng: customerLng || undefined,
+                allowDuplicatePhone: true,
+              }),
+            });
+            const retryData = await retryRes.json();
+            if (!retryRes.ok) throw new Error(retryData.error || "Failed to save customer record.");
+            targetCustomerId = retryData.id;
+          } else if (custData.existingCustomer?.id) {
+            targetCustomerId = custData.existingCustomer.id;
+            setSelectedCustomerId(custData.existingCustomer.id);
+          } else {
+            throw new Error(custData.error);
+          }
+        } else if (!createCustRes.ok) {
           throw new Error(custData.error || "Failed to save customer record.");
+        } else {
+          targetCustomerId = custData.id;
         }
-        targetCustomerId = custData.id;
       }
 
       // Consolidate Items from Rows
@@ -537,6 +565,15 @@ export default function FastJobIntakePage() {
   const isSecMobileTouched = customerSecMobile.length > 0;
   const isSecMobileInvalid = isSecMobileTouched && secMobileDigits.length !== 11;
   const isSecMobileValid = isSecMobileTouched && secMobileDigits.length === 11;
+
+  const matchingCustomer = useMemo(() => {
+    if (!mobileDigits || mobileDigits.length !== 11) return null;
+    return customers.find((c) => {
+      const cDigits = (c.phone || "").replace(/\D/g, "");
+      const cSecDigits = (c.secPhone || "").replace(/\D/g, "");
+      return cDigits.includes(mobileDigits) || cSecDigits.includes(mobileDigits);
+    });
+  }, [mobileDigits, customers]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F8FAFC] p-4 lg:p-6 flex flex-col justify-start">
@@ -718,6 +755,23 @@ export default function FastJobIntakePage() {
                       : "Mobile number must be exactly 11 digits"}
                   </span>
                 </p>
+              )}
+              {matchingCustomer && selectedCustomerId !== matchingCustomer.id && (
+                <div className="mt-1.5 p-2 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-900 flex items-center justify-between animate-in fade-in">
+                  <div className="flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>
+                      Existing customer found: <strong>{matchingCustomer.name}</strong> ({matchingCustomer.phone})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCustomer(matchingCustomer)}
+                    className="text-[11px] font-bold text-amber-900 underline hover:text-black shrink-0 ml-2"
+                  >
+                    Select Existing
+                  </button>
+                </div>
               )}
             </div>
 

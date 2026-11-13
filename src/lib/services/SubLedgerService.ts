@@ -152,12 +152,13 @@ export class SubLedgerService {
    */
   static async checkReconciliationDrift() {
     // 1. Get GL Control Account Balances from JournalLines
-    const [arAccount, apAccount] = await Promise.all([
+    const [arAccount, apAccount, advAccount] = await Promise.all([
       AccountMappingService.resolveAccount({ transactionType: "ar_control" }),
       AccountMappingService.resolveAccount({ transactionType: "ap_control" }),
+      AccountMappingService.resolveAccountOptional({ transactionType: "advance_granted_receivable" }),
     ]);
 
-    const [arJournalLines, apJournalLines] = await Promise.all([
+    const [arJournalLines, apJournalLines, advJournalLines] = await Promise.all([
       prisma.journalLine.findMany({
         where: {
           accountId: arAccount.id,
@@ -170,6 +171,14 @@ export class SubLedgerService {
           journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
         },
       }),
+      advAccount
+        ? prisma.journalLine.findMany({
+            where: {
+              accountId: advAccount.id,
+              journalEntry: { status: { in: ["posted", "reversed", "reversal"] } },
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
     // AR is Asset (Debit - Credit)
@@ -182,11 +191,17 @@ export class SubLedgerService {
       apJournalLines.reduce((sum, l) => sum + (l.credit - l.debit), 0) * 100
     ) / 100;
 
+    // Employee Advances is Asset (Debit - Credit)
+    const advControlGlBalance = Math.round(
+      advJournalLines.reduce((sum, l) => sum + (l.debit - l.credit), 0) * 100
+    ) / 100;
+
     // 2. Sub-ledger totals from the entries themselves (sum of debits/credits), not from the
     // "latest" running balance, which is wrong whenever an entry is back-dated.
-    const [customerSums, vendorSums, customerCount, vendorCount] = await Promise.all([
+    const [customerSums, vendorSums, hrmAdvancesSum, customerCount, vendorCount] = await Promise.all([
       prisma.customerLedgerEntry.aggregate({ _sum: { debit: true, credit: true } }),
       prisma.vendorLedgerEntry.aggregate({ _sum: { debit: true, credit: true } }),
+      prisma.employeeAdvance.aggregate({ where: { status: "approved" }, _sum: { amount: true } }),
       prisma.customer.count(),
       prisma.vendor.count(),
     ]);
@@ -196,11 +211,14 @@ export class SubLedgerService {
       Math.round(((customerSums._sum.debit || 0) - (customerSums._sum.credit || 0)) * 100) / 100;
     const totalVendorSubledgerBalance =
       Math.round(((vendorSums._sum.credit || 0) - (vendorSums._sum.debit || 0)) * 100) / 100;
+    const totalHrmAdvanceBalance =
+      Math.round((hrmAdvancesSum._sum.amount || 0) * 100) / 100;
 
     const arDrift = Math.round((arControlGlBalance - totalCustomerSubledgerBalance) * 100) / 100;
     const apDrift = Math.round((apControlGlBalance - totalVendorSubledgerBalance) * 100) / 100;
+    const advDrift = Math.round((advControlGlBalance - totalHrmAdvanceBalance) * 100) / 100;
 
-    const hasDrift = Math.abs(arDrift) > 0.01 || Math.abs(apDrift) > 0.01;
+    const hasDrift = Math.abs(arDrift) > 0.01 || Math.abs(apDrift) > 0.01 || Math.abs(advDrift) > 0.01;
 
     return {
       success: true,
@@ -219,6 +237,12 @@ export class SubLedgerService {
         driftAmount: apDrift,
         isReconciled: Math.abs(apDrift) <= 0.01,
         vendorCount: vendors.length,
+      },
+      advances: {
+        glControlBalance: advControlGlBalance,
+        subledgerTotal: totalHrmAdvanceBalance,
+        driftAmount: advDrift,
+        isReconciled: Math.abs(advDrift) <= 0.01,
       },
     };
   }

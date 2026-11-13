@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.customer.count(),
       prisma.employee.findMany({
-        where: { role: "technician" },
+        where: { role: "technician", active: true },
         include: {
           jobs: {
             where: { status: { in: ["InProgress", "Assigned", "Accepted"] } },
@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.employee.findMany({
+        where: { active: true },
         select: { department: true },
       }),
       prisma.invoice.findMany({

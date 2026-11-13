@@ -280,8 +280,22 @@ export default function JobDetailPage() {
   const currentIdx = standardStatuses.indexOf(job.status);
 
   const timelineSteps: TimelineStep[] = standardStatuses.map((st, idx) => {
+    if (st === "Created") {
+      const createLog = job.statusHistory?.find(
+        (h: any) => h.fromStatus === "None"
+      ) || job.statusHistory?.find((h: any) => h.toStatus === "Created");
+      return {
+        status: st,
+        label: st,
+        isCompleted: currentIdx > 0,
+        isCurrent: job.status === "Created",
+        timestamp: job.createdAt || createLog?.changedAt || null,
+        changedBy: createLog?.changedBy || "System Intake",
+      };
+    }
+
     const historyEntry = job.statusHistory?.find(
-      (h: any) => h.toStatus === st
+      (h: any) => h.toStatus === st && h.fromStatus !== st
     );
 
     let isCompleted = false;
@@ -466,7 +480,7 @@ export default function JobDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            {canViewFinancials && (canGenerateInvoice || job.invoice) && !isRestrictedRole && (
+            {canViewFinancials && (isJobCompleted || job.invoice) && (canGenerateInvoice || job.invoice) && !isRestrictedRole && (
                   <button
                     type="button"
                     onClick={() => setTaxInvoiceDrawerOpen(true)}
@@ -937,14 +951,16 @@ export default function JobDetailPage() {
                     <span>Add Service</span>
                   </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setTaxInvoiceDrawerOpen(true)}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
-                  >
-                    <Receipt className="w-3.5 h-3.5" />
-                    <span>{job.invoice ? `Print Invoice (${job.invoice.invoiceNumber})` : "Tax Invoice"}</span>
-                  </button>
+                  {(isJobCompleted || job.invoice) && (
+                    <button
+                      type="button"
+                      onClick={() => setTaxInvoiceDrawerOpen(true)}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      <span>{job.invoice ? `Print Invoice (${job.invoice.invoiceNumber})` : "Tax Invoice"}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setWorkOrderDrawerOpen(true)}

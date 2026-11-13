@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
+import { currentAccountCode } from "@/lib/constants/chartOfAccountsHierarchy";
 import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     const gate = requirePermission(req, "hrm.advances");
     if (gate.error) return gate.error;
     const body = await req.json();
-    const { employeeId, amount } = body;
+    const { employeeId, amount, disbursingAccountCode } = body;
     const reason = String(body.reason || "").trim();
 
     const advAmount = Math.round(Number(amount) * 100) / 100;
@@ -49,16 +50,30 @@ export async function POST(req: NextRequest) {
     }
 
     const advance = await prisma.$transaction(async (tx) => {
-      const [advAccount, cashAccount] = await Promise.all([
-        AccountMappingService.resolveAccount({
-          transactionType: "advance_granted_receivable",
-          prismaClient: tx,
-        }),
-        AccountMappingService.resolveAccount({
+      const advAccount = await AccountMappingService.resolveAccount({
+        transactionType: "advance_granted_receivable",
+        prismaClient: tx,
+      });
+
+      let disbursingAccount = null;
+      if (disbursingAccountCode) {
+        disbursingAccount = await tx.account.findFirst({
+          where: {
+            OR: [
+              { code: String(disbursingAccountCode) },
+              { code: currentAccountCode(String(disbursingAccountCode)) },
+            ],
+            isActive: true,
+          },
+        });
+      }
+      if (!disbursingAccount) {
+        disbursingAccount = await AccountMappingService.resolveAccount({
           transactionType: "advance_granted_disbursing",
           prismaClient: tx,
-        }),
-      ]);
+        });
+      }
+
       const created = await tx.employeeAdvance.create({
         data: { employeeId, amount: advAmount, status: "approved", approvedBy: gate.actor.name, notes: reason },
       });
@@ -77,8 +92,8 @@ export async function POST(req: NextRequest) {
         refType: "advance_granted",
         refId: created.id,
         lines: [
-          { accountId: advAccount.id, debit: advAmount, credit: 0 },
-          { accountId: cashAccount.id, debit: 0, credit: advAmount },
+          { accountId: advAccount.id, debit: advAmount, credit: 0, partyType: "employee", partyId: employee.id },
+          { accountId: disbursingAccount.id, debit: 0, credit: advAmount },
         ],
         tx,
       });

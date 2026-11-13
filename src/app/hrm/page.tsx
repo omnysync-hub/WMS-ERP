@@ -2536,7 +2536,7 @@ function HrmPayrollContent() {
                     Total Advances Recorded
                   </span>
                   <p className="text-base font-bold text-[#18181B] font-mono">{advances.length}</p>
-                  <span className="text-[10px] text-[#71717A]">Ledger entries on Account 1120</span>
+                  <span className="text-[10px] text-[#71717A]">Ledger entries on Account 11202 (Employee Advances)</span>
                 </div>
               </div>
             );
