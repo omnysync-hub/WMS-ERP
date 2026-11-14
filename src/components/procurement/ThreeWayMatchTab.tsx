@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ShieldAlert,
   Plus,
@@ -104,8 +104,37 @@ export default function ThreeWayMatchTab({
       billedQuantity: number;
       billedUnitPrice: number;
       discountPercent?: number;
+      taxPercent?: number;
     }[]
   >([]);
+
+  // True once the user types into the Sales Tax field themselves: the auto pre-fill
+  // (PO tax carried onto the billed lines) must not clobber a manual value.
+  // Reset whenever a PO is (re)selected, so a fresh selection pre-fills again.
+  const taxManuallyEditedRef = useRef(false);
+
+  // PO tax carried onto the bill: each billed line's taxPercent (from its PO line) applied to
+  // that line's current billed quantity x billed price, net of the line discount —
+  // the same formula the server fallback in createSupplierInvoice uses.
+  const computeBilledTax = (items: typeof billedItems) =>
+    Math.round(
+      items.reduce((sum, it) => {
+        const qty = Number(it.billedQuantity) || 0;
+        const price = Number(it.billedUnitPrice) || 0;
+        const disc = Number(it.discountPercent) || 0;
+        const tax = Number(it.taxPercent) || 0;
+        return sum + qty * price * (1 - disc / 100) * (tax / 100);
+      }, 0) * 100
+    ) / 100;
+
+  // Recompute the pre-filled tax whenever the billed lines change (GRN selection toggled,
+  // billed quantity / price / discount edited) — unless the user typed a tax value manually.
+  useEffect(() => {
+    if (!selectedPoId || taxManuallyEditedRef.current) return;
+    const t = computeBilledTax(billedItems);
+    setTaxAmount(t > 0 ? String(t) : "0");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billedItems, selectedPoId]);
 
   // Selected Invoice for Full 3-Way Match Verification Card
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
@@ -157,6 +186,8 @@ export default function ThreeWayMatchTab({
             grnQuantity: acceptedQty,
             billedQuantity: acceptedQty,
             billedUnitPrice: poCost,
+            discountPercent: Number(poItem?.discountPercent) || 0,
+            taxPercent: Number(poItem?.taxPercent) || 0,
           };
         })
       );
@@ -172,12 +203,18 @@ export default function ThreeWayMatchTab({
           grnQuantity: pi.quantityReceived || pi.quantity,
           billedQuantity: pi.quantityReceived || pi.quantity,
           billedUnitPrice: pi.unitCost || 0,
+          discountPercent: Number(pi.discountPercent) || 0,
+          taxPercent: Number(pi.taxPercent) || 0,
         }))
       );
     }
   };
 
+
   const handlePoSelect = (poId: string) => {
+    // A fresh PO selection re-arms the tax auto pre-fill (any earlier manual tax edit
+    // belonged to the previous selection).
+    taxManuallyEditedRef.current = false;
     setSelectedPoId(poId);
     const po = pos.find((p) => p.id === poId);
     if (po) {
@@ -722,7 +759,10 @@ export default function ThreeWayMatchTab({
                     min="0"
                     step="any"
                     value={taxAmount}
-                    onChange={(e) => setTaxAmount(e.target.value)}
+                    onChange={(e) => {
+                      taxManuallyEditedRef.current = true;
+                      setTaxAmount(e.target.value);
+                    }}
                     className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
                     placeholder="0"
                   />

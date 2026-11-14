@@ -168,7 +168,7 @@ export default function JobDetailPage() {
         throw new Error(err.error);
       }
       setItemDiscountModalOpen(false);
-      setSuccessMsg(`Discount of $${approvedDiscountAmount} approved on item. Line item rate updated live.`);
+      setSuccessMsg(`Discount of PKR ${approvedDiscountAmount} approved on item. Line item rate updated live.`);
       fetchJob();
 
       // Publish Real-time Sync Event
@@ -177,7 +177,7 @@ export default function JobDetailPage() {
         jobNumber: job.jobNumber,
         technicianId: job.assignedTechnicianId,
         actor: currentPersona.name,
-        message: `${currentPersona.name} approved $${approvedDiscountAmount} discount on ${selectedItemToDiscount.description}`,
+        message: `${currentPersona.name} approved PKR ${approvedDiscountAmount} discount on ${selectedItemToDiscount.description}`,
       });
     } catch (e: any) {
       alert(e.message);
@@ -2109,14 +2109,14 @@ export default function JobDetailPage() {
               </p>
               <div className="flex items-center justify-between text-[11px] text-amber-900 pt-1">
                 <span>Standard Unit Rate:</span>
-                <span className="font-mono font-bold">${selectedItemToDiscount.unitRate}</span>
+                <span className="font-mono font-bold">PKR {selectedItemToDiscount.unitRate}</span>
               </div>
             </div>
 
             <form onSubmit={handleGiveItemDiscount} className="space-y-4">
               <div>
                 <label className="font-semibold text-[#18181B] block mb-1">
-                  Discount Amount to Deduct from Unit Rate ($) *
+                  Discount Amount to Deduct from Unit Rate (PKR) *
                 </label>
                 <input
                   type="number"
@@ -2130,7 +2130,7 @@ export default function JobDetailPage() {
                 />
                 {approvedDiscountAmount && Number(approvedDiscountAmount) > 0 && (
                   <p className="text-[11px] text-emerald-700 font-bold mt-1">
-                    New Invoiced Unit Rate: ${Math.max(0, selectedItemToDiscount.unitRate - Number(approvedDiscountAmount))} (Saved & synchronized live to technician app)
+                    New Invoiced Unit Rate: PKR {Math.max(0, selectedItemToDiscount.unitRate - Number(approvedDiscountAmount))} (Saved & synchronized live to technician app)
                   </p>
                 )}
               </div>

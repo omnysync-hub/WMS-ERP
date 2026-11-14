@@ -65,13 +65,19 @@ export class SubLedgerService {
       throw new Error("Customer sub-ledger entry rejected: customer and document number are required.");
     }
 
-    // Get last running balance for this customer
-    const lastEntry = await db.customerLedgerEntry.findFirst({
+    // Previous balance = sum of all existing entries, NOT the stored
+    // runningBalance of the chronologically latest entry. That stored value is
+    // not trustworthy as a predecessor: opening balances imported by Setup are
+    // written with runningBalance 0 and an explicit (possibly back- or
+    // future-dated) postingDate, and reversal rows are likewise created with
+    // runningBalance 0 — either can be the "latest" row and would silently
+    // reset every subsequent balance. Summing debit - credit is order-
+    // independent and always matches the GL reconciliation (which sums entries).
+    const totals = await db.customerLedgerEntry.aggregate({
       where: { customerId },
-      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      _sum: { debit: true, credit: true },
     });
-
-    const previousBalance = lastEntry ? lastEntry.runningBalance : 0;
+    const previousBalance = (totals._sum.debit || 0) - (totals._sum.credit || 0);
     const runningBalance = Math.round((previousBalance + debit - credit) * 100) / 100;
 
     return await db.customerLedgerEntry.create({
@@ -118,13 +124,15 @@ export class SubLedgerService {
       throw new Error("Vendor sub-ledger entry rejected: WHT withheld must be a non-negative finite number.");
     }
 
-    // Get last running balance for this vendor
-    const lastEntry = await db.vendorLedgerEntry.findFirst({
+    // Previous balance = sum of all existing entries, NOT the stored
+    // runningBalance of the chronologically latest entry (see the customer
+    // version above: imported opening balances and reversal rows carry
+    // runningBalance 0 and can sit at the top of the chronological order).
+    const totals = await db.vendorLedgerEntry.aggregate({
       where: { vendorId },
-      orderBy: [{ postingDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      _sum: { debit: true, credit: true },
     });
-
-    const previousBalance = lastEntry ? lastEntry.runningBalance : 0;
+    const previousBalance = (totals._sum.credit || 0) - (totals._sum.debit || 0);
     // For AP (Liability), Credit increases balance, Debit decreases balance
     const runningBalance = Math.round((previousBalance + credit - debit) * 100) / 100;
 

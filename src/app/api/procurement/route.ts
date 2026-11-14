@@ -320,6 +320,9 @@ export async function POST(req: NextRequest) {
           poType: payload.poType,
           expectedDeliveryDate: payload.expectedDeliveryDate,
           items: payload.items,
+          // Maker–checker: creator = the signed actor, never a name sent by the browser.
+          actorName: actor.name,
+          actorId: actor.id,
         });
         return NextResponse.json(po, { status: 201 });
       }
@@ -335,10 +338,12 @@ export async function POST(req: NextRequest) {
       }
 
       case "award_rfq": {
+        // Creator of the generated PO = the signed actor who awarded the RFQ (not a body-supplied name).
         const result = await ProcurementService.awardRfqAndGeneratePo(
           payload.rfqId,
           payload.winnerVendorId,
-          actorName
+          actor.name,
+          actor.id
         );
         return NextResponse.json(result);
       }
@@ -346,13 +351,14 @@ export async function POST(req: NextRequest) {
       case "create_po": {
         // Segregation of duties: the creator is the logged-in user, never a name sent by the browser.
         payload.createdBy = actor.name;
+        payload.createdById = actor.id;
         const po = await ProcurementService.createPurchaseOrder(payload);
         return NextResponse.json(po, { status: 201 });
       }
 
       case "approve_po": {
-        // Approver = the logged-in user (the creator cannot approve their own PO).
-        const po = await ProcurementService.approvePurchaseOrder(payload.id, actor.name);
+        // Approver = the logged-in user (the creator cannot approve their own PO; compared by user ID first).
+        const po = await ProcurementService.approvePurchaseOrder(payload.id, actor.name, actor.id);
         return NextResponse.json(po);
       }
 

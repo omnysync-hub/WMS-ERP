@@ -348,7 +348,7 @@ export default function TaxSettingsPage() {
         {/* 4. Supplier bills */}
         <section className="bg-white border border-[#E4E4E7] rounded-xl p-4 space-y-3">
           <h2 className="text-sm font-bold">4. Supplier bills (procurement)</h2>
-          <Toggle disabled={disabled} checked={policy.procurement.recordInputTax} onChange={(v) => setProc({ recordInputTax: v })} label="Sales tax on bills is claimable input tax" hint="On: Dr Input tax (1160). Off: the tax is treated as part of the cost (price variance 5050)." />
+          <Toggle disabled={disabled} checked={policy.procurement.recordInputTax} onChange={(v) => setProc({ recordInputTax: v })} label="Sales tax on bills is claimable input tax" hint="On: Dr Input tax (11204). Off: the tax is treated as part of the cost (price variance 51105)." />
           <Toggle disabled={disabled} checked={policy.procurement.autoCalculate} onChange={(v) => setProc({ autoCalculate: v })} label="Calculate bill tax from a rate (instead of typing it)" />
           <div className="grid grid-cols-2 gap-2">
             <div><span className="text-[11px] text-[#71717A]">Purchase tax rate</span><RateSelect disabled={disabled || !policy.procurement.autoCalculate} value={policy.procurement.rateCode} onChange={(v) => setProc({ rateCode: v })} rates={rates} purpose="purchases" /></div>
@@ -376,9 +376,9 @@ export default function TaxSettingsPage() {
         {/* 6. WHT */}
         <section className="bg-white border border-[#E4E4E7] rounded-xl p-4 space-y-3">
           <h2 className="text-sm font-bold">6. Withholding tax (WHT)</h2>
-          <Toggle disabled={disabled} checked={policy.wht.deductOnSupplierPayments} onChange={(v) => setWht({ deductOnSupplierPayments: v })} label="Deduct WHT when paying suppliers" hint="Uses the supplier's own WHT % (below); exempt suppliers are skipped. Posts Cr WHT payable (2200)." />
+          <Toggle disabled={disabled} checked={policy.wht.deductOnSupplierPayments} onChange={(v) => setWht({ deductOnSupplierPayments: v })} label="Deduct WHT when paying suppliers" hint="Uses the supplier's own WHT % (below); exempt suppliers are skipped. Posts Cr WHT payable (21203)." />
           <div><span className="text-[11px] text-[#71717A]">Default WHT rate for suppliers without their own %</span><RateSelect disabled={disabled} value={policy.wht.defaultRateCode} onChange={(v) => setWht({ defaultRateCode: v })} rates={rates} purpose="wht" /></div>
-          <Toggle disabled={disabled} checked={policy.wht.allowOnCustomerReceipts} onChange={(v) => setWht({ allowOnCustomerReceipts: v })} label="Allow recording WHT that customers deduct from their payments" hint="Booked as WHT receivable (1170) and settles the invoice." />
+          <Toggle disabled={disabled} checked={policy.wht.allowOnCustomerReceipts} onChange={(v) => setWht({ allowOnCustomerReceipts: v })} label="Allow recording WHT that customers deduct from their payments" hint="Booked as WHT receivable (11203) and settles the invoice." />
         </section>
 
         {/* 7. Rounding */}

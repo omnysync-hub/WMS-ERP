@@ -128,7 +128,9 @@ export interface CreatePoInput {
   shippingAddress?: string;
   termsAndConditions?: string;
   createdBy?: string;
+  createdById?: string;
   actorName?: string;
+  actorId?: string;
   items: CreatePoItemInput[];
 }
 
@@ -680,7 +682,7 @@ export class ProcurementService {
     return updatedVendor;
   }
 
-  static async awardRfqAndGeneratePo(rfqId: string, winnerVendorId: string, actorName = "Procurement Lead") {
+  static async awardRfqAndGeneratePo(rfqId: string, winnerVendorId: string, actorName = "Procurement Lead", actorId?: string) {
     const rfq = await prisma.requestForQuotation.findUnique({
       where: { id: rfqId },
       include: {
@@ -764,6 +766,10 @@ export class ProcurementService {
         shippingAddress: "Central Warehouse, Workshop St, Gulberg III, Lahore, Pakistan",
         termsAndConditions: "Standard Commercial Terms: Goods subject to Quality Inspection upon receipt. 3-Way Invoice Matching strictly enforced before disbursement.",
         status: "draft",
+        // Maker–checker: the user who awarded the RFQ is the PO's creator, so the
+        // segregation-of-duties check in approvePurchaseOrder applies to RFQ-generated POs too.
+        createdBy: actorName || null,
+        createdById: actorId || null,
         approvedBy: null,
         approvedAt: null,
         totalAmount,
@@ -901,6 +907,7 @@ export class ProcurementService {
         termsAndConditions: data.termsAndConditions || "Standard Purchase Terms: 100% inspection upon receipt. Discrepancies reportable within 48h.",
         status: "draft",
         createdBy: data.createdBy || data.actorName || null,
+        createdById: data.createdById || data.actorId || null,
         totalAmount,
         whtAmount,
         netPayable,
@@ -925,11 +932,18 @@ export class ProcurementService {
     return po;
   }
 
-  static async approvePurchaseOrder(id: string, actorName = "Admin") {
+  static async approvePurchaseOrder(id: string, actorName = "Admin", actorId?: string) {
     const po = await prisma.purchaseOrder.findUnique({ where: { id } });
     if (!po) throw new Error("Purchase order not found");
 
-    if (po.createdBy && actorName && po.createdBy.trim().toLowerCase() === actorName.trim().toLowerCase()) {
+    // Segregation of duties: prefer the stable user ID (immune to name variants / shared names);
+    // fall back to the creator name for POs recorded before createdById existed.
+    // Legacy POs with no creator recorded at all stay approvable — their creator is unknowable.
+    const sameById = Boolean(po.createdById && actorId && po.createdById === actorId);
+    const sameByName = Boolean(
+      po.createdBy && actorName && po.createdBy.trim().toLowerCase() === actorName.trim().toLowerCase()
+    );
+    if (sameById || sameByName) {
       throw new Error(
         `Segregation of Duties Violation: You cannot approve Purchase Order #${po.poNumber} because you created it (${po.createdBy}). An independent approver must review and approve this PO.`
       );
@@ -983,6 +997,8 @@ export class ProcurementService {
     poType?: "standard" | "blanket" | "service";
     expectedDeliveryDate?: string | Date;
     items?: CreatePoItemInput[];
+    actorName?: string;
+    actorId?: string;
   }) {
     const prs = await prisma.purchaseRequisition.findMany({
       where: { id: { in: params.prIds } },
@@ -1028,6 +1044,9 @@ export class ProcurementService {
       prId: prs[0]?.id,
       expectedDeliveryDate: params.expectedDeliveryDate,
       paymentTerms: vendor.paymentTerms || "Net 30",
+      // Maker–checker: record who converted the PR(s), so they cannot approve this PO themselves.
+      createdBy: params.actorName || undefined,
+      createdById: params.actorId || undefined,
       items: poItems,
     });
 

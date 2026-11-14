@@ -4,6 +4,31 @@ import { prisma } from "@/lib/prisma";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { AuditService } from "@/lib/services/AuditService";
 
+/**
+ * Duplicate-phone matching key: the LAST 10 digits of a number.
+ * A local number "03001234567" and its legacy international form "+92 300 1234567"
+ * (digits "923001234567") share the same last-10 key "3001234567", so pre-existing
+ * +92-format rows are matched too — the old full-number substring check missed them.
+ * NOTE: src/app/api/setup/route.ts carries the same helper for the bulk import;
+ * keep the two in sync.
+ */
+function phoneMatchKey(value: string): string {
+  const digits = String(value).replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+/** First customer whose stored phone (digits only; may hold "primary / secondary") contains the key. */
+async function findCustomerByPhoneKey(
+  key: string
+): Promise<{ id: string; name: string; phone: string } | null> {
+  if (!key) return null;
+  const rows = await prisma.$queryRaw<Array<{ id: string; name: string; phone: string }>>`
+    SELECT "id", "name", "phone" FROM "Customer"
+    WHERE regexp_replace("phone", '[^0-9]', '', 'g') LIKE ${"%" + key + "%"}
+    LIMIT 1`;
+  return rows[0] ?? null;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const gate = await requireJobsPermission(req, "jobs.view_directory");
@@ -101,21 +126,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provide both latitude and longitude, or neither." }, { status: 400 });
     }
 
-    // Duplicate phone check: compares digits only, so "0300-1234567", "0300 1234567" and
-    // "03001234567" are the same number; the new primary and secondary numbers are both checked
-    // against every saved number (a saved phone may hold "primary / secondary").
-    const phoneDigitsToCheck = [primaryDigits];
-    if (typeof secPhone === "string" && secPhone.trim()) phoneDigitsToCheck.push(String(secPhone).replace(/\D/g, ""));
+    // Duplicate phone check: compares the last 10 digits (see phoneMatchKey), so
+    // "0300-1234567", "03001234567" and a legacy stored "+92 300 1234567" are the same number;
+    // the new primary and secondary numbers are both checked against every saved number
+    // (a saved phone may hold "primary / secondary").
+    const phoneKeysToCheck = [phoneMatchKey(primaryDigits)];
+    if (typeof secPhone === "string" && secPhone.trim()) phoneKeysToCheck.push(phoneMatchKey(secPhone));
     let existing: { id: string; name: string; phone: string } | null = null;
-    for (const digits of phoneDigitsToCheck) {
-      const rows = await prisma.$queryRaw<Array<{ id: string; name: string; phone: string }>>`
-        SELECT "id", "name", "phone" FROM "Customer"
-        WHERE regexp_replace("phone", '[^0-9]', '', 'g') LIKE ${"%" + digits + "%"}
-        LIMIT 1`;
-      if (rows.length) {
-        existing = rows[0];
-        break;
-      }
+    for (const key of phoneKeysToCheck) {
+      existing = await findCustomerByPhoneKey(key);
+      if (existing) break;
     }
 
     if (existing && !body.allowDuplicatePhone) {

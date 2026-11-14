@@ -80,8 +80,13 @@ export async function GET(
 
     const invoiceDue = Math.round((totalInvoiced - totalInvoicePaid) * 100) / 100;
     const ledgerBalance = customer.customerLedgerEntries.length > 0 ? subledgerBalance : invoiceDue;
-    const totalDebits = Math.max(subledgerDebits, totalInvoiced);
-    const totalCredits = Math.max(subledgerCredits, totalInvoicePaid);
+    // Bug 13: when ledger entries exist, debit/credit totals are the sub-ledger
+    // sums themselves (so totalDebits - totalCredits === ledgerBalance). The old
+    // Math.max(subledger, invoice) hybrid could pair debits from one source with
+    // credits from the other and reconcile with neither. Invoice totals remain
+    // the fallback for customers with no ledger entries.
+    const totalDebits = customer.customerLedgerEntries.length > 0 ? subledgerDebits : totalInvoiced;
+    const totalCredits = customer.customerLedgerEntries.length > 0 ? subledgerCredits : totalInvoicePaid;
 
     // Collect all complaints / feedback calls across all jobs
     const allFeedbackCalls = customer.jobs.flatMap((j) =>

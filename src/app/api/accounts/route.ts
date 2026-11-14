@@ -460,6 +460,19 @@ export async function GET(req: NextRequest) {
             where: { customerId: cust.id },
           });
 
+          // Bug 13: when the customer has sub-ledger entries, the balance comes
+          // from those entries (the same rows the ledger/GL are built on), not
+          // from invoice documents. Invoice logic below is only a fallback for
+          // customers with no ledger entries at all.
+          const ledgerAgg = await prisma.customerLedgerEntry.aggregate({
+            where: { customerId: cust.id },
+            _sum: { debit: true, credit: true },
+            _count: true,
+          });
+          const hasLedgerEntries = ledgerAgg._count > 0;
+          const ledgerDebits = ledgerAgg._sum.debit || 0;
+          const ledgerCredits = ledgerAgg._sum.credit || 0;
+
           const focJobIds = new Set(cust.jobs.filter((j) => j.isFoc).map((j) => j.id));
 
           // Also get jobs for this customer
@@ -491,7 +504,9 @@ export async function GET(req: NextRequest) {
             }
           }
 
-          const balance = Math.round((totalBilled - totalPaid) * 100) / 100;
+          const balance = hasLedgerEntries
+            ? Math.round((ledgerDebits - ledgerCredits) * 100) / 100
+            : Math.round((totalBilled - totalPaid) * 100) / 100;
 
           return {
             id: cust.id,
@@ -499,8 +514,10 @@ export async function GET(req: NextRequest) {
             phone: cust.phone,
             email: cust.email || "—",
             address: cust.addressText,
-            totalBilled,
-            totalPaid,
+            // With ledger entries, billed/paid are the ledger debit/credit sums
+            // so the three figures always reconcile (billed - paid = balanceDue).
+            totalBilled: hasLedgerEntries ? Math.round(ledgerDebits * 100) / 100 : totalBilled,
+            totalPaid: hasLedgerEntries ? Math.round(ledgerCredits * 100) / 100 : totalPaid,
             balanceDue: balance,
             jobsCount: cust.jobs.length,
             invoicesCount: invoices.length,
@@ -621,12 +638,20 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      const vendors = dbVendors.map((v) => {
+      const vendors = await Promise.all(dbVendors.map(async (v) => {
         const totalPurchases = v.purchaseOrders.reduce((s, po) => s + po.totalAmount, 0);
-        const latestEntry = v.vendorLedgerEntries[0];
+        // Bug 13: when the vendor has sub-ledger entries, balanceDue is the sum
+        // of those entries (credits - debits for AP), not the stored
+        // runningBalance of the latest row, which can be stale. The approved-
+        // invoice calculation below is only a fallback when there are no entries.
+        const ledgerAgg = await prisma.vendorLedgerEntry.aggregate({
+          where: { vendorId: v.id },
+          _sum: { debit: true, credit: true },
+          _count: true,
+        });
         let balanceDue = 0;
-        if (latestEntry) {
-          balanceDue = latestEntry.runningBalance;
+        if (ledgerAgg._count > 0) {
+          balanceDue = Math.round(((ledgerAgg._sum.credit || 0) - (ledgerAgg._sum.debit || 0)) * 100) / 100;
         } else {
           // Purchase orders are commitments, not AP liabilities.
           // Only approved/unpaid supplier bills constitute an Accounts Payable liability in GL.
@@ -652,7 +677,7 @@ export async function GET(req: NextRequest) {
           balanceDue,
           ordersCount: v.purchaseOrders.length,
         };
-      });
+      }));
 
       // D. Care-Of / Principal Companies & FOC Orders
       const dbCareOf = await prisma.careOfParty.findMany({
@@ -753,6 +778,46 @@ export async function GET(req: NextRequest) {
 
         if (!customer) {
           return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+        }
+
+        // Bug 13: when sub-ledger entries exist, the statement IS those entries —
+        // do not synthesise invoice lines (or invent payment lines dated
+        // invoice-date + 1 day) from documents. The invoice/job synthesis below
+        // remains only as a fallback for customers with no ledger entries.
+        const subLedgerEntries = await prisma.customerLedgerEntry.findMany({
+          where: { customerId: partyId },
+          orderBy: [{ postingDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+        });
+
+        if (subLedgerEntries.length > 0) {
+          let ledgerRunning = 0;
+          const subLedgerLines = subLedgerEntries.map((entry) => {
+            ledgerRunning = Math.round((ledgerRunning + entry.debit - entry.credit) * 100) / 100;
+            return {
+              id: entry.id,
+              date: entry.postingDate,
+              refNumber: entry.documentNumber,
+              type: entry.entryType.toUpperCase(),
+              description: entry.notes || `Ledger entry (${entry.entryType.replaceAll("_", " ")})`,
+              debit: entry.debit,
+              credit: entry.credit,
+              balance: ledgerRunning,
+              status: entry.isFullyCleared ? "cleared" : "open",
+            };
+          });
+
+          return NextResponse.json({
+            success: true,
+            party: {
+              id: customer.id,
+              name: customer.name,
+              phone: customer.phone,
+              email: customer.email,
+              address: customer.addressText,
+              balanceDue: ledgerRunning,
+            },
+            statement: subLedgerLines.reverse(), // most recent first
+          });
         }
 
         const invoices = await prisma.invoice.findMany({

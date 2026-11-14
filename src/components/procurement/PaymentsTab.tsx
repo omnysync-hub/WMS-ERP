@@ -63,6 +63,8 @@ export default function PaymentsTab({
   const [accountingConfig, setAccountingConfig] = useState<any>(null);
   const [reference, setReference] = useState("");
   const [whtAmount, setWhtAmount] = useState("0");
+  // True once the user types into the WHT field: the pro-rata auto pre-fill must not clobber it.
+  const [whtManuallyEdited, setWhtManuallyEdited] = useState(false);
   const [notes, setNotes] = useState("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -80,6 +82,30 @@ export default function PaymentsTab({
       })
       .catch(() => null);
   }, []);
+
+
+  // WHT for a payment of `amount` against bill `inv`, on the same base the server uses
+  // (ProcurementService.recordSupplierPayment): the ex-tax share of the amount actually
+  // being paid — amount x (bill subtotal / bill total) x vendor rate. Pro-rata by
+  // construction, so a part payment withholds proportionally less, not the full-bill WHT.
+  const computeProRataWht = (inv: any, amount: number) => {
+    const v = inv?.vendor;
+    const rate = Number(v?.whtRate) || 0;
+    if (!inv || !amount || amount <= 0 || !rate || Boolean(v?.whtExempt)) return 0;
+    const total = Number(inv.totalAmount) || 0;
+    const subtotal = Number(inv.subtotal) || 0;
+    const exTaxShare = total > 0 && subtotal > 0 ? subtotal / total : 1;
+    return Math.round(amount * exTaxShare * (rate / 100) * 100) / 100;
+  };
+
+  // Keep the WHT pre-fill pro-rata to the amount in the Disbursement Amount field:
+  // recompute whenever that amount (or the selected bill) changes, unless the user
+  // has typed a WHT value manually for this bill.
+  useEffect(() => {
+    if (!selectedInvoice || whtManuallyEdited) return;
+    setWhtAmount(String(computeProRataWht(selectedInvoice, Number(paymentAmount) || 0)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentAmount, selectedInvoice, whtManuallyEdited]);
 
   if (isStorekeeper) {
     return (
@@ -99,21 +125,13 @@ export default function PaymentsTab({
     (inv) => inv.matchStatus === "approved_for_payment" || inv.matchStatus === "paid"
   );
 
+
   const openPayModal = (inv: any) => {
     setSelectedInvoice(inv);
+    setWhtManuallyEdited(false);
     const balance = Math.max(0, inv.totalAmount - (inv.paidAmount || 0));
     setPaymentAmount(String(balance));
-
-    const v = inv.vendor;
-    const isWhtExempt = Boolean(v?.whtExempt);
-    const rate = Number(v?.whtRate) || 0;
-    if (!isWhtExempt && rate > 0) {
-      const base = Number(inv.subtotal) > 0 ? Number(inv.subtotal) : balance;
-      const calculatedWht = Math.round((base * (rate / 100)) * 100) / 100;
-      setWhtAmount(String(calculatedWht));
-    } else {
-      setWhtAmount("0");
-    }
+    setWhtAmount(String(computeProRataWht(inv, balance)));
 
     setReference(`FT-${Date.now().toString().slice(-6)}`);
     setNotes(`Settlement of 3-Way Matched Bill ${inv.invoiceNumber} for ${inv.vendor?.name}`);
@@ -441,7 +459,10 @@ export default function PaymentsTab({
                   max={paymentAmount}
                   step="any"
                   value={whtAmount}
-                  onChange={(e) => setWhtAmount(e.target.value)}
+                  onChange={(e) => {
+                    setWhtManuallyEdited(true);
+                    setWhtAmount(e.target.value);
+                  }}
                   className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
                   placeholder="0"
                 />

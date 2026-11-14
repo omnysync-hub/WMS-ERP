@@ -21,6 +21,27 @@ const clean = (value: unknown) => String(value ?? "").trim();
 const roundMoney = (value: unknown) => Math.round(Number(value) * 100) / 100;
 
 /**
+ * Duplicate-phone matching key: the LAST 10 digits of a number, so a local "03001234567"
+ * and a legacy stored "+92 300 1234567" share the key "3001234567".
+ * Same helper as src/app/api/customers/route.ts (single-customer create) — keep the two in sync.
+ */
+function phoneMatchKey(value: string): string {
+  const digits = String(value).replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+async function findCustomerByPhoneKey(
+  key: string
+): Promise<{ id: string; name: string; phone: string } | null> {
+  if (!key) return null;
+  const rows = await prisma.$queryRaw<Array<{ id: string; name: string; phone: string }>>`
+    SELECT "id", "name", "phone" FROM "Customer"
+    WHERE regexp_replace("phone", '[^0-9]', '', 'g') LIKE ${"%" + key + "%"}
+    LIMIT 1`;
+  return rows[0] ?? null;
+}
+
+/**
  * Control accounts whose opening balance comes from the party opening balances (sub-ledgers), so the
  * GL control always equals the sum of the parties: AR = customers, AP = suppliers, advances = employees.
  */
@@ -683,14 +704,30 @@ export async function POST(req: NextRequest) {
       }
 
       let importedCount = 0;
+      const skippedDuplicates: { name: string; phone: string; existingCustomer: string }[] = [];
 
       if (dataType === "customers") {
         for (const r of rows) {
           if (!r.name) continue;
+          // Same duplicate-phone guard as single-customer create: skip (and report) a row whose
+          // phone already belongs to a customer — including a row imported earlier in this batch —
+          // instead of silently creating a duplicate.
+          const rowPhone = r.phone ? String(r.phone).trim() : "";
+          if (rowPhone) {
+            const existing = await findCustomerByPhoneKey(phoneMatchKey(rowPhone));
+            if (existing) {
+              skippedDuplicates.push({
+                name: String(r.name).trim(),
+                phone: rowPhone,
+                existingCustomer: existing.name,
+              });
+              continue;
+            }
+          }
           await prisma.customer.create({
             data: {
               name: r.name.trim(),
-              phone: r.phone ? String(r.phone).trim() : "—",
+              phone: rowPhone || "—",
               email: r.email ? String(r.email).trim() : null,
               addressText: r.address ? String(r.address).trim() : "Counter / Retail Customer",
             },
@@ -754,7 +791,14 @@ export async function POST(req: NextRequest) {
         success: true,
         dataType,
         importedCount,
-        message: `Successfully imported ${importedCount} ${dataType} records.`,
+        skippedDuplicates,
+        message:
+          `Successfully imported ${importedCount} ${dataType} records.` +
+          (skippedDuplicates.length
+            ? ` Skipped ${skippedDuplicates.length} duplicate customer(s) whose phone already exists: ${skippedDuplicates
+                .map((s) => `${s.name} (${s.phone}) — already registered as "${s.existingCustomer}"`)
+                .join("; ")}.`
+            : ""),
       });
     }
 

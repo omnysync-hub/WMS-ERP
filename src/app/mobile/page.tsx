@@ -1023,13 +1023,13 @@ export default function MobileCompanionPage() {
         technicianId: technician.id,
         technicianName: technician.name,
         actor: technician.name,
-        message: `Technician ${technician.name} marked Job #${selectedJob.jobNumber} completed (${paymentMeans.toUpperCase()}: $${paymentReceivedAmount || 0})`,
+        message: `Technician ${technician.name} marked Job #${selectedJob.jobNumber} completed (${paymentMeans.toUpperCase()}: PKR ${paymentReceivedAmount || 0})`,
         payload: { paymentMeans, amount: paymentReceivedAmount, hasUnusedItems },
       });
 
       logActivity({
         action: "COMPLETE_JOB",
-        target: `Job #${selectedJob.jobNumber} completed on site (${paymentMeans.toUpperCase()}: $${paymentReceivedAmount || 0})`,
+        target: `Job #${selectedJob.jobNumber} completed on site (${paymentMeans.toUpperCase()}: PKR ${paymentReceivedAmount || 0})`,
         category: "MOBILE_APP",
         actorName: technician.name,
         actorRole: "TECHNICIAN",
@@ -1085,7 +1085,7 @@ export default function MobileCompanionPage() {
           technicianId: technician.id,
           technicianName: technician.name,
           actor: technician.name,
-          message: `Technician ${technician.name} logged $${expenseAmount} field expense (${expenseNote || "Field expense"})`,
+          message: `Technician ${technician.name} logged PKR ${expenseAmount} field expense (${expenseNote || "Field expense"})`,
           payload: { amount: Number(expenseAmount), note: expenseNote },
         });
         if (selectedJob?.id === expenseJob.id) handleOpenJob(expenseJob.id);
@@ -1111,7 +1111,7 @@ export default function MobileCompanionPage() {
           technicianId: technician.id,
           technicianName: technician.name,
           actor: technician.name,
-          message: `Technician ${technician.name} logged $${expenseAmount} expense voucher`,
+          message: `Technician ${technician.name} logged PKR ${expenseAmount} expense voucher`,
           payload: { amount: Number(expenseAmount), note: expenseNote },
         });
       }
@@ -1122,7 +1122,7 @@ export default function MobileCompanionPage() {
       setExpenseJobId("general");
       setExpenseCategory(expenseCategories[0]?.code || "");
       loadMobileData();
-      setNotificationToast(`Expense of $${expenseAmount} logged successfully.`);
+      setNotificationToast(`Expense of PKR ${expenseAmount} logged successfully.`);
       setTimeout(() => setNotificationToast(null), 4000);
     } catch (e: any) {
       alert(e.message);
@@ -3761,7 +3761,7 @@ export default function MobileCompanionPage() {
                 {paymentMeans !== "unmarked" ? (
                   <div>
                     <label className="font-semibold text-zinc-800 text-xs block mb-1">
-                      Amount Collected ($) *
+                      Amount Collected (PKR) *
                     </label>
                     <input
                       type="number"

@@ -553,6 +553,7 @@ model PurchaseOrder {
   termsAndConditions   String?
   status               String               @default("draft") // draft, approved, sent_to_vendor, partially_received, fully_received, closed, cancelled
   createdBy            String?
+  createdById          String?
   approvedBy           String?
   approvedAt           DateTime?
   sentAt               DateTime?

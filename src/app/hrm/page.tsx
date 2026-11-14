@@ -730,7 +730,7 @@ function HrmPayrollContent() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-bold text-[#71717A] uppercase tracking-wider">
-                    Total Workforce
+                    Total Active Staff (incl. On Leave)
                   </span>
                   <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:scale-110 transition-transform">
                     <Users className="w-4 h-4" />
@@ -741,7 +741,7 @@ function HrmPayrollContent() {
                     {analytics?.headcount?.total || 0}
                   </span>
                   <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    {analytics?.headcount?.active || 0} Active Staff
+                    {analytics?.headcount?.active || 0} Currently Active (excl. On Leave)
                   </span>
                 </div>
               </div>
@@ -2550,7 +2550,7 @@ function HrmPayrollContent() {
                   Staff Salary Advance Ledger
                 </h3>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Staff advances are automatically debited to Account 1120 (Employee Advances Receivable) and recovered in monthly payroll runs.
+                  Staff advances are automatically debited to Account 11202 (Employee Advances Receivable) and recovered in monthly payroll runs.
                 </p>
               </div>
             </div>

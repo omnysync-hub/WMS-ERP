@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     }
 
     const [employeeCount, departments, designations, leaveTypeCount, holidayCount, geofenceCount] = await Promise.all([
-      prisma.employee.count({ where: { status: "Active" } }),
+      prisma.employee.count({ where: { active: true } }),
       prisma.employee.findMany({ where: { department: { not: "" } }, select: { department: true }, distinct: ["department"] }),
       prisma.employee.findMany({ where: { designation: { not: "" } }, select: { designation: true }, distinct: ["designation"] }),
       prisma.leaveType.count(),

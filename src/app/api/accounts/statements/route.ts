@@ -162,11 +162,19 @@ async function directory(asOf: Date) {
     let transactionCount = 0;
     if (vendor.vendorLedgerEntries.length) {
       const entries = vendor.vendorLedgerEntries.filter((entry) => entry.postingDate <= asOf);
-      balance = entries[entries.length - 1]?.runningBalance || 0;
+      // Bug 13: sum the entries (AP convention: credits - debits, as in
+      // makeStatement) instead of trusting the latest row's stored
+      // runningBalance, which can be stale.
+      balance = entries.reduce((sum, entry) => sum + entry.credit - entry.debit, 0);
       transactionCount = entries.length;
       for (const entry of entries) addToAging(aging, Math.max(0, entry.credit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
     } else {
-      const invoices = vendor.supplierInvoices.filter((invoice) => invoice.invoiceDate <= asOf);
+      // Fallback only counts bills that were approved/posted to the GL
+      // (ProcurementService approval sets matchStatus "approved_for_payment";
+      // fully settled bills are "paid"). An unapproved bill is not a payable.
+      const invoices = vendor.supplierInvoices.filter(
+        (invoice) => invoice.invoiceDate <= asOf && (invoice.matchStatus === "approved_for_payment" || invoice.matchStatus === "paid")
+      );
       balance = invoices.reduce((sum, invoice) => sum + Math.max(0, invoice.totalAmount - invoice.paidAmount), 0);
       transactionCount = invoices.length;
       for (const invoice of invoices) addToAging(aging, Math.max(0, invoice.totalAmount - invoice.paidAmount), invoice.dueDate || invoice.invoiceDate, asOf, agingBuckets);
@@ -289,7 +297,12 @@ async function statement(type: PartyType, id: string, from: string | null, to: s
         addToAging(aging, Math.max(0, entry.credit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
       }
     } else {
-      for (const invoice of vendor.supplierInvoices) {
+      // Bug 13: only approved/posted supplier bills appear as payables here —
+      // an unapproved bill has no GL AP line and must not show as payable.
+      const approvedInvoices = vendor.supplierInvoices.filter(
+        (invoice) => invoice.matchStatus === "approved_for_payment" || invoice.matchStatus === "paid"
+      );
+      for (const invoice of approvedInvoices) {
         lines.push({ id: `bill-${invoice.id}`, date: invoice.invoiceDate, reference: invoice.referenceNumber, type: "supplier_bill", description: `Supplier invoice ${invoice.invoiceNumber}`, debit: 0, credit: invoice.totalAmount, status: invoice.paymentStatus, source: "Supplier invoices" });
         for (const payment of invoice.payments) lines.push({ id: `pay-${payment.id}`, date: payment.paymentDate, reference: payment.paymentNumber, type: "payment", description: payment.notes || `${payment.paymentMethod.replaceAll("_", " ")} payment`, debit: payment.amount + payment.whtAmount, credit: 0, status: "cleared", source: "Supplier payments" });
         addToAging(aging, Math.max(0, invoice.totalAmount - invoice.paidAmount), invoice.dueDate || invoice.invoiceDate, asOf, agingBuckets);

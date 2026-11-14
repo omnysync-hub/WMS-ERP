@@ -169,6 +169,8 @@ export default function AccountsPage() {
   const [showVendorPayModal, setShowVendorPayModal] = useState(false);
   const [vendorPayAmount, setVendorPayAmount] = useState("");
   const [vendorPayMemo, setVendorPayMemo] = useState("");
+  // Disbursing account for supplier payments: Cash -> 11101, Bank -> 11103 (default Cash, as before).
+  const [vendorPaymentAccountCode, setVendorPaymentAccountCode] = useState("11101");
 
   // Expenses & Outflows state
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -709,7 +711,7 @@ export default function AccountsPage() {
       if (isDbVendor) {
         payload.vendorId = selectedVendor.id;
         payload.grossAmount = Number(vendorPayAmount);
-        payload.paymentAccountCode = "11101";
+        payload.paymentAccountCode = vendorPaymentAccountCode;
         payload.cprNumber = vendorCprNumber || undefined;
       } else {
         payload.amount = Number(vendorPayAmount);
@@ -1766,7 +1768,7 @@ export default function AccountsPage() {
               <span className="text-xl font-bold font-mono text-[#18181B] block mt-1">
                 {formatCurrency(posStats.cashSales)}
               </span>
-              <span className="text-[10px] text-emerald-700">Debited to Account 1000</span>
+              <span className="text-[10px] text-emerald-700">Debited to Account 11101</span>
             </div>
             <div className="p-4 bg-white rounded-xl border border-[#E4E4E7] shadow-xs">
               <span className="text-xs font-semibold text-[#71717A] block">POS Card / Bank Receipts</span>
@@ -3599,6 +3601,18 @@ export default function AccountsPage() {
                 />
               </div>
 
+              <div>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Pay From</label>
+                <select
+                  value={vendorPaymentAccountCode}
+                  onChange={(e) => setVendorPaymentAccountCode(e.target.value)}
+                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
+                >
+                  <option value="11101">Cash — 11101 Cash on Hand</option>
+                  <option value="11103">Bank — 11103 Operating Bank</option>
+                </select>
+              </div>
+
               {/* Tax Deduction Breakdown */}
               {Number(vendorPayAmount) > 0 && (
                 <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5 text-[11px]">
@@ -3606,11 +3620,11 @@ export default function AccountsPage() {
                     Double-Entry Tax Breakdown
                   </span>
                   <div className="flex justify-between text-emerald-900">
-                    <span>Dr 2000 Accounts Payable (Gross):</span>
+                    <span>Dr 21101 Accounts Payable (Gross):</span>
                     <span className="font-mono font-bold">{formatCurrency(Number(vendorPayAmount))}</span>
                   </div>
                   <div className="flex justify-between text-rose-800">
-                    <span>Cr 2200 WHT Payable to FBR ({selectedVendor.whtRate || 0}%):</span>
+                    <span>Cr 21203 WHT Payable to FBR ({selectedVendor.whtRate || 0}%):</span>
                     <span className="font-mono font-bold">
                       -{formatCurrency(
                         Math.round((Number(vendorPayAmount) * (selectedVendor.whtExempt ? 0 : (selectedVendor.whtRate || 0))) / 100 * 100) / 100
@@ -3618,7 +3632,7 @@ export default function AccountsPage() {
                     </span>
                   </div>
                   <div className="border-t border-emerald-200 pt-1 flex justify-between font-bold text-emerald-950">
-                    <span>Cr 1000/1010 Net Payable Disbursed:</span>
+                    <span>Cr {vendorPaymentAccountCode} Net Payable Disbursed:</span>
                     <span className="font-mono text-xs">
                       {formatCurrency(
                         Math.round(
@@ -3997,7 +4011,7 @@ export default function AccountsPage() {
                       }}
                       className="w-full bg-white p-2 rounded-lg text-xs font-semibold border border-[#D4D4D8]"
                     >
-                      <option value="cash">Cash on Hand (Account 1000)</option>
+                      <option value="cash">Cash on Hand (Account 11101)</option>
                       <option value="online">Online Bank Transfer</option>
                       <option value="cheque">Cheque / POS Card</option>
                       <option value="unmarked">Unmarked / Unpaid (Formal AR Invoice)</option>

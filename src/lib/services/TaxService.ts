@@ -13,6 +13,7 @@ export interface PostVendorPaymentParams {
   cprNumber?: string; // FBR CPR (Computerized Payment Receipt)
   memo?: string;
   postedBy?: string;
+  supplierInvoiceId?: string; // optional: the specific bill this payment settles (for the ex-tax WHT base)
 }
 
 export class TaxService {
@@ -64,6 +65,7 @@ export class TaxService {
       cprNumber,
       memo,
       postedBy = "Accountant",
+      supplierInvoiceId,
     } = params;
 
     // Settings > Taxes: WHT can be switched off, and a default WHT rate covers suppliers with no own %.
@@ -79,7 +81,42 @@ export class TaxService {
         : vendor.whtRate > 0
           ? vendor.whtRate
           : defaultWht?.rate || 0;
-      const taxCalc = this.calculateWht(grossAmount, effectiveWhtRate, vendor.whtExempt);
+
+      // WHT base: Sec 153 WHT is charged on the bill value EXCLUDING sales tax — the same base
+      // ProcurementService.recordSupplierPayment uses (amountPaid x subtotal/totalAmount).
+      // This path is usually an on-account payment with no single bill attached, so the ex-tax
+      // share is derived from the bill being settled when supplierInvoiceId is given, otherwise
+      // from the vendor's open approved bills in aggregate. Limit: with neither available
+      // (no open approved bill), the share falls back to 1 and WHT is computed on the gross.
+      let exTaxShare = 1;
+      const shareOf = (subtotal: number, totalAmount: number) =>
+        totalAmount > 0 && subtotal > 0 ? subtotal / totalAmount : null;
+      if (supplierInvoiceId) {
+        const bill = await tx.supplierInvoice.findFirst({
+          where: { id: supplierInvoiceId, vendorId: vendor.id },
+          select: { subtotal: true, totalAmount: true },
+        });
+        if (bill) exTaxShare = shareOf(bill.subtotal, bill.totalAmount) ?? 1;
+      } else {
+        const openBills = await tx.supplierInvoice.findMany({
+          where: { vendorId: vendor.id, matchStatus: "approved_for_payment", paymentStatus: { not: "paid" } },
+          select: { subtotal: true, totalAmount: true },
+        });
+        if (openBills.length) {
+          const sumSubtotal = openBills.reduce((s: number, b: { subtotal: number; totalAmount: number }) => s + (Number(b.subtotal) || 0), 0);
+          const sumTotal = openBills.reduce((s: number, b: { subtotal: number; totalAmount: number }) => s + (Number(b.totalAmount) || 0), 0);
+          exTaxShare = shareOf(sumSubtotal, sumTotal) ?? 1;
+        }
+      }
+      const whtBaseAmount = Math.round(grossAmount * exTaxShare * 100) / 100;
+      const whtOnly = this.calculateWht(whtBaseAmount, effectiveWhtRate, vendor.whtExempt);
+      const taxCalc = {
+        grossAmount,
+        whtBaseAmount,
+        whtRate: whtOnly.whtRate,
+        whtAmount: whtOnly.whtAmount,
+        netPayable: Math.round((grossAmount - whtOnly.whtAmount) * 100) / 100,
+      };
       const apAccount = await AccountMappingService.resolveAccount({
         transactionType: "vendor_payment_payable",
         prismaClient: tx,
@@ -111,7 +148,7 @@ export class TaxService {
       const docNumber = `PAY-${Date.now().toString().slice(-6)}`;
       const journal = await AccountsPostingService.post({
         date: paymentDate,
-        memo: memo || `Payment to ${vendor.name}: Net PKR ${taxCalc.netPayable} (WHT PKR ${taxCalc.whtAmount} withheld @ ${vendor.whtRate}%)`,
+        memo: memo || `Payment to ${vendor.name}: Net PKR ${taxCalc.netPayable} (WHT PKR ${taxCalc.whtAmount} withheld @ ${taxCalc.whtRate}% on ex-tax base PKR ${taxCalc.whtBaseAmount})`,
         refType: "vendor_payment_wht",
         refId: vendor.id,
         postedBy,

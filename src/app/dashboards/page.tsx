@@ -391,7 +391,7 @@ function DashboardsContent() {
                     return (
                       <div key={idx} className="flex flex-col items-center gap-2 h-full justify-end group">
                         <span className="text-[10px] font-mono font-bold text-zinc-700 opacity-0 group-hover:opacity-100 transition">
-                          ${(bar.revenue / 1000).toFixed(1)}k
+                          PKR {(bar.revenue / 1000).toFixed(1)}k
                         </span>
                         <div
                           style={{ height: `${heightPct}%` }}
@@ -407,7 +407,7 @@ function DashboardsContent() {
                   })}
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-2">
-                  <span>Revenue Recognition ($)</span>
+                  <span>Revenue Recognition (PKR)</span>
                   <span>Calculated via GAAP Posting Engine</span>
                 </div>
               </div>

@@ -158,7 +158,7 @@ export default function BoqProgressModal({
           </div>
 
           <div>
-            <div className="text-[10px] uppercase font-bold text-[#71717A]">Variance ($)</div>
+            <div className="text-[10px] uppercase font-bold text-[#71717A]">Variance (PKR)</div>
             <div
               className={`text-xs font-bold mt-0.5 ${
                 isOverrun ? "text-rose-600" : "text-emerald-700"

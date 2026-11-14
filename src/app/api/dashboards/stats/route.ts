@@ -309,7 +309,12 @@ export async function GET(req: NextRequest) {
 
     // 5. HRM & WORKFORCE METRICS
     const totalStaff = allEmployees.length;
-    const presentTodayCount = attendancesToday.length;
+    // Present today = UNIQUE employees with a passing attendance result today,
+    // the same definition HrmService uses for HRM Attendance (not raw log rows,
+    // which double-count check-outs / repeat punches and include failures).
+    const presentTodayCount = new Set(
+      attendancesToday.filter((a: any) => a.result === "pass").map((a: any) => a.employeeId)
+    ).size;
     const attendancePct = totalStaff > 0 ? (presentTodayCount / totalStaff) * 100 : 0;
     const pendingLeaves = leaveRequests.length;
     const totalAdvancesAmount = advances.reduce((s: number, a: any) => s + (a.amount || 0), 0);
