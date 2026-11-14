@@ -390,6 +390,19 @@ export class AccountsPostingService {
         await tx.invoice.update({ where: { id: inv.id }, data: { status: "cancelled" } });
       }
     }
+    // A voided advance voucher cancels the advance in HRM too, so HRM and GL 11202 stay equal.
+    if (original.refType === "advance_granted" && original.refId) {
+      const adv = await tx.employeeAdvance.findUnique({ where: { id: original.refId } });
+      if (adv && adv.status === "recovered") {
+        throw new Error("Reversal rejected: this advance has already been recovered through payroll / settlement.");
+      }
+      if (adv && adv.status !== "cancelled") {
+        await tx.employeeAdvance.update({
+          where: { id: adv.id },
+          data: { status: "cancelled", notes: `${adv.notes || ""} [${note}]`.trim() },
+        });
+      }
+    }
     if (original.refType === "customer_payment" && original.refId) {
       const inv = await tx.invoice.findUnique({ where: { id: original.refId } });
       if (inv && inv.status !== "cancelled") {

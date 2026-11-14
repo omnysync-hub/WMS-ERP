@@ -1882,7 +1882,8 @@ export class JobsService {
     tx: Prisma.TransactionClient,
     job: { id: string; jobNumber: string; customer: { name: string } },
     prep: Awaited<ReturnType<typeof JobsService.prepareJobRevenuePosting>>,
-    accountantName: string
+    accountantName: string,
+    opts?: { date?: Date }
   ) {
     const { trueFoc, finalAmount, arAccount, taxLines, taxAccountIds, discountAccount, revenueCredits, postingLines, hasAmount } = prep;
     const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -1958,6 +1959,7 @@ export class JobsService {
           refId: job.id,
           postedBy: accountantName,
           lines: postingLines,
+          ...(opts?.date ? { date: opts.date } : {}),
           tx,
         });
         revenueEntryId = entry.id;
