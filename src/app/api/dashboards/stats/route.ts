@@ -56,6 +56,9 @@ export async function GET(req: NextRequest) {
       feedbackCalls,
       projects,
       ledgerEntries,
+      workshopJobs,
+      workshopTools,
+      workshopScrap,
     ]: any = await Promise.all([
       prisma.job.findMany({
         where: jobWhere,
@@ -131,6 +134,27 @@ export async function GET(req: NextRequest) {
       }),
       prisma.technicianLedgerEntry.findMany({
         select: { technicianId: true, type: true, amount: true },
+      }),
+      prisma.workshopJobCard.findMany({
+        include: {
+          customer: true,
+          assignedEmployee: true,
+          requisitions: { include: { product: true } },
+          scrapItems: true,
+          toolIssues: { include: { tool: true } },
+          statusLogs: { orderBy: { changedAt: "desc" } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.workshopTool.findMany({
+        include: {
+          issues: { where: { status: "issued" } },
+        },
+        orderBy: { toolCode: "asc" },
+      }),
+      prisma.workshopScrapItem.findMany({
+        include: { jobCard: true },
+        orderBy: { createdAt: "desc" },
       }),
     ]);
 
@@ -427,6 +451,30 @@ export async function GET(req: NextRequest) {
           status: p.status,
           completionPct: p.completionPct || (p.status === "completed" ? 100 : 45),
         })),
+      },
+      workshops: {
+        total: (workshopJobs || []).length,
+        bikeJobsCount: (workshopJobs || []).filter((j: any) => j.workshopType === "bike").length,
+        hvacJobsCount: (workshopJobs || []).filter((j: any) => j.workshopType === "hvac").length,
+        active: (workshopJobs || []).filter((j: any) => !["Completed", "Closed", "Rejected"].includes(j.status)).length,
+        pendingApproval: (workshopJobs || []).filter((j: any) => j.status === "Pending Approval").length,
+        inTesting: (workshopJobs || []).filter((j: any) => (j.statusLogs || []).some((l: any) => l.notes?.includes("testing") || l.notes?.includes("Testing"))).length,
+        completed: (workshopJobs || []).filter((j: any) => j.status === "Completed").length,
+        closed: (workshopJobs || []).filter((j: any) => j.status === "Closed").length,
+        totalMaterialCost: Math.round(
+          (workshopJobs || []).reduce((acc: number, j: any) => acc + Number(j.totalMaterialCost || 0), 0)
+        ),
+        toolsTotal: (workshopTools || []).length,
+        toolsIssued: (workshopTools || []).reduce((acc: number, t: any) => acc + (t.issues?.length || 0), 0),
+        scrapItemsCount: (workshopScrap || []).length,
+        scrapSalesRevenue: Math.round(
+          (workshopScrap || [])
+            .filter((s: any) => s.status === "sold")
+            .reduce((acc: number, s: any) => acc + Number(s.disposalValue || 0), 0)
+        ),
+        jobsList: workshopJobs || [],
+        toolsList: workshopTools || [],
+        scrapList: workshopScrap || [],
       },
     });
   } catch (err: any) {

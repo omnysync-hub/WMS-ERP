@@ -224,6 +224,7 @@ export default function Sidebar({
 
   const dashboardSubItems = [
     { label: "Executive Overview", tab: "overview", icon: TrendingUp },
+    { label: "Workshop Ops & Activity", tab: "workshops", icon: Wrench },
     { label: "Technicians & Ops", tab: "technicians", icon: Users },
     { label: "Accountants & Finance", tab: "finance", icon: CreditCard },
     { label: "Purchasing & Stock", tab: "inventory", icon: Package },
