@@ -159,6 +159,7 @@ model Customer {
   jobs                  Job[]
   projects              Project[]
   customerLedgerEntries CustomerLedgerEntry[]
+  workshopJobCards      WorkshopJobCard[]
   createdAt             DateTime              @default(now())
   /// Tax registration (Settings > Taxes). Exempt customers are never charged sales tax.
   taxExempt             Boolean               @default(false)
@@ -402,6 +403,7 @@ model Product {
   posItems             PosSaleItem[]
   rfqItems             RfqItem[]
   supplierInvoiceItems SupplierInvoiceItem[]
+  workshopRequisitions WorkshopMaterialRequisition[]
   createdAt            DateTime                  @default(now())
 }
 
@@ -1116,6 +1118,7 @@ model Employee {
   consentRecords         TechnicianConsentRecord[]
   offlineGaps            OfflineGapLog[]
   geofenceAssignments    EmployeeGeofenceAssignment[]
+  workshopJobCards       WorkshopJobCard[]
   createdAt              DateTime                     @default(now())
 }
 
@@ -1682,4 +1685,234 @@ model OfflineGapLog {
   createdAt        DateTime  @default(now())
 
   @@index([employeeId, gapStartAt])
+}
+
+// ============================================================================
+// WORKSHOP OPERATIONS MODELS (Bikes Workshop & HVAC Workshop)
+// ============================================================================
+
+model WorkshopJobCard {
+  id                   String                       @id @default(uuid())
+  jobNumber            String                       @unique // e.g. BJC-2026-0001 or HJC-2026-0001
+  workshopType         String                       // "bike" | "hvac"
+  status               String                       @default("Open") // Open, Assigned, Under Inspection, Pending Approval, Approved, Rejected, In Progress, On Hold, Completed, Closed
+  
+  // Bike specific fields
+  bikeRegNo            String?
+  chassisNumber        String?
+  engineNumber         String?
+  currentKm            Float?
+  bikeMakeModel        String?                      // e.g. Honda CD70, Honda CG125, Yamaha YBR
+  
+  // HVAC specific fields
+  unitType             String?                      // e.g. Split AC, Inverter, Floor Standing, Package Unit, VRF
+  brandModel           String?                      // e.g. Gree Fairy 1.5T, Haier Pearl, Daikin
+  serialNumber         String?
+  customerSite         String?
+  compressorSpec       String?
+  refrigerantType      String?                      // e.g. R410A, R32, R22
+  
+  // Client Linkage
+  customerId           String?
+  customer             Customer?                    @relation(fields: [customerId], references: [id])
+  customerName         String?
+  customerPhone        String?
+  
+  // Intake & Complaints (Step 1)
+  complaint            String
+  receivedAt           DateTime                     @default(now())
+  supervisorName       String?
+  supervisorId         String?
+  
+  // Assignment (Step 2)
+  assignedStaffId      String?
+  assignedStaffName    String?
+  assignedStaffRole    String?                      // "mechanic" | "technician"
+  assignedAt           DateTime?
+  assignedEmployee     Employee?                    @relation(fields: [assignedStaffId], references: [id])
+  
+  // Diagnosis (Step 3)
+  inspectionFindings   String?
+  workRequired         String?
+  estimatedHours       Float?
+  estimatedCost        Float?                       @default(0)
+  diagnosedAt          DateTime?
+  diagnosedBy          String?
+  
+  // Manager Approval (Step 4)
+  approvalStatus       String?                      @default("pending") // pending, approved, rejected
+  managerApprovedAt    DateTime?
+  managerApprovedBy    String?
+  rejectionReason      String?
+  
+  // Testing & Quality (Step 8 for HVAC / Bikes)
+  testingPressurePsi   Float?
+  testingLeakTest      String?                      // Pass, Fail, N/A
+  testingRunTestAmps   Float?
+  testingNotes         String?
+  testedAt             DateTime?
+  testedBy             String?
+  
+  // Completion (Step 8)
+  workDoneSummary      String?
+  completedAt          DateTime?
+  completedBy          String?
+  
+  // Final Reconciliation & Closure (Step 10)
+  closedAt             DateTime?
+  closedBy             String?
+  closeNotes           String?
+  deliveryStatus       String?                      @default("in_workshop") // in_workshop, ready_for_delivery, delivered
+  deliveredAt          DateTime?
+  deliveredTo          String?
+  
+  // Costing Summary
+  totalMaterialCost    Float                        @default(0)
+  totalLabourCost      Float                        @default(0)
+  totalJobCost         Float                        @default(0)
+  
+  // Timestamps
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  
+  // Relations
+  requisitions         WorkshopMaterialRequisition[]
+  scrapItems           WorkshopScrapItem[]
+  toolIssues           WorkshopToolIssue[]
+  statusLogs           WorkshopStatusLog[]
+
+  @@index([workshopType, status])
+  @@index([bikeRegNo])
+  @@index([serialNumber])
+  @@index([assignedStaffId])
+}
+
+model WorkshopMaterialRequisition {
+  id                   String          @id @default(uuid())
+  jobCardId            String
+  jobCard              WorkshopJobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  productId            String?
+  product              Product?        @relation(fields: [productId], references: [id])
+  itemCode             String?
+  description          String
+  unit                 String          @default("unit")
+  requestedQty         Float
+  issuedQty            Float           @default(0)
+  returnedQty          Float           @default(0)
+  unitCost             Float           @default(0)
+  totalCost            Float           @default(0)
+  status               String          @default("requested") // requested, issued, returned, reconciled
+  requestedAt          DateTime        @default(now())
+  requestedBy          String?
+  issuedAt             DateTime?
+  issuedBy             String?
+  returnedAt           DateTime?
+  returnedBy           String?
+  returnReason         String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  @@index([jobCardId])
+  @@index([productId])
+  @@index([status])
+}
+
+model WorkshopTool {
+  id                String              @id @default(uuid())
+  toolCode          String              @unique
+  name              String
+  category          String
+  workshopType      String              @default("general") // "bike" | "hvac" | "general"
+  totalQuantity     Int                 @default(1)
+  availableQuantity Int                 @default(1)
+  location          String?
+  condition         String              @default("Operational") // "Operational", "Under Repair", "Damaged", "Lost", "Written Off"
+  conditionNotes    String?
+  lastCountDate     DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  issues            WorkshopToolIssue[]
+
+  @@index([workshopType, condition])
+}
+
+model WorkshopToolIssue {
+  id                 String           @id @default(uuid())
+  toolId             String
+  tool               WorkshopTool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  jobCardId          String?
+  jobCard            WorkshopJobCard? @relation(fields: [jobCardId], references: [id], onDelete: SetNull)
+  staffId            String?
+  staffName          String
+  quantity           Int              @default(1)
+  issuedAt           DateTime         @default(now())
+  issuedBy           String
+  expectedReturnDate DateTime?
+  returnedAt         DateTime?
+  returnedBy         String?
+  returnCondition    String?
+  status             String           @default("issued") // "issued", "returned", "damaged", "lost"
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([toolId])
+  @@index([jobCardId])
+  @@index([status])
+}
+
+model WorkshopScrapItem {
+  id                 String           @id @default(uuid())
+  jobCardId          String
+  jobCard            WorkshopJobCard  @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  workshopType       String           // "bike" | "hvac"
+  itemDescription    String
+  quantity           Float            @default(1)
+  unit               String           @default("pcs")
+  customerKept       Boolean          @default(false)
+  returnedToStore    Boolean          @default(false)
+  returnedToStoreAt  DateTime?
+  storeKeeperName    String?
+  status             String           @default("recorded") // "recorded", "in_store", "sold", "disposed"
+  disposalValue      Float?           @default(0)
+  disposalNotes      String?
+  disposedAt         DateTime?
+  disposedBy         String?
+  approvedBy         String?
+  journalEntryId     String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([jobCardId])
+  @@index([workshopType, status])
+}
+
+model WorkshopStatusLog {
+  id           String          @id @default(uuid())
+  jobCardId    String
+  jobCard      WorkshopJobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  fromStatus   String
+  toStatus     String
+  changedBy    String
+  changedAt    DateTime        @default(now())
+  notes        String?
+  metadata     Json?
+
+  @@index([jobCardId, changedAt])
+}
+
+model WorkshopToolCount {
+  id                String   @id @default(uuid())
+  auditMonth        String
+  workshopType      String
+  countedBy         String
+  verifiedBy        String?
+  totalToolsCounted Int      @default(0)
+  discrepancyCount  Int      @default(0)
+  notes             String?
+  status            String   @default("completed")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([workshopType, auditMonth])
 }

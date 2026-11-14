@@ -45,6 +45,9 @@ import {
   ArrowLeftRight,
   Cpu,
   Receipt,
+  Bike,
+  Snowflake,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -69,6 +72,7 @@ export default function Sidebar({
 
   const isDashboardsActive = pathname === "/" || pathname.startsWith("/dashboards");
   const isJobsActive = pathname.startsWith("/jobs") || pathname.startsWith("/dispatch");
+  const isWorkshopsActive = pathname.startsWith("/workshops");
   const isAccountsActive = pathname.startsWith("/accounts");
   const isProcurementActive = pathname.startsWith("/procurement");
   const isHrmActive = pathname.startsWith("/hrm");
@@ -80,6 +84,7 @@ export default function Sidebar({
     if (isSettingsActive) return "settings";
     if (isAccountsActive) return "accounts";
     if (isProcurementActive) return "procurement";
+    if (isWorkshopsActive) return "workshops";
     if (isJobsActive) return "jobs";
     if (isDashboardsActive && activeRole === "admin") return "dashboards";
     return null;
@@ -172,6 +177,8 @@ export default function Sidebar({
       setOpenMenu("accounts");
     } else if (isProcurementActive) {
       setOpenMenu("procurement");
+    } else if (isWorkshopsActive) {
+      setOpenMenu("workshops");
     } else if (isHrmActive) {
       setOpenMenu("hrm");
     } else if (isJobsActive) {
@@ -179,7 +186,7 @@ export default function Sidebar({
     } else if (isDashboardsActive && isAdmin) {
       setOpenMenu("dashboards");
     }
-  }, [pathname, isJobsActive, isDashboardsActive, isProcurementActive, isHrmActive, isAccountsActive, isSettingsActive, isAdmin, isHr]);
+  }, [pathname, isJobsActive, isWorkshopsActive, isDashboardsActive, isProcurementActive, isHrmActive, isAccountsActive, isSettingsActive, isAdmin, isHr]);
 
   const toggleMenu = (menuId: string) => {
     setOpenMenu((prev) => (prev === menuId ? null : menuId));
@@ -187,6 +194,7 @@ export default function Sidebar({
 
   const isDashboardsOpen = openMenu === "dashboards";
   const isJobsOpen = openMenu === "jobs";
+  const isWorkshopsOpen = openMenu === "workshops";
   const isAccountsOpen = openMenu === "accounts";
   const isProcurementOpen = openMenu === "procurement";
   const isHrmOpen = openMenu === "hrm";
@@ -298,6 +306,21 @@ export default function Sidebar({
     if (item.perm) return item.perm.split("|").some((p: string) => hasPermission(p));
     return item.roles.includes(activeRole);
   });
+
+  const workshopSubItems = [
+    {
+      label: "Bikes Workshop",
+      href: "/workshops/bikes",
+      icon: Bike,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "storekeeper", "cashier", "manager", "auditor"],
+    },
+    {
+      label: "HVAC Workshop",
+      href: "/workshops/hvac",
+      icon: Snowflake,
+      roles: ["admin", "dispatcher", "call_center", "accountant", "storekeeper", "cashier", "manager", "auditor"],
+    },
+  ];
 
   // Dedicated HRM Accordion Sub-Items
   const hrmSubItems = [
@@ -728,6 +751,73 @@ export default function Sidebar({
               )}
             </div>
           )}
+
+          {/* Dedicated Expandable Workshops Hub */}
+          <div>
+            <div
+              onClick={() => {
+                if (isCollapsed) {
+                  window.location.href = "/workshops/bikes";
+                } else {
+                  toggleMenu("workshops");
+                }
+              }}
+              className={cn(
+                "flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer group select-none",
+                isWorkshopsActive
+                  ? "bg-[#27272A] text-white"
+                  : "text-[#A1A1AA] hover:text-[#F4F4F5] hover:bg-[#27272A]/40"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <Wrench
+                  className={cn(
+                    "w-4 h-4 shrink-0 transition",
+                    isWorkshopsActive ? "text-[#0D7A5F]" : "text-[#A1A1AA] group-hover:text-white"
+                  )}
+                />
+                {!isCollapsed && <span>Workshops</span>}
+              </div>
+              {!isCollapsed && (
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200",
+                    isWorkshopsOpen ? "rotate-0" : "-rotate-90"
+                  )}
+                />
+              )}
+            </div>
+
+            {/* Workshops Sub-Items List */}
+            {isWorkshopsOpen && !isCollapsed && (
+              <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
+                {workshopSubItems.map((sub) => {
+                  const SubIcon = sub.icon;
+                  const isSubActive = pathname === sub.href || pathname.startsWith(`${sub.href}/`);
+                  return (
+                    <Link
+                      key={sub.href}
+                      href={sub.href}
+                      className={cn(
+                        "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition group w-full",
+                        isSubActive
+                          ? "bg-[#27272A] text-emerald-400 font-bold"
+                          : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                      )}
+                    >
+                      <SubIcon
+                        className={cn(
+                          "w-3.5 h-3.5 shrink-0 transition",
+                          isSubActive ? "text-emerald-400" : "text-zinc-500 group-hover:text-emerald-400"
+                        )}
+                      />
+                      <span className="truncate flex-1">{sub.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {preAccountsOperations.map((item) => {
             const Icon = item.icon;
