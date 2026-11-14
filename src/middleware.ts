@@ -29,6 +29,19 @@ export async function middleware(request: NextRequest) {
 
   // Dedicated handling for Standalone Workshop Mobile Apps (Bikes & HVAC)
   if (pathname.startsWith("/api/workshops")) {
+    // 1. Handle CORS Preflight for web client
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, x-actor-role, x-actor-name, x-actor-id, *",
+          "Access-Control-Max-Age": "86400",
+        },
+      });
+    }
+
     const hasCookie = Boolean(request.cookies.get(ERP_SESSION_COOKIE)?.value);
     const hasBearer = authorization.startsWith("Bearer ");
     if (!hasCookie && !hasBearer) {
@@ -45,7 +58,11 @@ export async function middleware(request: NextRequest) {
       } catch {
         // ignore
       }
-      return NextResponse.next({ request: { headers } });
+      const response = NextResponse.next({ request: { headers } });
+      response.headers.set("Access-Control-Allow-Origin", "*");
+      response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+      response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-actor-role, x-actor-name, x-actor-id, *");
+      return response;
     }
   }
 
