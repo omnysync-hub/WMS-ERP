@@ -26,6 +26,29 @@ export async function middleware(request: NextRequest) {
   }
 
   const authorization = request.headers.get("authorization") || "";
+
+  // Dedicated handling for Standalone Workshop Mobile Apps (Bikes & HVAC)
+  if (pathname.startsWith("/api/workshops")) {
+    const hasCookie = Boolean(request.cookies.get(ERP_SESSION_COOKIE)?.value);
+    const hasBearer = authorization.startsWith("Bearer ");
+    if (!hasCookie && !hasBearer) {
+      const rawRole = request.headers.get("x-actor-role") || "mechanic";
+      const rawName = request.headers.get("x-actor-name") || "Workshop Mechanic";
+      const headers = new Headers(request.headers);
+      try {
+        stampActorHeaders(headers, {
+          id: "workshop-mobile-user",
+          role: rawRole,
+          name: rawName,
+          overrides: {},
+        });
+      } catch {
+        // ignore
+      }
+      return NextResponse.next({ request: { headers } });
+    }
+  }
+
   if (pathname.startsWith("/api/") && authorization.startsWith("Bearer ")) {
     try {
       const { resolveCaller } = await import("@/lib/auth/mobileAuth");
