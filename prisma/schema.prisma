@@ -1106,6 +1106,8 @@ model Employee {
   jobs                   Job[]
   jobAssignments         JobAssignment[]
   attendanceLogs         AttendanceLog[]
+  devicePunches          DevicePunch[]
+  zkbioEmployeeMap       ZkbioEmployeeMap?
   advances               EmployeeAdvance[]
   payslips               Payslip[]
   projectTasks           ProjectTask[]
@@ -1176,6 +1178,44 @@ model AttendanceLog {
   flagResolutionNotes String?
   result              String // pass, fail
   notes               String?
+}
+
+// ZKBio Time integration (decided 2026-11-16): biometric device punches
+// live in their OWN table, separate from AttendanceLog (which stays the
+// mobile face/GPS attendance record). Punches are pushed by a poller on
+// the client-office PC; see /api/integrations/zkbio/*.
+model DevicePunch {
+  id             String    @id @default(uuid())
+  zkbioTxnId     String    @unique // ZKBio transaction id — dedupe key
+  empCode        String // ZKBio emp_code as reported by the device software
+  employeeId     String?
+  employee       Employee? @relation(fields: [employeeId], references: [id])
+  employeeName   String? // name as reported by ZKBio (for unmapped review)
+  punchTime      DateTime
+  punchType      String // CHECK_IN, CHECK_OUT, OTHER
+  rawPunchState  String? // ZKBio punch_state code, e.g. "0"
+  punchStateText String? // ZKBio punch_state_display, e.g. "Check In"
+  verifyType     String? // e.g. "Fingerprint", "Password"
+  terminalSn     String?
+  terminalAlias  String?
+  importedAt     DateTime  @default(now())
+
+  @@index([punchTime])
+  @@index([employeeId, punchTime])
+  @@index([empCode])
+}
+
+// One-time HR mapping between a ZKBio emp_code and an ERP employee.
+// Seeded after the client install; unmapped punches still import with
+// employeeId = null so nothing is lost before the mapping exists.
+model ZkbioEmployeeMap {
+  id         String   @id @default(uuid())
+  empCode    String   @unique
+  employeeId String   @unique
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  zkbioName  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model EmployeeAdvance {
