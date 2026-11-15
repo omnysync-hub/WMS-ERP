@@ -639,7 +639,7 @@ export class WorkshopService {
     if (data.actionType === "sold" && saleAmount > 0) {
       try {
         const cashAccount = await AccountMappingService.resolveAccount({
-          transactionType: "pos_cash_receipt",
+          transactionType: "pos_sale_cash",
         });
         const scrapIncomeAccount = await prisma.account.findFirst({
           where: {
