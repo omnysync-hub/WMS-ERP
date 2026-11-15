@@ -13,6 +13,10 @@ function isPublic(request: NextRequest) {
   // Only the credential exchange is public. Every other mobile endpoint must
   // pass through the signed Bearer-token/session validation below.
   if (pathname === "/api/mobile/auth" && request.method === "POST") return true;
+  // ZKBio punch ingest is machine-to-machine: no user session exists on
+  // the client PC. The route itself enforces the shared sync token
+  // (x-zkbio-sync-token), so the session check is bypassed for it alone.
+  if (pathname === "/api/integrations/zkbio/punches" && request.method === "POST") return true;
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
