@@ -525,6 +525,13 @@ export class WorkshopService {
       throw new Error("Job Card is already closed.");
     }
 
+    // SOP control: no work (and therefore no completion) before Manager approval.
+    if (!["Approved", "In Progress", "On Hold"].includes(jobCard.status)) {
+      throw new Error(
+        `Job Card cannot be completed from status "${jobCard.status}". Manager approval is required before work can be completed.`
+      );
+    }
+
     if (!workDoneSummary || !workDoneSummary.trim()) {
       throw new Error("Work Done Summary is required to complete the Job Card.");
     }
