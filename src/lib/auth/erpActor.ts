@@ -191,6 +191,45 @@ type GateResult =
   | { actor: ErpActor; error: NextResponse };
 
 /**
+ * Workshop SOP gates for the /api/workshops POST routes.
+ * workshopAuthGate: the caller must be a resolved, signed-in actor (mobile
+ * Bearer token or middleware-signed web actor). Anonymous callers are refused
+ * so workshop actions are always recorded against a real person.
+ */
+export function workshopAuthGate(resolved: {
+  actor: ErpActor;
+  error?: NextResponse;
+}): NextResponse | null {
+  if (resolved.error) return resolved.error;
+  if (!resolved.actor || !resolved.actor.role || resolved.actor.role === "anonymous") {
+    return NextResponse.json(
+      {
+        error: "Forbidden: sign in to perform workshop actions.",
+        code: "PERMISSION_DENIED",
+      },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
+/** Workshop SOP role gate: 403 unless the actor's ERP role is in `allowed`. */
+export function workshopRoleGate(actor: ErpActor, allowed: string[]): NextResponse | null {
+  const r = (actor.role || "").toLowerCase();
+  if (allowed.some((a) => a.toLowerCase() === r)) return null;
+  return NextResponse.json(
+    {
+      error: `Forbidden: this workshop action requires role ${allowed.join(
+        " or "
+      )}; your role is '${actor.role}'.`,
+      code: "PERMISSION_DENIED",
+      role: actor.role,
+    },
+    { status: 403 }
+  );
+}
+
+/**
  * Resolve the calling actor for jobs APIs.
  * - Mobile app: `Authorization: Bearer wms_mobile_...` is verified (HMAC) and the employee's
  *   DB role is authoritative (headers cannot escalate a mobile session).

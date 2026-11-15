@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { WorkshopService, WorkshopType } from "@/lib/services/WorkshopService";
-import { resolveJobsActor } from "@/lib/auth/erpActor";
+import { resolveJobsActor, workshopAuthGate, workshopRoleGate } from "@/lib/auth/erpActor";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -104,7 +104,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { actor } = await resolveJobsActor(req);
+    const resolved = await resolveJobsActor(req);
+    const authError = workshopAuthGate(resolved);
+    if (authError) return authError;
+    const actor = resolved.actor;
     const actorName = actor?.name || "Workshop Supervisor";
 
     const body = await req.json();
@@ -150,6 +153,8 @@ export async function POST(req: NextRequest) {
 
       case "approve_diagnosis":
       case "approve": {
+        const gate = workshopRoleGate(actor, ["admin", "manager"]);
+        if (gate) return gate;
         const { jobCardId, reason } = body;
         if (!jobCardId) return NextResponse.json({ error: "jobCardId is required" }, { status: 400 });
         const updated = await WorkshopService.approveOrRejectDiagnosis(
@@ -167,6 +172,8 @@ export async function POST(req: NextRequest) {
 
       case "reject_diagnosis":
       case "reject": {
+        const gate = workshopRoleGate(actor, ["admin", "manager"]);
+        if (gate) return gate;
         const { jobCardId, reason } = body;
         if (!jobCardId) return NextResponse.json({ error: "jobCardId is required" }, { status: 400 });
         const updated = await WorkshopService.approveOrRejectDiagnosis(
@@ -199,6 +206,8 @@ export async function POST(req: NextRequest) {
       }
 
       case "issue_material": {
+        const gate = workshopRoleGate(actor, ["admin", "manager", "storekeeper"]);
+        if (gate) return gate;
         const { requisitionId, issuedQty } = body;
         if (!requisitionId || issuedQty == null) {
           return NextResponse.json(
@@ -294,6 +303,8 @@ export async function POST(req: NextRequest) {
 
       case "close_job":
       case "close": {
+        const gate = workshopRoleGate(actor, ["admin", "manager"]);
+        if (gate) return gate;
         const { jobCardId, closeNotes, deliveryStatus, deliveredTo } = body;
         if (!jobCardId) return NextResponse.json({ error: "jobCardId is required" }, { status: 400 });
         const updated = await WorkshopService.closeJobCard(

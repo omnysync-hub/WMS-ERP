@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { WorkshopService } from "@/lib/services/WorkshopService";
-import { resolveJobsActor } from "@/lib/auth/erpActor";
+import { resolveJobsActor, workshopAuthGate, workshopRoleGate } from "@/lib/auth/erpActor";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -44,7 +44,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { actor } = await resolveJobsActor(req);
+    const resolved = await resolveJobsActor(req);
+    const authError = workshopAuthGate(resolved);
+    if (authError) return authError;
+    const actor = resolved.actor;
     const actorName = actor?.name || "Workshop Manager";
 
     const body = await req.json();
@@ -68,6 +71,8 @@ export async function POST(req: NextRequest) {
       }
 
       case "return_to_store": {
+        const gate = workshopRoleGate(actor, ["admin", "manager", "storekeeper"]);
+        if (gate) return gate;
         const { scrapId } = body;
         if (!scrapId) return NextResponse.json({ error: "scrapId is required" }, { status: 400 });
         const updated = await WorkshopService.returnScrapToStore(scrapId, actorName);
@@ -79,6 +84,8 @@ export async function POST(req: NextRequest) {
       }
 
       case "dispose_or_sell": {
+        const gate = workshopRoleGate(actor, ["admin", "manager"]);
+        if (gate) return gate;
         const { scrapId, saleAmount, disposalNotes, actionType } = body;
         if (!scrapId || !actionType) {
           return NextResponse.json(

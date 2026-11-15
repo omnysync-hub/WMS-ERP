@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { WorkshopService } from "@/lib/services/WorkshopService";
-import { resolveJobsActor } from "@/lib/auth/erpActor";
+import { resolveJobsActor, workshopAuthGate, workshopRoleGate } from "@/lib/auth/erpActor";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +54,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { actor } = await resolveJobsActor(req);
+    const resolved = await resolveJobsActor(req);
+    const authError = workshopAuthGate(resolved);
+    if (authError) return authError;
+    const actor = resolved.actor;
     const actorName = actor?.name || "Workshop Supervisor";
 
     const body = await req.json();
@@ -62,6 +65,8 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "create": {
+        const gate = workshopRoleGate(actor, ["admin", "manager", "storekeeper"]);
+        if (gate) return gate;
         const { toolCode, name, category, workshopType, totalQuantity, location } = body;
         if (!toolCode || !name || !category) {
           return NextResponse.json(
@@ -118,6 +123,8 @@ export async function POST(req: NextRequest) {
       }
 
       case "audit": {
+        const gate = workshopRoleGate(actor, ["admin", "manager", "storekeeper"]);
+        if (gate) return gate;
         const { workshopType, auditMonth, totalToolsCounted, discrepancyCount, verifiedBy, notes } = body;
         if (!workshopType || !auditMonth) {
           return NextResponse.json(
