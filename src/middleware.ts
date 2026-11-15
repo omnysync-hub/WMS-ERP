@@ -44,26 +44,12 @@ export async function middleware(request: NextRequest) {
 
     const hasCookie = Boolean(request.cookies.get(ERP_SESSION_COOKIE)?.value);
     const hasBearer = authorization.startsWith("Bearer ");
-    if (!hasCookie && !hasBearer) {
-      const rawRole = request.headers.get("x-actor-role") || "mechanic";
-      const rawName = request.headers.get("x-actor-name") || "Workshop Mechanic";
-      const headers = new Headers(request.headers);
-      try {
-        stampActorHeaders(headers, {
-          id: "workshop-mobile-user",
-          role: rawRole,
-          name: rawName,
-          overrides: {},
-        });
-      } catch {
-        // ignore
-      }
-      const response = NextResponse.next({ request: { headers } });
-      response.headers.set("Access-Control-Allow-Origin", "*");
-      response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-      response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-actor-role, x-actor-name, x-actor-id, *");
-      return response;
-    }
+    // No unsigned-actor fallback: workshop callers must present a real
+    // mobile token or a web session cookie. Previously the middleware
+    // stamped a signed actor from the client-supplied x-actor-role
+    // header, which let anyone impersonate any workshop role (e.g.
+    // manager) without logging in. Requests without credentials now
+    // fall through to the standard session check below (401).
   }
 
   if (pathname.startsWith("/api/") && authorization.startsWith("Bearer ")) {
