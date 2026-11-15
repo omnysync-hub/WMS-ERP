@@ -5,6 +5,7 @@ import { loginRateLimit } from "@/lib/rateLimit";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { AuditService } from "@/lib/services/AuditService";
+import { normalizeAppId, employeeHasAppAccess, appAccessSummary, APP_LABELS } from "@/lib/auth/appAccess";
 import {
   signMobileToken,
   verifyMobileToken,
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { phone, email, employeeId, username, password, pin, deviceId, deviceName } = body;
+    const appId = normalizeAppId((body as any)?.appId ?? (body as any)?.app);
     const credentialInput = password || pin;
 
     if (
@@ -118,6 +120,19 @@ export async function POST(req: NextRequest) {
     if (!employee.mobileLoginActive) {
       return NextResponse.json(
         { error: "Mobile app access is not enabled for this account. Ask HR to enable it (HR › Employees › Mobile login).", code: "MOBILE_ACCESS_DISABLED" },
+        { status: 403 }
+      );
+    }
+
+    // 3b. Per-app provisioning check: when the app identifies itself, the
+    // employee must be enabled for THAT app in HR (Mobile Access tab).
+    if (appId && !employeeHasAppAccess(employee, appId)) {
+      return NextResponse.json(
+        {
+          error: `Your account is not enabled for the ${APP_LABELS[appId]}. Ask HR to enable it (HR > Employees > Mobile Access).`,
+          code: "APP_ACCESS_DISABLED",
+          app: appId,
+        },
         { status: 403 }
       );
     }
@@ -213,6 +228,7 @@ export async function POST(req: NextRequest) {
         mobileDeviceLabel:
           typeof deviceName === "string" ? deviceName.trim().slice(0, 120) || null : null,
         mobileSessionId: sessionId,
+        mobileSessionApp: appId,
         mobileSessionStartedAt: sessionStartedAt,
         lastMobileSessionAt: sessionStartedAt,
       },
@@ -263,6 +279,7 @@ export async function POST(req: NextRequest) {
         faceEnrolled: employee.faceEnrolled,
         status: employee.status,
         reportingManagerId: employee.reportingManagerId,
+        appAccess: appAccessSummary(employee),
       },
     });
   } catch (err: any) {

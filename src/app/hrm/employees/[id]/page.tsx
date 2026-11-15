@@ -204,6 +204,28 @@ export default function EmployeeProfilePage() {
     }
   };
 
+  const handleToggleAppAccess = async (app: string, enabled: boolean) => {
+    try {
+      setMobileActionLoading(true);
+      setMobileActionError(null);
+      const res = await fetch(`/api/employees/${employeeId}/mobile-login/app-access`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ app, enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update app access");
+      }
+      setNotification(data.message || "App access updated.");
+      await loadEmployee();
+    } catch (err: any) {
+      setMobileActionError(err.message);
+    } finally {
+      setMobileActionLoading(false);
+    }
+  };
+
   const handleDeactivateMobileLogin = async () => {
     if (
       !confirm(
@@ -959,6 +981,62 @@ export default function EmployeeProfilePage() {
                       ? `${employee.failedLoginAttempts} unsuccesful attempt(s) recorded`
                       : "Zero recent authentication failures"}
                   </span>
+                </div>
+              </div>
+
+              {/* Per-App Access Provisioning */}
+              <div className="pt-4 border-t border-[#F1F5F9]">
+                <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider mb-1">
+                  App Access — provision each app separately
+                </span>
+                <p className="text-[11px] text-[#94A3B8] mb-3">
+                  The employee uses one login for all apps. Switch each app on or off for this person;
+                  turning an app off also ends a live session opened from that app.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {(
+                    [
+                      { app: "main", label: "Workman App", desc: "Field jobs, attendance & requests", on: employee.appAccessMain },
+                      { app: "bikes", label: "Bikes Workshop", desc: "Bike job cards (SOP workflow)", on: employee.appAccessBikes },
+                      { app: "hvac", label: "HVAC Workshop", desc: "HVAC job cards (SOP workflow)", on: employee.appAccessHvac },
+                    ] as const
+                  ).map((row) => (
+                    <div
+                      key={row.app}
+                      className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col gap-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-xs text-[#18181B]">{row.label}</span>
+                        {row.on ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Enabled
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                            Disabled
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[#94A3B8]">{row.desc}</span>
+                      <button
+                        type="button"
+                        disabled={mobileActionLoading || !employee.mobileLoginActive}
+                        onClick={() => handleToggleAppAccess(row.app, !row.on)}
+                        title={
+                          employee.mobileLoginActive
+                            ? undefined
+                            : "Provision mobile access first, then set per-app access"
+                        }
+                        className={
+                          row.on
+                            ? "mt-auto px-3 py-1.5 rounded-lg text-[11px] font-bold bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 transition disabled:opacity-50"
+                            : "mt-auto px-3 py-1.5 rounded-lg text-[11px] font-bold bg-[#0D7A5F] hover:bg-[#0A624C] text-white transition disabled:opacity-50"
+                        }
+                      >
+                        {row.on ? "Disable" : "Enable"}
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
 

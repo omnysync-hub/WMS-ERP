@@ -117,6 +117,9 @@ export async function POST(
       where: { id: employeeId },
       data: {
         mobileLoginActive: true,
+        appAccessMain: true,
+        appAccessBikes: true,
+        appAccessHvac: true,
         mobileUsername: usernameInput || undefined,
         mobilePasswordHash: passwordHash,
         mobilePasswordSetAt: now,

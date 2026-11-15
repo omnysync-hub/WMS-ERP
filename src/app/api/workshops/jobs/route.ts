@@ -15,10 +15,33 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
+/**
+ * Per-app separation: a session opened from the Bikes app may only touch
+ * bike jobs, and an HVAC-app session only HVAC jobs. Sessions without an
+ * app tag (web ERP, main app) are not restricted here — HR provisioning
+ * already controls which apps an employee can open at all.
+ */
+function workshopAppGuard(actorApp: string | undefined, workshopType: string | null | undefined): NextResponse | null {
+  if (!actorApp || !workshopType) return null;
+  if ((actorApp === "bikes" || actorApp === "hvac") && actorApp !== workshopType) {
+    return NextResponse.json(
+      {
+        error: `This account is signed in from the ${actorApp === "bikes" ? "Bikes" : "HVAC"} Workshop app and cannot access ${workshopType} jobs.`,
+        code: "APP_WORKSHOP_MISMATCH",
+      },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const workshopType = searchParams.get("workshopType") as WorkshopType | null;
+    const { actor: getActor } = await resolveJobsActor(req);
+    const appGuard = workshopAppGuard(getActor?.app, workshopType);
+    if (appGuard) return appGuard;
     const status = searchParams.get("status");
     const assignedStaffId = searchParams.get("assignedStaffId");
     const customerId = searchParams.get("customerId");
@@ -51,6 +74,8 @@ export async function GET(req: NextRequest) {
       if (!single) {
         return NextResponse.json({ error: "Workshop Job Card not found" }, { status: 404 });
       }
+      const singleGuard = workshopAppGuard(getActor?.app, single.workshopType);
+      if (singleGuard) return singleGuard;
       return NextResponse.json({ success: true, data: single });
     }
 
@@ -115,6 +140,8 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "create": {
+        const appGuard = workshopAppGuard(actor?.app, body.workshopType);
+        if (appGuard) return appGuard;
         const job = await WorkshopService.createJobCard(body, actorName);
         return NextResponse.json({ success: true, message: "Job card created successfully", data: job });
       }

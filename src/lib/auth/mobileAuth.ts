@@ -111,6 +111,8 @@ export interface AuthenticatedCaller {
   role: string;
   name?: string;
   isAdminOrHr: boolean;
+  /** App the current mobile session was opened from ("main" | "bikes" | "hvac"), when known. */
+  app?: string;
 }
 
 /**
@@ -260,6 +262,7 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
       active: true,
       mobileLoginActive: true,
       mobileSessionId: true,
+      mobileSessionApp: true,
     },
   });
 
@@ -302,5 +305,6 @@ export async function resolveCaller(req: NextRequest): Promise<AuthenticatedCall
     role: authoritativeRole,
     name: callerEmp.name,
     isAdminOrHr: ADMIN_HR_ROLES.includes(authoritativeRole),
+    app: callerEmp.mobileSessionApp || undefined,
   };
 }

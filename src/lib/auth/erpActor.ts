@@ -19,6 +19,8 @@ export interface ErpActor {
   id: string;
   role: string;
   name: string;
+  /** App the mobile session was opened from ("main" | "bikes" | "hvac"), when known. */
+  app?: string;
   /** Per-user permission overrides from ErpUser.permissionOverrides (web sessions only). */
   overrides?: Record<string, boolean>;
 }
@@ -263,6 +265,7 @@ export async function resolveJobsActor(
         actor: {
           id: caller.id,
           role,
+          app: caller.app,
           name: caller.name || "Mobile User",
           overrides: signed && signed.id === caller.id && signed.role === role ? signed.overrides || {} : {},
         },

@@ -1086,6 +1086,10 @@ model Employee {
   faceEnrollmentCount    Int                          @default(0)
   active                 Boolean                      @default(true)
   mobileLoginActive      Boolean                      @default(false)
+  appAccessMain          Boolean                      @default(false)
+  appAccessBikes         Boolean                      @default(false)
+  appAccessHvac          Boolean                      @default(false)
+  mobileSessionApp       String?
   mobileUsername         String?                      @unique
   mobilePasswordHash     String?
   mobilePasswordSetAt    DateTime?
