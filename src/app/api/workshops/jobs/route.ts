@@ -23,7 +23,9 @@ export async function OPTIONS() {
  */
 function workshopAppGuard(actorApp: string | undefined, workshopType: string | null | undefined): NextResponse | null {
   if (!actorApp || !workshopType) return null;
-  if ((actorApp === "bikes" || actorApp === "hvac") && actorApp !== workshopType) {
+  // App ids are "bikes"/"hvac"; job records use workshopType "bike"/"hvac".
+  const typeApp = workshopType === "bike" ? "bikes" : workshopType;
+  if ((actorApp === "bikes" || actorApp === "hvac") && actorApp !== typeApp) {
     return NextResponse.json(
       {
         error: `This account is signed in from the ${actorApp === "bikes" ? "Bikes" : "HVAC"} Workshop app and cannot access ${workshopType} jobs.`,
