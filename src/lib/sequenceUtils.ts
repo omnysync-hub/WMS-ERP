@@ -91,5 +91,8 @@ export async function generateSupplierPaymentNumber(db: Db = prisma): Promise<st
 }
 
 export async function generateProjectCode(): Promise<string> {
-  return generateCode("PRJ", "project", "projectCode", 4);
+  // The Project model's code field is `projectNumber` (unique). Passing
+  // "projectCode" here made every project creation fail with a Prisma
+  // validation error (found by the 2026-11-17 role-check battery).
+  return generateCode("PRJ", "project", "projectNumber", 4);
 }

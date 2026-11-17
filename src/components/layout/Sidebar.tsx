@@ -395,7 +395,7 @@ export default function Sidebar({
 
   const allOperationsItems = [
     { label: "Customer 360°", href: "/customers", icon: Users, roles: ["admin", "accountant", "dispatcher", "call_center", "cashier", "auditor", "manager", "purchasing"] },
-    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"], perm: "projects.view|jobs.view_directory" },
+    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"], perm: "projects.view" },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Tax Report", href: "/accounts/tax-report", icon: CreditCard, roles: ["admin", "accountant", "manager", "auditor"], perm: "accounts.financial_reports|settings.taxes" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },

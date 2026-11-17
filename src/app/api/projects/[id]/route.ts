@@ -19,7 +19,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const gate = await requireJobsPermission(req, ["projects.view", "jobs.view_directory"]);
+  // projects.view only (see the note on the list route): no jobs-directory fallback.
+  const gate = await requireJobsPermission(req, "projects.view");
   try {
     const { id } = await params;
 

@@ -255,7 +255,12 @@ async function billProjectInvoice(opts: {
 }
 
 export async function GET(req: NextRequest) {
-  const gate = await requireJobsPermission(req, ["projects.view", "jobs.view_directory"]);
+  // Projects are their own module (client role spec): read access is
+  // projects.view, NOT the jobs directory key. Actors without it fall back
+  // to PM / team membership scoping below. (Battery finding 2026-11-17:
+  // the jobs.view_directory fallback let the job-creation-only Creator role
+  // read every project.)
+  const gate = await requireJobsPermission(req, "projects.view");
   try {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search");
