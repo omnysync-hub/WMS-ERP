@@ -6,8 +6,12 @@ import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    // Read access: payroll staff (hrm.payroll) or salary-disbursement staff
+    // (hrm.payroll_disburse, e.g. cashier) who must see approved runs to pay them.
     const gate = requirePermission(req, "hrm.payroll");
-    if (gate.error) return gate.error;
+    if (gate.error && requirePermission(req, "hrm.payroll_disburse").error) {
+      return gate.error;
+    }
     const runs = await prisma.payrollRun.findMany({
       include: {
         payslips: {
@@ -53,10 +57,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const gate = requirePermission(req, "hrm.payroll");
-    if (gate.error) return gate.error;
     const body = await req.json();
     const { action, period, runId, overwrite } = body;
+
+    // Separation of duties: creating/approving a payroll run is hrm.payroll
+    // (accountant); paying the salaries out is hrm.payroll_disburse (cashier).
+    const gate = requirePermission(
+      req,
+      action === "disburse" ? "hrm.payroll_disburse" : "hrm.payroll"
+    );
+    if (gate.error) return gate.error;
 
     switch (action) {
       case "calculate_draft": {

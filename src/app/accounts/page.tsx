@@ -64,8 +64,14 @@ import {
 } from "lucide-react";
 
 export default function AccountsPage() {
-  const { currentPersona, activeUser } = useRole();
+  const { currentPersona, activeUser, hasPermission } = useRole();
   const currentActor = `${activeUser?.name || currentPersona?.name || "Accountant"}`;
+
+  // Temporary Voucher permissions (Cashier creates; Auditor / poster posts into the live journal)
+  const canCreateVoucher = hasPermission("accounts.vouchers");
+  const canPostVoucher = hasPermission("accounts.post_voucher");
+  const canViewVouchers =
+    canCreateVoucher || canPostVoucher || hasPermission("accounts.general_ledger");
   const [activeTab, setActiveTab] = useState<
     | "ledgers"
     | "statements"
@@ -81,6 +87,7 @@ export default function AccountsPage() {
     | "subledgers"
     | "foc"
     | "returns"
+    | "vouchers"
   >("ledgers");
 
   // Sync tab with URL query parameter (?tab=...)
@@ -106,6 +113,7 @@ export default function AccountsPage() {
             "subledgers",
             "foc",
             "returns",
+            "vouchers",
           ].includes(tab)
         ) {
           setActiveTab(tab as any);
@@ -245,6 +253,18 @@ export default function AccountsPage() {
   const [cashFormParty, setCashFormParty] = useState("");
   const [cashFormSubmitting, setCashFormSubmitting] = useState(false);
 
+  // Temporary Vouchers state (pending_approval until posted by an authorised poster)
+  const [vouchers, setVouchers] = useState<any[]>([]);
+  const [vouchersLoading, setVouchersLoading] = useState(false);
+  const [showVoucherModal, setShowVoucherModal] = useState(false);
+  const [voucherMemo, setVoucherMemo] = useState("");
+  const [voucherLines, setVoucherLines] = useState<Array<{ accountId: string; debit: string; credit: string }>>([
+    { accountId: "", debit: "", credit: "" },
+    { accountId: "", debit: "", credit: "" },
+  ]);
+  const [voucherSubmitting, setVoucherSubmitting] = useState(false);
+  const [voucherActionId, setVoucherActionId] = useState<string>("");
+
   // General Journal & Manual Entry state
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [showManualJournalModal, setShowManualJournalModal] = useState(false);
@@ -383,6 +403,25 @@ export default function AccountsPage() {
         const res = await fetch("/api/accounts?view=journal");
         const data = await res.json();
         if (Array.isArray(data)) setJournalEntries(data);
+      } else if (activeTab === "vouchers") {
+        setVouchersLoading(true);
+        try {
+          const [vouchersRes, coaRes] = await Promise.all([
+            fetch("/api/accounts?view=vouchers"),
+            fetch("/api/accounts?view=chart"),
+          ]);
+          const data = await vouchersRes.json();
+          const list = data.vouchers || data.entries || (Array.isArray(data) ? data : []);
+          setVouchers(list);
+          // Populate the COA list used by the voucher form's account picker
+          const coaData = await coaRes.json();
+          if (coaData.rawAccounts) setAccounts(coaData.rawAccounts);
+          else if (Array.isArray(coaData)) setAccounts(coaData);
+          if (coaData.flat) setCoaFlat(coaData.flat);
+          if (coaData.tree) setCoaTree(coaData.tree);
+        } finally {
+          setVouchersLoading(false);
+        }
       }
     } catch (e: any) {
       console.error("Failed to load accounts data", e);
@@ -820,6 +859,119 @@ export default function AccountsPage() {
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+    }
+  };
+
+  // 7b. ACTION: CREATE TEMPORARY VOUCHER (saved as pending_approval; takes effect only when posted)
+  const handleCreateVoucher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const totalDebit = voucherLines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+    const totalCredit = voucherLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+
+    if (totalDebit <= 0) {
+      setActionErrorMsg("Voucher has no amounts. Enter at least one debit and one credit line.");
+      return;
+    }
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      setActionErrorMsg(
+        `Voucher is unbalanced! Total Debit: ${formatCurrency(totalDebit)} vs Total Credit: ${formatCurrency(totalCredit)}`
+      );
+      return;
+    }
+
+    setVoucherSubmitting(true);
+    try {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_voucher",
+          memo: voucherMemo || "Temporary Voucher",
+          lines: voucherLines
+            .filter((l) => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0))
+            .map((l) => ({
+              accountId: l.accountId,
+              debit: Number(l.debit) || 0,
+              credit: Number(l.credit) || 0,
+            })),
+          actorName: currentActor,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create temporary voucher");
+      }
+
+      setShowVoucherModal(false);
+      setVoucherMemo("");
+      setVoucherLines([
+        { accountId: "", debit: "", credit: "" },
+        { accountId: "", debit: "", credit: "" },
+      ]);
+      setActionSuccessMsg(
+        "Temporary voucher created. It will take effect only when an authorised poster posts it to the journal."
+      );
+      loadData();
+    } catch (err: any) {
+      setActionErrorMsg(err.message);
+    } finally {
+      setVoucherSubmitting(false);
+    }
+  };
+
+  // 7c. ACTION: POST A TEMPORARY VOUCHER INTO THE LIVE JOURNAL (Auditor step)
+  const handlePostVoucher = async (voucher: any) => {
+    setVoucherActionId(voucher.id);
+    try {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "post_voucher",
+          journalEntryId: voucher.id,
+          actorName: currentActor,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to post voucher");
+      }
+      setActionSuccessMsg(`Voucher "${voucher.memo}" posted to the General Ledger.`);
+      loadData();
+    } catch (err: any) {
+      setActionErrorMsg(err.message);
+    } finally {
+      setVoucherActionId("");
+    }
+  };
+
+  // 7d. ACTION: REJECT A TEMPORARY VOUCHER
+  const handleRejectVoucher = async (voucher: any) => {
+    const reason = window.prompt(`Reject temporary voucher "${voucher.memo}"? Optional reason:`);
+    if (reason === null) return;
+    setVoucherActionId(voucher.id);
+    try {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reject_voucher",
+          journalEntryId: voucher.id,
+          reason: reason || undefined,
+          actorName: currentActor,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to reject voucher");
+      }
+      setActionSuccessMsg(`Voucher "${voucher.memo}" rejected.`);
+      loadData();
+    } catch (err: any) {
+      setActionErrorMsg(err.message);
+    } finally {
+      setVoucherActionId("");
     }
   };
 
@@ -2839,6 +2991,137 @@ export default function AccountsPage() {
       )}
 
       {/* ========================================================================= */}
+      {/* TAB: TEMPORARY VOUCHERS (Cashier creates -> Auditor posts) */}
+      {/* ========================================================================= */}
+      {activeTab === "vouchers" && !canViewVouchers && (
+        <div className="p-12 text-center bg-white rounded-xl border border-[#E4E4E7] text-xs text-[#71717A]">
+          You do not have permission to view temporary vouchers.
+        </div>
+      )}
+
+      {activeTab === "vouchers" && canViewVouchers && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-[#18181B]">Temporary Vouchers</h3>
+              <p className="text-xs text-[#71717A] mt-0.5">
+                Temporary vouchers do not affect the ledger until an authorised poster posts them into the journal.
+              </p>
+            </div>
+            {canCreateVoucher && (
+              <button
+                type="button"
+                onClick={() => setShowVoucherModal(true)}
+                className="px-4 py-2 bg-[#18181B] hover:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Plus className="w-4 h-4" /> New Temporary Voucher
+              </button>
+            )}
+          </div>
+
+          {/* Status summary */}
+          <div className="flex items-center gap-2 flex-wrap text-[11px] font-semibold">
+            <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+              Temporary / Pending: {vouchers.filter((v) => v.status === "pending_approval").length}
+            </span>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+              Posted: {vouchers.filter((v) => v.status === "posted").length}
+            </span>
+            <span className="px-2.5 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-200">
+              Rejected: {vouchers.filter((v) => v.status === "rejected").length}
+            </span>
+          </div>
+
+          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden divide-y divide-[#E4E4E7]">
+            {vouchersLoading ? (
+              <div className="p-12 text-center text-xs text-[#71717A]">Loading vouchers…</div>
+            ) : vouchers.length === 0 ? (
+              <div className="p-12 text-center text-xs text-[#71717A]">No temporary vouchers yet.</div>
+            ) : (
+              vouchers.map((v) => {
+                const total = v.lines?.reduce((s: number, l: any) => s + (l.debit || 0), 0) || 0;
+                const isPending = v.status === "pending_approval";
+                return (
+                  <div key={v.id} className="p-4 hover:bg-[#FAFAFA] transition space-y-2">
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-[#E4E4E7]">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-[#18181B]">{v.memo}</span>
+                        {isPending && (
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                            Temporary — Pending Posting
+                          </span>
+                        )}
+                        {v.status === "posted" && (
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            Posted
+                          </span>
+                        )}
+                        {v.status === "rejected" && (
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                            Rejected
+                          </span>
+                        )}
+                        {!isPending && v.status !== "posted" && v.status !== "rejected" && v.status && (
+                          <span className="text-[10px] font-semibold text-[#52525B] bg-[#F4F4F5] px-2 py-0.5 rounded-full border border-[#E4E4E7]">
+                            {v.status}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-[#71717A]">
+                          Created by {v.postedBy || v.createdBy || "—"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-semibold text-[#18181B]">{formatCurrency(total)}</span>
+                        <span className="text-[11px] text-[#71717A] font-mono">{formatDateTime(v.date || v.createdAt)}</span>
+                        {isPending && canPostVoucher && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={voucherActionId === v.id}
+                              onClick={() => handlePostVoucher(v)}
+                              className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1 transition disabled:opacity-50"
+                            >
+                              <Check className="w-3 h-3" /> Post Voucher
+                            </button>
+                            <button
+                              type="button"
+                              disabled={voucherActionId === v.id}
+                              onClick={() => handleRejectVoucher(v)}
+                              className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 inline-flex items-center gap-1 transition disabled:opacity-50"
+                            >
+                              <X className="w-3 h-3" /> Reject
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 text-xs">
+                      {v.lines?.map((line: any) => (
+                        <div key={line.id} className="flex items-center justify-between text-[11px] py-0.5">
+                          <span className="text-[#52525B]">
+                            {line.account?.code} — {line.account?.name}
+                          </span>
+                          <div className="flex items-center gap-6 font-mono">
+                            <span className={line.debit > 0 ? "text-[#18181B] font-semibold" : "text-[#D4D4D8]"}>
+                              Dr: {formatCurrency(line.debit)}
+                            </span>
+                            <span className={line.credit > 0 ? "text-[#18181B] font-semibold" : "text-[#D4D4D8]"}>
+                              Cr: {formatCurrency(line.credit)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* ENTERPRISE TAB 8: FINANCIAL STATEMENTS */}
       {/* ========================================================================= */}
       {activeTab === "reports" && <FinancialStatementsTab />}
@@ -3884,6 +4167,157 @@ export default function AccountsPage() {
                   className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs"
                 >
                   Post Journal Voucher
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* NEW TEMPORARY VOUCHER MODAL */}
+      {showVoucherModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-[#E4E4E7] text-xs max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E4E4E7]">
+              <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-[#0D7A5F]" />
+                New Temporary Voucher
+              </h3>
+              <button onClick={() => setShowVoucherModal(false)} className="text-[#71717A]">
+                ✕
+              </button>
+            </div>
+
+            <p className="text-[11px] text-[#71717A] bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              This voucher stays <strong>temporary</strong> and does not affect any ledger balance until an
+              authorised poster (e.g. the Auditor) posts it into the journal.
+            </p>
+
+            <form onSubmit={handleCreateVoucher} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-[#71717A] block mb-1">Voucher Memo / Purpose *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Office expense payment, customer receipt, salary payment"
+                  value={voucherMemo}
+                  onChange={(e) => setVoucherMemo(e.target.value)}
+                  className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#18181B]">Voucher Lines (Dr / Cr)</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVoucherLines([...voucherLines, { accountId: "", debit: "", credit: "" }])
+                    }
+                    className="text-[11px] font-bold text-[#0D7A5F] hover:underline"
+                  >
+                    + Add Line
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {voucherLines.map((line, idx) => (
+                    <div key={idx} className="flex gap-2 items-center">
+                      <select
+                        value={line.accountId}
+                        onChange={(e) => {
+                          const updated = [...voucherLines];
+                          updated[idx].accountId = e.target.value;
+                          setVoucherLines(updated);
+                        }}
+                        className="flex-1 bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
+                        required
+                      >
+                        <option value="">Select Account...</option>
+                        {accounts.filter((a) => a.level === 4 && a.isActive !== false).map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} — {a.name} ({a.type})
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Debit (PKR)"
+                        value={line.debit}
+                        onChange={(e) => {
+                          const updated = [...voucherLines];
+                          updated[idx].debit = e.target.value;
+                          if (e.target.value) updated[idx].credit = "";
+                          setVoucherLines(updated);
+                        }}
+                        className="w-24 bg-white p-2 rounded-lg border border-[#D4D4D8] font-mono text-xs"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Credit (PKR)"
+                        value={line.credit}
+                        onChange={(e) => {
+                          const updated = [...voucherLines];
+                          updated[idx].credit = e.target.value;
+                          if (e.target.value) updated[idx].debit = "";
+                          setVoucherLines(updated);
+                        }}
+                        className="w-24 bg-white p-2 rounded-lg border border-[#D4D4D8] font-mono text-xs"
+                      />
+                      {voucherLines.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => setVoucherLines(voucherLines.filter((_, i) => i !== idx))}
+                          className="text-rose-600 font-bold p-1"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Mathematical Parity Checker */}
+                {(() => {
+                  const deb = voucherLines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+                  const cred = voucherLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+                  const diff = Math.abs(deb - cred);
+                  const isBalanced = diff < 0.01 && deb > 0;
+
+                  return (
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono font-bold ${
+                        isBalanced
+                          ? "bg-emerald-50 text-emerald-950 border-emerald-200"
+                          : "bg-rose-50 text-rose-950 border-rose-200"
+                      }`}
+                    >
+                      <span>Total Debit: {formatCurrency(deb)}</span>
+                      <span>Total Credit: {formatCurrency(cred)}</span>
+                      <span>{isBalanced ? "✓ Parity Balanced" : `⚠️ Difference: ${formatCurrency(diff)}`}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+                <button
+                  type="button"
+                  onClick={() => setShowVoucherModal(false)}
+                  className="px-3 py-1.5 text-xs text-[#71717A]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={voucherSubmitting}
+                  className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs shadow-xs disabled:opacity-50"
+                >
+                  {voucherSubmitting ? "Creating…" : "Create Temporary Voucher"}
                 </button>
               </div>
             </form>

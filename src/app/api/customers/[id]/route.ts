@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireJobsPermission, requirePermission } from "@/lib/auth/erpActor";
+import { actorHasPermission, requireJobsPermission, requirePermission } from "@/lib/auth/erpActor";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
 import { AccountsPostingService } from "@/lib/services/AccountsPostingService";
 import { SubLedgerService } from "@/lib/services/SubLedgerService";
@@ -163,6 +163,23 @@ export async function POST(
     // Financial write: accounts permission (was jobs.create_job).
     const gate = requirePermission(req, "accounts.general_ledger");
     if (gate.error) return gate.error;
+
+    // accounts.general_ledger is a view-level key; posting a ledger entry additionally
+    // requires a posting right — direct journal posting or voucher creation (any of).
+    if (
+      !actorHasPermission(gate.actor, "accounts.post_entries") &&
+      !actorHasPermission(gate.actor, "accounts.vouchers")
+    ) {
+      return NextResponse.json(
+        {
+          error: `Forbidden: role '${gate.actor.role}' lacks permission 'accounts.post_entries' or 'accounts.vouchers'`,
+          permission: "accounts.post_entries",
+          role: gate.actor.role,
+          code: "PERMISSION_DENIED",
+        },
+        { status: 403 }
+      );
+    }
 
     const { id } = await params;
     const body = await req.json();

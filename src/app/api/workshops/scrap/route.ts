@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { WorkshopService } from "@/lib/services/WorkshopService";
 import { resolveJobsActor, workshopAuthGate, workshopRoleGate } from "@/lib/auth/erpActor";
+import { workshopActionGate, workshopParticipantGate } from "@/lib/auth/workshopGate";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,10 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   try {
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    const participantGate = await workshopParticipantGate(resolved.actor);
+    if (participantGate) return participantGate;
     const { searchParams } = new URL(req.url);
     const workshopType = searchParams.get("workshopType");
     const status = searchParams.get("status");
@@ -55,6 +60,10 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "record": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager", "storekeeper"],
+        });
+        if (gate) return gate;
         const { jobCardId, itemDescription, quantity, unit, customerKept } = body;
         if (!jobCardId || !itemDescription) {
           return NextResponse.json(

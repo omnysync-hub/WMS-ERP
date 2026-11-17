@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { WorkshopService } from "@/lib/services/WorkshopService";
 import { resolveJobsActor, workshopAuthGate, workshopRoleGate } from "@/lib/auth/erpActor";
+import { workshopActionGate, workshopParticipantGate } from "@/lib/auth/workshopGate";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,10 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   try {
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    const participantGate = await workshopParticipantGate(resolved.actor);
+    if (participantGate) return participantGate;
     const { searchParams } = new URL(req.url);
     const workshopType = searchParams.get("workshopType") || "all";
     const view = searchParams.get("view");
@@ -86,6 +91,10 @@ export async function POST(req: NextRequest) {
       }
 
       case "issue": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["storekeeper", "manager"],
+        });
+        if (gate) return gate;
         const { toolId, staffId, staffName, jobCardId, quantity, expectedReturnDate, notes } = body;
         if (!toolId || !staffName) {
           return NextResponse.json(
@@ -107,6 +116,10 @@ export async function POST(req: NextRequest) {
       }
 
       case "return": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["storekeeper", "manager"],
+        });
+        if (gate) return gate;
         const { issueId, returnCondition, notes } = body;
         if (!issueId || !returnCondition) {
           return NextResponse.json(

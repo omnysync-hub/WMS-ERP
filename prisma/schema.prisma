@@ -1111,6 +1111,7 @@ model Employee {
   advances               EmployeeAdvance[]
   payslips               Payslip[]
   projectTasks           ProjectTask[]
+  projectTeamMemberships ProjectTeamMember[]
   leaveBalances          LeaveBalance[]
   leaveRequests          LeaveRequest[]
   assetAssignments       AssetAssignment[]
@@ -1286,11 +1287,84 @@ model Project {
   billingMethod    String             @default("milestone") // milestone, percentage_completion, time_and_material
   startDate        DateTime?
   endDate          DateTime?
+  // Role-spec workflow fields (2026-11-17): BOQ approval, Project Manager, hisaab, auditor completion
+  boqStatus        String             @default("draft") // draft, submitted, approved
+  managerId        String? // Employee id of the Project Manager
+  hisaabStatus     String             @default("open") // open, settled
+  hisaabNote       String?
+  hisaabSettledBy  String?
+  hisaabSettledAt  DateTime?
+  completionStatus String             @default("none") // none, submitted, auditor_approved, auditor_rejected, billed
+  completionSubmittedBy String?
+  completionSubmittedAt DateTime?
+  completionAuditedBy   String?
+  completionAuditedAt   DateTime?
+  finalBillInvoiceId    String?
   boqItems         BOQItem[]
   tasks            ProjectTask[]
   changeOrders     BOQChangeOrder[]
   milestones       ProjectMilestone[]
+  teamMembers      ProjectTeamMember[]
+  documents        ProjectDocument[]
+  expenses         ProjectExpense[]
+  deliveryOrders   ProjectDeliveryOrder[]
   createdAt        DateTime           @default(now())
+}
+
+model ProjectTeamMember {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  projectRole String   @default("member") // pm, supervisor, foreman, technician, member
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, employeeId])
+}
+
+model ProjectDocument {
+  id           String    @id @default(uuid())
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind         String    @default("drawing") // drawing, wcc, mir, other
+  title        String
+  url          String?
+  notes        String?
+  status       String    @default("pending_approval") // pending_approval, approved, rejected
+  uploadedBy   String?
+  approvedBy   String?
+  signedByName String? // site owner / manager sign-off for WCC & MIR
+  signedAt     DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model ProjectExpense {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind        String   @default("expense") // expense, petty_topup, petty_spend
+  title       String
+  category    String?
+  amount      Float
+  spentById   String?
+  spentByName String?
+  expenseDate DateTime @default(now())
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+}
+
+model ProjectDeliveryOrder {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  doNumber  String   @unique
+  items     Json // [{ description, productId?, qty, unit }]
+  status    String   @default("issued") // issued, received, cancelled
+  issuedBy  String?
+  notes     String?
+  createdAt DateTime @default(now())
 }
 
 model BOQItem {
@@ -1308,6 +1382,10 @@ model BOQItem {
   completedQty   Float         @default(0)
   version        Int           @default(1)
   changeOrderRef String?
+  // Overrun approval: actuals above the BOQ norm (plannedQty) park here until PM/Manager approves
+  pendingActualQty  Float?
+  pendingActualCost Float?
+  overrunStatus     String     @default("none") // none, pending, approved, rejected
   status         String        @default("pending") // pending, procuring, in_progress, completed
   tasks          ProjectTask[]
   createdAt      DateTime      @default(now())

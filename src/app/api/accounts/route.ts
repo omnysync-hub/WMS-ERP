@@ -33,7 +33,15 @@ export async function GET(req: NextRequest) {
       resolved.actor.role === "technician" &&
       view === "technicians" &&
       technicianId === resolved.actor.id;
-    if (!isOwnTechnicianLedger && !actorHasPermission(resolved.actor, "accounts.general_ledger")) {
+    // Temporary vouchers are visible to their creators (accounts.vouchers) and posters
+    // (accounts.post_voucher) as well as ledger viewers — special-cased before the blanket
+    // general_ledger gate below; every other view keeps that gate.
+    const canViewVouchers =
+      view === "vouchers" &&
+      (actorHasPermission(resolved.actor, "accounts.general_ledger") ||
+        actorHasPermission(resolved.actor, "accounts.vouchers") ||
+        actorHasPermission(resolved.actor, "accounts.post_voucher"));
+    if (!isOwnTechnicianLedger && !canViewVouchers && !actorHasPermission(resolved.actor, "accounts.general_ledger")) {
       return NextResponse.json(
         { error: "You do not have permission to view accounting records.", code: "PERMISSION_DENIED" },
         { status: 403 }
@@ -43,6 +51,30 @@ export async function GET(req: NextRequest) {
     const partyId = searchParams.get("partyId");
     const accountId = searchParams.get("accountId");
     const accountCode = searchParams.get("accountCode");
+
+    // 0. TEMPORARY VOUCHERS (Cashier creates as pending_approval; Auditor posts or rejects)
+    if (view === "vouchers") {
+      const [vouchers, grouped] = await Promise.all([
+        prisma.journalEntry.findMany({
+          where: { refType: "voucher" },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          include: {
+            lines: {
+              include: { account: { select: { code: true, name: true } } },
+            },
+          },
+        }),
+        prisma.journalEntry.groupBy({
+          by: ["status"],
+          where: { refType: "voucher" },
+          _count: { _all: true },
+        }),
+      ]);
+      const counts: Record<string, number> = {};
+      for (const g of grouped) counts[g.status] = g._count._all;
+      return NextResponse.json({ success: true, vouchers, counts });
+    }
 
     // 0. COMPANY SETTINGS & ONBOARDING STATUS
     if (view === "company_settings") {
@@ -1563,6 +1595,28 @@ async function controlAccountMessage(accountIds: string[]): Promise<string | nul
   return `${hit.account.code} ${hit.account.name} is a customer/supplier control account. Use Record Customer Payment, Supplier Payment, or the customer/supplier ledger adjustment so their sub-ledger stays in step.`;
 }
 
+/**
+ * Resolve + validate journal lines (shared by manual_journal_entry and create_voucher): each
+ * line must name a valid, active, leaf (level 4) account by id or code and carry either a debit
+ * or a credit — never both, never zero. Returns the resolved lines (accountId filled in) or an
+ * error message for the caller to return as a 400.
+ */
+async function resolveJournalLines(
+  rawLines: any[]
+): Promise<{ resolvedLines: any[] } | { error: string }> {
+  const resolvedLines: any[] = [];
+  for (const [i, l] of rawLines.entries()) {
+    const ref = String(l?.accountId || l?.accountCode || "").trim();
+    const acc = ref ? await prisma.account.findFirst({ where: { OR: [{ id: ref }, { code: ref }] } }) : null;
+    if (!acc) return { error: `Line ${i + 1}: choose a valid account.` };
+    if (!acc.isActive || acc.level < 4) return { error: `Line ${i + 1}: account ${acc.code} is inactive or a group account.` };
+    const dr = Number(l.debit) || 0, cr = Number(l.credit) || 0;
+    if (dr < 0 || cr < 0 || (dr > 0) === (cr > 0)) return { error: `Line ${i + 1}: enter either a debit or a credit (not both, not zero).` };
+    resolvedLines.push({ ...l, accountId: acc.id });
+  }
+  return { resolvedLines };
+}
+
 /** Permission required per POST action (anything not listed needs accounts.post_entries). */
 const ACCOUNTS_ACTION_PERMISSION: Record<string, string> = {
   // Chart of accounts maintenance
@@ -1581,6 +1635,10 @@ const ACCOUNTS_ACTION_PERMISSION: Record<string, string> = {
   // Period control
   lock_fiscal_period: "settings.accounting",
   year_end_close: "settings.accounting",
+  // Temporary vouchers: the Cashier creates them, the Auditor posts (or rejects) them
+  create_voucher: "accounts.vouchers",
+  post_voucher: "accounts.post_voucher",
+  reject_voucher: "accounts.post_voucher",
 };
 
 export async function POST(req: NextRequest) {
@@ -2089,16 +2147,9 @@ export async function POST(req: NextRequest) {
         }
 
         // Accept an account id or code per line; reject unknown accounts and one-sided lines with a clear message.
-        const resolvedLines: any[] = [];
-        for (const [i, l] of (lines as any[]).entries()) {
-          const ref = String(l?.accountId || l?.accountCode || "").trim();
-          const acc = ref ? await prisma.account.findFirst({ where: { OR: [{ id: ref }, { code: ref }] } }) : null;
-          if (!acc) return NextResponse.json({ error: `Line ${i + 1}: choose a valid account.` }, { status: 400 });
-          if (!acc.isActive || acc.level < 4) return NextResponse.json({ error: `Line ${i + 1}: account ${acc.code} is inactive or a group account.` }, { status: 400 });
-          const dr = Number(l.debit) || 0, cr = Number(l.credit) || 0;
-          if (dr < 0 || cr < 0 || (dr > 0) === (cr > 0)) return NextResponse.json({ error: `Line ${i + 1}: enter either a debit or a credit (not both, not zero).` }, { status: 400 });
-          resolvedLines.push({ ...l, accountId: acc.id });
-        }
+        const resolved = await resolveJournalLines(lines as any[]);
+        if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 400 });
+        const resolvedLines = resolved.resolvedLines;
 
         const controlMsg = await controlAccountMessage(resolvedLines.map((l: any) => String(l.accountId)));
         if (controlMsg) return NextResponse.json({ error: controlMsg }, { status: 400 });
@@ -2124,6 +2175,187 @@ export async function POST(req: NextRequest) {
         });
 
         return NextResponse.json({ success: true, journal });
+      }
+
+      // 7b. CREATE TEMPORARY VOUCHER (Cashier) — validated exactly like a manual journal, but
+      // posted with requiresApproval so it lands as "pending_approval": balances, statements and
+      // the cashbook ignore it until an authorised poster (Auditor) posts it via post_voucher.
+      case "create_voucher": {
+        const { memo, date, lines, actorName = "Finance & Accounts" } = payload;
+        if (!lines || lines.length < 2) {
+          return NextResponse.json({ error: "At least two lines required for double-entry" }, { status: 400 });
+        }
+
+        const resolved = await resolveJournalLines(lines as any[]);
+        if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 400 });
+        const resolvedLines = resolved.resolvedLines;
+
+        const controlMsg = await controlAccountMessage(resolvedLines.map((l: any) => String(l.accountId)));
+        if (controlMsg) return NextResponse.json({ error: controlMsg }, { status: 400 });
+
+        const journal = await AccountsPostingService.post({
+          date: date ? new Date(date) : undefined,
+          memo: memo || "Temporary Voucher",
+          postedBy: actorName,
+          refType: "voucher",
+          requiresApproval: true,
+          lines: resolvedLines.map((l: any) => ({
+            accountId: l.accountId,
+            debit: Number(l.debit) || 0,
+            credit: Number(l.credit) || 0,
+            partyType: l.partyType || null,
+            partyId: l.partyId || null,
+          })),
+        });
+
+        await AuditService.logActivity({
+          actorName,
+          actorRole: gate.actor.role,
+          category: "DATA_MUTATION",
+          action: `Created temporary voucher: "${memo || "Temporary Voucher"}"`,
+          target: `JournalEntry:${journal.id}`,
+          metadata: { memo, linesCount: lines.length, status: journal.status },
+        });
+
+        return NextResponse.json({ success: true, journal });
+      }
+
+      // 7c. POST TEMPORARY VOUCHER (Auditor) — flips a pending voucher into the live journal.
+      case "post_voucher": {
+        const { journalEntryId, actorName = "Finance & Accounts" } = payload;
+        if (!journalEntryId) {
+          return NextResponse.json({ error: "Missing journalEntryId" }, { status: 400 });
+        }
+
+        const entry = await prisma.journalEntry.findUnique({
+          where: { id: String(journalEntryId) },
+          include: {
+            lines: {
+              include: {
+                account: {
+                  include: { parent: { select: { code: true } }, financialAccount: { select: { id: true } } },
+                },
+              },
+            },
+          },
+        });
+        if (!entry) return NextResponse.json({ error: "Voucher not found." }, { status: 400 });
+        if (entry.refType !== "voucher") {
+          return NextResponse.json({ error: "Only temporary vouchers can be posted here." }, { status: 400 });
+        }
+        if (entry.status !== "pending_approval") {
+          return NextResponse.json(
+            { error: `Voucher is not awaiting posting (current status: ${entry.status}).` },
+            { status: 400 }
+          );
+        }
+
+        // Funds re-check — mirrors step 2b of AccountsPostingService.post: posting must not drive
+        // a cash/bank account below zero. Balances are summed over posted entries only (the same
+        // status set the ledger uses), and 11105 Cash with Technicians is exempt, as in the service.
+        const netByAccount = new Map<string, number>();
+        for (const l of entry.lines) {
+          netByAccount.set(l.accountId, Math.round(((netByAccount.get(l.accountId) || 0) + l.debit - l.credit) * 100) / 100);
+        }
+        for (const [accountId, net] of Array.from(netByAccount.entries())) {
+          if (net >= 0) continue;
+          const account: any = entry.lines.find((l) => l.accountId === accountId)?.account;
+          if (!account || account.code === "11105" || !AccountsPostingService.isCashBankAccount(account)) continue;
+          const bal = await prisma.journalLine.aggregate({
+            where: { accountId, journalEntry: { status: { in: ["posted", "reversed", "reversal"] } } },
+            _sum: { debit: true, credit: true },
+          });
+          const available = Math.round(((bal._sum.debit || 0) - (bal._sum.credit || 0)) * 100) / 100;
+          if (available + net < -0.005) {
+            return NextResponse.json(
+              {
+                error: `Insufficient funds in ${account.name} (${account.code}): available PKR ${available.toLocaleString()}, this voucher needs PKR ${Math.abs(net).toLocaleString()}. A cash or bank account cannot go negative.`,
+              },
+              { status: 400 }
+            );
+          }
+        }
+
+        const totalAmount = entry.lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+        const updated = await prisma.journalEntry.update({
+          where: { id: entry.id },
+          data: { status: "posted", approvedBy: actorName, approvedAt: new Date() },
+          include: { lines: { include: { account: { select: { code: true, name: true } } } } },
+        });
+
+        await prisma.financialAuditLog.create({
+          data: {
+            entity: "JournalEntry",
+            entityId: entry.id,
+            action: "POST_VOUCHER",
+            afterValue: JSON.stringify({
+              memo: entry.memo,
+              refType: entry.refType,
+              totalAmount,
+              linesCount: entry.lines.length,
+              status: "posted",
+            }),
+            userName: actorName,
+            userRole: gate.actor.role,
+          },
+        });
+
+        return NextResponse.json({ success: true, journal: updated });
+      }
+
+      // 7d. REJECT TEMPORARY VOUCHER (Auditor) — a rejected voucher never reaches the journal.
+      case "reject_voucher": {
+        const { journalEntryId, reason, actorName = "Finance & Accounts" } = payload;
+        if (!journalEntryId) {
+          return NextResponse.json({ error: "Missing journalEntryId" }, { status: 400 });
+        }
+
+        const entry = await prisma.journalEntry.findUnique({
+          where: { id: String(journalEntryId) },
+          include: { lines: true },
+        });
+        if (!entry) return NextResponse.json({ error: "Voucher not found." }, { status: 400 });
+        if (entry.refType !== "voucher") {
+          return NextResponse.json({ error: "Only temporary vouchers can be rejected here." }, { status: 400 });
+        }
+        if (entry.status !== "pending_approval") {
+          return NextResponse.json(
+            { error: `Voucher is not awaiting posting (current status: ${entry.status}).` },
+            { status: 400 }
+          );
+        }
+
+        const totalAmount = entry.lines.reduce((sum, l) => sum + (l.debit || 0), 0);
+        const updated = await prisma.journalEntry.update({
+          where: { id: entry.id },
+          data: {
+            status: "rejected",
+            approvedBy: actorName,
+            approvedAt: new Date(),
+            memo: reason ? `${entry.memo} [Rejected: ${reason}]` : entry.memo,
+          },
+          include: { lines: { include: { account: { select: { code: true, name: true } } } } },
+        });
+
+        await prisma.financialAuditLog.create({
+          data: {
+            entity: "JournalEntry",
+            entityId: entry.id,
+            action: "REJECT_VOUCHER",
+            afterValue: JSON.stringify({
+              memo: entry.memo,
+              refType: entry.refType,
+              totalAmount,
+              linesCount: entry.lines.length,
+              status: "rejected",
+              reason: reason || null,
+            }),
+            userName: actorName,
+            userRole: gate.actor.role,
+          },
+        });
+
+        return NextResponse.json({ success: true, journal: updated });
       }
 
       // 8. RECORD CASHBOOK TRANSACTION (Receipt, Payment, or Contra Bank/Cash Transfer)

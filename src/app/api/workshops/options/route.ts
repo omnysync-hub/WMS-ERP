@@ -2,6 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { actorHasPermission, resolveJobsActor } from "@/lib/auth/erpActor";
+import { workshopParticipantGate } from "@/lib/auth/workshopGate";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +17,14 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   try {
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    const participantGate = await workshopParticipantGate(resolved.actor);
+    if (participantGate) return participantGate;
+    // Purchase costs stay masked unless the actor holds inventory.view_costs
+    // (same masking policy as the rest of the ERP: storekeeper, technicians).
+    const canViewCosts = actorHasPermission(resolved.actor, "inventory.view_costs");
+
     const [staff, products, customers] = await Promise.all([
       prisma.employee.findMany({
         where: {
@@ -59,7 +69,9 @@ export async function GET(req: NextRequest) {
       success: true,
       data: {
         staff,
-        products,
+        products: canViewCosts
+          ? products
+          : products.map(({ costPrice: _costPrice, ...rest }) => rest),
         customers: customers.map((c) => ({
           id: c.id,
           name: c.name,

@@ -9,6 +9,7 @@ export const ERP_ROLE_OPTIONS = [
   { key: "hr", label: "Human Resources", description: "Employees, attendance, payroll, and people operations." },
   { key: "cashier", label: "Cashier", description: "Counter collections, cash settlements, and POS." },
   { key: "auditor", label: "Auditor", description: "Read-only oversight, verification, and audit trails." },
+  { key: "creator", label: "Creator", description: "Job creation only (client role spec)." },
 ] as const;
 
 export const ERP_ROLE_KEYS = ERP_ROLE_OPTIONS.map((role) => role.key);

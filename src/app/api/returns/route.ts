@@ -7,7 +7,7 @@ import { ReturnsService } from "@/lib/services/ReturnsService";
 
 export async function GET(req: NextRequest) {
   try {
-    const gate = await requirePermission(req, "accounts.view_journal");
+    const gate = await requirePermission(req, "accounts.general_ledger");
     if (gate.error) return gate.error;
 
     const { searchParams } = new URL(req.url);
@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const gate = await requirePermission(req, "accounts.manage_chart");
+    const gate = await requirePermission(req, "accounts.post_entries");
     if (gate.error) return gate.error;
 
     const body = await req.json();

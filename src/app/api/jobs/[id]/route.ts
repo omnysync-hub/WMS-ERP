@@ -193,6 +193,8 @@ const ACTION_PERMISSION: Record<string, string> = {
   record_stock_return: "jobs.stock_return",
   record_misplaced_item: "jobs.misplaced_item",
   generate_custom_invoice: "jobs.generate_invoice",
+  cancel_job: "jobs.cancel_job",
+  cancel: "jobs.cancel_job",
 };
 
 /** Field actions a technician may only perform on jobs they are assigned to. */
@@ -633,6 +635,67 @@ export async function PATCH(
           payload.discountAmount
         );
         break;
+
+      case "cancel_job":
+      case "cancel": {
+        const job = await prisma.job.findUnique({
+          where: { id: params.id },
+          select: {
+            id: true,
+            jobNumber: true,
+            status: true,
+            finalizedAt: true,
+            assignedTechnicianId: true,
+          },
+        });
+        if (!job) {
+          return NextResponse.json({ error: "Job not found" }, { status: 404 });
+        }
+        if (job.status === "Cancelled") {
+          return NextResponse.json(
+            { error: "Job is already cancelled." },
+            { status: 400 }
+          );
+        }
+        if (job.finalizedAt || job.status === "Finalized") {
+          return NextResponse.json(
+            { error: "Job is finalized and locked. It cannot be cancelled." },
+            { status: 400 }
+          );
+        }
+        if (
+          ["CompletedPendingVerification", "Verified", "Closed", "TechnicianReassigned"].includes(
+            job.status
+          )
+        ) {
+          return NextResponse.json(
+            { error: `Job with status '${job.status}' cannot be cancelled.` },
+            { status: 400 }
+          );
+        }
+
+        const previousTechnicianId = job.assignedTechnicianId;
+        result = await prisma.$transaction(async (tx) => {
+          // Release every technician still attached to the job.
+          await tx.jobAssignment.updateMany({
+            where: { jobId: job.id, status: { not: "Removed" } },
+            data: { status: "Removed" },
+          });
+          return tx.job.update({
+            where: { id: job.id },
+            data: { status: "Cancelled", assignedTechnicianId: null },
+          });
+        });
+
+        // Same status-history + audit-trail entry every other transition writes.
+        await JobsService.logStatusChange(params.id, job.status, "Cancelled", actor, {
+          action: "cancel_job",
+          previousTechnicianId,
+          assignedTechnicianId: null,
+          reason: payload.reason || payload.notes || null,
+        });
+        break;
+      }
 
       default:
         return NextResponse.json(

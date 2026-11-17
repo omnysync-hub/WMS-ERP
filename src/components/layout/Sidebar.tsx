@@ -395,7 +395,7 @@ export default function Sidebar({
 
   const allOperationsItems = [
     { label: "Customer 360°", href: "/customers", icon: Users, roles: ["admin", "accountant", "dispatcher", "call_center", "cashier", "auditor", "manager", "purchasing"] },
-    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"] },
+    { label: "Projects & BOQ", href: "/projects", icon: FolderKanban, roles: ["admin", "accountant", "dispatcher", "storekeeper", "cashier", "manager", "auditor", "purchasing"], perm: "projects.view|jobs.view_directory" },
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Tax Report", href: "/accounts/tax-report", icon: CreditCard, roles: ["admin", "accountant", "manager", "auditor"], perm: "accounts.financial_reports|settings.taxes" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
@@ -421,6 +421,12 @@ export default function Sidebar({
     ["/inventory"].includes(item.href)
   );
 
+  // Temporary Vouchers tab: visible to voucher creators, voucher posters, or ledger viewers
+  const canAccessVouchers =
+    hasPermission("accounts.vouchers") ||
+    hasPermission("accounts.post_voucher") ||
+    hasPermission("accounts.general_ledger");
+
   // Dedicated Accounts & Ledgers Accordion Sub-Items
   const accountingSubItems = [
     { label: "Statements of Account", tab: "statements", icon: FileText },
@@ -431,6 +437,9 @@ export default function Sidebar({
     { label: "Chart of Accounts (COA)", tab: "chart", icon: BookOpen },
     { label: "Account Mapping", tab: "mapping", icon: Sliders },
     { label: "General Journal", tab: "journal", icon: Scale },
+    ...(canAccessVouchers
+      ? [{ label: "Temporary Vouchers", tab: "vouchers", icon: Receipt }]
+      : []),
     { label: "Financial Statements", tab: "reports", icon: FileText },
     { label: "Bank Reconciliation", tab: "bankrec", icon: Building },
     { label: "Fixed Assets & Depr", tab: "fixedassets", icon: Layers },
@@ -441,7 +450,9 @@ export default function Sidebar({
 
   const hasAccountsAccess =
     ["admin", "accountant", "cashier", "auditor"].includes(activeRole) ||
-    hasPermission("accounts.general_ledger");
+    hasPermission("accounts.general_ledger") ||
+    hasPermission("accounts.vouchers") ||
+    hasPermission("accounts.post_voucher");
 
   // Dedicated Settings Accordion Sub-Items
   const allSettingsSubItems = [

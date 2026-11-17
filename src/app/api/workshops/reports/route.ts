@@ -2,6 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { WorkshopService } from "@/lib/services/WorkshopService";
+import { resolveJobsActor } from "@/lib/auth/erpActor";
+import { workshopReportsGate } from "@/lib/auth/workshopGate";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +17,10 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   try {
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    const reportsGate = workshopReportsGate(resolved.actor);
+    if (reportsGate) return reportsGate;
     const { searchParams } = new URL(req.url);
     const reportType = searchParams.get("reportType") as any;
     const workshopType = searchParams.get("workshopType") || undefined;

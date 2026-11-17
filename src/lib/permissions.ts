@@ -288,12 +288,90 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
     id: "projects",
     name: "Projects",
     iconName: "Briefcase",
-    description: "Project contracts, milestones, and change orders",
+    description: "Project contracts, BOQ, teams, documents, expenses, hisaab and completion billing",
     permissions: [
+      {
+        key: "projects.view",
+        label: "View Projects",
+        description: "Allow viewing projects, their BOQ, budget dashboard, documents and progress",
+        module: "projects",
+      },
+      {
+        key: "projects.manage",
+        label: "Create & Manage Projects",
+        description: "Allow creating, editing and deleting projects and their BOQ lines (BOQ locks once approved)",
+        module: "projects",
+      },
+      {
+        key: "projects.boq_approve",
+        label: "Approve Project BOQ",
+        description: "Allow approving or rejecting a submitted project BOQ / quotation (Manager step)",
+        module: "projects",
+      },
+      {
+        key: "projects.assign_team",
+        label: "Assign Project Team & Manager",
+        description: "Allow selecting the Project Manager and assigning team members with in-project roles",
+        module: "projects",
+      },
+      {
+        key: "projects.tasks",
+        label: "Manage Project Tasks & Progress Steps",
+        description: "Allow creating progress steps/tasks and recording progress on a project",
+        module: "projects",
+      },
+      {
+        key: "projects.documents_approve",
+        label: "Approve Project Drawings & Documents",
+        description: "Allow approving drawings, WCC and MIR documents on a project (Project Manager step)",
+        module: "projects",
+      },
+      {
+        key: "projects.expenses",
+        label: "Record Project Expenses",
+        description: "Allow recording miscellaneous expenses against a project",
+        module: "projects",
+      },
+      {
+        key: "projects.petty_cash",
+        label: "Manage Project Petty Cash",
+        description: "Allow petty-cash top-ups and spends managed inside the project",
+        module: "projects",
+      },
+      {
+        key: "projects.hisaab",
+        label: "Project Hisaab & Settlement",
+        description: "Allow viewing the project hisaab summary and settling it (Cashier / Accountant step)",
+        module: "projects",
+      },
+      {
+        key: "projects.approve_overrun",
+        label: "Approve BOQ Overruns",
+        description: "Allow approving actual usage that exceeds the BOQ norm quantity (PM / Manager step)",
+        module: "projects",
+      },
       {
         key: "projects.approve_change_order",
         label: "Approve Project Change Orders",
         description: "Allow approving or rejecting change orders that alter a project's contract value",
+        module: "projects",
+      },
+      {
+        key: "projects.delivery_order",
+        label: "Create Delivery Orders (DO)",
+        description: "Allow creating delivery orders for material sent to a project site",
+        module: "projects",
+      },
+      {
+        key: "projects.audit_completion",
+        label: "Audit Project Completion (Auditor)",
+        description: "Allow the Auditor to approve or reject a submitted project completion",
+        module: "projects",
+      },
+      {
+        key: "projects.create_bill",
+        label: "Create Project Bills & Progress Invoices",
+        description: "Allow generating progress invoices and the final bill after auditor-approved completion",
         module: "projects",
       },
     ],
@@ -492,6 +570,18 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
         description: "Allow viewing Trial Balance, Income Statement (P&L), and Balance Sheet",
         module: "accounts",
       },
+      {
+        key: "accounts.vouchers",
+        label: "Create Temporary Vouchers",
+        description: "Allow creating temporary (unposted) vouchers — expenses, payments, receipts and general vouchers — that take effect only when posted by an authorised poster",
+        module: "accounts",
+      },
+      {
+        key: "accounts.post_voucher",
+        label: "Post / Reject Temporary Vouchers",
+        description: "Allow viewing temporary vouchers and posting them into the live journal (or rejecting them) — the Auditor verification step",
+        module: "accounts",
+      },
     ],
   },
   {
@@ -521,7 +611,13 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
       {
         key: "hrm.payroll",
         label: "Payroll Runs & Salary Slips",
-        description: "Allow running monthly payroll, generating payslips, and processing net disbursements",
+        description: "Allow creating and approving monthly payroll runs and generating payslips",
+        module: "hrm",
+      },
+      {
+        key: "hrm.payroll_disburse",
+        label: "Pay / Disburse Salaries",
+        description: "Allow receiving an approved payroll run and paying out the salaries (Cashier step)",
         module: "hrm",
       },
       {
@@ -587,6 +683,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   admin: ALL_PERMISSION_KEYS.reduce((acc, key) => ({ ...acc, [key]: true }), {}),
 
   accountant: {
+    "projects.hisaab": true,
+    "projects.view": true,
+    "hrm.payroll_disburse": true,
+    "accounts.post_voucher": true,
+    "accounts.vouchers": true,
     // Jobs
     "jobs.view_directory": true,
     "jobs.view_financials": true,
@@ -651,7 +752,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "procurement.grn.quality": false,
     "procurement.invoice.create": true,
     "procurement.invoice.match": true,
-    "procurement.invoice.approve": false,
+    "procurement.invoice.approve": true,
     "procurement.payment.record": true,
     "procurement.vendor.manage": false,
     "procurement.costs.view": true,
@@ -702,7 +803,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "inventory.view_stock": true,
     "inventory.view_costs": false, // STRICTLY MASKED
     "inventory.restock": true,
-    "inventory.opening_stock": true,
+    "inventory.opening_stock": false,
     "inventory.storekeeper_queue": true,
     "inventory.branch_transfers": true,
     "inventory.adjustments": true,
@@ -834,6 +935,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   },
 
   cashier: {
+    "projects.hisaab": true,
+    "projects.view": true,
+    "hrm.payroll_disburse": true,
+    "accounts.vouchers": true,
     // Jobs
     "jobs.view_directory": true,
     "jobs.view_financials": true,
@@ -890,7 +995,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "procurement.costs.view": false,
     "procurement.reports.view": false,
 // Accounts
-    "accounts.general_ledger": false,
+    "accounts.general_ledger": true,
     "accounts.chart_of_accounts": false,
     "accounts.pos": true,
     "accounts.cashier_register": true,
@@ -922,13 +1027,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "jobs.misplaced_item": false,
     "jobs.generate_invoice": false,
     "jobs.collect_payment": false,
-    "jobs.cancel_job": false,
+    "jobs.cancel_job": true,
     "jobs.reports": true,
     "jobs.manage": true,
     // Dispatch
     "dispatch.view_map": true,
     "dispatch.assign_job": true,
-    "dispatch.surveillance": true,
+    "dispatch.surveillance": false,
     // Inventory
     "inventory.view_stock": false,
     "inventory.view_costs": false,
@@ -988,6 +1093,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
 
 
   purchasing: {
+    "inventory.opening_stock": true,
     "jobs.view_directory": true,
     "jobs.view_financials": false,
     "inventory.view_stock": true,
@@ -1009,7 +1115,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "procurement.po.send": true,
     "procurement.grn.create": false,
     "procurement.grn.quality": false,
-    "procurement.invoice.create": false,
+    "procurement.invoice.create": true,
     "procurement.invoice.match": false,
     "procurement.invoice.approve": false,
     "procurement.payment.record": false,
@@ -1021,6 +1127,37 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   },
 
   manager: {
+    "projects.create_bill": true,
+    "projects.audit_completion": true,
+    "projects.delivery_order": true,
+    "projects.approve_overrun": true,
+    "projects.hisaab": true,
+    "projects.petty_cash": true,
+    "projects.expenses": true,
+    "projects.documents_approve": true,
+    "projects.tasks": true,
+    "projects.assign_team": true,
+    "projects.boq_approve": true,
+    "projects.manage": true,
+    "projects.view": true,
+    "settings.taxes": true,
+    "settings.accounting": true,
+    "dispatch.surveillance": true,
+    "dispatch.assign_job": true,
+    "dispatch.view_map": true,
+    "inventory.stock_units": true,
+    "inventory.tool_crib": true,
+    "inventory.workshop_consumption": true,
+    "inventory.adjustments": true,
+    "inventory.branch_transfers": true,
+    "inventory.storekeeper_queue": true,
+    "inventory.opening_stock": true,
+    "inventory.restock": true,
+    "hrm.advances": true,
+    "hrm.payroll_disburse": true,
+    "hrm.payroll": true,
+    "accounts.post_voucher": true,
+    "accounts.vouchers": true,
     "projects.approve_change_order": true,
     "jobs.view_directory": true,
     "jobs.view_financials": true,
@@ -1134,13 +1271,26 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "hrm.advances": false,
     "settings.accounting": false,
     "settings.taxes": false,
+    // Role-spec: auditor verifies & posts vouchers, audits completion, creates the final bill — nothing else mutates.
+    "hrm.payroll_disburse": false,
+    "accounts.vouchers": false,
+    "projects.tasks": false,
+    "projects.delivery_order": false,
+    "projects.approve_overrun": false,
+    "projects.hisaab": false,
+    "projects.petty_cash": false,
+    "projects.expenses": false,
+    "projects.documents_approve": false,
+    "projects.assign_team": false,
+    "projects.boq_approve": false,
+    "projects.manage": false,
   },
 
   hr: {
     "hrm.view_employees": true,
     "hrm.manage_employees": true,
     "hrm.attendance": true,
-    "hrm.payroll": true,
+    "hrm.payroll": false,
     "hrm.advances": true,
     "jobs.view_directory": false,
     "jobs.view_financials": false,
@@ -1177,6 +1327,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "procurement.pr.submit": true,
     "procurement.pr.approve": false,
     "procurement.create_pr": true,
+  },
+
+  creator: {
+    // Spec role 'Creator': job creation only.
+    "jobs.view_directory": true,
+    "jobs.create_job": true,
   },
 };
 

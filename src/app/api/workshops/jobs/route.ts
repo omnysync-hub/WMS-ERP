@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { WorkshopService, WorkshopType } from "@/lib/services/WorkshopService";
 import { resolveJobsActor, workshopAuthGate, workshopRoleGate } from "@/lib/auth/erpActor";
+import { workshopActionGate, workshopParticipantGate } from "@/lib/auth/workshopGate";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -41,7 +42,11 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const workshopType = searchParams.get("workshopType") as WorkshopType | null;
-    const { actor: getActor } = await resolveJobsActor(req);
+    const resolved = await resolveJobsActor(req);
+    if (resolved.error) return resolved.error;
+    const getActor = resolved.actor;
+    const participantGate = await workshopParticipantGate(getActor);
+    if (participantGate) return participantGate;
     const appGuard = workshopAppGuard(getActor?.app, workshopType);
     if (appGuard) return appGuard;
     const status = searchParams.get("status");
@@ -142,6 +147,11 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "create": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["supervisor", "manager"],
+          erpRoles: ["dispatcher", "hr"],
+        });
+        if (gate) return gate;
         const appGuard = workshopAppGuard(actor?.app, body.workshopType);
         if (appGuard) return appGuard;
         const job = await WorkshopService.createJobCard(body, actorName);
@@ -149,6 +159,11 @@ export async function POST(req: NextRequest) {
       }
 
       case "assign": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["supervisor", "manager"],
+          erpRoles: ["dispatcher"],
+        });
+        if (gate) return gate;
         const { jobCardId, staffId, staffName } = body;
         if (!jobCardId || !staffId || !staffName) {
           return NextResponse.json(
@@ -161,6 +176,10 @@ export async function POST(req: NextRequest) {
       }
 
       case "diagnose": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager"],
+        });
+        if (gate) return gate;
         const { jobCardId, inspectionFindings, workRequired, estimatedHours, estimatedCost } = body;
         if (!jobCardId || !inspectionFindings || !workRequired) {
           return NextResponse.json(
@@ -219,6 +238,10 @@ export async function POST(req: NextRequest) {
       }
 
       case "request_material": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager"],
+        });
+        if (gate) return gate;
         const { jobCardId, items } = body;
         if (!jobCardId || !Array.isArray(items) || items.length === 0) {
           return NextResponse.json(
@@ -257,6 +280,10 @@ export async function POST(req: NextRequest) {
       }
 
       case "return_material": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager", "storekeeper"],
+        });
+        if (gate) return gate;
         const { requisitionId, returnedQty, returnReason } = body;
         if (!requisitionId || returnedQty == null || !returnReason) {
           return NextResponse.json(
@@ -279,6 +306,10 @@ export async function POST(req: NextRequest) {
 
       case "record_testing":
       case "test": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager"],
+        });
+        if (gate) return gate;
         const { jobCardId, testingPressurePsi, testingLeakTest, testingRunTestAmps, testingNotes } = body;
         if (!jobCardId) return NextResponse.json({ error: "jobCardId is required" }, { status: 400 });
         const updated = await WorkshopService.recordTesting(
@@ -295,6 +326,10 @@ export async function POST(req: NextRequest) {
 
       case "complete_job":
       case "complete": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager"],
+        });
+        if (gate) return gate;
         const { jobCardId, workDoneSummary } = body;
         if (!jobCardId || !workDoneSummary) {
           return NextResponse.json(
@@ -311,6 +346,10 @@ export async function POST(req: NextRequest) {
       }
 
       case "record_scrap": {
+        const gate = await workshopActionGate(actor, {
+          workshopRoles: ["mechanic", "supervisor", "manager", "storekeeper"],
+        });
+        if (gate) return gate;
         const { jobCardId, itemDescription, quantity, unit, customerKept } = body;
         if (!jobCardId || !itemDescription) {
           return NextResponse.json(

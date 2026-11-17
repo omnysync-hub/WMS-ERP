@@ -11,6 +11,14 @@ import BoqProgressModal from "@/components/projects/BoqProgressModal";
 import ProjectBillingTab from "@/components/projects/ProjectBillingTab";
 import ProjectGanttTab from "@/components/projects/ProjectGanttTab";
 import ProjectChangeOrdersTab from "@/components/projects/ProjectChangeOrdersTab";
+import ProjectTeamTab, { ProjectTeamMember } from "@/components/projects/ProjectTeamTab";
+import ProjectDocumentsTab, {
+  ProjectDocument,
+  ProjectDeliveryOrder,
+} from "@/components/projects/ProjectDocumentsTab";
+import ProjectExpensesTab, { ProjectExpense } from "@/components/projects/ProjectExpensesTab";
+import ProjectCompletionPanel from "@/components/projects/ProjectCompletionPanel";
+import { useRole } from "@/contexts/RoleContext";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import toastNotify from "@/lib/toast";
 import {
@@ -48,6 +56,9 @@ import {
   GitBranch,
   DollarSign,
   Percent,
+  FileText,
+  Wallet,
+  Send,
 } from "lucide-react";
 
 interface Customer {
@@ -80,6 +91,9 @@ interface BOQItem {
   version?: number;
   changeOrderRef?: string | null;
   status?: string;
+  overrunStatus?: string | null;
+  pendingActualQty?: number | null;
+  pendingActualCost?: number | null;
   tasks?: ProjectTask[];
   createdAt?: string;
 }
@@ -171,6 +185,18 @@ interface Project {
   milestones?: ProjectMilestone[];
   invoices?: ProjectInvoice[];
   requisitions?: ProjectRequisition[];
+  // Role-spec workflow fields
+  boqStatus?: string | null; // draft | submitted | approved
+  managerId?: string | null;
+  hisaabStatus?: string | null; // open | settled
+  completionStatus?: string | null; // none | submitted | auditor_approved | auditor_rejected | billed
+  finalBillInvoiceId?: string | null;
+  teamMembers?: ProjectTeamMember[];
+  documents?: ProjectDocument[];
+  expenses?: ProjectExpense[];
+  deliveryOrders?: ProjectDeliveryOrder[];
+  pettyBalance?: number;
+  expensesTotal?: number;
   createdAt: string;
 }
 
@@ -201,6 +227,8 @@ const SAMPLE_MEP_TEMPLATES = [
 ];
 
 export default function ProjectsPage() {
+  const { hasPermission } = useRole();
+
   // State
   const [projects, setProjects] = useState<Project[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -213,7 +241,15 @@ export default function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<
-    "boq" | "gantt" | "tasks" | "billing" | "changeOrders" | "analytics"
+    | "boq"
+    | "gantt"
+    | "tasks"
+    | "billing"
+    | "changeOrders"
+    | "analytics"
+    | "team"
+    | "documents"
+    | "expenses"
   >("boq");
   const [boqSearch, setBoqSearch] = useState("");
   const [taskStatusFilter, setTaskStatusFilter] = useState<string>("ALL");
@@ -677,6 +713,30 @@ export default function ProjectsPage() {
       await loadData(selectedProject.id);
     } catch (e: any) {
       showToast(e.message, "error");
+    }
+  };
+
+  // Generic helper for the role-spec workflow actions (BOQ approval, overruns, completion…)
+  const projectAction = async (
+    action: string,
+    extra: Record<string, any> = {},
+    successMsg?: string
+  ) => {
+    if (!selectedProject) return;
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, projectId: selectedProject.id, ...extra }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Action failed");
+      }
+      if (successMsg) showToast(successMsg, "success");
+      await loadData(selectedProject.id);
+    } catch (e: any) {
+      showToast(e.message || "Action failed", "error");
     }
   };
 
@@ -1570,6 +1630,57 @@ export default function ProjectsPage() {
 
                   <button
                     type="button"
+                    onClick={() => setActiveTab("team")}
+                    className={cn(
+                      "pb-2.5 px-3 text-xs font-bold transition border-b-2 flex items-center gap-2",
+                      activeTab === "team"
+                        ? "border-[#0D7A5F] text-[#0D7A5F]"
+                        : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                    )}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Team & PM</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-[#F4F4F5] text-[#52525B]">
+                      {selectedProject.teamMembers?.length || 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("documents")}
+                    className={cn(
+                      "pb-2.5 px-3 text-xs font-bold transition border-b-2 flex items-center gap-2",
+                      activeTab === "documents"
+                        ? "border-[#0D7A5F] text-[#0D7A5F]"
+                        : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                    )}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Documents & DO</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-[#F4F4F5] text-[#52525B]">
+                      {selectedProject.documents?.length || 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("expenses")}
+                    className={cn(
+                      "pb-2.5 px-3 text-xs font-bold transition border-b-2 flex items-center gap-2",
+                      activeTab === "expenses"
+                        ? "border-[#0D7A5F] text-[#0D7A5F]"
+                        : "border-transparent text-[#71717A] hover:text-[#18181B]"
+                    )}
+                  >
+                    <Wallet className="w-4 h-4" />
+                    <span>Expenses & Hisaab</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-[#F4F4F5] text-[#52525B]">
+                      {selectedProject.expenses?.length || 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setActiveTab("analytics")}
                     className={cn(
                       "pb-2.5 px-3 text-xs font-bold transition border-b-2 flex items-center gap-2",
@@ -1589,6 +1700,80 @@ export default function ProjectsPage() {
               {/* ============================================================= */}
               {activeTab === "boq" && (
                 <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden space-y-0">
+                  {/* BOQ Approval Banner */}
+                  {(() => {
+                    const boqStatus = (selectedProject.boqStatus || "draft").toLowerCase();
+                    const chipCls =
+                      boqStatus === "approved"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : boqStatus === "submitted"
+                        ? "bg-amber-100 text-amber-800"
+                        : boqStatus === "rejected"
+                        ? "bg-rose-100 text-rose-800"
+                        : "bg-[#F4F4F5] text-[#52525B]";
+                    return (
+                      <div className="px-4 py-3 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-bold text-[#18181B] uppercase tracking-wider">
+                          BOQ Approval
+                        </span>
+                        <span
+                          className={cn(
+                            "text-[10px] font-bold px-2 py-0.5 rounded-full capitalize",
+                            chipCls
+                          )}
+                        >
+                          {boqStatus}
+                        </span>
+                        <span className="text-[11px] text-[#71717A]">
+                          {boqStatus === "approved"
+                            ? "This BOQ is approved — revisions go through BOQ Revisions & Variations."
+                            : boqStatus === "submitted"
+                            ? "Submitted and awaiting Manager approval."
+                            : "Draft BOQ — submit it for Manager approval before execution."}
+                        </span>
+                        <span className="ml-auto flex items-center gap-2">
+                          {hasPermission("projects.manage") &&
+                            (boqStatus === "draft" || boqStatus === "rejected") && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  projectAction("submit_boq", {}, "BOQ submitted for approval.")
+                                }
+                                className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                Submit BOQ
+                              </button>
+                            )}
+                          {hasPermission("projects.boq_approve") && boqStatus === "submitted" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  projectAction("approve_boq", {}, "BOQ approved.")
+                                }
+                                className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                Approve BOQ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  projectAction("reject_boq", {}, "BOQ rejected and returned to draft.")
+                                }
+                                className="h-8 px-2.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-xs font-semibold text-rose-700 inline-flex items-center gap-1.5 transition"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                Reject
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
                   {/* BOQ Toolbar */}
                   <div className="p-4 bg-[#FAFAFA] border-b border-[#E4E4E7] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1806,6 +1991,47 @@ export default function ProjectsPage() {
                                   {item.completedQty !== undefined && item.completedQty > 0 && (
                                     <div className="text-[10px] text-[#71717A] mt-0.5 font-mono">
                                       {item.completedQty}/{item.plannedQty} {item.unit}
+                                    </div>
+                                  )}
+                                  {item.overrunStatus === "pending" && (
+                                    <div className="mt-1.5 space-y-1">
+                                      <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                        Overrun pending: qty {item.pendingActualQty ?? "—"}
+                                        {item.pendingActualCost !== undefined &&
+                                        item.pendingActualCost !== null
+                                          ? ` · ${formatCurrency(item.pendingActualCost)}`
+                                          : ""}
+                                      </span>
+                                      {hasPermission("projects.approve_overrun") && (
+                                        <div className="flex items-center justify-center gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              projectAction(
+                                                "approve_overrun",
+                                                { boqItemId: item.id },
+                                                "Overrun approved."
+                                              )
+                                            }
+                                            className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition"
+                                          >
+                                            Approve
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              projectAction(
+                                                "reject_overrun",
+                                                { boqItemId: item.id },
+                                                "Overrun rejected."
+                                              )
+                                            }
+                                            className="text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 transition"
+                                          >
+                                            Reject
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </td>
@@ -2158,19 +2384,29 @@ export default function ProjectsPage() {
               {/* TAB 5: PROGRESS BILLING & INVOICES                            */}
               {/* ============================================================= */}
               {activeTab === "billing" && (
-                <ProjectBillingTab
-                  projectId={selectedProject.id}
+                <div className="space-y-4">
+                  <ProjectCompletionPanel
+                    projectId={selectedProject.id}
+                    projectStatus={selectedProject.status}
+                    completionStatus={selectedProject.completionStatus}
+                    finalBillInvoiceId={selectedProject.finalBillInvoiceId}
+                    onRefresh={() => loadData(selectedProject.id)}
+                    showToast={showToast}
+                  />
+                  <ProjectBillingTab
+                    projectId={selectedProject.id}
                   projectNumber={selectedProject.projectNumber}
                   projectName={selectedProject.name}
                   contractValue={selectedProject.contractValue || selectedProject.totalBudget}
                   totalBudget={selectedProject.totalBudget}
                   invoicedAmount={selectedProject.invoicedAmount || 0}
                   retentionPercent={selectedProject.retentionPercent || 0}
-                  milestones={selectedProject.milestones || []}
-                  invoices={selectedProject.invoices || []}
-                  onRefresh={() => loadData(selectedProject.id)}
-                  showToast={showToast}
-                />
+                    milestones={selectedProject.milestones || []}
+                    invoices={selectedProject.invoices || []}
+                    onRefresh={() => loadData(selectedProject.id)}
+                    showToast={showToast}
+                  />
+                </div>
               )}
 
               {/* ============================================================= */}
@@ -2184,6 +2420,48 @@ export default function ProjectsPage() {
                   currentRevision={selectedProject.revision || 1}
                   changeOrders={selectedProject.changeOrders || []}
                   boqItems={selectedProject.boqItems || []}
+                  onRefresh={() => loadData(selectedProject.id)}
+                  showToast={showToast}
+                />
+              )}
+
+              {/* ============================================================= */}
+              {/* TAB 7: TEAM & PROJECT MANAGER                                 */}
+              {/* ============================================================= */}
+              {activeTab === "team" && (
+                <ProjectTeamTab
+                  projectId={selectedProject.id}
+                  managerId={selectedProject.managerId}
+                  teamMembers={selectedProject.teamMembers || []}
+                  fallbackEmployees={technicians}
+                  onRefresh={() => loadData(selectedProject.id)}
+                  showToast={showToast}
+                />
+              )}
+
+              {/* ============================================================= */}
+              {/* TAB 8: DOCUMENTS & DELIVERY ORDERS                            */}
+              {/* ============================================================= */}
+              {activeTab === "documents" && (
+                <ProjectDocumentsTab
+                  projectId={selectedProject.id}
+                  documents={selectedProject.documents || []}
+                  deliveryOrders={selectedProject.deliveryOrders || []}
+                  onRefresh={() => loadData(selectedProject.id)}
+                  showToast={showToast}
+                />
+              )}
+
+              {/* ============================================================= */}
+              {/* TAB 9: EXPENSES, PETTY CASH & HISAAB                          */}
+              {/* ============================================================= */}
+              {activeTab === "expenses" && (
+                <ProjectExpensesTab
+                  projectId={selectedProject.id}
+                  expenses={selectedProject.expenses || []}
+                  pettyBalance={selectedProject.pettyBalance}
+                  expensesTotal={selectedProject.expensesTotal}
+                  hisaabStatus={selectedProject.hisaabStatus}
                   onRefresh={() => loadData(selectedProject.id)}
                   showToast={showToast}
                 />
