@@ -21,6 +21,21 @@ export async function careOfReceivableAccountId(db: Db): Promise<string> {
   return account.id;
 }
 
+/**
+ * Non-throwing variant for party creation: when the receivables account does
+ * not exist yet (e.g. a fresh ERP whose Chart of Accounts has not been set up),
+ * the party is created UNLINKED (ledgerAccountId = null) instead of failing.
+ * The setup wizard already anticipates unlinked parties and links them once
+ * the COA exists, and careOfBalances() tolerates the missing account.
+ */
+export async function careOfReceivableAccountIdOrNull(db: Db): Promise<string | null> {
+  const account = await db.account.findFirst({ where: { code: CARE_OF_RECEIVABLE_CODE } });
+  if (!account || !account.isActive || account.type !== "asset" || (account as any).isGroup) {
+    return null;
+  }
+  return account.id;
+}
+
 /** Create a care-of party already linked to the care-of receivables ledger, in one transaction. */
 export async function createCareOfParty(
   db: PrismaClient,
@@ -28,7 +43,9 @@ export async function createCareOfParty(
 ) {
   return db.$transaction(async (tx) => {
     // Care-of companies never get their own COA account: always 1100 AR, balance kept by party.
-    const ledgerAccountId = await careOfReceivableAccountId(tx);
+    // Link when the AR account exists; before COA setup the party is created
+    // unlinked rather than blocked (see careOfReceivableAccountIdOrNull).
+    const ledgerAccountId = data.ledgerAccountId ?? (await careOfReceivableAccountIdOrNull(tx));
     return tx.careOfParty.create({
       data: { companyName: data.companyName, personName: data.personName || "", phone: data.phone || null, ledgerAccountId },
     });

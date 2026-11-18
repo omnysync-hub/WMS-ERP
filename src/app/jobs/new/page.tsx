@@ -143,6 +143,8 @@ export default function FastJobIntakePage() {
   const [activeRowIdForAddBrand, setActiveRowIdForAddBrand] = useState<string | null>(null);
 
   const [showAddCareOfModal, setShowAddCareOfModal] = useState(false);
+  const [careOfError, setCareOfError] = useState("");
+  const [careOfSaving, setCareOfSaving] = useState(false);
   const [newCareOfCompany, setNewCareOfCompany] = useState("");
   const [newCareOfPerson, setNewCareOfPerson] = useState("");
   const [newCareOfPhone, setNewCareOfPhone] = useState("");
@@ -356,7 +358,9 @@ export default function FastJobIntakePage() {
   }
 
   async function handleSaveNewCareOf() {
-    if (!newCareOfCompany.trim()) return;
+    if (!newCareOfCompany.trim() || careOfSaving) return;
+    setCareOfSaving(true);
+    setCareOfError("");
     try {
       const res = await fetch("/api/care-of-parties", {
         method: "POST",
@@ -367,24 +371,34 @@ export default function FastJobIntakePage() {
           phone: newCareOfPhone.trim() || undefined,
         }),
       });
-      const data = await res.json();
-      if (res.ok && data) {
-        const party = data.careOfParty || data.party || data;
-        setCareOfParties((prev) => {
-          const filtered = prev.filter((p) => p.id !== party.id);
-          return [party, ...filtered];
-        });
-        if (activeRowIdForAddCareOf) {
-          handleUpdateRow(activeRowIdForAddCareOf, "careOff", party.id);
-        }
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        // Surface the server's reason and KEEP the dialog open — previously
+        // the finally block closed it on any failure, so a failed create
+        // looked exactly like a successful one (the partner silently
+        // never existed).
+        throw new Error(data?.details || data?.error || `Could not add the partner (server returned ${res.status}).`);
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
+      const party = data?.careOfParty || data?.party || data;
+      if (!party?.id) {
+        throw new Error("The server did not return the new partner. Please try again.");
+      }
+      setCareOfParties((prev) => {
+        const filtered = prev.filter((p) => p.id !== party.id);
+        return [party, ...filtered];
+      });
+      if (activeRowIdForAddCareOf) {
+        handleUpdateRow(activeRowIdForAddCareOf, "careOff", party.id);
+      }
       setNewCareOfCompany("");
       setNewCareOfPerson("");
       setNewCareOfPhone("");
       setShowAddCareOfModal(false);
+    } catch (e: any) {
+      console.error(e);
+      setCareOfError(e?.message || "Could not add the partner. Please try again.");
+    } finally {
+      setCareOfSaving(false);
     }
   }
 
@@ -1032,6 +1046,7 @@ export default function FastJobIntakePage() {
                                 setNewCareOfCompany("");
                                 setNewCareOfPerson("");
                                 setNewCareOfPhone("");
+                                setCareOfError("");
                                 setActiveRowIdForAddCareOf(row.id);
                                 setShowAddCareOfModal(true);
                               }}
@@ -1081,6 +1096,7 @@ export default function FastJobIntakePage() {
                                         setNewCareOfCompany(party.companyName);
                                         setNewCareOfPerson(party.personName || "");
                                         setNewCareOfPhone(party.phone || "");
+                                        setCareOfError("");
                                         setActiveRowIdForAddCareOf(row.id);
                                         setShowAddCareOfModal(true);
                                       }}
@@ -1433,6 +1449,11 @@ export default function FastJobIntakePage() {
                 className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600 font-mono"
               />
             </div>
+            {careOfError && (
+              <div className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {careOfError}
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
@@ -1444,9 +1465,10 @@ export default function FastJobIntakePage() {
               <button
                 type="button"
                 onClick={handleSaveNewCareOf}
-                className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs"
+                disabled={careOfSaving}
+                className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg shadow-xs"
               >
-                Add & Select
+                {careOfSaving ? "Adding..." : "Add & Select"}
               </button>
             </div>
           </div>

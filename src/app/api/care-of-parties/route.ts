@@ -52,7 +52,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const gate = await requireJobsPermission(request, "jobs.manage");
+  // Creating a partner is part of creating a job (Fast Job Intake's
+  // "Add Care Off Partner"), so job creators may add one; full management
+  // (edit/delete on the Care-Of directory, the [id] route) stays jobs.manage.
+  const gate = await requireJobsPermission(request, ["jobs.create_job", "jobs.manage"]);
   if (gate.error) return gate.error;
   try {
     const body = await request.json();
