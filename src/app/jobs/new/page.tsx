@@ -1030,7 +1030,11 @@ export default function FastJobIntakePage() {
                       ) : (
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-1.5">
-                            <div className="flex-1">
+                            {/* min-w-0 lets the select actually shrink: without it the
+                                flex row's min-content (long partner label + contact line)
+                                pushes the round + button past the card edge on narrow
+                                screens, where it is clipped and looks "gone". */}
+                            <div className="flex-1 min-w-0">
                               <SearchableSelect
                                 value={row.careOff}
                                 onChange={(val) => handleUpdateRow(row.id, "careOff", val)}
@@ -1056,6 +1060,23 @@ export default function FastJobIntakePage() {
                               <Plus className="w-4 h-4 stroke-[2.5]" />
                             </button>
                           </div>
+                          {/* Always-visible text twin of the round + button: it sits on
+                              its own line, so it can never be squeezed or clipped out
+                              of the card the way the icon button could on small screens. */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewCareOfCompany("");
+                              setNewCareOfPerson("");
+                              setNewCareOfPhone("");
+                              setCareOfError("");
+                              setActiveRowIdForAddCareOf(row.id);
+                              setShowAddCareOfModal(true);
+                            }}
+                            className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            + Add New Care-Off Partner
+                          </button>
                           {(() => {
                             const party = careOfParties.find((p) => p.id === row.careOff);
                             if (!party) return null;
