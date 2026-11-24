@@ -1352,7 +1352,7 @@ export const PROCUREMENT_PERMISSION_ALIASES: Record<string, string[]> = {
   "procurement.bills": ["procurement.invoice.create", "procurement.invoice.match"],
   "procurement.payment.record": ["procurement.payments"],
   "procurement.payments": ["procurement.payment.record"],
-  "procurement.view_pr": ["procurement.pr.create", "procurement.reports.view"],
+  "procurement.view_pr": ["procurement.pr.create"],
 };
 
 /** Resolve a permission key plus any legacy/fine-grained aliases. */
