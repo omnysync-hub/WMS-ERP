@@ -333,7 +333,7 @@ export default function Sidebar({
       label: "Requisitions",
       tab: "prs",
       icon: FileText,
-      perms: ["procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.view_pr", "procurement.po.create", "procurement.rfq.manage"],
+      perms: ["procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.view_pr"],
       badgeKey: "prs",
     },
     {

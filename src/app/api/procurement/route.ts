@@ -20,7 +20,7 @@ import {
 
 const VIEW_PERMISSION: Record<string, string | string[]> = {
   vendors: ["procurement.vendor.manage", "procurement.po.create", "procurement.rfq.manage", "procurement.invoice.create", "procurement.reports.view"],
-  prs: ["procurement.view_pr", "procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.rfq.manage", "procurement.po.create"],
+  prs: ["procurement.view_pr", "procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve"],
   rfqs: ["procurement.rfq.manage", "procurement.rfq.award", "procurement.costs.view"],
   pos: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view", "procurement.view_pr"],
   grns: ["procurement.grn.create", "procurement.grn.quality", "procurement.invoice.create", "procurement.invoice.match"],

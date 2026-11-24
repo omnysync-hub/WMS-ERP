@@ -1099,7 +1099,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "inventory.view_stock": true,
     "inventory.view_costs": true,
     // Procurement â€” PR create/submit (Muhammad, 2026-11-23), RFQ/PO/vendor; no PR approve, payment, or GRN mutate
-    "procurement.view_pr": true,
+    "procurement.view_pr": false,
     "procurement.create_pr": false,
     "procurement.approve_po": false,
     "procurement.grn": false,

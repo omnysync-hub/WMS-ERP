@@ -36,7 +36,7 @@ import {
 /** Tab visibility keyed by any-of permissions */
 const TAB_PERMS: Record<ProcurementStage, string[]> = {
   approvals: ["procurement.pr.approve", "procurement.po.approve", "procurement.invoice.approve"],
-  prs: ["procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.view_pr", "procurement.po.create", "procurement.rfq.manage"],
+  prs: ["procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve", "procurement.view_pr"],
   rfqs: ["procurement.rfq.manage", "procurement.rfq.award"],
   pos: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view"],
   grns: ["procurement.grn.create", "procurement.grn.quality"],
