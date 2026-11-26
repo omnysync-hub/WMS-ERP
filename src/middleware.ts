@@ -6,6 +6,20 @@ import { actorHasPermission } from "@/lib/auth/erpActor";
 
 export const runtime = "nodejs";
 
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-actor-role, x-actor-name, x-actor-id, *",
+  "Access-Control-Max-Age": "86400",
+};
+
+function withCors<T extends NextResponse>(response: T): T {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    response.headers.set(key, value);
+  }
+  return response;
+}
+
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
 function isPublic(request: NextRequest) {
@@ -22,45 +36,35 @@ function isPublic(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // 1. Handle CORS Preflight across all API routes (workshop apps, mobile apps, web)
+  if (pathname.startsWith("/api/") && request.method === "OPTIONS") {
+    return new NextResponse(null, {
+      status: 204,
+      headers: CORS_HEADERS,
+    });
+  }
+
   if (isPublic(request) && pathname !== "/login") {
     // Never forward client-supplied internal actor headers, even on public routes.
     const headers = new Headers(request.headers);
     stripActorHeaders(headers);
-    return NextResponse.next({ request: { headers } });
+    const res = NextResponse.next({ request: { headers } });
+    if (pathname.startsWith("/api/")) withCors(res);
+    return res;
   }
 
   const authorization = request.headers.get("authorization") || "";
-
-  // Dedicated handling for Standalone Workshop Mobile Apps (Bikes & HVAC)
-  if (pathname.startsWith("/api/workshops")) {
-    // 1. Handle CORS Preflight for web client
-    if (request.method === "OPTIONS") {
-      return new NextResponse(null, {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, x-actor-role, x-actor-name, x-actor-id, *",
-          "Access-Control-Max-Age": "86400",
-        },
-      });
-    }
-
-    const hasCookie = Boolean(request.cookies.get(ERP_SESSION_COOKIE)?.value);
-    const hasBearer = authorization.startsWith("Bearer ");
-    // No unsigned-actor fallback: workshop callers must present a real
-    // mobile token or a web session cookie. Previously the middleware
-    // stamped a signed actor from the client-supplied x-actor-role
-    // header, which let anyone impersonate any workshop role (e.g.
-    // manager) without logging in. Requests without credentials now
-    // fall through to the standard session check below (401).
-  }
 
   if (pathname.startsWith("/api/") && authorization.startsWith("Bearer ")) {
     try {
       const { resolveCaller } = await import("@/lib/auth/mobileAuth");
       const caller = await resolveCaller(request);
-      if (!caller) return NextResponse.json({ error: "Invalid or expired mobile session." }, { status: 401 });
+      if (!caller) {
+        return withCors(
+          NextResponse.json({ error: "Invalid or expired mobile session." }, { status: 401 })
+        );
+      }
       const headers = new Headers(request.headers);
       const mobileRole = String(caller.role || "technician").toLowerCase();
       stampActorHeaders(headers, {
@@ -70,9 +74,13 @@ export async function middleware(request: NextRequest) {
         // Role edits made in Settings > Users & Roles apply to mobile callers too.
         overrides: await signedOverridesFor(mobileRole, {}),
       });
-      return NextResponse.next({ request: { headers } });
+      const res = NextResponse.next({ request: { headers } });
+      withCors(res);
+      return res;
     } catch {
-      return NextResponse.json({ error: "Could not verify the mobile session." }, { status: 503 });
+      return withCors(
+        NextResponse.json({ error: "Could not verify the mobile session." }, { status: 503 })
+      );
     }
   }
 
@@ -89,9 +97,11 @@ export async function middleware(request: NextRequest) {
     // "signed out": never clear the cookie or redirect to /login; ask the client to retry.
     console.error("[middleware] session check unavailable:", (err as Error)?.message);
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { error: "The server is busy for a moment. Please retry.", code: "SESSION_CHECK_UNAVAILABLE" },
-        { status: 503, headers: { "Retry-After": "3", "Cache-Control": "no-store" } }
+      return withCors(
+        NextResponse.json(
+          { error: "The server is busy for a moment. Please retry.", code: "SESSION_CHECK_UNAVAILABLE" },
+          { status: 503, headers: { "Retry-After": "3", "Cache-Control": "no-store" } }
+        )
       );
     }
     return new NextResponse(
@@ -107,7 +117,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next({ request: { headers } });
     }
     if (pathname.startsWith("/api/")) {
-      const response = NextResponse.json({ error: "Your session has ended. Please sign in again.", code: "UNAUTHENTICATED" }, { status: 401 });
+      const response = withCors(
+        NextResponse.json({ error: "Your session has ended. Please sign in again.", code: "UNAUTHENTICATED" }, { status: 401 })
+      );
       if (hadSessionCookie) clearErpSessionCookie(response, request);
       return response;
     }
@@ -190,12 +202,15 @@ export async function middleware(request: NextRequest) {
     const message =
       "Server misconfiguration: set MOBILE_AUTH_SECRET (or ERP_HEADER_SECRET) in the server environment and restart.";
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: message, code: "SERVER_MISCONFIGURED" }, { status: 500 });
+      return withCors(
+        NextResponse.json({ error: message, code: "SERVER_MISCONFIGURED" }, { status: 500 })
+      );
     }
     return new NextResponse(message, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
   const response = NextResponse.next({ request: { headers } });
   if (auth.renewedToken) setErpSessionCookie(response, auth.renewedToken, request);
+  if (pathname.startsWith("/api/")) withCors(response);
   return response;
 }
 
