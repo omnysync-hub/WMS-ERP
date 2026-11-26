@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
-import { validateReceiptUrl } from "@/lib/receiptUrl";
+import { validateReceiptUrl, validateReceiptPhotos } from "@/lib/receiptUrl";
 
 const EXPENSE_CATEGORIES = [
   "Food",
@@ -44,9 +44,10 @@ export async function POST(req: NextRequest) {
     if (!technicianId) {
       return NextResponse.json({ error: "technicianId required" }, { status: 400 });
     }
-    const receiptCheck = validateReceiptUrl(body.receiptUrl);
-    if (!receiptCheck.ok) {
-      return NextResponse.json({ error: receiptCheck.error }, { status: 400 });
+    const rawPhotos = body.photos ?? body.receiptUrls ?? (body.receiptUrl ? [body.receiptUrl] : []);
+    const photosCheck = validateReceiptPhotos(rawPhotos);
+    if (!photosCheck.ok) {
+      return NextResponse.json({ error: photosCheck.error }, { status: 400 });
     }
 
     const amount = Number(body.amount);
@@ -126,6 +127,7 @@ export async function POST(req: NextRequest) {
     const baseCents = Math.floor(amountInCents / jobs.length);
     const extraCents = amountInCents % jobs.length;
     const cleanNote = note || `${category} expense`;
+    const primaryReceiptUrl = photosCheck.values[0] || null;
     const claims = await prisma.$transaction(
       jobs.map((job, index) =>
         prisma.jobExpenseClaim.create({
@@ -136,7 +138,8 @@ export async function POST(req: NextRequest) {
             category,
             allocationGroupId,
             note: cleanNote,
-            receiptUrl: receiptCheck.value,
+            receiptUrl: primaryReceiptUrl,
+            receiptUrls: photosCheck.values,
             status: "pending",
           },
         })

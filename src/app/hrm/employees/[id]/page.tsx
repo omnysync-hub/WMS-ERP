@@ -40,6 +40,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  Camera,
 } from "lucide-react";
 
 import EditEmployeeDrawer from "@/components/drawers/EditEmployeeDrawer";
@@ -298,6 +299,86 @@ export default function EmployeeProfilePage() {
         throw new Error(data.error || "Failed to reset device binding");
       }
       setNotification("Device binding released successfully. The technician can now sign in on their phone.");
+      await loadEmployee();
+    } catch (err: any) {
+      setMobileActionError(err.message);
+    } finally {
+      setMobileActionLoading(false);
+    }
+  };
+
+  const handleAllowFaceReenrollment = async () => {
+    if (
+      !confirm(
+        "Allow face re-registration for this employee? This will display the face setup/re-registration option on their mobile app."
+      )
+    ) {
+      return;
+    }
+    try {
+      setMobileActionLoading(true);
+      setMobileActionError(null);
+      const res = await fetch(`/api/employees/${employeeId}/enrollment`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ action: "allow_reenrollment" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to allow face re-registration");
+      }
+      setNotification("Face re-registration unlocked. The employee can now register their face on the mobile app.");
+      await loadEmployee();
+    } catch (err: any) {
+      setMobileActionError(err.message);
+    } finally {
+      setMobileActionLoading(false);
+    }
+  };
+
+  const handleLockFaceReenrollment = async () => {
+    try {
+      setMobileActionLoading(true);
+      setMobileActionError(null);
+      const res = await fetch(`/api/employees/${employeeId}/enrollment`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ action: "lock_reenrollment" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to lock face re-registration");
+      }
+      setNotification("Face re-registration locked. Option disabled on mobile app.");
+      await loadEmployee();
+    } catch (err: any) {
+      setMobileActionError(err.message);
+    } finally {
+      setMobileActionLoading(false);
+    }
+  };
+
+  const handleResetFaceBiometrics = async () => {
+    if (
+      !confirm(
+        "Are you sure you want to completely RESET face biometrics for this employee? Their existing face template will be deleted, and they will need to register afresh from the mobile app."
+      )
+    ) {
+      return;
+    }
+    try {
+      setMobileActionLoading(true);
+      setMobileActionError(null);
+      const res = await fetch(`/api/employees/${employeeId}/enrollment`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ action: "reset_face" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to reset face biometrics");
+      }
+      setNotification("Face biometrics reset. The employee can now register on their mobile device.");
       await loadEmployee();
     } catch (err: any) {
       setMobileActionError(err.message);
@@ -893,7 +974,7 @@ export default function EmployeeProfilePage() {
               </div>
 
               {/* Metric Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 text-xs">
                 <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
                   <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider">
                     Provisioning & Identifier
@@ -980,6 +1061,36 @@ export default function EmployeeProfilePage() {
                     {employee.failedLoginAttempts > 0
                       ? `${employee.failedLoginAttempts} unsuccesful attempt(s) recorded`
                       : "Zero recent authentication failures"}
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0]">
+                  <span className="text-[10px] uppercase font-bold text-[#64748B] block tracking-wider">
+                    Face Biometrics
+                  </span>
+                  <p className="font-semibold text-[#18181B] mt-1 text-sm flex items-center gap-1.5">
+                    {employee.faceEnrolled ? (
+                      employee.allowFaceReenrollment ? (
+                        <span className="text-amber-700 font-bold flex items-center gap-1">
+                          <Unlock className="w-3.5 h-3.5 text-amber-600" />
+                          Re-enroll Unlocked
+                        </span>
+                      ) : (
+                        <span className="text-emerald-700 font-bold flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          Enrolled (Locked)
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-zinc-500">Not Registered</span>
+                    )}
+                  </p>
+                  <span className="text-[10px] text-[#94A3B8] block mt-1 truncate">
+                    {employee.faceEnrolled
+                      ? employee.allowFaceReenrollment
+                        ? "Technician can re-register on mobile"
+                        : "Re-registration locked (Protected)"
+                      : "First enrollment open on mobile"}
                   </span>
                 </div>
               </div>
@@ -1098,6 +1209,46 @@ export default function EmployeeProfilePage() {
                         Reactivate Access
                       </button>
                     )}
+                  </>
+                )}
+
+                {/* Face Biometrics Controls */}
+                {employee.faceEnrolled && (
+                  <>
+                    {employee.allowFaceReenrollment ? (
+                      <button
+                        type="button"
+                        disabled={mobileActionLoading}
+                        onClick={handleLockFaceReenrollment}
+                        className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300 rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                        title="Lock face registration so technician cannot re-register on mobile"
+                      >
+                        <Lock className="w-3.5 h-3.5 text-zinc-600" />
+                        Lock Face Re-Registration
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={mobileActionLoading}
+                        onClick={handleAllowFaceReenrollment}
+                        className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                        title="Enable face re-registration button on the technician's mobile app"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                        Allow Face Re-Registration
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={mobileActionLoading}
+                      onClick={handleResetFaceBiometrics}
+                      className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold shadow-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                      title="Clear face template so technician must enroll afresh"
+                    >
+                      <UserX className="w-3.5 h-3.5 text-rose-600" />
+                      Reset Face Registration
+                    </button>
                   </>
                 )}
 

@@ -62,6 +62,7 @@ export async function POST(
         faceEnrolled: true,
         faceEnrolledAt: true,
         faceEnrollmentCount: true,
+        allowFaceReenrollment: true,
       },
     });
 
@@ -75,6 +76,107 @@ export async function POST(
     if (!employee.active) {
       return NextResponse.json(
         { error: "Cannot enroll or update biometric data for a deactivated or terminated employee." },
+        { status: 403 }
+      );
+    }
+
+    const body = await req.json();
+
+    // 3b. Admin/HR Management Actions (Unlock re-registration or reset face biometrics)
+    if (body.action) {
+      if (!caller.isAdminOrHr) {
+        return NextResponse.json(
+          { error: "Forbidden: Only Admin or HR roles can manage biometric registration settings." },
+          { status: 403 }
+        );
+      }
+
+      if (body.action === "allow_reenrollment") {
+        await prisma.employee.update({
+          where: { id: employeeId },
+          data: { allowFaceReenrollment: true },
+        });
+
+        await AuditService.logActivity({
+          actorName: caller.name || "Administrator",
+          actorRole: caller.role,
+          actorId: caller.id,
+          category: "DATA_MUTATION",
+          action: "FACE_REENROLLMENT_ALLOWED",
+          target: `Employee: ${employee.name} (${employee.id})`,
+          metadata: { employeeId: employee.id, callerId: caller.id },
+        });
+
+        return NextResponse.json({
+          success: true,
+          allowFaceReenrollment: true,
+          message: "Face re-registration option unlocked. Employee can now re-register face from the mobile application.",
+        });
+      }
+
+      if (body.action === "lock_reenrollment") {
+        await prisma.employee.update({
+          where: { id: employeeId },
+          data: { allowFaceReenrollment: false },
+        });
+
+        await AuditService.logActivity({
+          actorName: caller.name || "Administrator",
+          actorRole: caller.role,
+          actorId: caller.id,
+          category: "DATA_MUTATION",
+          action: "FACE_REENROLLMENT_LOCKED",
+          target: `Employee: ${employee.name} (${employee.id})`,
+          metadata: { employeeId: employee.id, callerId: caller.id },
+        });
+
+        return NextResponse.json({
+          success: true,
+          allowFaceReenrollment: false,
+          message: "Face re-registration locked. Mobile option disabled.",
+        });
+      }
+
+      if (body.action === "reset_face") {
+        await prisma.employee.update({
+          where: { id: employeeId },
+          data: {
+            faceEmbedding: [],
+            faceEnrolled: false,
+            faceEnrolledAt: null,
+            allowFaceReenrollment: true,
+          },
+        });
+
+        await AuditService.logActivity({
+          actorName: caller.name || "Administrator",
+          actorRole: caller.role,
+          actorId: caller.id,
+          category: "DATA_MUTATION",
+          action: "FACE_BIOMETRIC_RESET",
+          target: `Employee: ${employee.name} (${employee.id})`,
+          metadata: { employeeId: employee.id, callerId: caller.id },
+        });
+
+        return NextResponse.json({
+          success: true,
+          faceEnrolled: false,
+          allowFaceReenrollment: true,
+          message: "Face biometric data reset. Employee must now register afresh on the mobile application.",
+        });
+      }
+
+      return NextResponse.json({ error: `Unknown action "${body.action}".` }, { status: 400 });
+    }
+
+    // 3c. Re-registration Lock Guard: if face already enrolled, employee cannot re-register without admin unlock
+    if (employee.faceEnrolled && !employee.allowFaceReenrollment && !caller.isAdminOrHr) {
+      return NextResponse.json(
+        {
+          error: "Face registration is locked because your face is already registered. To re-register, please ask your administrator in the software to unlock face re-registration.",
+          faceEnrolled: true,
+          allowFaceReenrollment: false,
+        },
         { status: 403 }
       );
     }
@@ -98,7 +200,6 @@ export async function POST(
     }
 
     // 5. Payload & Dimension Validation
-    const body = await req.json();
     const { embedding, enrolledAt } = body;
 
     if (!Array.isArray(embedding)) {
@@ -140,6 +241,7 @@ export async function POST(
         faceEnrolled: true,
         faceEnrolledAt: resolvedEnrolledAt,
         faceEnrollmentCount: { increment: 1 },
+        allowFaceReenrollment: false,
       },
       select: {
         id: true,
@@ -147,6 +249,7 @@ export async function POST(
         faceEnrolled: true,
         faceEnrolledAt: true,
         faceEnrollmentCount: true,
+        allowFaceReenrollment: true,
       },
     });
 
@@ -239,6 +342,7 @@ export async function GET(
         faceEnrolledAt: true,
         faceEnrollmentCount: true,
         faceEmbedding: true,
+        allowFaceReenrollment: true,
       },
     });
 
@@ -262,6 +366,7 @@ export async function GET(
       faceEnrolledAt: employee.faceEnrolledAt,
       faceEnrollmentCount: employee.faceEnrollmentCount,
       enrollmentCount: employee.faceEnrollmentCount,
+      allowFaceReenrollment: employee.allowFaceReenrollment ?? false,
       hasEmbedding: hasValidEmbedding,
       embeddingDimensions: employee.faceEmbedding?.length || 0,
       expectedDimension: EXPECTED_EMBEDDING_DIMENSION,

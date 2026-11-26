@@ -44,6 +44,7 @@ interface ClaimItem {
   note: string;
   category: string;
   receiptUrl: string | null;
+  receiptUrls?: string[];
   status: string;
   paidAt: string | null;
   createdAt: string;
@@ -281,9 +282,12 @@ export default function TechnicianExpensesPage() {
     }
   };
 
-  const openLightbox = (url: string) => {
-    setLightboxImages([url]);
-    setLightboxIndex(0);
+  const openLightbox = (urlOrUrls: string | string[], initialIndex = 0) => {
+    const list = Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls];
+    const valid = list.filter(Boolean);
+    if (valid.length === 0) return;
+    setLightboxImages(valid);
+    setLightboxIndex(Math.min(initialIndex, valid.length - 1));
     setLightboxOpen(true);
   };
 
@@ -877,19 +881,25 @@ export default function TechnicianExpensesPage() {
 
                                   {/* Receipt Image / Proof */}
                                   <td className="py-2.5 px-4 text-center">
-                                    {claim.receiptUrl ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => openLightbox(claim.receiptUrl!)}
-                                        className="p-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition inline-flex items-center gap-1 border border-zinc-300 text-[10px] font-bold"
-                                        title="View full receipt proof"
-                                      >
-                                        <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
-                                        <span>Receipt</span>
-                                      </button>
-                                    ) : (
-                                      <span className="text-[#A1A1AA] text-[10px] italic">None</span>
-                                    )}
+                                    {(() => {
+                                      const photos = claim.receiptUrls && claim.receiptUrls.length > 0
+                                        ? claim.receiptUrls
+                                        : (claim.receiptUrl ? [claim.receiptUrl] : []);
+                                      if (photos.length === 0) {
+                                        return <span className="text-[#A1A1AA] text-[10px] italic">None</span>;
+                                      }
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => openLightbox(photos)}
+                                          className="p-1 px-2 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 transition inline-flex items-center gap-1.5 border border-emerald-200 text-[10px] font-bold shadow-2xs"
+                                          title={`View and download ${photos.length} receipt photo${photos.length > 1 ? "s" : ""}`}
+                                        >
+                                          <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
+                                          <span>{photos.length === 1 ? "Receipt (1)" : `Receipts (${photos.length})`}</span>
+                                        </button>
+                                      );
+                                    })()}
                                   </td>
 
                                   {/* Amount */}
