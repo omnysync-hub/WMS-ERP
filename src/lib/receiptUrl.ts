@@ -70,3 +70,28 @@ export function validateReceiptUrl(input: unknown): { ok: true; value: string | 
   }
   return { ok: true, value: url.toString() };
 }
+
+/**
+ * Validates an array of receipt photos (or a single photo string), returning the
+ * valid URLs / data URLs. Each entry goes through validateReceiptUrl, so hosted
+ * URLs follow the allow-list rules and inline photos the data-URL size cap.
+ * Used by the mobile expenses route, which accepts up to 10 photos per expense.
+ */
+export function validateReceiptPhotos(input: unknown): { ok: true; values: string[] } | { ok: false; error: string } {
+  if (!input) return { ok: true, values: [] };
+  const list = Array.isArray(input) ? input : [input];
+  if (list.length > 10) {
+    return { ok: false, error: "Cannot attach more than 10 photos per expense." };
+  }
+  const values: string[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const res = validateReceiptUrl(list[i]);
+    if (!res.ok) {
+      return { ok: false, error: `Photo #${i + 1}: ${res.error}` };
+    }
+    if (res.value) {
+      values.push(res.value);
+    }
+  }
+  return { ok: true, values };
+}

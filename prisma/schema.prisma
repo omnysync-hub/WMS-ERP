@@ -336,6 +336,7 @@ model JobExpenseClaim {
   category          String?
   allocationGroupId String?
   receiptUrl        String?
+  receiptUrls       String[]  @default([])
   status            String    @default("pending") // pending, paid
   paidAt            DateTime?
   accruedAt         DateTime? // set when carried forward at hisaab: expensed Dr category / Cr 2100
@@ -1084,6 +1085,7 @@ model Employee {
   faceEmbedding          Float[]                      @default([])
   faceEnrolledAt         DateTime?
   faceEnrollmentCount    Int                          @default(0)
+  allowFaceReenrollment  Boolean                      @default(false)
   active                 Boolean                      @default(true)
   mobileLoginActive      Boolean                      @default(false)
   appAccessMain          Boolean                      @default(false)
