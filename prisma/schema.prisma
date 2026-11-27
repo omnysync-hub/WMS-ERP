@@ -336,7 +336,6 @@ model JobExpenseClaim {
   category          String?
   allocationGroupId String?
   receiptUrl        String?
-  receiptUrls       String[]  @default([])
   status            String    @default("pending") // pending, paid
   paidAt            DateTime?
   accruedAt         DateTime? // set when carried forward at hisaab: expensed Dr category / Cr 2100
@@ -1085,7 +1084,6 @@ model Employee {
   faceEmbedding          Float[]                      @default([])
   faceEnrolledAt         DateTime?
   faceEnrollmentCount    Int                          @default(0)
-  allowFaceReenrollment  Boolean                      @default(false)
   active                 Boolean                      @default(true)
   mobileLoginActive      Boolean                      @default(false)
   appAccessMain          Boolean                      @default(false)
@@ -1129,6 +1127,7 @@ model Employee {
   offlineGaps            OfflineGapLog[]
   geofenceAssignments    EmployeeGeofenceAssignment[]
   workshopJobCards       WorkshopJobCard[]
+  bikeMeterReadings      BikeMeterReading[]
   createdAt              DateTime                     @default(now())
 }
 
@@ -2040,4 +2039,27 @@ model WorkshopToolCount {
   updatedAt         DateTime @updatedAt
 
   @@index([workshopType, auditMonth])
+}
+
+/// Daily fuel-meter readings for company fleet bikes (Bikes workshop app).
+/// Each rider submits two readings per bike per day — "morning" (start of
+/// day) and "afternoon" (return) — each with a meter photo (data URL, the
+/// completion-photos pattern) and a typed odometer value. `readingDate`
+/// carries date-only semantics: it is stored at UTC midnight of the
+/// Pakistan calendar day the rider submitted for. One reading per
+/// bike + day + period; duplicates are rejected (a manager corrects).
+model BikeMeterReading {
+  id          String   @id @default(uuid())
+  bikeRegNo   String
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  readingDate DateTime
+  period      String // "morning" | "afternoon"
+  odometerKm  Float
+  photo       String // data:image/... URL (same storage pattern as Job.completionPhotos)
+  createdAt   DateTime @default(now())
+
+  @@unique([bikeRegNo, readingDate, period])
+  @@index([readingDate])
+  @@index([employeeId, readingDate])
 }

@@ -19,6 +19,7 @@ import IssueAdvanceDrawer from "@/components/drawers/IssueAdvanceDrawer";
 import GeofenceSitesPanel from "@/components/hrm/GeofenceSitesPanel";
 import CompanyOnboardingTab from "@/components/hrm/CompanyOnboardingTab";
 import DetailedAttendanceSheet from "@/components/hrm/DetailedAttendanceSheet";
+import DevicePunchesPanel from "@/components/hrm/DevicePunchesPanel";
 import {
   Users,
   Clock,
@@ -67,6 +68,7 @@ function HrmPayrollContent() {
     | "assets"
     | "recruitment"
     | "attendance"
+    | "device-punches"
     | "payroll"
     | "advances"
   >(() => {
@@ -80,6 +82,7 @@ function HrmPayrollContent() {
         "assets",
         "recruitment",
         "attendance",
+        "device-punches",
         "payroll",
         "advances",
       ].includes(tabParam)
@@ -100,6 +103,7 @@ function HrmPayrollContent() {
         "assets",
         "recruitment",
         "attendance",
+        "device-punches",
         "payroll",
         "advances",
       ].includes(tabParam)
@@ -534,6 +538,11 @@ function HrmPayrollContent() {
       title: "Geofenced Attendance & Facial Verification",
       subtitle: "Multi-site geofencing, facial liveness verification, and dual-gate biometric audit logs",
     },
+    "device-punches": {
+      label: "Device Punches",
+      title: "Biometric Device Punches & Employee Mapping",
+      subtitle: "Review punches imported from the ZKBio / Zlink attendance machines and map device employee codes to ERP employees",
+    },
     payroll: {
       label: "Payroll Runs",
       title: "Automated Monthly Payroll Engine",
@@ -654,6 +663,8 @@ function HrmPayrollContent() {
       )}
 
       {activeTab === "company-onboarding" && <CompanyOnboardingTab />}
+
+      {activeTab === "device-punches" && <DevicePunchesPanel />}
 
       {/* ========================================================================= */}
       {/* TAB 1: HR ANALYTICS DASHBOARD (ROLE-AWARE KPI WIDGETS)                     */}

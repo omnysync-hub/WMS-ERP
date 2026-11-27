@@ -1,11 +1,19 @@
 /**
  * Validation for user-supplied receipt / attachment URLs.
- * Only https URLs on known storage hosts are accepted, capped in length. This blocks
- * `javascript:`/`data:` payloads and arbitrary tracking hosts from being stored and later
- * rendered in the ERP. Extra hosts: env RECEIPT_URL_ALLOWED_HOSTS="host1,*.host2".
+ * Two accepted forms:
+ *  - https URLs on known storage hosts, capped in length. This blocks `javascript:`
+ *    payloads and arbitrary tracking hosts from being stored and later rendered in the ERP.
+ *    Extra hosts: env RECEIPT_URL_ALLOWED_HOSTS="host1,*.host2".
+ *  - Inline `data:image/jpeg|png|webp;base64` photos (the technician app attaches a receipt
+ *    photo directly, mirroring job completion photos), capped at the same per-photo size
+ *    limit JobsService.completeJob enforces for completion photos.
  */
 export const RECEIPT_URL_MAX_LENGTH = 2048;
-export const MAX_PHOTO_DATA_URL_LENGTH = 7_000_000; // ~5MB base64
+
+/** Per-photo cap for inline data-image receipts — matches the completion-photo cap in JobsService.completeJob. */
+export const RECEIPT_DATA_URL_MAX_LENGTH = 2_700_000;
+
+const DATA_IMAGE_RECEIPT_PATTERN = /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/;
 
 const DEFAULT_ALLOWED_HOSTS = [
   "*.public.blob.vercel-storage.com",
@@ -36,21 +44,23 @@ export function validateReceiptUrl(input: unknown): { ok: true; value: string | 
   if (typeof input !== "string") return { ok: false, error: "Receipt URL must be a string." };
   const raw = input.trim();
   if (!raw) return { ok: true, value: null };
-
-  // Allow base64 data URL for mobile camera / gallery photos
-  if (/^data:image\/(jpeg|png|webp|heic|jpg);base64,/i.test(raw)) {
-    if (raw.length > MAX_PHOTO_DATA_URL_LENGTH) {
-      return { ok: false, error: "Receipt photo exceeds the maximum size limit (5MB)." };
+  // Inline receipt photo captured by the technician app (no hosted upload exists).
+  if (raw.startsWith("data:")) {
+    if (raw.length > RECEIPT_DATA_URL_MAX_LENGTH) {
+      return { ok: false, error: "Receipt photo is too large." };
+    }
+    const match = DATA_IMAGE_RECEIPT_PATTERN.exec(raw);
+    if (!match || match[1].length % 4 === 1) {
+      return { ok: false, error: "Receipt photo must be a base64 JPEG, PNG or WebP image." };
     }
     return { ok: true, value: raw };
   }
-
   if (raw.length > RECEIPT_URL_MAX_LENGTH) return { ok: false, error: "Receipt URL is too long." };
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return { ok: false, error: "Receipt URL is not a valid URL or photo format." };
+    return { ok: false, error: "Receipt URL is not a valid URL." };
   }
   if (url.protocol !== "https:") return { ok: false, error: "Receipt URL must use https." };
   if (url.username || url.password) return { ok: false, error: "Receipt URL must not contain credentials." };
@@ -59,24 +69,4 @@ export function validateReceiptUrl(input: unknown): { ok: true; value: string | 
     return { ok: false, error: `Receipt host '${host}' is not an approved storage location.` };
   }
   return { ok: true, value: url.toString() };
-}
-
-/** Validates an array or single photo string, returning valid URLs/data URLs */
-export function validateReceiptPhotos(input: unknown): { ok: true; values: string[] } | { ok: false; error: string } {
-  if (!input) return { ok: true, values: [] };
-  const list = Array.isArray(input) ? input : [input];
-  if (list.length > 10) {
-    return { ok: false, error: "Cannot attach more than 10 photos per expense." };
-  }
-  const values: string[] = [];
-  for (let i = 0; i < list.length; i++) {
-    const res = validateReceiptUrl(list[i]);
-    if (!res.ok) {
-      return { ok: false, error: `Photo #${i + 1}: ${res.error}` };
-    }
-    if (res.value) {
-      values.push(res.value);
-    }
-  }
-  return { ok: true, values };
 }

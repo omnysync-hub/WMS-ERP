@@ -23,6 +23,24 @@ export async function POST(
       return NextResponse.json({ error: "technicianId and item are required" }, { status: 400 });
     }
 
+    // Store/material requests open only once the job has started.
+    const job = await prisma.job.findUnique({
+      where: { id: params.id },
+      select: { status: true },
+    });
+    if (!job) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+    if (!["InProgress", "Paused"].includes(job.status)) {
+      return NextResponse.json(
+        {
+          error: `Materials can only be requested once the job is in progress. This job is '${job.status}'.`,
+          code: "JOB_NOT_STARTED",
+        },
+        { status: 400 }
+      );
+    }
+
     // Only physical stock can be requested from the warehouse; services are added to the job instead.
     const label = String(item).trim();
     const sku = skuFromItemLabel(label);

@@ -60,6 +60,103 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Lite list for the field app (?view=mobile): explicit select whitelist
+    // instead of the deep include below. Drops the heavy payload — the
+    // completionPhotos JSON (base64 proof photos), the full Employee record
+    // (incl. the 512-value faceEmbedding) and the unbounded hisaab /
+    // inventory-request / stock-return / status-history collections — that
+    // list screens never display. The full payload stays available from
+    // GET /api/jobs/[id], which the app's detail screen already uses.
+    // expenseClaims is deliberately kept: the app's Expenses tab reads
+    // claims straight off the list payload and has no other data source.
+    // Supports limit + cursor pagination and updatedSince. NOTE: Job has
+    // no updatedAt column in the schema, so updatedSince filters on
+    // createdAt (the closest durable timestamp) rather than failing.
+    if (searchParams.get("view") === "mobile") {
+      const rawLimit = parseInt(searchParams.get("limit") || "200", 10);
+      const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 200, 1), 500);
+      const cursor = searchParams.get("cursor");
+      const updatedSince = searchParams.get("updatedSince");
+      if (updatedSince) {
+        const since = new Date(updatedSince);
+        if (!isNaN(since.getTime())) {
+          where.createdAt = { gte: since };
+        }
+      }
+
+      const page = await prisma.job.findMany({
+        where,
+        select: {
+          id: true,
+          jobNumber: true,
+          customerId: true,
+          careOfPartyId: true,
+          manualJobNumber: true,
+          jobType: true,
+          remarks: true,
+          status: true,
+          assignedTechnicianId: true,
+          parentJobId: true,
+          reassignedFromJobId: true,
+          isFoc: true,
+          focReason: true,
+          focApprovedBy: true,
+          focApprovedAt: true,
+          focAmountReceived: true,
+          focPaymentReceivedAt: true,
+          focPaymentRef: true,
+          paymentCollectionMode: true,
+          discountAmount: true,
+          discountReason: true,
+          qualityFlag: true,
+          verifiedChecklist: true,
+          createdAt: true,
+          finalizedAt: true,
+          verifiedAt: true,
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              addressText: true,
+              lat: true,
+              lng: true,
+            },
+          },
+          assignedTechnician: {
+            select: { id: true, name: true, phone: true },
+          },
+          assignments: {
+            where: { status: { not: "Removed" } },
+            select: {
+              id: true,
+              jobId: true,
+              technicianId: true,
+              role: true,
+              status: true,
+              assignedAt: true,
+              assignedBy: true,
+              acceptedAt: true,
+              notes: true,
+              technician: { select: { id: true, name: true, phone: true } },
+            },
+          },
+          items: true,
+          expenseClaims: true,
+        },
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      });
+
+      const hasMore = page.length > limit;
+      const liteJobs = hasMore ? page.slice(0, limit) : page;
+      return NextResponse.json({
+        jobs: liteJobs,
+        nextCursor: hasMore ? liteJobs[liteJobs.length - 1].id : null,
+      });
+    }
+
     const jobs = await prisma.job.findMany({
       where,
       include: {

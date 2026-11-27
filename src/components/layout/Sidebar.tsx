@@ -49,6 +49,7 @@ import {
   Snowflake,
   Wrench,
   Percent,
+  Fingerprint,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -313,6 +314,7 @@ export default function Sidebar({
     { label: "Assets Register", tab: "assets", icon: Package },
     { label: "Recruitment (ATS)", tab: "recruitment", icon: UserPlus },
     { label: "Attendance & Face", tab: "attendance", icon: Camera },
+    { label: "Device Punches", tab: "device-punches", icon: Fingerprint },
     { label: "Payroll Runs", tab: "payroll", icon: CreditCard },
     { label: "Advances", tab: "advances", icon: TrendingDown },
   ];

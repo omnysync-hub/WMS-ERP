@@ -802,6 +802,9 @@ export class JobsService {
       include: { items: true },
     });
     if (!job) throw new Error("Job not found");
+    if (!["InProgress", "Paused"].includes(job.status)) {
+      throw new Error("Inventory usage can only be saved while the job is in progress or paused.");
+    }
 
     const updatedItems = [];
     for (const entry of items) {
@@ -1605,7 +1608,7 @@ export class JobsService {
     if (job.finalizedAt || ["Finalized", "Verified", "Cancelled", "TechnicianReassigned"].includes(job.status)) {
       throw new Error("Job is finalized/closed. Discounts can no longer be requested.");
     }
-    if (!["Accepted", "InProgress", "Paused", "AwaitingFeedback", "CompletedPendingVerification"].includes(job.status)) {
+    if (!["InProgress", "Paused", "AwaitingFeedback", "CompletedPendingVerification"].includes(job.status)) {
       throw new Error(`Discounts cannot be requested while the job is '${job.status}'.`);
     }
     if (job.isFoc) throw new Error("This is a Free-of-Charge job — there is nothing to discount.");
@@ -2989,15 +2992,47 @@ export class JobsService {
     let cashRecoveryResult = null;
     if (cashCollection && cashCollection.amount > 0 && techId) {
       const recoveredAmt = Number(cashCollection.amount);
-      await prisma.technicianLedgerEntry.create({
-        data: {
-          technicianId: techId,
-          type: "hisaab_received",
-          amount: recoveredAmt,
-          refJobId: jobId,
-          notes: `On-the-spot cash collection for misplaced item (${qty}x ${item}). Received by ${reportedBy}. ${cashCollection.notes || ""}`,
-        },
-      }).catch(() => {});
+      // The collected cash must reach the GL, not only the technician sub-ledger:
+      // Dr settlement collection vault (11105) / Cr job revenue receivable (11201),
+      // posted in the SAME transaction as the ledger entry. If the GL post fails the
+      // whole recording fails with that error — the money is never silently lost.
+      await prisma.$transaction(async (tx) => {
+        const ledgerEntry = await tx.technicianLedgerEntry.create({
+          data: {
+            technicianId: techId,
+            type: "hisaab_received",
+            amount: recoveredAmt,
+            refJobId: jobId,
+            notes: `On-the-spot cash collection for misplaced item (${qty}x ${item}). Received by ${reportedBy}. ${cashCollection.notes || ""}`,
+          },
+        });
+
+        const vaultAccount = await AccountMappingService.resolveAccount({
+          transactionType: "settlement_collection_vault",
+          prismaClient: tx,
+        });
+        const receivableAccount = await AccountMappingService.resolveAccount({
+          transactionType: "job_revenue_receivable",
+          prismaClient: tx,
+        });
+
+        await AccountsPostingService.post({
+          memo: `Misplaced item cash recovery on Job ${job.jobNumber}: ${qty}x ${item} collected from technician by ${reportedBy}`,
+          refType: "misplaced_item_collection",
+          refId: ledgerEntry.id,
+          postedBy: reportedBy,
+          lines: [
+            { accountId: vaultAccount.id, debit: recoveredAmt, credit: 0 },
+            {
+              accountId: receivableAccount.id,
+              debit: 0,
+              credit: recoveredAmt,
+              ...(job.customerId ? { partyType: "customer", partyId: job.customerId } : {}),
+            },
+          ],
+          tx,
+        });
+      }, TX_OPTS);
 
       cashRecoveryResult = {
         amount: recoveredAmt,
