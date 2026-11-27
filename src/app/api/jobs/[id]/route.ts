@@ -145,7 +145,45 @@ export async function GET(
       receivable,
     };
 
-    return NextResponse.json({ ...job, invoice, customerJobHistory, billingSummary });
+    // Enrich items and inventoryRequests with product unit from ERP stock catalog
+    const products = await prisma.product.findMany({
+      select: { id: true, name: true, sku: true, unit: true },
+    });
+
+    const enrichedItems = (job.items || []).map((it) => {
+      const bracketMatch = it.description.match(/\[(?:Unit:\s*)?([a-zA-Z]+)\]/i);
+      const matchedProd = products.find(
+        (p) =>
+          (p.sku && it.description.toUpperCase().includes(p.sku.toUpperCase())) ||
+          (p.name && it.description.toLowerCase().includes(p.name.toLowerCase()))
+      );
+      return {
+        ...it,
+        unit: matchedProd?.unit || bracketMatch?.[1] || "units",
+      };
+    });
+
+    const enrichedRequests = (job.inventoryRequests || []).map((req) => {
+      const matchedProd = products.find(
+        (p) =>
+          (req.productId && p.id === req.productId) ||
+          (p.sku && req.item.toUpperCase().includes(p.sku.toUpperCase())) ||
+          (p.name && req.item.toLowerCase().includes(p.name.toLowerCase()))
+      );
+      return {
+        ...req,
+        unit: matchedProd?.unit || "units",
+      };
+    });
+
+    return NextResponse.json({
+      ...job,
+      items: enrichedItems,
+      inventoryRequests: enrichedRequests,
+      invoice,
+      customerJobHistory,
+      billingSummary,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

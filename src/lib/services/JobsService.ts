@@ -2792,7 +2792,7 @@ export class JobsService {
       const item = await tx.jobItem.create({
         data: {
           jobId,
-          description: `${product.name}${product.sku ? ` - ${product.sku}` : ""} - Issued by Storekeeper`,
+          description: `${product.name}${product.sku ? ` - ${product.sku}` : ""}${product.unit ? ` [${product.unit}]` : ""} - Issued by Storekeeper`,
           quantityPlanned: qty,
           quantityActual: qty,
           unitRate: product.unitPrice,
