@@ -129,6 +129,45 @@ export class AttendanceService {
       };
     }
 
+    // 1b. One punch pair per day — re-punches are not allowed. Persisted
+    // logs encode the punch type only in the notes prefix
+    // ([CHECK_IN] / [CHECK_OUT]), so classify today's logs by that prefix
+    // using server-local day bounds.
+    const dayStart = new Date(serverReceiptTime);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(serverReceiptTime);
+    dayEnd.setHours(23, 59, 59, 999);
+    const todaysLogs = await prisma.attendanceLog.findMany({
+      where: { employeeId, timestamp: { gte: dayStart, lte: dayEnd } },
+      orderBy: { timestamp: "asc" },
+      select: { notes: true },
+    });
+    const typedToday = todaysLogs
+      .map((l) =>
+        l.notes?.startsWith("[CHECK_OUT]")
+          ? ("CHECK_OUT" as const)
+          : l.notes?.startsWith("[CHECK_IN]")
+            ? ("CHECK_IN" as const)
+            : null
+      )
+      .filter((t): t is "CHECK_IN" | "CHECK_OUT" => t !== null);
+    if (typedToday.includes("CHECK_OUT")) {
+      return {
+        status: "rejected",
+        code: "DUPLICATE_PUNCH",
+        message:
+          "Attendance is already complete for today — a check-out has been recorded. No further punches are allowed today.",
+      };
+    }
+    if (punchType === "CHECK_IN" && typedToday[typedToday.length - 1] === "CHECK_IN") {
+      return {
+        status: "rejected",
+        code: "DUPLICATE_PUNCH",
+        message:
+          "Already checked in today. A second check-in is not allowed — check out when your shift ends.",
+      };
+    }
+
     // 2. Stale / Replayed Payload Protection (Reject if > 2 minutes difference)
     if (clientTimestamp) {
       const parsedClientTime = new Date(clientTimestamp).getTime();

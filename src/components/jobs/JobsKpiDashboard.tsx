@@ -33,6 +33,12 @@ export interface JobsKpiDashboardProps {
   isAccountant?: boolean;
   isAccountantStrict?: boolean;
   isDispatcher?: boolean;
+  /**
+   * Pipeline-only presentation: render just the Work Order Lifecycle Pipeline
+   * cards. The Financial Clearance and Materials/Discount card rows are hidden,
+   * but every KPI filter stays available in the Filter-by-KPI dropdown.
+   */
+  pipelineOnly?: boolean;
 }
 
 export default function JobsKpiDashboard({
@@ -43,6 +49,7 @@ export default function JobsKpiDashboard({
   isAccountant = true,
   isAccountantStrict = false,
   isDispatcher = false,
+  pipelineOnly = false,
 }: JobsKpiDashboardProps) {
   // 1. Created (only created but not assigned)
   const createdUnassignedCount = jobs.filter(
@@ -230,47 +237,27 @@ export default function JobsKpiDashboard({
   const [openKpiCardDropdown, setOpenKpiCardDropdown] = React.useState<string | null>(null);
   const [kpiSearchQuery, setKpiSearchQuery] = React.useState<string>("");
 
-  // Section Tab State & Collapse State (with persistent preference)
-  const [activeSection, setActiveSection] = React.useState<"all" | "pipeline" | "financial" | "materials">(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("workman_jobs_kpi_section");
-        if (saved && ["all", "pipeline", "financial", "materials"].includes(saved)) {
-          return saved as any;
-        }
-      } catch (e) {}
-    }
-    return isAccountantStrict ? "financial" : "all";
-  });
+  // Section Tab State & Collapse State (session-only: always starts on "all", expanded)
+  const [activeSection, setActiveSection] = React.useState<"all" | "pipeline" | "financial" | "materials">(
+    isAccountantStrict ? "financial" : "all"
+  );
 
-  const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        return localStorage.getItem("workman_jobs_kpi_collapsed") === "true";
-      } catch (e) {}
-    }
-    return false;
-  });
+  const [isCollapsed, setIsCollapsed] = React.useState<boolean>(false);
 
   const handleSectionChange = (sec: "all" | "pipeline" | "financial" | "materials") => {
     setActiveSection(sec);
-    try {
-      localStorage.setItem("workman_jobs_kpi_section", sec);
-    } catch (e) {}
   };
 
   const handleCollapseToggle = () => {
-    const next = !isCollapsed;
-    setIsCollapsed(next);
-    try {
-      localStorage.setItem("workman_jobs_kpi_collapsed", String(next));
-    } catch (e) {}
+    setIsCollapsed(!isCollapsed);
   };
 
   // Auto-switch section and ensure uncollapsed if an activeFilter is set
+  // (skipped in pipeline-only mode: there is only the pipeline section)
   React.useEffect(() => {
     if (!activeFilter) return;
     if (isCollapsed) setIsCollapsed(false);
+    if (pipelineOnly) return;
     if (activeSection === "all") return;
 
     const lifecycleKeys = ["unassigned", "assigned", "accepted", "in_progress", "paused", "completed"];
@@ -579,7 +566,7 @@ export default function JobsKpiDashboard({
         <div
           onClick={() => toggleFilter(card.key)}
           className={cn(
-            "px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border text-left transition-all duration-150 flex items-center justify-between gap-1.5 cursor-pointer select-none relative overflow-hidden",
+            "h-full min-h-[56px] px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border text-left transition-all duration-150 flex items-center justify-between gap-1.5 cursor-pointer select-none relative overflow-hidden",
             card.border,
             isSelected
               ? "bg-emerald-50/60 border-[#0D7A5F] ring-1.5 ring-[#0D7A5F] shadow-2xs"
@@ -598,15 +585,15 @@ export default function JobsKpiDashboard({
               <Icon className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] font-bold text-[#18181B] truncate block leading-tight">
+              <div className="flex items-start gap-1">
+                <span className="text-[11px] font-bold text-[#18181B] block leading-tight break-words">
                   {card.label}
                 </span>
                 {card.badgeAlert && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0 mt-1" />
                 )}
               </div>
-              <span className="text-[9.5px] text-[#71717A] truncate block leading-tight mt-0.5 font-medium">
+              <span className="text-[9.5px] text-[#71717A] block leading-tight mt-0.5 font-medium break-words">
                 {card.sublabel}
               </span>
             </div>
@@ -797,7 +784,7 @@ export default function JobsKpiDashboard({
         {/* Center / Right: Section Switcher Pills + Filter Dropdown + Collapse Button */}
         <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
           {/* Section Filter Pills */}
-          {!isAccountantStrict && (
+          {!isAccountantStrict && !pipelineOnly && (
           <div className="flex items-center gap-0.5 bg-[#F4F4F5] p-0.5 rounded-lg border border-[#E4E4E7] text-[11px]">
             <button
               type="button"
@@ -872,26 +859,26 @@ export default function JobsKpiDashboard({
                   ))}
                 </optgroup>
               )}
-              {!isDispatcher && (
-                <>
-                  <optgroup label="Cash Recovery & Financials">
-                    {financialCards.map((c) => (
+              {/* All KPI filters stay available to every role (incl. dispatcher),
+                  even where the matching card rows are not rendered. */}
+              <>
+                <optgroup label="Cash Recovery & Financials">
+                  {financialCards.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label} ({c.count})
+                    </option>
+                  ))}
+                </optgroup>
+                {!isAccountantStrict && (
+                  <optgroup label="Materials & Discounts">
+                    {requestCards.map((c) => (
                       <option key={c.key} value={c.key}>
                         {c.label} ({c.count})
                       </option>
                     ))}
                   </optgroup>
-                  {!isAccountantStrict && (
-                    <optgroup label="Materials & Discounts">
-                      {requestCards.map((c) => (
-                        <option key={c.key} value={c.key}>
-                          {c.label} ({c.count})
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </>
-              )}
+                )}
+              </>
             </select>
           </div>
 
@@ -940,21 +927,22 @@ export default function JobsKpiDashboard({
       {!isCollapsed && (
         <div className="space-y-2 pt-0.5">
           {/* Row 1: Job Lifecycle Pipeline (6 cards) — VISIBLE TO ALL ROLES INCLUDING DISPATCHER */}
-          {!isAccountantStrict && (activeSection === "all" || activeSection === "pipeline") && (
+          {!isAccountantStrict && (pipelineOnly || activeSection === "all" || activeSection === "pipeline") && (
             <div className="space-y-1">
               {activeSection === "all" && (
                 <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">
                   Work Order Lifecycle Pipeline
                 </span>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-2">
                 {lifecycleCards.map((c, idx) => renderKpiCard(c, idx))}
               </div>
             </div>
           )}
 
-          {/* Row 2: Technician Expense Clearance & Cash Recovery (Accountant/Admin View - STRICTLY HIDDEN FOR DISPATCHER) */}
-          {!isDispatcher && isAccountant && (isAccountantStrict || activeSection === "all" || activeSection === "financial") && (
+          {/* Row 2: Technician Expense Clearance & Cash Recovery (Accountant/Admin View - STRICTLY HIDDEN FOR DISPATCHER;
+              also hidden in pipeline-only presentation — the filters remain in the dropdown) */}
+          {!pipelineOnly && !isDispatcher && isAccountant && (isAccountantStrict || activeSection === "all" || activeSection === "financial") && (
             <div className={cn("space-y-1", activeSection === "all" && "pt-1.5 border-t border-[#F4F4F5]")}>
               {activeSection === "all" && (
                 <div className="flex items-center justify-between">
@@ -967,14 +955,15 @@ export default function JobsKpiDashboard({
                   </span>
                 </div>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-2">
                 {financialCards.map((c, idx) => renderKpiCard(c, idx))}
               </div>
             </div>
           )}
 
-          {/* Row 3: Stock & Discount Requests (STRICTLY HIDDEN FOR DISPATCHER) */}
-          {!isDispatcher && !isAccountantStrict && (activeSection === "all" || activeSection === "materials") && (
+          {/* Row 3: Stock & Discount Requests (STRICTLY HIDDEN FOR DISPATCHER;
+              also hidden in pipeline-only presentation — the filters remain in the dropdown) */}
+          {!pipelineOnly && !isDispatcher && !isAccountantStrict && (activeSection === "all" || activeSection === "materials") && (
             <div className={cn("space-y-1", activeSection === "all" && "pt-1.5 border-t border-[#F4F4F5]")}>
               {activeSection === "all" && (
                 <span className="text-[10px] uppercase font-bold text-[#71717A] tracking-wider block">

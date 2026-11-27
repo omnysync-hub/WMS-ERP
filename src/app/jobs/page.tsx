@@ -95,6 +95,21 @@ export default function JobsListPage() {
     } finally {
       setLoading(false);
     }
+    // Care-Of master list for the Client / Care-Of filter chip (best-effort:
+    // the chip falls back to job-derived names if this fails).
+    try {
+      const coRes = await fetch("/api/care-of-parties");
+      const coData = await coRes.json();
+      if (Array.isArray(coData?.careOfParties)) {
+        setCareOfMasterNames(
+          coData.careOfParties
+            .map((p: any) => p.companyName || p.personName)
+            .filter(Boolean)
+        );
+      }
+    } catch (e) {
+      // ignore — job-derived options still populate the chip
+    }
   }
 
   useEffect(() => {
@@ -128,18 +143,50 @@ export default function JobsListPage() {
   const [selectedDiscountFilter, setSelectedDiscountFilter] = useState("");
   const [selectedEquipmentFilter, setSelectedEquipmentFilter] = useState("");
 
-  // Dynamically extracted options for advanced filters
+  // Care-Of master list (GET /api/care-of-parties) — the filter chip is sourced
+  // from the master directory, not only from parties that happen to have jobs.
+  const [careOfMasterNames, setCareOfMasterNames] = useState<string[]>([]);
+
+  // Configured equipment types (app-settings custom_equipment_types, the
+  // sharedSettings source of truth; localStorage is its synced local cache).
+  const [configuredEquipmentTypes, setConfiguredEquipmentTypes] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem("custom_equipment_types");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed.filter((x: any) => typeof x === "string" && x.trim()) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    fetch("/api/app-settings")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const list = data?.settings?.custom_equipment_types;
+        if (Array.isArray(list)) {
+          setConfiguredEquipmentTypes(list.filter((x: any) => typeof x === "string" && x.trim()));
+        }
+      })
+      .catch(() => null);
+  }, []);
+
+  // Options for advanced filters: master/configured lists first, job-derived
+  // values merged in so existing jobs remain filterable.
   const careOfOptions = React.useMemo(() => {
     const set = new Set<string>();
+    careOfMasterNames.forEach((n) => set.add(n));
     jobs.forEach((j) => {
       const name = j.careOfParty?.companyName || j.careOfParty?.personName;
       if (name) set.add(name);
     });
     return Array.from(set).sort().map((n) => ({ label: n, value: n }));
-  }, [jobs]);
+  }, [jobs, careOfMasterNames]);
 
   const equipmentOptions = React.useMemo(() => {
     const set = new Set<string>();
+    configuredEquipmentTypes.forEach((t) => set.add(t));
     jobs.forEach((j) => {
       (j.items || []).forEach((it: any) => {
         if (it.equipmentType) set.add(it.equipmentType);
@@ -153,7 +200,7 @@ export default function JobsListPage() {
       });
     });
     return Array.from(set).sort().map((e) => ({ label: e, value: e }));
-  }, [jobs]);
+  }, [jobs, configuredEquipmentTypes]);
 
   // Filter based on active tab & role
   const filteredByTab = jobs.filter((j) => {
@@ -1249,6 +1296,7 @@ export default function JobsListPage() {
               isAccountant={isAccountant || isAdmin || canViewFinancials}
               isAccountantStrict={isAccountant}
               isDispatcher={isDispatcher}
+              pipelineOnly={!isAccountant}
             />
           )}
 
@@ -1325,12 +1373,13 @@ export default function JobsListPage() {
                 selected: selectedTypeFilter,
                 onSelect: setSelectedTypeFilter,
               },
-              ...(!isStorekeeper && careOfOptions.length > 0 ? [{
+              ...(!isStorekeeper ? [{
                 id: "careOfParty",
                 label: "Client / Care-Of",
                 options: careOfOptions,
                 selected: selectedCareOfFilter,
                 onSelect: setSelectedCareOfFilter,
+                disabled: careOfOptions.length === 0,
               }] : []),
               ...(!isStorekeeper ? [{
                 id: "paymentClearance",
@@ -1383,12 +1432,13 @@ export default function JobsListPage() {
                   onSelect: setSelectedDiscountFilter,
                 },
               ] : []),
-              ...(!isStorekeeper && equipmentOptions.length > 0 ? [{
+              ...(!isStorekeeper ? [{
                 id: "equipmentType",
                 label: "Appliance / Equipment",
                 options: equipmentOptions,
                 selected: selectedEquipmentFilter,
                 onSelect: setSelectedEquipmentFilter,
+                disabled: equipmentOptions.length === 0,
               }] : []),
             ]}
             renderExpandedRow={(row) => (

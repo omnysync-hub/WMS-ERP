@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AttendanceService } from "@/lib/services/AttendanceService";
+import { UnifiedAttendanceService } from "@/lib/services/UnifiedAttendanceService";
 import { comparePassword, resolveCaller } from "@/lib/auth/mobileAuth";
 import { requirePermission } from "@/lib/auth/erpActor";
 
@@ -84,8 +85,25 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    // Merge mapped biometric device punches (DevicePunch) into the history
+    // alongside the app logs, each entry carrying a `source` marker
+    // ("app" | "machine"). The flagged-review queue stays app-logs-only:
+    // device punches have no flag workflow.
+    let historyLogs: any[] = logs;
+    if (!flaggedOnly) {
+      const devicePunches = await prisma.devicePunch.findMany({
+        where: { employeeId: employeeId ? employeeId : { not: null } },
+        orderBy: { punchTime: "desc" },
+        take: limit,
+      });
+      historyLogs = UnifiedAttendanceService.mergeIntoHistoryLogs(
+        logs,
+        devicePunches
+      ).slice(0, limit);
+    }
+
     return NextResponse.json({
-      logs,
+      logs: historyLogs,
       flaggedCount,
       zones,
       employees,

@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
     const seeLeaves = can("hrm.manage_employees");
     const seeStock = can("inventory.view_stock");
     const seeDispatch = can("dispatch.assign_job") || can("jobs.reassign_tech");
+    const seeDiscounts = can("jobs.approve_discount");
 
-    const [pendingLeaves, lowStockProducts, unassignedJobs] = await Promise.all([
+    const [pendingLeaves, lowStockProducts, unassignedJobs, pendingDiscountRequests] = await Promise.all([
       seeLeaves ? prisma.leaveRequest.count({ where: { status: "Pending" } }) : Promise.resolve(0),
       // Low stock = at or below each item's own reorder level.
       seeStock
@@ -25,6 +26,10 @@ export async function GET(req: NextRequest) {
         : Promise.resolve(0),
       seeDispatch
         ? prisma.job.count({ where: { status: "Pending", assignedTechnicianId: null } })
+        : Promise.resolve(0),
+      // Discount requests awaiting a jobs.approve_discount holder's decision.
+      seeDiscounts
+        ? prisma.jobDiscountRequest.count({ where: { status: "pending", job: { finalizedAt: null } } })
         : Promise.resolve(0),
     ]);
 
@@ -67,6 +72,17 @@ export async function GET(req: NextRequest) {
         type: "alert",
         createdAt: new Date().toISOString(),
         link: "/dispatch",
+      });
+    }
+
+    if (pendingDiscountRequests > 0) {
+      notifications.push({
+        id: "notice-discounts",
+        title: "Pending Discount Requests",
+        message: `${pendingDiscountRequests} job discount request(s) awaiting your approval.`,
+        type: "warning",
+        createdAt: new Date().toISOString(),
+        link: "/accounts?tab=discounts",
       });
     }
 

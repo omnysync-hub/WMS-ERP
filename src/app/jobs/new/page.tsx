@@ -86,7 +86,8 @@ interface WorkRow {
   product: string;
   brand: string;
   careOff: string;
-  qty: number;
+  /** Blank until the dispatcher enters it — Qty is mandatory (must be > 0 to submit). */
+  qty: number | "";
   charges: number;
   remarks: string;
 }
@@ -113,7 +114,7 @@ export default function FastJobIntakePage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [isNewCustomer, setIsNewCustomer] = useState(false);
 
-  // Work & Equipment Rows (Rows 3, 4, 5) - Qty defaults to 0
+  // Work & Equipment Rows (Rows 3, 4, 5) - Qty starts blank and is mandatory
   const [rows, setRows] = useState<WorkRow[]>([
     {
       id: "row-1",
@@ -121,7 +122,7 @@ export default function FastJobIntakePage() {
       product: DEFAULT_EQUIPMENT_TYPES[1] || DEFAULT_EQUIPMENT_TYPES[0],
       brand: "Gree",
       careOff: "direct",
-      qty: 0,
+      qty: "",
       charges: 0,
       remarks: "",
     },
@@ -292,7 +293,7 @@ export default function FastJobIntakePage() {
       product: equipmentTypes[0] || DEFAULT_EQUIPMENT_TYPES[0],
       brand: brands[0] || DEFAULT_BRANDS[0],
       careOff: rows[0]?.careOff || "direct",
-      qty: 0,
+      qty: "",
       charges: 0,
       remarks: "",
     };
@@ -313,7 +314,7 @@ export default function FastJobIntakePage() {
     );
   }
 
-  // Grand Total Calculation - handles default qty: 0
+  // Grand Total Calculation - blank Qty counts as 0 for display only (submit blocks it)
   const grandTotal = useMemo(() => {
     return rows.reduce((sum, r) => {
       const q = Math.max(0, Number(r.qty) || 0);
@@ -409,6 +410,16 @@ export default function FastJobIntakePage() {
 
     try {
       setIsSubmitting(true);
+
+      // Qty is mandatory on every work row — validate before any customer/job creation.
+      const invalidQtyRow = rows.findIndex(
+        (r) => !Number.isFinite(Number(r.qty)) || Number(r.qty) <= 0
+      );
+      if (invalidQtyRow >= 0) {
+        throw new Error(
+          `Qty is required for job item ${invalidQtyRow + 1} (${rows[invalidQtyRow].typeOfWork || "Service"}). Please enter a quantity greater than zero.`
+        );
+      }
 
       const phoneDigits = customerMobile.replace(/\D/g, "");
       if (phoneDigits.length !== 11) {
@@ -1135,21 +1146,26 @@ export default function FastJobIntakePage() {
                     </div>
                   </div>
 
-                  {/* ROW 4: Qty (0 by default), Charges, Total */}
+                  {/* ROW 4: Qty (mandatory, starts blank), Charges, Total */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        Qty
+                        Qty <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="number"
-                        min="0"
+                        min="1"
+                        step="1"
+                        required
+                        placeholder="Qty"
                         value={row.qty}
                         onChange={(e) =>
                           handleUpdateRow(
                             row.id,
                             "qty",
-                            Math.max(0, parseInt(e.target.value) || 0)
+                            e.target.value === ""
+                              ? ""
+                              : Math.max(0, parseInt(e.target.value) || 0)
                           )
                         }
                         className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono font-bold"

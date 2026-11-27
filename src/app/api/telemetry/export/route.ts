@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
     const startDateParam = searchParams.get("startDate");
     const endDateParam = searchParams.get("endDate");
     const format = searchParams.get("format") || "csv"; // "csv" | "json"
+    const scope = searchParams.get("scope") || "all"; // "all" | "on_job" | "on_shift" — same as history
 
     if (!employeeId) {
       return NextResponse.json(
@@ -55,11 +56,20 @@ export async function GET(req: NextRequest) {
     const start = startDateParam ? new Date(startDateParam) : defaultStart;
     const end = endDateParam ? new Date(endDateParam) : now;
 
+    // Apply the exact same scope predicate as /api/telemetry/history so the
+    // export always matches what the user sees on screen.
+    const pingWhere: any = {
+      employeeId,
+      timestamp: { gte: start, lte: end },
+    };
+    if (scope === "on_job") {
+      pingWhere.activeJobId = { not: null };
+    } else if (scope === "on_shift") {
+      pingWhere.isShiftActive = true;
+    }
+
     const pings = await prisma.technicianLocationPing.findMany({
-      where: {
-        employeeId,
-        timestamp: { gte: start, lte: end },
-      },
+      where: pingWhere,
       include: {
         activeJob: {
           select: {
@@ -76,6 +86,7 @@ export async function GET(req: NextRequest) {
         employee,
         start: start.toISOString(),
         end: end.toISOString(),
+        scope,
         totalPings: pings.length,
         pings,
       });

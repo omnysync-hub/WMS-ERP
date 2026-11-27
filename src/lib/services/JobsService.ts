@@ -1077,7 +1077,14 @@ export class JobsService {
   }
 
   /**
-   * Technician requests an item-level discount from the field
+   * Technician requests an item-level discount from the field (legacy mobile action).
+   * Creates a REAL JobDiscountRequest through requestJobDiscount (the
+   * jobs.approve_discount workflow: approver queue + notification + finalize
+   * block) instead of only rewriting the item description as before. The
+   * "[Discount Requested: ...]" description marker is still written so every
+   * description-based surface (KPI counts, jobs filters, legacy queue parsing)
+   * keeps working unchanged; the accounts discounts view de-duplicates the
+   * marker entry against the pending request so it is decided exactly once.
    */
   static async requestItemDiscount(
     jobId: string,
@@ -1096,8 +1103,22 @@ export class JobsService {
     const item = job.items.find((it) => it.id === itemId);
     if (!item) throw new Error("Item not found on job.");
 
+    const requestReason = (reason || "").trim() || "Technician on-site request";
+
+    await this.requestJobDiscount(
+      jobId,
+      {
+        discountType: "amount",
+        discountValue: Number(discountRequested),
+        reason: requestReason,
+        itemId,
+        technicianId: job.assignedTechnicianId || null,
+      },
+      technicianName
+    );
+
     const cleanDesc = item.description.replace(/\s*\[Discount.*?\]/gi, "");
-    const updatedDesc = `${cleanDesc} [Discount Requested: $${discountRequested} - ${reason}]`;
+    const updatedDesc = `${cleanDesc} [Discount Requested: $${discountRequested} - ${requestReason}]`;
 
     await prisma.jobItem.update({
       where: { id: itemId },
@@ -1108,12 +1129,12 @@ export class JobsService {
       action: "item_discount_requested",
       itemId,
       discountRequested,
-      reason,
+      reason: requestReason,
     });
 
     return await prisma.job.findUnique({
       where: { id: jobId },
-      include: { items: true },
+      include: { items: true, discountRequests: true },
     });
   }
 
@@ -1426,6 +1447,9 @@ export class JobsService {
     if (["Cancelled", "TechnicianReassigned"].includes(job.status)) {
       throw new Error(`Job is ${job.status}; FOC payment cannot be recorded on it.`);
     }
+    if (!isJobCompleted(job)) {
+      throw new Error(`Job ${job.jobNumber} must be completed before an FOC payment can be recorded.`);
+    }
     const receivedAt = input.receivedDate ? new Date(input.receivedDate) : new Date();
     if (Number.isNaN(receivedAt.getTime())) throw new Error("Invalid payment date.");
     if (receivedAt.getTime() > Date.now() + 24 * 3600 * 1000) throw new Error("Payment date cannot be in the future.");
@@ -1681,6 +1705,23 @@ export class JobsService {
     }, TX_OPTS);
 
     const { job, request, amount } = result;
+
+    // Requests that came through the legacy mobile action also carry a
+    // "[Discount Requested: ...]" marker in the item description. Clear it now
+    // that the request is decided, so description-based queues/filters stop
+    // showing it as pending.
+    if (request.itemId) {
+      const reqItem = job.items.find((it) => it.id === request.itemId);
+      if (reqItem && reqItem.description.includes("[Discount Requested:")) {
+        await prisma.jobItem.update({
+          where: { id: reqItem.id },
+          data: {
+            description: reqItem.description.replace(/\s*\[Discount Requested:[^\]]*\]/gi, "").trim(),
+          },
+        });
+      }
+    }
+
     const updatedJob = await prisma.job.findUnique({ where: { id: jobId }, include: { items: true } });
     const net = updatedJob ? this.computeJobTotals(updatedJob).net : 0;
 

@@ -110,10 +110,14 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { timestamp: "asc" },
       }),
+      // Gaps that OVERLAP the selected interval (not only those starting inside
+      // it): started before/at the end, and either still open or ending at/after
+      // the start. Durations are clipped to the interval below before summing.
       prisma.offlineGapLog.findMany({
         where: {
           employeeId,
-          gapStartAt: { gte: start, lte: end },
+          gapStartAt: { lte: end },
+          OR: [{ gapEndAt: null }, { gapEndAt: { gte: start } }],
         },
         orderBy: { gapStartAt: "asc" },
       }),
@@ -152,7 +156,16 @@ export async function GET(req: NextRequest) {
     }
 
     const avgSpeedKmH = speedCount > 0 ? Math.round((speedSum / speedCount) * 10) / 10 : 0;
-    const totalOfflineMinutes = gaps.reduce((acc: number, g: any) => acc + (g.durationMinutes || 0), 0);
+    // Clip each gap to the selected interval before summing, so a gap that
+    // started before (or ends after) the range only counts its in-range part.
+    // A still-open gap (no gapEndAt) is clipped at the interval end.
+    const clippedGapMinutes = (g: any) => {
+      const gapStart = new Date(g.gapStartAt).getTime();
+      const gapEnd = g.gapEndAt ? new Date(g.gapEndAt).getTime() : end.getTime();
+      const clippedMs = Math.min(gapEnd, end.getTime()) - Math.max(gapStart, start.getTime());
+      return Math.max(0, clippedMs / 60000);
+    };
+    const totalOfflineMinutes = gaps.reduce((acc: number, g: any) => acc + clippedGapMinutes(g), 0);
 
     const firstPing = pings[0];
     const lastPing = pings[pings.length - 1];
@@ -208,7 +221,8 @@ export async function GET(req: NextRequest) {
         id: g.id,
         gapStartAt: g.gapStartAt.toISOString(),
         gapEndAt: g.gapEndAt?.toISOString() || null,
-        durationMinutes: g.durationMinutes,
+        // Duration clipped to the selected interval (matches the summary total)
+        durationMinutes: Math.round(clippedGapMinutes(g) * 10) / 10,
         lastKnownLat: g.lastKnownLat,
         lastKnownLng: g.lastKnownLng,
         resumeLat: g.resumeLat,

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { PayrollService } from "@/lib/services/PayrollService";
+import { UnifiedAttendanceService } from "@/lib/services/UnifiedAttendanceService";
 import { requirePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
@@ -48,6 +49,50 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { name: "asc" },
     });
+
+    // PayrollService's salary math does not read attendance; attendance
+    // reaches payroll through THIS payload (the UI's punch counts per
+    // employee). Merge mapped biometric device punches into each
+    // employee's attendanceLogs so machine punches count alongside app
+    // punches instead of the employee looking punch-less.
+    const employeeIds = new Set<string>();
+    for (const emp of employees) employeeIds.add(emp.id);
+    for (const run of runs) {
+      for (const slip of run.payslips) {
+        if (slip.employee?.id) employeeIds.add(slip.employee.id);
+      }
+    }
+    if (employeeIds.size > 0) {
+      const ids = Array.from(employeeIds);
+      const devicePunches = await prisma.devicePunch.findMany({
+        where: { employeeId: { in: ids } },
+        orderBy: { punchTime: "desc" },
+        take: ids.length * 60,
+      });
+      const punchesByEmployee = new Map<string, typeof devicePunches>();
+      for (const p of devicePunches) {
+        if (!p.employeeId) continue;
+        const list = punchesByEmployee.get(p.employeeId);
+        if (list) list.push(p);
+        else punchesByEmployee.set(p.employeeId, [p]);
+      }
+      const alreadyMerged = new WeakSet<object>();
+      const mergeEmployee = (emp: any) => {
+        if (!emp?.id || !Array.isArray(emp.attendanceLogs)) return;
+        if (alreadyMerged.has(emp)) return;
+        alreadyMerged.add(emp);
+        const own = punchesByEmployee.get(emp.id);
+        if (!own || own.length === 0) return; // no machine punches → unchanged
+        emp.attendanceLogs = UnifiedAttendanceService.mergeIntoHistoryLogs(
+          emp.attendanceLogs,
+          own
+        ).slice(0, 60);
+      };
+      employees.forEach(mergeEmployee);
+      for (const run of runs) {
+        for (const slip of run.payslips) mergeEmployee(slip.employee);
+      }
+    }
 
     return NextResponse.json({ runs, employees });
   } catch (err: any) {

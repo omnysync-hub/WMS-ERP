@@ -48,6 +48,8 @@ export interface FilterChipOption {
   options: (string | { label: string; value: string })[];
   selected?: string;
   onSelect?: (option: string) => void;
+  /** Render the chip greyed-out and non-interactive (e.g. no options exist yet). */
+  disabled?: boolean;
 }
 
 interface DataTableProps<T> {
@@ -258,15 +260,19 @@ export default function DataTable<T extends Record<string, any>>({
               <div key={chip.id} className="relative">
                 <button
                   type="button"
+                  disabled={chip.disabled}
                   onClick={() => {
                     setActiveChipDropdown(isOpen ? null : chip.id);
                     setChipSearchQuery("");
                   }}
                   aria-expanded={isOpen}
                   aria-label={`Filter by ${chip.label}`}
+                  title={chip.disabled ? `No ${chip.label} options available yet` : undefined}
                   className={cn(
                     "h-7 px-2.5 rounded-md text-xs font-medium border transition inline-flex items-center gap-1.5 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]",
-                    chip.selected && chip.selected !== "all"
+                    chip.disabled
+                      ? "bg-[#F4F4F5] border-[#EDEDED] text-[#A1A1AA] opacity-60 cursor-not-allowed"
+                      : chip.selected && chip.selected !== "all"
                       ? "bg-emerald-50 border-emerald-300 text-[#0D7A5F] font-semibold"
                       : "bg-white border-[#EDEDED] text-[#71717A] hover:bg-[#F7F7F8] hover:text-[#18181B]"
                   )}

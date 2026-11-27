@@ -151,6 +151,20 @@ export async function POST(req: NextRequest) {
     }
     const collectionMode = paymentCollectionMode === "office" ? "office" : "technician";
 
+    // Qty is mandatory on every job item: reject missing / non-numeric / <= 0
+    // quantities instead of silently defaulting them to 1.
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const qty = Number(items[i]?.quantityPlanned);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          return NextResponse.json(
+            { error: `Qty is required and must be greater than zero for job item ${i + 1}.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     let effectiveCareOfId = careOfPartyId || null;
     if (!effectiveCareOfId && careOfCompanyName && typeof careOfCompanyName === "string" && careOfCompanyName.trim()) {
       let existingParty = await prisma.careOfParty.findFirst({
@@ -213,7 +227,7 @@ export async function POST(req: NextRequest) {
               items: {
                 create: items.map((it: any) => ({
                   description: it.description,
-                  quantityPlanned: Number(it.quantityPlanned) || 1,
+                  quantityPlanned: Number(it.quantityPlanned),
                   unitRate: Number(it.unitRate) || 0,
                 })),
               },
@@ -268,7 +282,7 @@ export async function POST(req: NextRequest) {
                 technicianId: assignedTechnicianId || "warehouse_dispatch",
                 item: it.description,
                 productId: it.productId,
-                qtyRequested: Number(it.quantityPlanned) || 1,
+                qtyRequested: Number(it.quantityPlanned),
                 qtyIssued: 0,
                 status: "pending",
               },

@@ -5,6 +5,13 @@ import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import SurveillanceMap from "@/components/maps/SurveillanceMap";
 import { useRole } from "@/contexts/RoleContext";
+import { pktParts, pktTodayStart } from "@/lib/pktTime";
+
+/** "YYYY-MM-DD" of an instant as seen on a clock in Pakistan (Asia/Karachi). */
+function pktDateStr(d: Date): string {
+  const { year, month, day } = pktParts(d);
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 import {
   Users,
   Calendar,
@@ -29,7 +36,6 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Compass,
-  Sparkles,
   Focus,
 } from "lucide-react";
 
@@ -74,10 +80,9 @@ export default function SurveillanceDashboardPage() {
   const [cleanupError, setCleanupError] = useState<string | null>(null);
   const [confirmPurgeStep, setConfirmPurgeStep] = useState(false);
 
-  // Initialize dates
+  // Initialize dates (Pakistan calendar day, not UTC)
   useEffect(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = pktDateStr(new Date());
     setStartDate(`${todayStr}T00:00`);
     setEndDate(`${todayStr}T23:59`);
   }, []);
@@ -127,24 +132,25 @@ export default function SurveillanceDashboardPage() {
     loadTechnicians();
   }, []);
 
-  // Preset Date Handlers
+  // Preset Date Handlers — all boundaries are Pakistan (Asia/Karachi) calendar
+  // days via pktTime helpers, never UTC dates from toISOString().
   const handlePresetSelect = (preset: "today" | "yesterday" | "week") => {
     setDatePreset(preset);
-    const now = new Date();
+    const todayStart = pktTodayStart(new Date());
+    const DAY_MS = 24 * 60 * 60 * 1000;
 
     if (preset === "today") {
-      const todayStr = now.toISOString().slice(0, 10);
+      const todayStr = pktDateStr(todayStart);
       setStartDate(`${todayStr}T00:00`);
       setEndDate(`${todayStr}T23:59`);
     } else if (preset === "yesterday") {
-      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const yStr = yesterday.toISOString().slice(0, 10);
+      const yStr = pktDateStr(new Date(todayStart.getTime() - DAY_MS));
       setStartDate(`${yStr}T00:00`);
       setEndDate(`${yStr}T23:59`);
     } else if (preset === "week") {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      setStartDate(`${weekAgo.toISOString().slice(0, 10)}T00:00`);
-      setEndDate(`${now.toISOString().slice(0, 10)}T23:59`);
+      const weekAgoStr = pktDateStr(new Date(todayStart.getTime() - 7 * DAY_MS));
+      setStartDate(`${weekAgoStr}T00:00`);
+      setEndDate(`${pktDateStr(todayStart)}T23:59`);
     }
   };
 
@@ -268,76 +274,7 @@ export default function SurveillanceDashboardPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [togglePlayPause]);
 
-  // Demo Sample Route Generator (Instantly test video playback when pings are 0)
-  const handleLoadDemoRoute = () => {
-    const baseLat = 31.4700;
-    const baseLng = 74.3100;
-    const now = new Date();
-    const demoPings = [];
-    const waypoints = 18;
-
-    for (let i = 0; i < waypoints; i++) {
-      const pingTime = new Date(now.getTime() - (waypoints - i) * 3 * 60 * 1000);
-      const isStopped = i === 0 || i === 8 || i === waypoints - 1;
-      const speed = isStopped ? 0 : 35 + (i % 4) * 6;
-
-      demoPings.push({
-        id: `demo-ping-${i}`,
-        lat: baseLat + i * 0.0042 + Math.sin(i * 0.8) * 0.002,
-        lng: baseLng + i * 0.0055 + Math.cos(i * 0.8) * 0.002,
-        accuracy: 12,
-        speed,
-        batteryLevel: Math.max(25, 92 - i * 3),
-        isMoving: !isStopped,
-        isShiftActive: true,
-        activeJob:
-          i >= 4 && i <= 11
-            ? {
-                id: "demo-job-1",
-                jobNumber: "JOB-DEMO-2026",
-                status: "InProgress",
-                customerName: "Metro Commercial Center",
-              }
-            : null,
-        source: "demo_simulation",
-        timestamp: pingTime.toISOString(),
-      });
-    }
-
-    setTelemetryData({
-      employee: activeTechObj || { name: "Technician" },
-      pings: demoPings,
-      offlineGaps: [
-        {
-          id: "demo-gap-1",
-          gapStartAt: new Date(now.getTime() - 25 * 60 * 1000).toISOString(),
-          gapEndAt: new Date(now.getTime() - 15 * 60 * 1000).toISOString(),
-          durationMinutes: 10,
-          lastKnownLat: baseLat + 7 * 0.0042,
-          lastKnownLng: baseLng + 7 * 0.0055,
-          resumeLat: baseLat + 8 * 0.0042,
-          resumeLng: baseLng + 8 * 0.0055,
-          lastBatteryLevel: 71,
-          reason: "Basement parking signal drop",
-        },
-      ],
-      summary: {
-        totalDistanceKm: 14.2,
-        totalPings: waypoints,
-        avgSpeedKmH: 34,
-        maxSpeedKmH: 52,
-        batteryStart: 92,
-        batteryEnd: 41,
-        batteryDrain: 51,
-        offlineIncidents: 1,
-        totalOfflineMinutes: 10,
-      },
-    });
-    setCurrentPingIndex(0);
-    setIsPlaying(true);
-  };
-
-  // Export Trigger
+  // Export Trigger — sends the on-screen scope so the export matches the view
   const handleExport = (format: "csv" | "json") => {
     if (!selectedTechId) return;
     const params = new URLSearchParams({
@@ -345,6 +282,7 @@ export default function SurveillanceDashboardPage() {
       startDate: new Date(startDate).toISOString(),
       endDate: new Date(endDate).toISOString(),
       format,
+      scope,
     });
     window.open(`/api/telemetry/export?${params.toString()}`, "_blank");
   };
@@ -534,17 +472,6 @@ export default function SurveillanceDashboardPage() {
             onChange={(e) => setEndDate(e.target.value)}
             className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-xs"
           />
-
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleLoadDemoRoute}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold transition"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Test Demo Route</span>
-            </button>
-          </div>
         </div>
       </div>
 
@@ -757,14 +684,6 @@ export default function SurveillanceDashboardPage() {
                 className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded-xl transition"
               >
                 Check Last 7 Days
-              </button>
-              <button
-                type="button"
-                onClick={handleLoadDemoRoute}
-                className="px-3.5 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Simulate Route & Test Playback</span>
               </button>
             </div>
           </div>

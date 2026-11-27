@@ -48,6 +48,7 @@ import {
   Bike,
   Snowflake,
   Wrench,
+  Percent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -430,6 +431,7 @@ export default function Sidebar({
   // Dedicated Accounts & Ledgers Accordion Sub-Items
   const accountingSubItems = [
     { label: "Statements of Account", tab: "statements", icon: FileText },
+    { label: "Discount Approvals", tab: "discounts", icon: Percent },
     { label: "Party Ledgers (AR & AP)", tab: "ledgers", icon: Users },
     { label: "Expenses & Outflows", tab: "expenses", icon: TrendingDown },
     { label: "POS Sales Register", tab: "pos", icon: ShoppingBag },

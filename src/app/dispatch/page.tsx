@@ -232,6 +232,11 @@ export default function DispatchMapPage() {
                     <p className="text-[11px] text-[#71717A] flex items-center gap-1 font-mono">
                       <Phone className="w-2.5 h-2.5" /> {tech.phone}
                     </p>
+                    {tech.currentStatus === "On Job" && tech.activeJob?.jobNumber && (
+                      <p className="text-[11px] font-mono font-bold text-amber-700 mt-0.5">
+                        {tech.activeJob.jobNumber}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <StatusBadge status={tech.currentStatus} />
@@ -240,6 +245,45 @@ export default function DispatchMapPage() {
           </div>
         )}
       </div>
+
+      {/* Unlocated Unassigned Jobs — no customer coordinates, so they cannot be
+          plotted on the map; listed here with job numbers for manual dispatch. */}
+      {unassignedJobs.filter((j) => !j.customer?.lat || !j.customer?.lng).length > 0 && (
+        <div className="bg-white rounded-xl border border-[#E4E4E7] p-4 shadow-xs">
+          <div className="pb-3 border-b border-[#E4E4E7] mb-3">
+            <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
+              <span>Unlocated Unassigned Jobs</span>
+              <span className="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 font-mono">
+                {unassignedJobs.filter((j) => !j.customer?.lat || !j.customer?.lng).length} Without Map Location
+              </span>
+            </h3>
+            <p className="text-[11px] text-[#71717A] mt-0.5">
+              These jobs have no customer GPS coordinates, so they do not appear as pins on the map. Open a technician from the roster above to assign one.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {unassignedJobs
+              .filter((j) => !j.customer?.lat || !j.customer?.lng)
+              .map((job) => (
+                <div
+                  key={job.id}
+                  className="p-3 rounded-lg border border-rose-200 bg-rose-50/50 text-left flex items-start gap-2.5"
+                >
+                  <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-mono font-bold text-rose-700">{job.jobNumber}</p>
+                    <p className="text-xs font-semibold text-[#18181B] truncate">
+                      {job.customer?.name || "Customer"}
+                    </p>
+                    <p className="text-[11px] text-[#71717A] line-clamp-2">
+                      {job.customer?.addressText || "No address specified"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* DISPATCH TECH SIDE DRAWER (Sliding from Right, leaving map visible) */}
       <DispatchTechDrawer

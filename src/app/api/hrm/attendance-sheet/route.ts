@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/erpActor";
+import {
+  UnifiedAttendanceService,
+  type UnifiedPunch,
+} from "@/lib/services/UnifiedAttendanceService";
 
 /**
  * GET /api/hrm/attendance-sheet
@@ -56,7 +60,7 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    const [employees, rawLogs, activeJobs] = await Promise.all([
+    const [employees, unifiedPunches, activeJobs] = await Promise.all([
       prisma.employee.findMany({
         where: employeeWhere,
         select: {
@@ -75,17 +79,12 @@ export async function GET(req: NextRequest) {
         },
         orderBy: [{ department: "asc" }, { name: "asc" }],
       }),
-      prisma.attendanceLog.findMany({
-        where: {
-          timestamp: {
-            gte: startDate,
-            lte: endDate,
-          },
-        },
-        include: {
-          geofenceZone: true,
-        },
-        orderBy: { timestamp: "asc" },
+      // Unified read: app punches (AttendanceLog) merged with mapped
+      // biometric device punches (DevicePunch), de-duplicated — a
+      // machine-only employee must not show as absent.
+      UnifiedAttendanceService.getUnifiedPunches({
+        start: startDate,
+        end: endDate,
       }),
       prisma.job.findMany({
         where: {
@@ -101,11 +100,11 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // Map logs by employeeId
-    const logsByEmployee: Record<string, typeof rawLogs> = {};
-    for (const log of rawLogs) {
-      if (!logsByEmployee[log.employeeId]) logsByEmployee[log.employeeId] = [];
-      logsByEmployee[log.employeeId].push(log);
+    // Map unified punches by employeeId
+    const logsByEmployee: Record<string, UnifiedPunch[]> = {};
+    for (const punch of unifiedPunches) {
+      if (!logsByEmployee[punch.employeeId]) logsByEmployee[punch.employeeId] = [];
+      logsByEmployee[punch.employeeId].push(punch);
     }
 
     // Map active jobs by technicianId
@@ -127,9 +126,9 @@ export async function GET(req: NextRequest) {
     const records = employees.map((emp) => {
       const logs = logsByEmployee[emp.id] || [];
 
-      // Categorize punches
+      // Categorize punches (already type-classified by the unified layer:
+      // app punches from the notes prefix, device punches from punchType)
       const punches = logs.map((l) => {
-        const isOut = l.notes?.includes("[CHECK_OUT]");
         if (l.flaggedForReview) summaryFlagged++;
         return {
           id: l.id,
@@ -139,14 +138,23 @@ export async function GET(req: NextRequest) {
             minute: "2-digit",
             hour12: true,
           }),
-          type: isOut ? ("CHECK_OUT" as const) : ("CHECK_IN" as const),
-          zoneName: l.geofenceZone?.name || (l.withinGeofence ? "Authorized Site" : "Outside Zone"),
-          withinGeofence: l.withinGeofence,
+          type: l.type,
+          zoneName:
+            l.geofenceZoneName ||
+            (l.source === "machine"
+              ? l.terminalAlias || "Biometric Device"
+              : l.withinGeofence
+              ? "Authorized Site"
+              : "Outside Zone"),
+          // Device punches happen on a fixed on-premise terminal.
+          withinGeofence: l.withinGeofence ?? l.source === "machine",
           faceMatchScore: l.faceMatchScore,
           livenessScore: l.livenessScore,
           flaggedForReview: l.flaggedForReview,
           flagReason: l.flagReason,
           notes: l.notes,
+          source: l.source,
+          sources: l.sources,
         };
       });
 
@@ -212,6 +220,7 @@ export async function GET(req: NextRequest) {
         hoursWorkedMinutes: minutesWorked,
         hoursWorkedFormatted: hoursWorkedStr,
         punchesCount: punches.length,
+        punchSources: Array.from(new Set(punches.flatMap((p) => p.sources))),
         punches,
         hasFlag: punches.some((p) => p.flaggedForReview),
         activeJob: activeJobsByTech[emp.id]

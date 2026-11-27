@@ -20,6 +20,7 @@ import { TaxService } from "@/lib/services/TaxService";
 import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { AccountSuggestionAgent } from "@/lib/services/AccountSuggestionAgent";
 import { requirePermission, resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
+import { isJobCompleted } from "@/lib/jobStatus";
 
 export async function GET(req: NextRequest) {
   try {
@@ -342,6 +343,20 @@ export async function GET(req: NextRequest) {
     }
 
     if (view === "discounts") {
+      // Technician discount requests (percent / fixed) awaiting jobs.approve_discount.
+      // Fetched first: a legacy "[Discount Requested: ...]" description marker for
+      // the same job+item is the SAME request (the legacy mobile action now also
+      // creates a real JobDiscountRequest), so the marker entry is skipped below
+      // and the request is decided exactly once, through the request workflow.
+      const pendingRequests = await prisma.jobDiscountRequest.findMany({
+        where: { status: "pending", job: { finalizedAt: null } },
+        include: { job: { include: { customer: true, assignedTechnician: true, items: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      const pendingRequestKeys = new Set(
+        pendingRequests.map((r) => `${r.jobId}:${r.itemId ?? ""}`)
+      );
+
       const jobsWithDiscounts = await prisma.job.findMany({
         where: {
           finalizedAt: null,
@@ -363,6 +378,7 @@ export async function GET(req: NextRequest) {
 
       for (const job of jobsWithDiscounts) {
         for (const item of job.items) {
+          if (pendingRequestKeys.has(`${job.id}:${item.id}`)) continue;
           if (item.description.includes("[Discount Requested:")) {
             const match = item.description.match(/\[Discount Requested:\s*(?:PKR|Rs\.?|\$)?\s*([\d,.]+)(?: - (.*?))?\]/i);
             const discountAmount = match ? parseFloat(match[1].replace(/,/g, "")) : 0;
@@ -389,12 +405,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Technician discount requests (percent / fixed) awaiting jobs.approve_discount
-      const pendingRequests = await prisma.jobDiscountRequest.findMany({
-        where: { status: "pending", job: { finalizedAt: null } },
-        include: { job: { include: { customer: true, assignedTechnician: true, items: true } } },
-        orderBy: { createdAt: "desc" },
-      });
+      // (pendingRequests were fetched above for de-duplication against markers)
       for (const r of pendingRequests) {
         const job = r.job;
         const item = r.itemId ? job.items.find((it) => it.id === r.itemId) : null;
@@ -1952,6 +1963,38 @@ export async function POST(req: NextRequest) {
 
         if (!job) {
           return NextResponse.json({ error: "Job not found" }, { status: 404 });
+        }
+
+        // Route-level completion gate: no collection against an incomplete job,
+        // except an explicit office-mode customer advance.
+        // - FOC: rejected here and again inside recordFocPayment.
+        // - Technician-collected: rejected here (recordTechnicianCashHandover
+        //   enforces the same rule in the service).
+        // - Office-collected: allowed only with asAdvance: true, in which case
+        //   recordOfficeJobReceipt books it to Customer Advances (Cr 21105)
+        //   when the job has no invoice yet.
+        if (!isJobCompleted(job)) {
+          if (job.isFoc) {
+            return NextResponse.json(
+              { error: `Job ${job.jobNumber} must be completed before an FOC payment can be recorded.` },
+              { status: 400 }
+            );
+          }
+          if (job.paymentCollectionMode === "office") {
+            if (payload.asAdvance !== true) {
+              return NextResponse.json(
+                {
+                  error: `Job ${job.jobNumber} is not completed. An office receipt on an incomplete job can only be recorded as a customer advance — resend with asAdvance: true to book it to Customer Advances (21105).`,
+                },
+                { status: 400 }
+              );
+            }
+          } else {
+            return NextResponse.json(
+              { error: `Job ${job.jobNumber} must be completed before a payment can be collected for it.` },
+              { status: 400 }
+            );
+          }
         }
 
         // FOC job (referred by an external company): company payment, amount entered now.

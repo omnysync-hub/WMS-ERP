@@ -142,6 +142,11 @@ export default function RealLeafletMap({
                 isAvailable ? "bg-emerald-500" : "bg-amber-500"
               }"></span>
               <span class="font-sans text-[11px] font-bold tracking-tight text-[#18181B] max-w-[110px] truncate leading-none">${tech.name}</span>
+              ${
+                tech.currentStatus === "On Job" && tech.activeJob?.jobNumber
+                  ? `<span class="font-mono text-[10px] font-bold text-amber-700 leading-none whitespace-nowrap">• ${tech.activeJob.jobNumber}</span>`
+                  : ""
+              }
             </div>
           </div>
 
@@ -219,10 +224,13 @@ export default function RealLeafletMap({
       markersGroup.addLayer(marker);
     });
 
-    // 2. Add Unassigned Job Beacons
+    // 2. Add Unassigned Job Beacons — only for jobs whose customer has real
+    // coordinates. Jobs without coordinates are NOT plotted (never invent a
+    // location); the dispatch page lists them under "Unlocated unassigned jobs".
     unassignedJobs.forEach((job) => {
-      const lat = job.customer?.lat || 25.18 + Math.random() * 0.08;
-      const lng = job.customer?.lng || 55.24 + Math.random() * 0.1;
+      const lat = job.customer?.lat;
+      const lng = job.customer?.lng;
+      if (!lat || !lng) return;
       bounds.push([lat, lng]);
 
       const jobHtml = `

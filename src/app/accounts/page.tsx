@@ -88,6 +88,7 @@ export default function AccountsPage() {
     | "foc"
     | "returns"
     | "vouchers"
+    | "discounts"
   >("ledgers");
 
   // Sync tab with URL query parameter (?tab=...)
@@ -114,6 +115,7 @@ export default function AccountsPage() {
             "foc",
             "returns",
             "vouchers",
+            "discounts",
           ].includes(tab)
         ) {
           setActiveTab(tab as any);
@@ -362,6 +364,15 @@ export default function AccountsPage() {
         const res = await fetch("/api/accounts?view=expenses");
         const data = await res.json();
         if (data.expenses) setExpenses(data.expenses);
+      } else if (activeTab === "discounts") {
+        setDiscountLoading(true);
+        try {
+          const res = await fetch("/api/accounts?view=discounts");
+          const data = await res.json();
+          if (Array.isArray(data.discounts)) setPendingDiscounts(data.discounts);
+        } finally {
+          setDiscountLoading(false);
+        }
       } else if (activeTab === "pos") {
         const res = await fetch("/api/accounts?view=pos_sales");
         const data = await res.json();

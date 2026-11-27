@@ -548,33 +548,39 @@ export async function PATCH(
         );
         break;
 
-      case "add_service":
-        if (Array.isArray(payload.services) && payload.services.length > 0) {
-          const addedItems = [];
-          for (const s of payload.services) {
-            if (s.description && Number(s.quantity) > 0) {
-              addedItems.push(
-                await JobsService.addJobServiceOrItem(
-                  params.id,
-                  s.description,
-                  Number(s.quantity || 1),
-                  Number(s.unitRate || 0),
-                  actor
-                )
-              );
-            }
+      case "add_service": {
+        // Qty is mandatory: validate the WHOLE batch before adding anything,
+        // instead of silently defaulting a missing quantity to 1 or skipping rows.
+        const isBatch = Array.isArray(payload.services) && payload.services.length > 0;
+        const servicesToAdd = (
+          isBatch
+            ? payload.services
+            : [{ description: payload.description, quantity: payload.quantity, unitRate: payload.unitRate }]
+        ).map((s: any) => ({
+          description: s?.description,
+          quantity: Number(s?.quantity),
+          unitRate: Number(s?.unitRate || 0),
+        }));
+        for (let i = 0; i < servicesToAdd.length; i++) {
+          const s = servicesToAdd[i];
+          if (!s.description || !Number.isFinite(s.quantity) || s.quantity <= 0) {
+            return NextResponse.json(
+              {
+                error: `Qty is required and must be greater than zero for service ${i + 1}${s.description ? ` (${s.description})` : ""}.`,
+              },
+              { status: 400 }
+            );
           }
-          result = addedItems;
-        } else {
-          result = await JobsService.addJobServiceOrItem(
-            params.id,
-            payload.description,
-            Number(payload.quantity || 1),
-            Number(payload.unitRate || 0),
-            actor
+        }
+        const addedItems = [];
+        for (const s of servicesToAdd) {
+          addedItems.push(
+            await JobsService.addJobServiceOrItem(params.id, s.description, s.quantity, s.unitRate, actor)
           );
         }
+        result = isBatch ? addedItems : addedItems[0];
         break;
+      }
 
       case "record_stock_return":
         result = await JobsService.recordStockReturn(
