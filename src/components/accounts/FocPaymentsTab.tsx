@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRole } from "@/contexts/RoleContext";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import toast from "@/lib/toast";
 
 /**
@@ -20,7 +21,7 @@ export default function FocPaymentsTab() {
   const [paying, setPaying] = useState<any | null>(null);
   const [form, setForm] = useState({
     amount: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: pktDateString(),
     method: "bank_transfer",
     account: "",
     reference: "",

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { Package, AlertCircle } from "lucide-react";
+import { pktDateString } from "@/lib/pktTime";
 
 interface AddAssetDrawerProps {
   isOpen: boolean;
@@ -19,7 +20,7 @@ export default function AddAssetDrawer({
   const [tag, setTag] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Tools & Equipment");
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split("T")[0]);
+  const [purchaseDate, setPurchaseDate] = useState(() => pktDateString());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 

@@ -23,6 +23,7 @@ import {
   Layers,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 
@@ -58,11 +59,9 @@ export default function RfqSourcingTab({
       ? `Competitive Sourcing for ${initialPrForRfq.prNumber}`
       : "HVAC Spares & Gas Sourcing Package"
   );
-  const [dueDate, setDueDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 5);
-    return d.toISOString().split("T")[0];
-  });
+  const [dueDate, setDueDate] = useState(() =>
+    pktDateString(new Date(Date.now() + 5 * 86400000))
+  );
   const [notes, setNotes] = useState("Competitive bidding required. Delivery timeline strictly evaluated.");
   const [selectedPrIds, setSelectedPrIds] = useState<string[]>(
     initialPrForRfq?.id ? [initialPrForRfq.id] : []
@@ -446,7 +445,7 @@ export default function RfqSourcingTab({
                     </div>
                     <h4 className="text-xs font-bold text-[#18181B] mt-1">{rfq.title}</h4>
                     <div className="flex items-center gap-3 text-[11px] text-[#71717A] mt-0.5">
-                      <span>Bidding Due: {new Date(rfq.dueDate).toLocaleDateString()}</span>
+                      <span>Bidding Due: {new Date(rfq.dueDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}</span>
                       <span>•</span>
                       <span>{rfq.items?.length || 0} item(s)</span>
                       <span>•</span>

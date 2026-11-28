@@ -28,6 +28,7 @@ import {
   Edit3,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, formatJobType, cn } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { FieldErrorText, INVALID_FIELD_CLS } from "@/components/ui/form";
 import SearchableSelect from "@/components/ui/SearchableSelect";
@@ -106,11 +107,9 @@ export default function RequisitionsTab({
   const [customSite, setCustomSite] = useState("");
 
   const [department, setDepartment] = useState("Central Warehouse");
-  const [dateRequired, setDateRequired] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().split("T")[0];
-  });
+  const [dateRequired, setDateRequired] = useState(() =>
+    pktDateString(new Date(Date.now() + 7 * 86400000))
+  );
   const [priority, setPriority] = useState<"Normal" | "Urgent">("Normal");
   const [costCenter, setCostCenter] = useState("CC-STORE-01");
   const [budgetCode, setBudgetCode] = useState("OPEX-2026-STORE");
@@ -153,11 +152,9 @@ export default function RequisitionsTab({
   const [prsToConvert, setPrsToConvert] = useState<any[]>([]);
   const [convertVendorId, setConvertVendorId] = useState("");
   const [convertPoType, setConvertPoType] = useState<"standard" | "blanket" | "service">("standard");
-  const [convertDeliveryDate, setConvertDeliveryDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().split("T")[0];
-  });
+  const [convertDeliveryDate, setConvertDeliveryDate] = useState(() =>
+    pktDateString(new Date(Date.now() + 7 * 86400000))
+  );
   const [poPricingItems, setPoPricingItems] = useState<
     {
       prId: string;
@@ -234,7 +231,7 @@ export default function RequisitionsTab({
     setDateRequired(
       pr.dateRequired
         ? new Date(pr.dateRequired).toISOString().split("T")[0]
-        : new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0]
+        : pktDateString(new Date(Date.now() + 7 * 86400000))
     );
     setPriority((pr.priority as any) || "Normal");
     setCostCenter(pr.costCenter || "CC-STORE-01");
@@ -785,7 +782,7 @@ export default function RequisitionsTab({
                       </td>
 
                       <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
-                        {pr.dateRequired ? new Date(pr.dateRequired).toLocaleDateString() : "Flexible"}
+                        {pr.dateRequired ? new Date(pr.dateRequired).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" }) : "Flexible"}
                       </td>
 
                       <td className="py-3 px-3">
@@ -1619,7 +1616,7 @@ export default function RequisitionsTab({
                 <div>
                   <span className="block text-[10px] font-mono text-[#71717A]">Date Required</span>
                   <span className="font-semibold text-[#18181B] font-mono">
-                    {selectedPr.dateRequired ? new Date(selectedPr.dateRequired).toLocaleDateString() : "Flexible"}
+                    {selectedPr.dateRequired ? new Date(selectedPr.dateRequired).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" }) : "Flexible"}
                   </span>
                 </div>
                 <div>

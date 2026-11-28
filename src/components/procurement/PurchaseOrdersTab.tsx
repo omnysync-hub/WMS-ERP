@@ -21,6 +21,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { FieldErrorText } from "@/components/ui/form";
 import SearchableSelect from "@/components/ui/SearchableSelect";
@@ -87,11 +88,9 @@ export default function PurchaseOrdersTab({
   const [selectedPrItemKeysForPo, setSelectedPrItemKeysForPo] = useState<string[]>([]);
   const [poType, setPoType] = useState<"standard" | "blanket" | "service">("standard");
   const [vendorId, setVendorId] = useState("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().split("T")[0];
-  });
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(() =>
+    pktDateString(new Date(Date.now() + 7 * 86400000))
+  );
   const [paymentTerms, setPaymentTerms] = useState("Net 30");
   const [shippingAddress, setShippingAddress] = useState(
     "Central Warehouse, Main Workshop St, Gulberg III, Lahore, Pakistan"
@@ -608,7 +607,7 @@ export default function PurchaseOrdersTab({
                       </td>
 
                       <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
-                        {new Date(po.poDate || po.createdAt).toLocaleDateString()}
+                        {new Date(po.poDate || po.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                       </td>
 
                       <td className="py-3 px-3 font-mono text-[11px]">
@@ -622,7 +621,7 @@ export default function PurchaseOrdersTab({
                                 : "text-[#71717A]"
                             }
                           >
-                            {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                            {new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                           </span>
                         ) : (
                           <span className="text-[#A1A1AA]">—</span>
@@ -1228,7 +1227,7 @@ export default function PurchaseOrdersTab({
                     {printablePo.poNumber}
                   </div>
                   <div className="text-[10px] font-mono text-zinc-600 mt-1">
-                    Date: {new Date(printablePo.poDate || printablePo.createdAt).toLocaleDateString()}
+                    Date: {new Date(printablePo.poDate || printablePo.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                   </div>
                   <div className="text-[10px] font-mono text-zinc-600">
                     Type: <strong className="uppercase">{printablePo.poType}</strong>
@@ -1268,7 +1267,7 @@ export default function PurchaseOrdersTab({
                     <span className="font-semibold text-zinc-800">Expected Delivery:</span>{" "}
                     <span className="font-mono">
                       {printablePo.expectedDeliveryDate
-                        ? new Date(printablePo.expectedDeliveryDate).toLocaleDateString()
+                        ? new Date(printablePo.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })
                         : "Immediate"}
                     </span>
                   </div>
@@ -1448,7 +1447,7 @@ export default function PurchaseOrdersTab({
                 <div>
                   <span className="block text-[10px] font-mono text-[#71717A]">Expected Delivery</span>
                   <span className="font-bold font-mono">
-                    {poToApprove.expectedDeliveryDate ? new Date(poToApprove.expectedDeliveryDate).toLocaleDateString() : "Immediate"}
+                    {poToApprove.expectedDeliveryDate ? new Date(poToApprove.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" }) : "Immediate"}
                   </span>
                 </div>
                 <div>

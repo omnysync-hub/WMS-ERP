@@ -429,7 +429,7 @@ export default function ProcurementApprovalsTab({
                           {po.poType} PO
                         </span>
                         <span className="text-[10px] text-[#71717A] font-mono">
-                          {new Date(po.createdAt).toLocaleDateString()}
+                          {new Date(po.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                         </span>
                       </div>
 

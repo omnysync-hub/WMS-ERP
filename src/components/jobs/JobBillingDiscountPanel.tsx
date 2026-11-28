@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { BadgePercent, Gift, Landmark, Check, X } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import toast from "@/lib/toast";
 
 /**
@@ -35,7 +36,7 @@ export default function JobBillingDiscountPanel({ job, onChanged }: { job: any; 
     amount: "",
     method: "bank_transfer",
     account: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: pktDateString(),
     reference: "",
     notes: "",
   });

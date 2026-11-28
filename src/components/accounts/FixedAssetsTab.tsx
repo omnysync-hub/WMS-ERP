@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import { useRole } from "@/contexts/RoleContext";
 import {
   Layers,
@@ -38,7 +39,7 @@ export default function FixedAssetsTab() {
   const [assetCost, setAssetCost] = useState("");
   const [salvageValue, setSalvageValue] = useState("0");
   const [usefulLifeMonths, setUsefulLifeMonths] = useState("60");
-  const [inServiceDate, setInServiceDate] = useState(new Date().toISOString().split("T")[0]);
+  const [inServiceDate, setInServiceDate] = useState(() => pktDateString());
   const [isSubmittingAsset, setIsSubmittingAsset] = useState(false);
 
   // Form states: Depreciation Run
@@ -283,7 +284,7 @@ export default function FixedAssetsTab() {
                       <div className="text-[10px] text-[#71717A] capitalize">{asset.category}</div>
                     </td>
                     <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
-                      {new Date(asset.acquisitionDate).toLocaleDateString()}
+                      {new Date(asset.acquisitionDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-[#18181B]">
                       {formatCurrency(asset.acquisitionCost)}

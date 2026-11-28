@@ -289,7 +289,7 @@ export default function PaymentsTab({
                       </td>
 
                       <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
-                        {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "Immediate"}
+                        {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" }) : "Immediate"}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono font-semibold text-[#18181B]">

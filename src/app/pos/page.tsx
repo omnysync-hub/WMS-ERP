@@ -298,7 +298,7 @@ export default function PosTerminalPage() {
     if (cart.length === 0) return;
     const newHeld: HeldCart = {
       id: `HOLD-${Date.now().toString().slice(-4)}`,
-      heldAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      heldAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" }),
       customerName: selectedCustomer.name,
       items: [...cart],
       notes: orderNotes,

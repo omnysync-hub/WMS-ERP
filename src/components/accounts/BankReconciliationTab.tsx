@@ -569,7 +569,7 @@ export default function BankReconciliationTab() {
                             />
                           </td>
                           <td className="py-2.5 px-3 font-mono text-[11px] text-[#71717A] whitespace-nowrap">
-                            {new Date(line.statementDate).toLocaleDateString()}
+                            {new Date(line.statementDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                           </td>
                           <td className="py-2.5 px-3">
                             <div className="font-semibold text-[#18181B]">{line.description}</div>
@@ -661,7 +661,7 @@ export default function BankReconciliationTab() {
                       {selectedStatementLine.description}
                     </h4>
                     <div className="flex flex-wrap items-center gap-3 text-xs text-[#71717A] mt-1 font-mono">
-                      <span>Date: {new Date(selectedStatementLine.statementDate).toLocaleDateString()}</span>
+                      <span>Date: {new Date(selectedStatementLine.statementDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}</span>
                       {selectedStatementLine.referenceNumber && (
                         <span>Ref: {selectedStatementLine.referenceNumber}</span>
                       )}
@@ -717,7 +717,7 @@ export default function BankReconciliationTab() {
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[11px] text-[#71717A]">
-                              {new Date(candidate.date).toLocaleDateString()}
+                              {new Date(candidate.date).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                             </span>
                             {isExact && (
                               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
@@ -804,7 +804,7 @@ export default function BankReconciliationTab() {
                         >
                           <div>
                             <span className="font-mono text-[11px] text-[#71717A] block">
-                              {new Date(dep.date).toLocaleDateString()}
+                              {new Date(dep.date).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                             </span>
                             <span className="text-[#18181B] font-medium">{dep.memo}</span>
                           </div>
@@ -849,7 +849,7 @@ export default function BankReconciliationTab() {
                         >
                           <div>
                             <span className="font-mono text-[11px] text-[#71717A] block">
-                              {new Date(pay.date).toLocaleDateString()}
+                              {new Date(pay.date).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                             </span>
                             <span className="text-[#18181B] font-medium">{pay.memo}</span>
                           </div>
@@ -921,7 +921,7 @@ export default function BankReconciliationTab() {
                     return (
                       <tr key={line.id} className="hover:bg-[#FAFAFA]">
                         <td className="py-2.5 px-3 font-mono text-[11px] text-[#71717A] whitespace-nowrap">
-                          {new Date(line.statementDate).toLocaleDateString()}
+                          {new Date(line.statementDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="font-semibold text-[#18181B]">{line.description}</div>
@@ -948,7 +948,7 @@ export default function BankReconciliationTab() {
                                 Date:{" "}
                                 {new Date(
                                   line.matchedJournalLine.journalEntry?.date || line.statementDate
-                                ).toLocaleDateString()}
+                                ).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                                 {line.matchedJournalLine.journalEntry?.refId &&
                                   ` • Ref: ${line.matchedJournalLine.journalEntry.refId}`}
                               </div>
@@ -961,7 +961,7 @@ export default function BankReconciliationTab() {
                           <div>By: {line.reconciledBy || "Accountant"}</div>
                           {line.reconciledAt && (
                             <div className="text-[10px] font-mono">
-                              {new Date(line.reconciledAt).toLocaleString()}
+                              {new Date(line.reconciledAt).toLocaleString(undefined, { timeZone: "Asia/Karachi" })}
                             </div>
                           )}
                         </td>

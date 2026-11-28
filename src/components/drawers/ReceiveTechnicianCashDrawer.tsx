@@ -153,8 +153,8 @@ export default function ReceiveTechnicianCashDrawer({
             <div className="flex items-center justify-between pt-1 border-t border-[#EDEDED] text-[11px] text-[#71717A]">
               <span>Customer Collection Logged:</span>
               <span className="font-mono">
-                {new Date(settlement.settledAt).toLocaleDateString()} at{" "}
-                {new Date(settlement.settledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {new Date(settlement.settledAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })} at{" "}
+                {new Date(settlement.settledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Karachi" })}
               </span>
             </div>
           )}

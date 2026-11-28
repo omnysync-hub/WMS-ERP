@@ -3296,7 +3296,7 @@ export default function InventoryPurchasingPage() {
                                 <span className="font-mono">{currentAssignment.employee?.name || "Technician"}</span>
                               </div>
                               <div className="text-[11px] text-blue-800">
-                                Date: {new Date(currentAssignment.assignedAt).toLocaleDateString()}
+                                Date: {new Date(currentAssignment.assignedAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                               </div>
                               {currentAssignment.conditionNotes && (
                                 <div className="text-[10px] text-blue-900 italic">

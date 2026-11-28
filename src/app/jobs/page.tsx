@@ -1050,8 +1050,8 @@ export default function JobsListPage() {
       cell: (row) => {
         if (!row.createdAt) return <span className="text-xs text-[#A1A1AA] font-mono">—</span>;
         const d = new Date(row.createdAt);
-        const dateStr = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(d);
-        const timeStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).format(d);
+        const dateStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Karachi", month: "short", day: "numeric" }).format(d);
+        const timeStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Karachi", hour: "numeric", minute: "2-digit", hour12: true }).format(d);
         return (
           <div className="text-right">
             <span className="text-xs font-semibold text-[#3F3F46] block">{dateStr}</span>

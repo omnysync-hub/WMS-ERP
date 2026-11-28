@@ -21,6 +21,7 @@ import {
   Printer,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import {
   ProcurementStatusBadge,
   ProcurementEmptyState,
@@ -82,12 +83,10 @@ export default function ThreeWayMatchTab({
   const [vendorId, setVendorId] = useState("");
   const [selectedPoId, setSelectedPoId] = useState("");
   const [selectedGrnIds, setSelectedGrnIds] = useState<string[]>([]);
-  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [dueDate, setDueDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString().split("T")[0];
-  });
+  const [invoiceDate, setInvoiceDate] = useState(() => pktDateString());
+  const [dueDate, setDueDate] = useState(() =>
+    pktDateString(new Date(Date.now() + 30 * 86400000))
+  );
   const [taxAmount, setTaxAmount] = useState("0");
   // Supplier bill discount (bill-level percent / fixed amount; optional per-line %)
   const [billDiscountType, setBillDiscountType] = useState<"" | "percent" | "amount">("");
@@ -487,7 +486,7 @@ export default function ThreeWayMatchTab({
                     </td>
 
                     <td className="py-3 px-3 font-mono text-[11px] text-[#71717A]">
-                      {new Date(inv.invoiceDate || inv.createdAt).toLocaleDateString()}
+                      {new Date(inv.invoiceDate || inv.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                     </td>
 
                     <td className="py-3 px-3 text-right font-mono font-bold text-[#18181B] text-sm">
@@ -715,7 +714,7 @@ export default function ThreeWayMatchTab({
                                     {g.grnNumber}
                                   </span>
                                   <span className="text-[10px] text-[#71717A]">
-                                    {g.items?.length || 0} item(s) • {new Date(g.receivedDate || g.createdAt).toLocaleDateString()}
+                                    {g.items?.length || 0} item(s) • {new Date(g.receivedDate || g.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                                   </span>
                                 </div>
                               </div>

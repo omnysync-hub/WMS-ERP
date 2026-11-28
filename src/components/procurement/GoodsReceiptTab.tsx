@@ -23,6 +23,7 @@ import {
   Check,
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import {
   ProcurementEmptyState,
   ProcurementStatusBadge,
@@ -106,7 +107,7 @@ export default function GoodsReceiptTab({
   const [showCreateModal, setShowCreateModal] = useState(Boolean(presetPoForGrn));
   const [selectedPoId, setSelectedPoId] = useState<string>(presetPoForGrn?.id || "");
   const [receivedBy, setReceivedBy] = useState(() => `${activeUser?.name || currentPersona?.name || "Warehouse Storekeeper"} (Storekeeper)`);
-  const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [receivedDate, setReceivedDate] = useState(() => pktDateString());
   const [warehouseLocation, setWarehouseLocation] = useState("Central Warehouse - Lahore");
   const [deliveryChallan, setDeliveryChallan] = useState("");
   const [notes, setNotes] = useState("");
@@ -493,7 +494,7 @@ export default function GoodsReceiptTab({
                             )}
                           </div>
                           <div className="text-[10px] text-[#A1A1AA] font-mono">
-                            {new Date(po.poDate || po.createdAt).toLocaleDateString()} •{" "}
+                            {new Date(po.poDate || po.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })} •{" "}
                             {items.length} line item(s)
                           </div>
                         </td>
@@ -515,7 +516,7 @@ export default function GoodsReceiptTab({
                           {po.expectedDeliveryDate ? (
                             <div>
                               <div className="text-[#18181B] font-medium">
-                                {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                                {new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                               </div>
                               {isOverdue ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
@@ -655,7 +656,7 @@ export default function GoodsReceiptTab({
                           {grn.grnNumber}
                         </div>
                         <div className="text-[10px] text-[#A1A1AA] font-mono">
-                          {new Date(grn.receivedDate || grn.createdAt).toLocaleDateString()}
+                          {new Date(grn.receivedDate || grn.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                         </div>
                       </td>
 
@@ -1021,7 +1022,7 @@ export default function GoodsReceiptTab({
               <div>
                 <span className="block text-[10px] font-mono text-[#71717A]">Received Date</span>
                 <span className="font-semibold text-[#18181B]">
-                  {new Date(viewingGrn.receivedDate || viewingGrn.createdAt).toLocaleDateString()}
+                  {new Date(viewingGrn.receivedDate || viewingGrn.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                 </span>
               </div>
               <div>
@@ -1194,7 +1195,7 @@ export default function GoodsReceiptTab({
                     PO Date & Type
                   </span>
                   <span className="font-semibold text-[#18181B] block mt-0.5">
-                    {new Date(po.poDate || po.createdAt).toLocaleDateString()}
+                    {new Date(po.poDate || po.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                   </span>
                   <span className="text-[10px] font-mono text-[#71717A] uppercase">
                     {po.poType || "Standard"}
@@ -1208,7 +1209,7 @@ export default function GoodsReceiptTab({
                   {po.expectedDeliveryDate ? (
                     <div>
                       <span className="font-semibold text-[#18181B] block mt-0.5">
-                        {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                        {new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                       </span>
                       {isOverdue ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600">
@@ -1432,7 +1433,7 @@ export default function GoodsReceiptTab({
                               <td className="py-2 px-3 text-zinc-600">
                                 {new Date(
                                   g.receivedDate || g.createdAt
-                                ).toLocaleDateString()}
+                                ).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                               </td>
                               <td className="py-2 px-3 text-zinc-800">{g.receivedBy}</td>
                               <td className="py-2 px-3 font-mono text-zinc-600">

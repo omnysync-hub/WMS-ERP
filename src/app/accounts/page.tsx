@@ -20,6 +20,7 @@ import { FieldErrorText, INVALID_FIELD_CLS } from "@/components/ui/form";
 import { useRole } from "@/contexts/RoleContext";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { pktDateString } from "@/lib/pktTime";
 import { notify } from "@/lib/notify";
 import {
   CreditCard,
@@ -270,7 +271,7 @@ export default function AccountsPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `chart_of_accounts_${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute("download", `chart_of_accounts_${pktDateString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

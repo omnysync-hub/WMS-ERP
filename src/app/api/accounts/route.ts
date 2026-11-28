@@ -50,6 +50,51 @@ const KNOWN_VIEWS = new Set([
 ]);
 
 /**
+ * Owner rule — the accountant role is excluded from four Accounts areas:
+ * POS Register, Account Mapping, Bank Reconciliation and Fixed Assets. The UI
+ * already hides those tabs for the accountant (Sidebar
+ * ACCOUNTANT_HIDDEN_ACCOUNT_TABS + the accounts page role gate); these sets
+ * are the API mirror, so the areas are closed to an accountant login here too.
+ *
+ * No permission key can express this: the accountant legitimately holds
+ * accounts.general_ledger, accounts.post_entries and settings.accounting, and
+ * every one of those keys is shared with flows the accountant must keep
+ * (all other ledger views, expense/cashbook/vendor postings, tax settings) —
+ * stripping any of them would break legitimate accountant work. So, exactly
+ * like the UI, the denial is keyed on the role itself. Every other role is
+ * completely unaffected.
+ */
+const ACCOUNTANT_BLOCKED_VIEWS = new Set([
+  "pos_sales", // POS Register
+  "account_mappings", // Account Mapping
+  "mapping_suggestions", // Account Mapping — AI suggestions review queue
+  "bank_reconciliation", // Bank Reconciliation
+  "fixed_assets", // Fixed Assets
+]);
+
+const ACCOUNTANT_BLOCKED_ACTIONS = new Set([
+  // Account Mapping writes (scan_suggestions included: it feeds the mapping queue)
+  "update_account_mapping",
+  "apply_same_as",
+  "review_suggestion",
+  "accept_high_confidence",
+  "create_and_map_account",
+  "scan_suggestions",
+  // Bank Reconciliation
+  "bank_rec_import",
+  "bank_rec_automatch",
+  "bank_rec_manualmatch",
+  "bank_rec_unmatch",
+  // Fixed Assets (register + depreciation runs)
+  "add_fixed_asset",
+  "run_depreciation",
+]);
+
+function isAccountantRole(role: string | undefined | null): boolean {
+  return (role || "").toLowerCase() === "accountant";
+}
+
+/**
  * All cash/bank posting accounts, derived from the chart itself: active level-4 asset
  * ledgers under the "Cash & Bank" group (1110) or linked to a configured Financial
  * Account. No fixed code lists — an account the client adds to the group (11105 Cash
@@ -89,6 +134,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         { error: `Unknown accounts view '${view}'.`, code: "UNKNOWN_VIEW" },
         { status: 400 }
+      );
+    }
+    // Owner rule: POS Register, Account Mapping, Bank Reconciliation and Fixed
+    // Assets are closed to the accountant role at the API level too (see
+    // ACCOUNTANT_BLOCKED_VIEWS above).
+    if (view !== null && isAccountantRole(resolved.actor.role) && ACCOUNTANT_BLOCKED_VIEWS.has(view)) {
+      return NextResponse.json(
+        {
+          error: "This accounting area is not available to the accountant role.",
+          code: "PERMISSION_DENIED",
+        },
+        { status: 403 }
       );
     }
     const partyType = searchParams.get("partyType"); // "customer", "technician", "vendor"
@@ -1681,6 +1738,19 @@ export async function POST(req: NextRequest) {
         {
           error: `Forbidden: role '${gate.actor.role}' lacks permission '${requiredForAction}' for '${action}'.`,
           permission: requiredForAction,
+          code: "PERMISSION_DENIED",
+        },
+        { status: 403 }
+      );
+    }
+    // Owner rule: the four hidden Accounts areas stay closed to the accountant
+    // here too — their writes ride on shared keys (settings.accounting /
+    // accounts.post_entries) that the accountant legitimately holds, so the
+    // denial is keyed on the role (see ACCOUNTANT_BLOCKED_ACTIONS above).
+    if (isAccountantRole(gate.actor.role) && ACCOUNTANT_BLOCKED_ACTIONS.has(String(action))) {
+      return NextResponse.json(
+        {
+          error: `Forbidden: role 'accountant' cannot use '${action}': this accounting area is restricted for the accountant role.`,
           code: "PERMISSION_DENIED",
         },
         { status: 403 }

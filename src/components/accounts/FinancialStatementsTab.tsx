@@ -175,7 +175,7 @@ export default function FinancialStatementsTab() {
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Extended 4-Level Trial Balance</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
-                As of {new Date(trialBalanceData.asOfDate).toLocaleDateString()} • Base Currency: PKR
+                As of {new Date(trialBalanceData.asOfDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })} • Base Currency: PKR
               </p>
             </div>
             <div className="text-right">
@@ -296,7 +296,7 @@ export default function FinancialStatementsTab() {
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Statement of Financial Position (Balance Sheet)</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
-                As of {new Date(balanceSheetData.asOfDate).toLocaleDateString()} • Strict GAAP Principle: Assets = Liabilities + Equity
+                As of {new Date(balanceSheetData.asOfDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })} • Strict GAAP Principle: Assets = Liabilities + Equity
               </p>
             </div>
             <div>

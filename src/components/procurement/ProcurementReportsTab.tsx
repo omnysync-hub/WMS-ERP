@@ -171,7 +171,7 @@ export default function ProcurementReportsTab({
                           {pr.prNumber}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-[11px] text-[#71717A]">
-                          {new Date(pr.createdAt).toLocaleDateString()}
+                          {new Date(pr.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                         </td>
                         <td className="py-2.5 px-3 font-medium text-[#18181B]">
                           {pr.department} ({pr.site || "Central"})
@@ -190,7 +190,7 @@ export default function ProcurementReportsTab({
                           </span>
                         </td>
                         <td className="py-2.5 px-3 font-mono text-[#71717A]">
-                          {pr.dateRequired ? new Date(pr.dateRequired).toLocaleDateString() : "Flexible"}
+                          {pr.dateRequired ? new Date(pr.dateRequired).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" }) : "Flexible"}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
                           {formatCurrency(est)}
@@ -263,10 +263,10 @@ export default function ProcurementReportsTab({
                           {po.supplierName}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-[#71717A]">
-                          {new Date(po.createdAt).toLocaleDateString()}
+                          {new Date(po.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-[#18181B]">
-                          {po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString() : "Flexible"}
+                          {po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" }) : "Flexible"}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-[11px] text-[#71717A]">
                           {totalRec} / {totalOrd} units ({pct}%)
@@ -348,7 +348,7 @@ export default function ProcurementReportsTab({
                           {po.vendor?.phone || po.supplierEmail}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-rose-700">
-                          {new Date(po.expectedDeliveryDate).toLocaleDateString()}
+                          {new Date(po.expectedDeliveryDate).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           <span className="inline-block px-2 py-0.5 rounded font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200">
@@ -413,7 +413,7 @@ export default function ProcurementReportsTab({
                         {grn.grnNumber}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-[#71717A]">
-                        {new Date(grn.receivedDate || grn.createdAt).toLocaleDateString()}
+                        {new Date(grn.receivedDate || grn.createdAt).toLocaleDateString(undefined, { timeZone: "Asia/Karachi" })}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-[#0D7A5F] font-semibold">
                         {grn.po?.poNumber || "PO-Direct"}
