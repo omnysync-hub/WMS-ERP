@@ -27,6 +27,12 @@ function isPublic(request: NextRequest) {
   // Only the credential exchange is public. Every other mobile endpoint must
   // pass through the signed Bearer-token/session validation below.
   if (pathname === "/api/mobile/auth" && request.method === "POST") return true;
+  // Session refresh must be reachable with an AGED token (the age check
+  // below would reject exactly the tokens refresh exists for). The route
+  // itself verifies the HMAC signature and requires the token's sessionId
+  // to still match the employee's live server-side session, so revocation
+  // still wins — same trust pattern as the ZKBio exemption below.
+  if (pathname === "/api/mobile/auth/refresh" && request.method === "POST") return true;
   // ZKBio punch ingest is machine-to-machine: no user session exists on
   // the client PC. The route itself enforces the shared sync token
   // (x-zkbio-sync-token), so the session check is bypassed for it alone.
