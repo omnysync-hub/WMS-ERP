@@ -134,6 +134,8 @@ export async function GET(req: NextRequest) {
           id: l.id,
           timestamp: l.timestamp.toISOString(),
           timeStr: l.timestamp.toLocaleTimeString("en-US", {
+            // The sheet is a Pakistan-time document; the server clock is not.
+            timeZone: "Asia/Karachi",
             hour: "2-digit",
             minute: "2-digit",
             hour12: true,

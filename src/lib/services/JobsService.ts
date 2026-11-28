@@ -2762,6 +2762,28 @@ export class JobsService {
 
     // Execute stock deduction, inventory request update, and job item creation atomically
     const { updatedRequest, newItem } = await prisma.$transaction(async (tx) => {
+      // 0. Assignment gate, inside the transaction before any stock moves:
+      // stock is never issued to a job with no technician — neither a lead
+      // assignedTechnicianId nor a live JobAssignment.
+      const jobForGate = await tx.job.findUnique({
+        where: { id: jobId },
+        select: {
+          assignedTechnicianId: true,
+          assignments: {
+            where: { status: { not: "Removed" } },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      });
+      if (!jobForGate?.assignedTechnicianId && !jobForGate?.assignments.length) {
+        const gateError: any = new Error(
+          "Assign a technician before issuing stock to this job"
+        );
+        gateError.code = "JOB_NOT_ASSIGNED";
+        throw gateError;
+      }
+
       // 1. Consume stock through InventoryService (handles ledger and COGS journal entry)
       await InventoryService.consumeStock(
         productId,
@@ -2792,7 +2814,7 @@ export class JobsService {
       const item = await tx.jobItem.create({
         data: {
           jobId,
-          description: `${product.name}${product.sku ? ` - ${product.sku}` : ""}${product.unit ? ` [${product.unit}]` : ""} - Issued by Storekeeper`,
+          description: `${product.name}${product.sku ? ` - ${product.sku}` : ""} - Issued by Storekeeper`,
           quantityPlanned: qty,
           quantityActual: qty,
           unitRate: product.unitPrice,
@@ -3024,6 +3046,8 @@ export class JobsService {
     cashCollection?: {
       amount: number;
       notes?: string;
+      /** COA code the collected cash is received into. Absent = mapped default (11105). */
+      accountCode?: string;
     }
   ) {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -3033,13 +3057,27 @@ export class JobsService {
     const techId = technicianId || job.assignedTechnicianId;
 
     let cashRecoveryResult = null;
+    let receivedIntoAccountCode: string | null = null;
     if (cashCollection && cashCollection.amount > 0 && techId) {
       const recoveredAmt = Number(cashCollection.amount);
       // The collected cash must reach the GL, not only the technician sub-ledger:
-      // Dr settlement collection vault (11105) / Cr job revenue receivable (11201),
-      // posted in the SAME transaction as the ledger entry. If the GL post fails the
-      // whole recording fails with that error — the money is never silently lost.
+      // Dr receiving account (the account the recorder chose; the mapped settlement
+      // collection vault 11105 when none was chosen) / Cr job revenue receivable
+      // (11201), posted in the SAME transaction as the ledger entry. If the GL post
+      // fails the whole recording fails with that error — the money is never
+      // silently lost.
       await prisma.$transaction(async (tx) => {
+        // Resolve the receiving account FIRST: a caller-chosen account must be a
+        // valid posting account (active, level-4 leaf) — getAccountByCode throws
+        // otherwise, the transaction rolls back, and nothing is recorded.
+        const receivingAccount = cashCollection.accountCode
+          ? await AccountsPostingService.getAccountByCode(cashCollection.accountCode, tx)
+          : await AccountMappingService.resolveAccount({
+              transactionType: "settlement_collection_vault",
+              prismaClient: tx,
+            });
+        receivedIntoAccountCode = receivingAccount.code;
+
         const ledgerEntry = await tx.technicianLedgerEntry.create({
           data: {
             technicianId: techId,
@@ -3050,10 +3088,6 @@ export class JobsService {
           },
         });
 
-        const vaultAccount = await AccountMappingService.resolveAccount({
-          transactionType: "settlement_collection_vault",
-          prismaClient: tx,
-        });
         const receivableAccount = await AccountMappingService.resolveAccount({
           transactionType: "job_revenue_receivable",
           prismaClient: tx,
@@ -3065,7 +3099,7 @@ export class JobsService {
           refId: ledgerEntry.id,
           postedBy: reportedBy,
           lines: [
-            { accountId: vaultAccount.id, debit: recoveredAmt, credit: 0 },
+            { accountId: receivingAccount.id, debit: recoveredAmt, credit: 0 },
             {
               accountId: receivableAccount.id,
               debit: 0,
@@ -3081,6 +3115,7 @@ export class JobsService {
         amount: recoveredAmt,
         receivedBy: reportedBy,
         notes: cashCollection.notes,
+        receivedIntoAccountCode,
       };
     }
 

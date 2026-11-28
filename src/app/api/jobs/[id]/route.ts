@@ -145,45 +145,7 @@ export async function GET(
       receivable,
     };
 
-    // Enrich items and inventoryRequests with product unit from ERP stock catalog
-    const products = await prisma.product.findMany({
-      select: { id: true, name: true, sku: true, unit: true },
-    });
-
-    const enrichedItems = (job.items || []).map((it) => {
-      const bracketMatch = it.description.match(/\[(?:Unit:\s*)?([a-zA-Z]+)\]/i);
-      const matchedProd = products.find(
-        (p) =>
-          (p.sku && it.description.toUpperCase().includes(p.sku.toUpperCase())) ||
-          (p.name && it.description.toLowerCase().includes(p.name.toLowerCase()))
-      );
-      return {
-        ...it,
-        unit: matchedProd?.unit || bracketMatch?.[1] || "units",
-      };
-    });
-
-    const enrichedRequests = (job.inventoryRequests || []).map((req) => {
-      const matchedProd = products.find(
-        (p) =>
-          (req.productId && p.id === req.productId) ||
-          (p.sku && req.item.toUpperCase().includes(p.sku.toUpperCase())) ||
-          (p.name && req.item.toLowerCase().includes(p.name.toLowerCase()))
-      );
-      return {
-        ...req,
-        unit: matchedProd?.unit || "units",
-      };
-    });
-
-    return NextResponse.json({
-      ...job,
-      items: enrichedItems,
-      inventoryRequests: enrichedRequests,
-      invoice,
-      customerJobHistory,
-      billingSummary,
-    });
+    return NextResponse.json({ ...job, invoice, customerJobHistory, billingSummary });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -634,7 +596,16 @@ export async function PATCH(
 
       case "record_misplaced_item": {
         const cashCollection = payload.collectCashNow && Number(payload.cashAmount) > 0
-          ? { amount: Number(payload.cashAmount), notes: payload.cashNotes }
+          ? {
+              amount: Number(payload.cashAmount),
+              notes: payload.cashNotes,
+              // Optional: COA account the collected cash is received into.
+              // Absent (older clients) = mapped default 11105, as before.
+              accountCode:
+                typeof payload.cashAccountCode === "string" && payload.cashAccountCode.trim()
+                  ? payload.cashAccountCode.trim()
+                  : undefined,
+            }
           : undefined;
 
         if (Array.isArray(payload.items) && payload.items.length > 0) {
@@ -750,6 +721,9 @@ export async function PATCH(
 
     return NextResponse.json(result);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json(
+      { error: err.message, ...(err?.code ? { code: err.code } : {}) },
+      { status: 400 }
+    );
   }
 }

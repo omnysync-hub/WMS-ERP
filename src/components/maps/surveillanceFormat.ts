@@ -7,6 +7,9 @@
  * behind the ssr:false dynamic boundary in SurveillanceMap.tsx).
  */
 
+// Every surveillance timestamp is Pakistan time, wherever the viewer is.
+export { formatPktTime, formatPktDate, formatPktDateTime } from "@/lib/pktTime";
+
 /** Battery levels arrive from the app as 0–1 fractions; render as a rounded percent. */
 export function formatBatteryPercent(level: number): string {
   const pct = level <= 1 ? level * 100 : level;

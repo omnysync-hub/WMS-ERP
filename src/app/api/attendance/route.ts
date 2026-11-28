@@ -141,6 +141,14 @@ export async function POST(req: NextRequest) {
       punchType,
       backupPassword,
     } = body;
+    // GPS fix quality reported by the app (pinpoint capture): the fix's
+    // true accuracy radius + the OS mock-location flag. Older builds send
+    // neither — both stay undefined and no quality flag is raised.
+    const gpsAccuracyM =
+      body.accuracy === undefined || body.accuracy === null
+        ? undefined
+        : Number(body.accuracy);
+    const gpsMocked = body.mocked === true;
 
     if (!employeeId || lat === undefined || lng === undefined) {
       return NextResponse.json(
@@ -248,6 +256,9 @@ export async function POST(req: NextRequest) {
       notes,
       punchType: punchType === "CHECK_OUT" ? "CHECK_OUT" : "CHECK_IN",
       backupVerified,
+      gpsAccuracyM:
+        gpsAccuracyM !== undefined && Number.isFinite(gpsAccuracyM) ? gpsAccuracyM : undefined,
+      gpsMocked,
     });
 
     if (result.status === "rejected") {

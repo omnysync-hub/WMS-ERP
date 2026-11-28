@@ -4,7 +4,18 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { ZoomIn, ZoomOut, Layers, Compass, Focus, Navigation } from "lucide-react";
-import { formatBatteryPercent, formatDurationMinutes } from "./surveillanceFormat";
+import {
+  formatBatteryPercent,
+  formatDurationMinutes,
+  formatPktTime,
+} from "./surveillanceFormat";
+import {
+  classifySegment,
+  deriveStops,
+  haversineKm,
+  initialsOf,
+  type SegmentKind,
+} from "@/lib/routeTrack";
 
 export { formatBatteryPercent, formatDurationMinutes } from "./surveillanceFormat";
 
@@ -13,6 +24,8 @@ export interface PingData {
   lat: number;
   lng: number;
   accuracy?: number | null;
+  /** OS mock-location flag: this fix was rejected as position evidence. */
+  mocked?: boolean;
   speed?: number | null;
   batteryLevel?: number | null;
   isMoving: boolean;
@@ -52,6 +65,24 @@ interface RealSurveillanceMapProps {
 
 type MapLayerType = "streets" | "satellite" | "dark";
 
+/** Base (not yet played) style for one ping-pair segment. */
+function basePairStyle(kind: SegmentKind, fromPing: PingData): L.PolylineOptions {
+  if (kind !== "track") {
+    // Offline gap or impossible GPS jump: never drawn as travel.
+    return { color: "#A1A1AA", weight: 3, opacity: 0.8, dashArray: "2, 7", lineCap: "round" };
+  }
+  const color = fromPing.activeJob ? "#0D7A5F" : fromPing.isShiftActive ? "#3B82F6" : "#94A3B8";
+  return { color, weight: 4, opacity: 0.5, lineCap: "round", lineJoin: "round" };
+}
+
+/** Style once playback has covered the segment. Gaps stay grey — forever. */
+function travelledPairStyle(kind: SegmentKind): L.PolylineOptions {
+  if (kind !== "track") {
+    return { color: "#71717A", weight: 3, opacity: 0.9, dashArray: "2, 7", lineCap: "round" };
+  }
+  return { color: "#10B981", weight: 6, opacity: 0.95, lineCap: "round", lineJoin: "round" };
+}
+
 function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const y = Math.sin(dLon) * Math.cos((lat2 * Math.PI) / 180);
@@ -77,9 +108,14 @@ export default function RealSurveillanceMap({
   const playbackLayerRef = useRef<L.LayerGroup | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
-  // Persistent marker and progress polyline for zero-stutter 60fps playback
+  // Persistent cursor marker for zero-stutter playback. The route itself is
+  // drawn once per data load as one polyline per ping pair; playback only
+  // restyles the pairs behind the cursor (cheap setStyle, no layer rebuild).
   const cursorMarkerRef = useRef<L.Marker | null>(null);
-  const progressLineRef = useRef<L.Polyline | null>(null);
+  const cursorCircleRef = useRef<L.Circle | null>(null);
+  const pairLayersRef = useRef<
+    { layer: L.Polyline; base: L.PolylineOptions; travelled: L.PolylineOptions }[]
+  >([]);
   const boundsAllRef = useRef<L.LatLngTuple[]>([]);
 
   const [activeLayer, setActiveLayer] = useState<MapLayerType>("streets");
@@ -94,6 +130,14 @@ export default function RealSurveillanceMap({
     setInternalAutoFollow(next);
     onToggleAutoFollow?.(next);
   };
+
+  // Route structure, derived once per data load with the SAME classifier the
+  // history API uses for its distance total — map, totals and timeline agree.
+  const segments = useMemo(
+    () => pings.slice(1).map((p, i) => classifySegment(pings[i], p)),
+    [pings]
+  );
+  const stops = useMemo(() => deriveStops(pings), [pings]);
 
   const TILE_URLS: Record<MapLayerType, { url: string; attribution: string; maxZoom: number }> = {
     streets: {
@@ -144,7 +188,8 @@ export default function RealSurveillanceMap({
       map.remove();
       mapInstanceRef.current = null;
       cursorMarkerRef.current = null;
-      progressLineRef.current = null;
+      cursorCircleRef.current = null;
+      pairLayersRef.current = [];
     };
   }, []);
 
@@ -165,129 +210,192 @@ export default function RealSurveillanceMap({
     tileLayerRef.current = newTileLayer;
   }, [activeLayer]);
 
-  // 3. Render Base Path, Gap Lines, and Start/End Points
+  // 3. Render Base Path (segment-aware), Gap Markers, Stops, Start/End Points
   useEffect(() => {
     if (!mapInstanceRef.current || !pathLayerRef.current) return;
 
     const pathGroup = pathLayerRef.current;
     pathGroup.clearLayers();
+    pairLayersRef.current = [];
 
     if (pings.length === 0) return;
 
-    const allBounds: L.LatLngTuple[] = [];
+    const allBounds: L.LatLngTuple[] = pings.map((p) => [p.lat, p.lng] as L.LatLngTuple);
 
-    // Background base route (subdued path)
-    for (let i = 0; i < pings.length - 1; i++) {
+    // One polyline per ping pair, styled by segment kind: real movement is a
+    // solid line; an offline gap or an impossible GPS jump is a dashed grey
+    // connector — the route never pretends unobserved movement happened.
+    segments.forEach((seg, i) => {
       const p1 = pings[i];
       const p2 = pings[i + 1];
-      allBounds.push([p1.lat, p1.lng]);
-
-      let segmentColor = "#94A3B8"; // light slate base
-      if (p1.isShiftActive && p1.activeJob) {
-        segmentColor = "#0D7A5F";
-      } else if (p1.isShiftActive) {
-        segmentColor = "#3B82F6";
-      }
-
-      const segment = L.polyline(
+      const line = L.polyline(
         [
           [p1.lat, p1.lng],
           [p2.lat, p2.lng],
         ],
-        {
-          color: segmentColor,
-          weight: 4,
-          opacity: 0.45,
-          dashArray: "3, 6",
-        }
+        basePairStyle(seg.kind, p1)
       );
-      pathGroup.addLayer(segment);
-    }
+      pathGroup.addLayer(line);
+      pairLayersRef.current.push({
+        layer: line,
+        base: basePairStyle(seg.kind, p1),
+        travelled: travelledPairStyle(seg.kind),
+      });
+    });
 
-    if (pings.length > 0) {
-      allBounds.push([pings[pings.length - 1].lat, pings[pings.length - 1].lng]);
-    }
+    // Direction chevrons along real segments only (capped for legibility).
+    const trackPairs = segments
+      .map((seg, i) => (seg.kind === "track" ? i : -1))
+      .filter((i) => i >= 0);
+    const stride = Math.max(1, Math.floor(trackPairs.length / 28));
+    trackPairs.forEach((pairIdx, k) => {
+      if (k % stride !== 0) return;
+      const a = pings[pairIdx];
+      const b = pings[pairIdx + 1];
+      if (haversineKm(a.lat, a.lng, b.lat, b.lng) < 0.03) return;
+      const bearing = Math.round(calculateBearing(a.lat, a.lng, b.lat, b.lng));
+      const chevronIcon = L.divIcon({
+        html: `<div style="transform: rotate(${bearing}deg); width:14px; height:14px;">
+          <svg width="14" height="14" viewBox="0 0 24 24"><path d="M5 15.5 12 8l7 7.5" fill="none" stroke="#64748B" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>`,
+        className: "route-chevron",
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+      pathGroup.addLayer(
+        L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], {
+          icon: chevronIcon,
+          interactive: false,
+        })
+      );
+    });
 
-    // Draw Offline Gap Lines (Red Dashed) & Markers
+    // Offline gap markers (the dashed grey connector itself is drawn by the
+    // segment renderer above — the gap's silence IS a segment break).
     gaps.forEach((gap) => {
       if (gap.lastKnownLat && gap.lastKnownLng) {
-        allBounds.push([gap.lastKnownLat, gap.lastKnownLng]);
-
-        if (gap.resumeLat && gap.resumeLng) {
-          const gapLine = L.polyline(
-            [
-              [gap.lastKnownLat, gap.lastKnownLng],
-              [gap.resumeLat, gap.resumeLng],
-            ],
-            {
-              color: "#EF4444",
-              weight: 3,
-              dashArray: "6, 8",
-              opacity: 0.9,
-            }
-          );
-          pathGroup.addLayer(gapLine);
-        }
-
-        const gapHtml = `
-          <div class="relative group cursor-pointer" style="transform: translate(-50%, -50%);">
-            <div class="w-7 h-7 rounded-full bg-rose-600 text-white flex items-center justify-center border-2 border-white shadow-lg animate-bounce">
-              <span class="text-[10px] font-black">!</span>
-            </div>
-            <div class="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 text-white text-[10px] p-2 rounded-lg shadow-xl border border-rose-500 pointer-events-none opacity-0 group-hover:opacity-100 transition z-50">
-              <p class="font-bold text-rose-400">Offline Gap: ${formatDurationMinutes(gap.durationMinutes || 0)}</p>
-              <p class="text-zinc-300">Started: ${new Date(gap.gapStartAt).toLocaleTimeString()}</p>
-              ${gap.gapEndAt ? `<p class="text-zinc-300">Resumed: ${new Date(gap.gapEndAt).toLocaleTimeString()}</p>` : ""}
-              ${gap.lastBatteryLevel != null ? `<p class="text-zinc-400">Battery: ${formatBatteryPercent(gap.lastBatteryLevel)}</p>` : ""}
-            </div>
-          </div>
-        `;
         const gapIcon = L.divIcon({
-          html: gapHtml,
+          html: `
+            <div style="transform: translate(-50%, -50%);">
+              <div class="w-6 h-6 rounded-full bg-white text-rose-600 flex items-center justify-center border-2 border-rose-500 shadow-md">
+                <span class="text-[11px] font-black leading-none">!</span>
+              </div>
+            </div>
+          `,
           className: "custom-gap-pin",
           iconSize: [0, 0],
           iconAnchor: [0, 0],
         });
         const gapMarker = L.marker([gap.lastKnownLat, gap.lastKnownLng], { icon: gapIcon });
+        gapMarker.bindTooltip(
+          `<div style="font-size:11px; line-height:1.5;">
+            <strong style="color:#BE123C;">Offline gap · ${formatDurationMinutes(gap.durationMinutes || 0)}</strong><br/>
+            Signal lost: ${formatPktTime(gap.gapStartAt)} PKT<br/>
+            ${gap.gapEndAt ? `Resumed: ${formatPktTime(gap.gapEndAt)} PKT<br/>` : "Not yet resumed<br/>"}
+            ${gap.lastBatteryLevel != null ? `Last battery: ${formatBatteryPercent(gap.lastBatteryLevel)}` : ""}
+          </div>`,
+          { direction: "top", offset: [0, -14] }
+        );
         pathGroup.addLayer(gapMarker);
       }
     });
 
-    // Start Marker (Green Pin "START")
+    // Mocked-fix markers: a device-reported fake location is shown for
+    // what it is — a rejected attempt — never as part of the route (the
+    // segment classifier already dashes every segment touching one).
+    pings.forEach((p) => {
+      if (!p.mocked) return;
+      const mockMarker = L.circleMarker([p.lat, p.lng], {
+        radius: 6,
+        color: "#E11D48",
+        weight: 2,
+        fillColor: "#FB7185",
+        fillOpacity: 0.7,
+      });
+      mockMarker.bindTooltip(
+        `<div style="font-size:11px; line-height:1.5;">
+          <strong style="color:#BE123C;">Mocked location — rejected</strong><br/>
+          Device reported a fake GPS fix at ${formatPktTime(p.timestamp)} PKT.<br/>
+          Not used as position evidence.
+        </div>`,
+        { direction: "top", offset: [0, -8] }
+      );
+      pathGroup.addLayer(mockMarker);
+    });
+
+    // Stop markers, numbered in visit order — derived only from real ping
+    // clusters (see deriveStops), never placed by hand or by guessing.
+    stops.forEach((stop, idx) => {
+      const stopIcon = L.divIcon({
+        html: `
+          <div style="transform: translate(-50%, -50%);">
+            <div class="w-6 h-6 rounded-full bg-white flex items-center justify-center border-2 border-[#0D7A5F] shadow-md">
+              <span class="text-[11px] font-extrabold text-[#0D7A5F] leading-none">${idx + 1}</span>
+            </div>
+          </div>
+        `,
+        className: "custom-stop-pin",
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+      const stopMarker = L.marker([stop.lat, stop.lng], { icon: stopIcon });
+      stopMarker.bindTooltip(
+        `<div style="font-size:11px; line-height:1.5;">
+          <strong>Stop ${idx + 1}</strong> · stopped ${formatDurationMinutes(stop.durationMinutes)}<br/>
+          ${formatPktTime(stop.startTimestamp)} – ${formatPktTime(stop.endTimestamp)} PKT
+        </div>`,
+        { direction: "top", offset: [0, -14] }
+      );
+      pathGroup.addLayer(stopMarker);
+    });
+
+    // Start Marker
     const startPing = pings[0];
-    const startHtml = `
-      <div class="relative group cursor-pointer" style="transform: translate(-50%, -50%);">
-        <div class="px-2 py-0.5 bg-emerald-600 border-2 border-white text-white rounded-full font-bold text-[9px] shadow-lg flex items-center gap-1">
-          <span>START</span>
-        </div>
-      </div>
-    `;
     const startIcon = L.divIcon({
-      html: startHtml,
+      html: `
+        <div style="transform: translate(-50%, -50%);">
+          <div class="flex items-center gap-1 pl-0.5 pr-1.5 py-0.5 bg-emerald-600 border-2 border-white text-white rounded-full shadow-lg">
+            <span class="w-3.5 h-3.5 rounded-full bg-white/25 flex items-center justify-center">
+              <svg class="w-2 h-2 fill-current" viewBox="0 0 24 24"><path d="M6 3l14 9-14 9z"/></svg>
+            </span>
+            <span class="font-bold text-[9px] tracking-wide">START</span>
+          </div>
+        </div>
+      `,
       className: "custom-start-pin",
       iconSize: [0, 0],
       iconAnchor: [0, 0],
     });
     const startMarker = L.marker([startPing.lat, startPing.lng], { icon: startIcon });
+    startMarker.bindTooltip(
+      `<div style="font-size:11px;">First ping · ${formatPktTime(startPing.timestamp)} PKT</div>`,
+      { direction: "top", offset: [0, -12] }
+    );
     pathGroup.addLayer(startMarker);
 
-    // End Marker (Black Pin "DESTINATION")
+    // End Marker
     if (pings.length > 1) {
       const endPing = pings[pings.length - 1];
-      const endHtml = `
-        <div class="relative group cursor-pointer" style="transform: translate(-50%, -50%);">
-          <div class="px-2 py-0.5 bg-zinc-900 border-2 border-white text-white rounded-full font-bold text-[9px] shadow-lg flex items-center gap-1">
-            <span>END</span>
-          </div>
-        </div>
-      `;
       const endIcon = L.divIcon({
-        html: endHtml,
+        html: `
+          <div style="transform: translate(-50%, -50%);">
+            <div class="flex items-center gap-1 pl-0.5 pr-1.5 py-0.5 bg-zinc-900 border-2 border-white text-white rounded-full shadow-lg">
+              <span class="w-3.5 h-3.5 rounded-full bg-white/20 flex items-center justify-center">
+                <svg class="w-2 h-2 fill-current" viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/></svg>
+              </span>
+              <span class="font-bold text-[9px] tracking-wide">END</span>
+            </div>
+          </div>
+        `,
         className: "custom-end-pin",
         iconSize: [0, 0],
         iconAnchor: [0, 0],
       });
       const endMarker = L.marker([endPing.lat, endPing.lng], { icon: endIcon });
+      endMarker.bindTooltip(
+        `<div style="font-size:11px;">Last ping · ${formatPktTime(endPing.timestamp)} PKT</div>`,
+        { direction: "top", offset: [0, -12] }
+      );
       pathGroup.addLayer(endMarker);
     }
 
@@ -300,7 +408,7 @@ export default function RealSurveillanceMap({
         maxZoom: 16,
       });
     }
-  }, [pings, gaps]);
+  }, [pings, gaps, segments, stops]);
 
   // Fit all bounds handler
   const fitAllBounds = () => {
@@ -312,7 +420,9 @@ export default function RealSurveillanceMap({
     }
   };
 
-  // 4. Smooth 60fps Active Playback Cursor & Travelled Progress Trail
+  // 4. Playback Cursor & Travelled Progress (restyles the pair polylines
+  // behind the cursor — gap/jump pairs stay dashed grey even when "covered",
+  // so playback never draws travel that was not observed).
   useEffect(() => {
     if (!mapInstanceRef.current || !playbackLayerRef.current) return;
 
@@ -323,17 +433,49 @@ export default function RealSurveillanceMap({
         playbackGroup.removeLayer(cursorMarkerRef.current);
         cursorMarkerRef.current = null;
       }
-      if (progressLineRef.current) {
-        playbackGroup.removeLayer(progressLineRef.current);
-        progressLineRef.current = null;
+      if (cursorCircleRef.current) {
+        playbackGroup.removeLayer(cursorCircleRef.current);
+        cursorCircleRef.current = null;
       }
+      pairLayersRef.current.forEach(({ layer, base }) => layer.setStyle(base));
       return;
     }
 
+    // Restyle pairs: index < cursor = travelled, the rest = base.
+    pairLayersRef.current.forEach(({ layer, base, travelled }, i) => {
+      layer.setStyle(i < currentPingIndex ? travelled : base);
+    });
+
     const ping = pings[currentPingIndex];
-    const pingTime = new Date(ping.timestamp).toLocaleTimeString();
+    const pingTime = formatPktTime(ping.timestamp);
     const speedStr = ping.speed != null ? `${Math.round(ping.speed)} km/h` : "Idle";
+    const accuracyStr =
+      ping.accuracy != null && ping.accuracy > 0 ? `±${Math.round(ping.accuracy)} m` : null;
     const batteryStr = ping.batteryLevel != null ? formatBatteryPercent(ping.batteryLevel) : "—";
+
+    // Accuracy circle under the cursor: the ground area this fix actually
+    // localises the technician to. Follows the cursor; hidden when the fix
+    // carries no accuracy (legacy rows).
+    if (accuracyStr) {
+      if (!cursorCircleRef.current) {
+        cursorCircleRef.current = L.circle([ping.lat, ping.lng], {
+          radius: ping.accuracy as number,
+          color: "#0D7A5F",
+          weight: 1,
+          opacity: 0.5,
+          fillColor: "#0D7A5F",
+          fillOpacity: 0.08,
+          interactive: false,
+        });
+        playbackGroup.addLayer(cursorCircleRef.current);
+      } else {
+        cursorCircleRef.current.setLatLng([ping.lat, ping.lng]);
+        cursorCircleRef.current.setRadius(ping.accuracy as number);
+      }
+    } else if (cursorCircleRef.current) {
+      playbackGroup.removeLayer(cursorCircleRef.current);
+      cursorCircleRef.current = null;
+    }
 
     // Heading calculation
     let bearing = 0;
@@ -343,46 +485,36 @@ export default function RealSurveillanceMap({
       bearing = calculateBearing(pings[currentPingIndex - 1].lat, pings[currentPingIndex - 1].lng, ping.lat, ping.lng);
     }
 
-    // 4a. Update Travelled Progress Polyline (Bright Emerald Glow)
-    const travelledPoints: L.LatLngTuple[] = pings
-      .slice(0, currentPingIndex + 1)
-      .map((p) => [p.lat, p.lng]);
+    // Status ring driven by real state: on a job → brand emerald, on shift →
+    // blue, otherwise (off shift) → neutral zinc.
+    const ringColor = ping.activeJob ? "#0D7A5F" : ping.isShiftActive ? "#2563EB" : "#71717A";
+    const initials = initialsOf(technicianName);
 
-    if (!progressLineRef.current) {
-      const newLine = L.polyline(travelledPoints, {
-        color: "#10B981", // vibrant emerald
-        weight: 6,
-        opacity: 0.95,
-        lineCap: "round",
-        lineJoin: "round",
-      });
-      progressLineRef.current = newLine;
-      playbackGroup.addLayer(newLine);
-    } else {
-      progressLineRef.current.setLatLngs(travelledPoints);
-    }
-
-    // 4b. Smooth Video-Player Marker Pin with Bearing Direction Arrow
     const cursorHtml = `
       <div class="relative cursor-pointer" style="transform: translate(-50%, -50%);">
-        <!-- Pulse Radar Glow -->
-        <div class="absolute -inset-2.5 rounded-full bg-emerald-500 opacity-60 animate-ping pointer-events-none"></div>
-        
-        <!-- Main Marker Pill with Heading Arrow -->
-        <div class="relative px-2.5 py-1 rounded-full bg-[#0D7A5F] text-white border-2 border-white shadow-2xl flex items-center gap-1.5 backdrop-blur-sm">
-          <div class="w-3.5 h-3.5 rounded-full bg-emerald-400 flex items-center justify-center text-zinc-900 transition-transform duration-300" style="transform: rotate(${Math.round(bearing)}deg);">
-            <svg class="w-2.5 h-2.5 fill-current" viewBox="0 0 24 24">
-              <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
-            </svg>
+        <div class="flex items-center gap-2">
+          <!-- Avatar pin: initials in a status-ringed circle + heading chip -->
+          <div class="relative shrink-0">
+            <div class="w-10 h-10 rounded-full bg-white shadow-xl flex items-center justify-center" style="border: 3px solid ${ringColor};">
+              <span class="text-[13px] font-extrabold leading-none" style="color: ${ringColor};">${initials}</span>
+            </div>
+            <div class="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-zinc-900 text-white flex items-center justify-center border border-white shadow" style="transform: rotate(${Math.round(bearing)}deg);">
+              <svg class="w-2.5 h-2.5 fill-current" viewBox="0 0 24 24">
+                <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+              </svg>
+            </div>
           </div>
-          <div class="flex flex-col text-[10px] leading-tight font-sans">
-            <span class="font-bold whitespace-nowrap">${technicianName}</span>
-            <span class="text-[8.5px] text-emerald-100 font-mono">${pingTime} • ${speedStr}</span>
+
+          <!-- Name pill -->
+          <div class="bg-white/95 backdrop-blur-sm border border-zinc-200 rounded-xl shadow-xl px-2.5 py-1 font-sans">
+            <div class="text-[11px] font-bold text-zinc-900 whitespace-nowrap leading-tight">${technicianName}</div>
+            <div class="text-[9.5px] text-zinc-500 font-mono whitespace-nowrap leading-tight">${pingTime} PKT • ${speedStr}${accuracyStr ? ` • ${accuracyStr}` : ""}</div>
+            ${ping.mocked ? `<div class="text-[9.5px] font-bold text-rose-600 whitespace-nowrap leading-tight">MOCKED FIX — REJECTED</div>` : ""}
           </div>
         </div>
 
         <!-- Floating telemetry stats badge -->
-        <div class="absolute top-9 left-1/2 -translate-x-1/2 whitespace-nowrap bg-zinc-950/90 text-white text-[9.5px] py-0.5 px-2 rounded-md shadow-2xl border border-zinc-700 pointer-events-none flex items-center gap-1.5 z-50">
+        <div class="absolute top-12 left-1/2 -translate-x-1/2 whitespace-nowrap bg-zinc-950/90 text-white text-[9.5px] py-0.5 px-2 rounded-md shadow-2xl border border-zinc-700 pointer-events-none flex items-center gap-1.5 z-50">
           <span>🔋 ${batteryStr}</span>
           <span>•</span>
           <span class="${ping.isMoving ? "text-emerald-400 font-bold" : "text-amber-400"}">
@@ -521,15 +653,29 @@ export default function RealSurveillanceMap({
         </div>
         <div className="flex items-center gap-2">
           <span className="w-3.5 h-1.5 bg-[#10B981] rounded-full inline-block shadow-xs" />
-          <span className="text-emerald-800 font-bold">Played Route (Covered)</span>
+          <span className="text-emerald-800 font-bold">Travelled (Played)</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="w-3.5 h-1 border-t-2 border-dashed border-slate-400 inline-block" />
-          <span>Upcoming Trajectory</span>
+          <span className="w-3.5 h-1.5 bg-[#0D7A5F] rounded-full inline-block opacity-60" />
+          <span>On-Job Route</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="w-3.5 h-1 border-t-2 border-dashed border-[#EF4444] inline-block" />
-          <span className="text-rose-600 font-semibold">Offline Signal Gap</span>
+          <span className="w-3.5 h-1.5 bg-[#3B82F6] rounded-full inline-block opacity-60" />
+          <span>On-Shift Route</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-3.5 h-1 border-t-2 border-dotted border-zinc-400 inline-block" />
+          <span className="text-zinc-500">No Signal / GPS Jump / Poor Fix — Not Travel</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-3.5 h-3.5 rounded-full bg-rose-100 border-2 border-rose-500 inline-block" />
+          <span className="text-rose-700 font-semibold">Mocked Fix — Rejected</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-3.5 h-3.5 rounded-full bg-white border-2 border-[#0D7A5F] text-[#0D7A5F] text-[8px] font-extrabold flex items-center justify-center inline-flex">
+            1
+          </span>
+          <span>Stop (Numbered in Visit Order)</span>
         </div>
       </div>
     </div>

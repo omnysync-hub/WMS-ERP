@@ -4,23 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
 import { pktTodayStart } from "@/lib/pktTime";
-
-/**
- * Haversine formula to calculate great-circle distance between two GPS points in kilometers.
- */
-function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth's radius in kilometers
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+import { classifySegment, MIN_SEGMENT_KM } from "@/lib/routeTrack";
 
 import { requireOfficePermission } from "@/lib/auth/erpActor";
 
@@ -96,7 +80,7 @@ export async function GET(req: NextRequest) {
       pingWhere.isShiftActive = true;
     }
 
-    const [pings, gaps, consentRecord] = await Promise.all([
+    const [pings, gaps, consentRecord, attendanceLogs] = await Promise.all([
       prisma.technicianLocationPing.findMany({
         where: pingWhere,
         include: {
@@ -126,6 +110,24 @@ export async function GET(req: NextRequest) {
         where: { employeeId, consentType: "LOCATION_SURVEILLANCE" },
         orderBy: { acknowledgedAt: "desc" },
       }),
+      // Attendance punches in the same interval, for the day-history
+      // timeline. Classification reuses the attendance system's own rule
+      // (AttendanceService writes a [CHECK_IN] / [CHECK_OUT] notes prefix);
+      // unprefixed rows are reported as generic punches, never relabelled.
+      prisma.attendanceLog.findMany({
+        where: {
+          employeeId,
+          timestamp: { gte: start, lte: end },
+        },
+        orderBy: { timestamp: "asc" },
+        select: {
+          id: true,
+          timestamp: true,
+          notes: true,
+          result: true,
+          flaggedForReview: true,
+        },
+      }),
     ]);
 
     // 3. Compute Trajectory Statistics
@@ -148,10 +150,15 @@ export async function GET(req: NextRequest) {
 
       if (i > 0) {
         const prev = pings[i - 1];
-        const dist = calculateDistanceKm(prev.lat, prev.lng, p.lat, p.lng);
-        // Discard GPS drift jitter (< 5 meters)
-        if (dist >= 0.005 && dist < 150) {
-          totalDistanceKm += dist;
+        // Honest distance only: a segment counts when it was actually
+        // observed — consecutive in time and physically plausible. Segments
+        // spanning an offline gap (>= 10 min silence) or implying an
+        // impossible speed are excluded: the movement across them was never
+        // seen, so it must not inflate the day's distance. Same classifier
+        // the surveillance map uses to break its route line.
+        const seg = classifySegment(prev, p);
+        if (seg.kind === "track" && seg.distKm >= MIN_SEGMENT_KM) {
+          totalDistanceKm += seg.distKm;
         }
       }
     }
@@ -203,6 +210,7 @@ export async function GET(req: NextRequest) {
         lat: p.lat,
         lng: p.lng,
         accuracy: p.accuracy,
+        mocked: p.mocked ?? false,
         speed: p.speed,
         batteryLevel: p.batteryLevel,
         isMoving: p.isMoving,
@@ -217,6 +225,17 @@ export async function GET(req: NextRequest) {
           : null,
         source: p.source,
         timestamp: p.timestamp.toISOString(),
+      })),
+      attendanceEvents: attendanceLogs.map((l) => ({
+        id: l.id,
+        type: l.notes?.startsWith("[CHECK_OUT]")
+          ? "CHECK_OUT"
+          : l.notes?.startsWith("[CHECK_IN]")
+            ? "CHECK_IN"
+            : "PUNCH",
+        timestamp: l.timestamp.toISOString(),
+        result: l.result,
+        flaggedForReview: l.flaggedForReview,
       })),
       offlineGaps: gaps.map((g: any) => ({
         id: g.id,

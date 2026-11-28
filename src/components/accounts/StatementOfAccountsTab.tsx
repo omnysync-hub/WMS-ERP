@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, numberToWords } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import { printDocument } from "@/lib/printUtils";
 import CompanyLetterhead from "@/components/company/CompanyLetterhead";
 
@@ -62,7 +63,10 @@ const TYPE_OPTIONS: Array<{ value: PartyType; label: string; icon: typeof Users;
   { value: "care_of", label: "Care-of", icon: FileText, singular: "Care-of Party" },
 ];
 
-const today = () => new Date().toISOString().slice(0, 10);
+// "Today" for statement dates is the Pakistan calendar day — the previous
+// toISOString() slice is the UTC day, which lags PKT by a day every morning
+// before 05:00 and made the statement's as-of date a moving target.
+const today = () => pktDateString();
 const safe = (value: unknown) => String(value ?? "").replaceAll('"', '""');
 
 export default function StatementOfAccountsTab() {

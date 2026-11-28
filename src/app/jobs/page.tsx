@@ -113,7 +113,10 @@ export default function JobsListPage() {
         );
       }
     } catch (e) {
-      // ignore — job-derived options still populate the chip
+      // Best-effort only — job-derived options still populate the chip —
+      // but log it: a silent swallow here is how a broken master fetch
+      // would present as an empty filter with no trace anywhere.
+      console.warn("Care-Of master list fetch failed; using job-derived filter options.", e);
     }
   }
 
@@ -1392,7 +1395,14 @@ export default function JobsListPage() {
                 options: careOfOptions,
                 selected: selectedCareOfFilter,
                 onSelect: setSelectedCareOfFilter,
-                disabled: careOfOptions.length === 0,
+                // Disabled only once loading has finished AND there are
+                // genuinely no parties to offer. Disabling on an empty
+                // options list while the /api/care-of-parties master fetch
+                // (and the jobs fetch behind the job-derived fallback) is
+                // still in flight renders the chip dead with a misleading
+                // "No Client / Care-Of options available yet" title — the
+                // state QA round 2 captured on a directory of 23 parties.
+                disabled: !loading && careOfOptions.length === 0,
               }] : []),
               ...(!isStorekeeper ? [{
                 id: "paymentClearance",

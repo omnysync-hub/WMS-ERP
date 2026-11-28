@@ -29,6 +29,7 @@ import {
 import { useRole } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { formatJobType } from "@/lib/utils";
+import { formatPktDateTime } from "@/lib/pktTime";
 import toast from "@/lib/toast";
 import {
   isSoundEnabled,
@@ -98,7 +99,7 @@ export default function Topbar({
           id: n.id,
           title: n.title,
           message: n.message,
-          timestamp: n.createdAt ? new Date(n.createdAt).toLocaleString() : "Active now",
+          timestamp: n.createdAt ? formatPktDateTime(n.createdAt) : "Active now",
           unread: true,
           href: n.link,
           isDiscount: n.id === "notice-discounts",
@@ -138,7 +139,7 @@ export default function Topbar({
               title: "Blocked second-device login",
               message: `${activity.actorName || "A technician"} tried to sign in from ${attemptedDevice}. The existing device session was kept active.`,
               timestamp: activity.timestamp
-                ? new Date(activity.timestamp).toLocaleString()
+                ? formatPktDateTime(activity.timestamp)
                 : "Recently",
               unread: true,
               href: "/audit",

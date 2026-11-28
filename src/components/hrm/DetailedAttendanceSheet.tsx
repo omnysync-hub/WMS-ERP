@@ -459,6 +459,7 @@ export default function DetailedAttendanceSheet() {
             </h3>
             <span className="text-xs text-zinc-500 font-medium">
               — {new Date(selectedDate).toLocaleDateString("en-US", {
+                timeZone: "Asia/Karachi",
                 weekday: "long",
                 month: "short",
                 day: "numeric",

@@ -141,12 +141,7 @@ export default function RealLeafletMap({
               <span class="w-1.5 h-1.5 rounded-full shrink-0 ${
                 isAvailable ? "bg-emerald-500" : "bg-amber-500"
               }"></span>
-              <span class="font-sans text-[11px] font-bold tracking-tight text-[#18181B] max-w-[110px] truncate leading-none">${tech.name}</span>
-              ${
-                tech.currentStatus === "On Job" && tech.activeJob?.jobNumber
-                  ? `<span class="font-mono text-[10px] font-bold text-amber-700 leading-none whitespace-nowrap">• ${tech.activeJob.jobNumber}</span>`
-                  : ""
-              }
+              <span class="font-sans text-[11px] font-bold tracking-tight text-[#18181B] max-w-[150px] truncate leading-none">${tech.name}</span>
             </div>
           </div>
 
@@ -187,6 +182,16 @@ export default function RealLeafletMap({
               <span>${tech.phone || "No phone"}</span>
             </div>
             ${
+              tech.lastPingAccuracy != null && tech.lastPingAccuracy > 0
+                ? `
+            <div class="text-[11px] text-zinc-600 flex items-center gap-1.5 mb-1 font-mono">
+              <span class="text-zinc-400">📍</span>
+              <span>GPS accuracy ±${Math.round(tech.lastPingAccuracy)} m</span>
+            </div>
+            `
+                : ""
+            }
+            ${
               tech.activeJob
                 ? `
               <div class="mt-1.5 pt-1.5 border-t border-zinc-100 flex items-center justify-between text-[10px]">
@@ -209,6 +214,22 @@ export default function RealLeafletMap({
         iconAnchor: [17, 44],
         popupAnchor: [0, -44],
       });
+
+      // Accuracy circle: the ground area the technician's latest good fix
+      // actually localises them to. Drawn under the pin; absent when the
+      // stored position carries no accuracy (pre-tracking positions).
+      if (tech.lastPingAccuracy != null && tech.lastPingAccuracy > 0) {
+        const accCircle = L.circle([tech.lat, tech.lng], {
+          radius: tech.lastPingAccuracy,
+          color: pinColor,
+          weight: 1,
+          opacity: 0.45,
+          fillColor: pinColor,
+          fillOpacity: 0.08,
+          interactive: false,
+        });
+        markersGroup.addLayer(accCircle);
+      }
 
       const marker = L.marker([tech.lat, tech.lng], { icon: techIcon });
       marker.on("click", () => {
@@ -233,12 +254,17 @@ export default function RealLeafletMap({
       if (!lat || !lng) return;
       bounds.push([lat, lng]);
 
+      // Pill label: WHO is on the job wins over the job number — dispatchers
+      // scan the map by person. Job number stays in the popover below.
+      const jobTechName: string | null = job.assignedTechnicianName || null;
+      const jobLabel = jobTechName || job.jobNumber;
+
       const jobHtml = `
         <div class="relative group cursor-pointer" style="width: 32px; height: 42px;">
-          <!-- Floating Job Code Pill -->
+          <!-- Floating Pill: technician name when assigned, else job code -->
           <div class="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap pointer-events-none z-10">
-            <div class="px-2 py-0.5 rounded-full bg-rose-700 border border-rose-600 shadow-md text-white text-[10px] font-mono font-bold tracking-tight">
-              ${job.jobNumber}
+            <div class="px-2 py-0.5 rounded-full bg-rose-700 border border-rose-600 shadow-md text-white text-[10px] font-bold tracking-tight flex items-center max-w-[160px]">
+              <span class="truncate ${jobTechName ? "font-sans" : "font-mono"}">${jobLabel}</span>
             </div>
           </div>
 
@@ -257,6 +283,12 @@ export default function RealLeafletMap({
           <div class="absolute bottom-[48px] left-1/2 -translate-x-1/2 w-52 bg-white rounded-xl shadow-2xl border border-zinc-200/90 p-3 pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-200 z-50 scale-95 group-hover:scale-100 origin-bottom">
             <p class="font-bold text-xs text-rose-600 font-mono">${job.jobNumber}</p>
             <p class="text-xs font-semibold text-zinc-800 mt-0.5">${job.customer?.name || "Customer"}</p>
+            ${
+              jobTechName
+                ? `<p class="text-[11px] font-semibold text-zinc-700 mt-0.5 truncate">Technician: ${jobTechName}</p>`
+                : ""
+            }
+            <p class="text-[10px] text-zinc-500 mt-0.5">Status: ${job.status || "Created"}</p>
             <p class="text-[10px] text-zinc-500 mt-1 line-clamp-2">${job.customer?.addressText || "No address specified"}</p>
             <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b border-r border-zinc-200 rotate-45"></div>
           </div>

@@ -22,6 +22,16 @@ interface ReportMisplacedItemDrawerProps {
   onSuccess?: () => void;
 }
 
+// Built-in receiving accounts, replaced by the live chart as soon as it loads
+// (accounting-config financialAccounts → cashbook view). 11105 is the default:
+// it is where misplaced-item collections have always been posted.
+const BUILT_IN_RECEIVING_ACCOUNTS: Array<{ code: string; name: string; isDefault?: boolean }> = [
+  { code: "11101", name: "Cash on Hand / Main Drawer" },
+  { code: "11102", name: "Petty Cash" },
+  { code: "11103", name: "Operating Bank Account" },
+  { code: "11105", name: "Cash with Technicians (Field Collection)", isDefault: true },
+];
+
 function cleanDescription(desc: string): string {
   return (desc || "")
     .replace(/\s*\[Service Added by.*?\]/gi, "")
@@ -43,6 +53,10 @@ export default function ReportMisplacedItemDrawer({
   const [adHocQty, setAdHocQty] = useState("1");
   const [cashCollectedAmount, setCashCollectedAmount] = useState("");
   const [cashReceiptNotes, setCashReceiptNotes] = useState("");
+  const [receivingAccounts, setReceivingAccounts] =
+    useState<Array<{ code: string; name: string; isDefault?: boolean }>>(BUILT_IN_RECEIVING_ACCOUNTS);
+  const [cashReceivedAccountCode, setCashReceivedAccountCode] = useState("11105");
+  const [receivingAccountsLoaded, setReceivingAccountsLoaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -52,6 +66,7 @@ export default function ReportMisplacedItemDrawer({
     setErrorMsg("");
     setCashCollectedAmount("");
     setCashReceiptNotes("");
+    setCashReceivedAccountCode("11105");
     setCommonReason("Technician reported item misplaced/lost on site during work execution");
     setShowAdHoc(false);
     setAdHocItem("");
@@ -82,6 +97,57 @@ export default function ReportMisplacedItemDrawer({
 
     setLines(parsedLines);
   }, [isOpen, job]);
+
+  // Receiving accounts for the collected cash come from the real chart:
+  // configured cash/bank accounts (/api/accounting-config financialAccounts —
+  // readable by any signed-in role), falling back to the accounts cashbook
+  // view (the server's cash/bank leaf set), falling back to the built-ins.
+  useEffect(() => {
+    if (!isOpen || receivingAccountsLoaded) return;
+    let cancelled = false;
+    (async () => {
+      let list: Array<{ code: string; name: string; isDefault?: boolean }> = [];
+      try {
+        const res = await fetch("/api/accounting-config");
+        if (res.ok) {
+          const data = await res.json();
+          list = (data.financialAccounts || [])
+            .filter((fa: any) => fa.isActive !== false && fa.ledgerAccount?.code)
+            .map((fa: any) => ({
+              code: fa.ledgerAccount.code,
+              name: fa.name || fa.ledgerAccount.name,
+              isDefault: Boolean(fa.isDefault),
+            }));
+        }
+      } catch {
+        // fall through to the cashbook view
+      }
+      if (list.length === 0) {
+        try {
+          const res = await fetch("/api/accounts?view=cashbook");
+          if (res.ok) {
+            const data = await res.json();
+            list = (data.cashAccounts || []).map((a: any) => ({ code: a.code, name: a.name }));
+          }
+        } catch {
+          // keep the built-in defaults
+        }
+      }
+      if (cancelled) return;
+      setReceivingAccountsLoaded(true);
+      if (list.length > 0) {
+        setReceivingAccounts(list);
+        setCashReceivedAccountCode((current) => {
+          if (current && list.some((a) => a.code === current)) return current;
+          if (list.some((a) => a.code === "11105")) return "11105";
+          return list.find((a) => a.isDefault)?.code || list[0].code;
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, receivingAccountsLoaded]);
 
   const selectedLines = useMemo(() => lines.filter((l) => l.selected && l.quantity > 0), [lines]);
   const hasAdHoc = showAdHoc && adHocItem.trim().length > 0 && Number(adHocQty) > 0;
@@ -150,6 +216,7 @@ export default function ReportMisplacedItemDrawer({
           collectCashNow: true,
           cashAmount: Number(cashCollectedAmount),
           cashNotes: cashReceiptNotes.trim() || undefined,
+          cashAccountCode: cashReceivedAccountCode || undefined,
         }),
       });
 
@@ -387,6 +454,26 @@ export default function ReportMisplacedItemDrawer({
                 className="w-full bg-white px-3 py-1.5 rounded-lg border border-emerald-300 text-xs text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-emerald-950 uppercase tracking-wider block mb-1">
+              Money Received Into <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={cashReceivedAccountCode}
+              onChange={(e) => setCashReceivedAccountCode(e.target.value)}
+              className="w-full bg-white px-3 py-1.5 rounded-lg border border-emerald-300 text-xs text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+            >
+              {receivingAccounts.map((a) => (
+                <option key={a.code} value={a.code}>
+                  {a.code} — {a.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-emerald-800/70 mt-1">
+              The collected cash is posted into this account (default: 11105 Cash with Technicians).
+            </p>
           </div>
         </div>
       </form>

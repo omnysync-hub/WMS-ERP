@@ -10,6 +10,9 @@ export interface TechnicianPin {
   phone: string;
   lat: number;
   lng: number;
+  /** Accuracy radius (m) of the fix behind lat/lng; null = not tracked yet. */
+  lastPingAccuracy?: number | null;
+  lastPingAt?: string | null;
   currentStatus: string;
   activeJob?: {
     id: string;

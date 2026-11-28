@@ -78,8 +78,10 @@ type Props = {
 
 const emptyForm = {
   name: "",
-  lat: "25.2048",
-  lng: "55.2708",
+  // Default centre is Lahore, where the business operates — the form used
+  // to open on Dubai coordinates (25.2048, 55.2708).
+  lat: "31.5204",
+  lng: "74.3587",
   radiusMeters: "150",
   address: "",
   notes: "",

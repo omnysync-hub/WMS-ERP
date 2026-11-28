@@ -197,6 +197,17 @@ export default function InventoryPurchasingPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [techRequests, setTechRequests] = useState<any[]>([]);
   const [techReturns, setTechReturns] = useState<any[]>([]);
+  // Storekeeper Queue confirmations: issuing stock (deduct + COGS) and
+  // acknowledging a return (restock + cost reversal) are one-click-posting
+  // actions, so both stage their summary here and only execute from the
+  // confirmation dialog's Confirm button.
+  const [fulfillConfirm, setFulfillConfirm] = useState<{
+    request: any;
+    product: any;
+    quantity: number;
+  } | null>(null);
+  const [returnConfirm, setReturnConfirm] = useState<any | null>(null);
+  const [isConfirmingAction, setIsConfirmingAction] = useState(false);
 
   // Selected product movement timeline
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -555,18 +566,60 @@ export default function InventoryPurchasingPage() {
     }
   };
 
-  // Storekeeper fulfill tech inventory request
-  const handleFulfillRequest = async (requestId: string, itemStr: string, qty: number) => {
-    const prod = products.find((p) => p.name.includes(itemStr) || p.sku.includes(itemStr)) || products[0];
-    if (!prod) return;
+  // Resolve the warehouse product a queue request refers to. The request's
+  // own productId is authoritative; legacy free-text requests (productId
+  // null) resolve ONLY by the exact SKU suffix in the item string or an
+  // exact name match. Never a fuzzy includes() match and never a silent
+  // "first product in the catalogue" fallback — that combination issued a
+  // bracket against a gas request on JOB-2026-0013 (see QA round 2). When
+  // nothing resolves exactly, the issue is refused and the operator is told
+  // to fulfil it from the job page, where the product can be picked by eye.
+  const resolveRequestProduct = (req: any) => {
+    if (req?.productId) {
+      return products.find((p) => p.id === req.productId) || null;
+    }
+    const itemStr = String(req?.item || "");
+    const skuSuffix = /\(([^)]+)\)\s*$/.exec(itemStr)?.[1]?.trim();
+    if (skuSuffix) {
+      const bySku = products.find((p) => p.sku === skuSuffix);
+      if (bySku) return bySku;
+    }
+    return products.find((p) => p.name === itemStr) || null;
+  };
 
+  // Stage the fulfillment for the confirmation dialog. Nothing is posted
+  // until the operator confirms the exact item / quantity / job / technician
+  // in the dialog.
+  const handleFulfillRequestClick = (req: any) => {
+    const remaining =
+      Math.round((Number(req.qtyRequested) - Number(req.qtyIssued || 0)) * 1000) / 1000;
+    if (!(remaining > 0)) {
+      notify.error("This request has already been fully issued.");
+      return;
+    }
+    const prod = resolveRequestProduct(req);
+    if (!prod) {
+      notify.error(
+        `Cannot identify the warehouse product for "${req.item}". Issue it from the job page instead — nothing was deducted.`
+      );
+      return;
+    }
+    setFulfillConfirm({ request: req, product: prod, quantity: remaining });
+  };
+
+  // Storekeeper fulfill tech inventory request (runs only from the
+  // confirmation dialog's Confirm button).
+  const executeFulfillRequest = async () => {
+    if (!fulfillConfirm) return;
+    const { request: req, product: prod, quantity: qty } = fulfillConfirm;
     try {
+      setIsConfirmingAction(true);
       const res = await fetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "fulfill_request",
-          requestId,
+          requestId: req.id,
           productId: prod.id,
           quantity: qty,
         }),
@@ -575,6 +628,7 @@ export default function InventoryPurchasingPage() {
         const err = await res.json();
         throw new Error(err.error);
       }
+      setFulfillConfirm(null);
       setNotification("Inventory issued to technician. Stock deducted and COGS posted.");
       notify.success("Inventory issued to technician. Stock deducted and COGS posted.");
       loadData();
@@ -583,10 +637,24 @@ export default function InventoryPurchasingPage() {
       realtimeSync.publish("INVENTORY_FULFILLED", {
         actor: currentActor,
         message: `${currentActor} fulfilled request: ${qty}x ${prod.name}`,
-        payload: { requestId, productId: prod.id, quantity: qty },
+        payload: { requestId: req.id, productId: prod.id, quantity: qty },
       });
     } catch (e: any) {
       notify.error(e.message);
+    } finally {
+      setIsConfirmingAction(false);
+    }
+  };
+
+  // Acknowledge a stock return (runs only from its confirmation dialog).
+  const executeAcknowledgeReturn = async () => {
+    if (!returnConfirm) return;
+    setIsConfirmingAction(true);
+    try {
+      await handleAcknowledgeReturn(returnConfirm.id);
+      setReturnConfirm(null);
+    } finally {
+      setIsConfirmingAction(false);
     }
   };
 
@@ -2011,14 +2079,31 @@ export default function InventoryPurchasingPage() {
                         <td className="py-3 px-4 text-right">
                           {["pending", "partially_issued"].includes(String(req.status || "").toLowerCase()) ? (
                             canFulfillRequests ? (
-                              <button
-                                type="button"
-                                onClick={() => handleFulfillRequest(req.id, req.item, req.qtyRequested)}
-                                className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                              >
-                                <Package className="w-3.5 h-3.5" />
-                                Issue & Deduct Stock
-                              </button>
+                              req.job?.hasAssignedTechnician === false ? (
+                                <span className="inline-flex flex-col items-end gap-0.5">
+                                  <button
+                                    type="button"
+                                    disabled
+                                    title="No technician assigned to this job"
+                                    className="h-8 px-3 rounded-lg bg-[#E4E4E7] text-[#71717A] text-xs font-semibold inline-flex items-center gap-1.5 cursor-not-allowed"
+                                  >
+                                    <Package className="w-3.5 h-3.5" />
+                                    Issue & Deduct Stock
+                                  </button>
+                                  <span className="text-[10px] font-medium text-rose-600">
+                                    No technician assigned
+                                  </span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleFulfillRequestClick(req)}
+                                  className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                                >
+                                  <Package className="w-3.5 h-3.5" />
+                                  Issue & Deduct Stock
+                                </button>
+                              )
                             ) : (
                               <span className="text-xs text-[#71717A] font-medium">Awaiting storekeeper</span>
                             )
@@ -2072,7 +2157,7 @@ export default function InventoryPurchasingPage() {
                             canAcknowledgeReturns ? (
                               <button
                                 type="button"
-                                onClick={() => handleAcknowledgeReturn(ret.id)}
+                                onClick={() => setReturnConfirm(ret)}
                                 className="h-8 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
@@ -2096,6 +2181,151 @@ export default function InventoryPurchasingPage() {
       )}
 
 
+
+      {/* =================================================================== */}
+      {/* CONFIRMATION MODAL: ISSUE & DEDUCT STOCK (Storekeeper Queue)        */}
+      {/* =================================================================== */}
+      {fulfillConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-[#E4E4E7] space-y-4 animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#18181B]">Issue & Deduct Stock?</h3>
+              <p className="text-xs text-[#52525B] mt-1.5 leading-relaxed">
+                This deducts warehouse stock and posts COGS immediately. Confirm the
+                exact item being issued:
+              </p>
+              <dl className="mt-3 space-y-1.5 text-xs bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg p-3">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Item</dt>
+                  <dd className="font-bold text-[#18181B] text-right">
+                    {fulfillConfirm.product.name}
+                    {fulfillConfirm.product.sku ? (
+                      <span className="block text-[10px] font-mono font-medium text-[#71717A]">
+                        SKU: {fulfillConfirm.product.sku}
+                      </span>
+                    ) : null}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Quantity to issue</dt>
+                  <dd className="font-mono font-bold text-[#18181B]">
+                    {fulfillConfirm.quantity}
+                    {Number(fulfillConfirm.request.qtyIssued || 0) > 0
+                      ? ` (remaining of ${fulfillConfirm.request.qtyRequested} requested)`
+                      : ""}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Job</dt>
+                  <dd className="font-mono font-bold text-[#0D7A5F]">
+                    {fulfillConfirm.request.job?.jobNumber || "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Assigned technician</dt>
+                  <dd className="font-bold text-[#18181B] text-right">
+                    {fulfillConfirm.request.job?.assignedTechnicianName ||
+                      fulfillConfirm.request.technician?.name ||
+                      "—"}
+                  </dd>
+                </div>
+                {fulfillConfirm.request.technician?.name &&
+                  fulfillConfirm.request.job?.assignedTechnicianName &&
+                  fulfillConfirm.request.technician.name !==
+                    fulfillConfirm.request.job.assignedTechnicianName && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-[#71717A] font-medium">Requested by</dt>
+                      <dd className="font-bold text-[#18181B] text-right">
+                        {fulfillConfirm.request.technician.name}
+                      </dd>
+                    </div>
+                  )}
+              </dl>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#E4E4E7]">
+              <button
+                type="button"
+                disabled={isConfirmingAction}
+                onClick={() => setFulfillConfirm(null)}
+                className="px-4 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B] rounded-lg hover:bg-[#F4F4F5] transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isConfirmingAction}
+                onClick={executeFulfillRequest}
+                className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs"
+              >
+                {isConfirmingAction ? "Issuing..." : "Yes, Issue & Deduct"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* CONFIRMATION MODAL: ACKNOWLEDGE & RESTOCK (Storekeeper Queue)       */}
+      {/* =================================================================== */}
+      {returnConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-[#E4E4E7] space-y-4 animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#18181B]">Acknowledge & Restock?</h3>
+              <p className="text-xs text-[#52525B] mt-1.5 leading-relaxed">
+                This returns the material to warehouse stock and reverses its issue
+                cost. Confirm you have physically inspected the returned item:
+              </p>
+              <dl className="mt-3 space-y-1.5 text-xs bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg p-3">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Item</dt>
+                  <dd className="font-bold text-[#18181B] text-right">{returnConfirm.item}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Quantity returned</dt>
+                  <dd className="font-mono font-bold text-[#18181B]">{returnConfirm.qtyReturned}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Job</dt>
+                  <dd className="font-mono font-bold text-[#0D7A5F]">
+                    {returnConfirm.job?.jobNumber || "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[#71717A] font-medium">Technician</dt>
+                  <dd className="font-bold text-[#18181B] text-right">
+                    {returnConfirm.technician?.name || "—"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#E4E4E7]">
+              <button
+                type="button"
+                disabled={isConfirmingAction}
+                onClick={() => setReturnConfirm(null)}
+                className="px-4 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B] rounded-lg hover:bg-[#F4F4F5] transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isConfirmingAction}
+                onClick={executeAcknowledgeReturn}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition shadow-xs"
+              >
+                {isConfirmingAction ? "Restocking..." : "Yes, Acknowledge & Restock"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TAB 5: BRANCHES & MULTI-MOVEMENT HUB */}
       {activeTab === "branches" && (

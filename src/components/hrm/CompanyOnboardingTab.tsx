@@ -773,6 +773,7 @@ export default function CompanyOnboardingTab() {
                     const isDeleting = deletingId === h.id;
                     const formattedDate = h.date
                       ? new Date(h.date).toLocaleDateString("en-US", {
+                          timeZone: "Asia/Karachi",
                           month: "short",
                           day: "numeric",
                           year: "numeric",

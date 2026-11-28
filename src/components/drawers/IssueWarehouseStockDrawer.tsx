@@ -73,18 +73,22 @@ export default function IssueWarehouseStockDrawer({
             });
           }
 
+          // Default quantity: against a request, the request's REMAINING
+          // quantity (capped by what's actually on the shelf); for an
+          // ad-hoc issue, 1. Never the full available stock — the form used
+          // to arm itself with the entire shelf quantity (e.g. 157 units),
+          // one click away from issuing all of it.
+          const defaultQty = (stock: number) =>
+            remainingNeeded > 0
+              ? String(Math.max(1, Math.min(stock || 0, remainingNeeded)))
+              : "1";
+
           if (matched) {
             setSelectedProductId(matched.id);
-            const canIssue = remainingNeeded > 0
-              ? Math.min(matched.stockQuantity || 0, remainingNeeded)
-              : matched.stockQuantity || 1;
-            setIssueQuantity(String(Math.max(1, canIssue || 1)));
+            setIssueQuantity(defaultQty(matched.stockQuantity));
           } else if (data.length > 0) {
             setSelectedProductId(data[0].id);
-            const canIssue = remainingNeeded > 0
-              ? Math.min(data[0].stockQuantity || 0, remainingNeeded)
-              : data[0].stockQuantity || 1;
-            setIssueQuantity(String(Math.max(1, canIssue || 1)));
+            setIssueQuantity(defaultQty(data[0].stockQuantity));
           }
         }
       } catch (err: any) {
@@ -100,8 +104,20 @@ export default function IssueWarehouseStockDrawer({
 
   const selectedProduct = warehouseProducts.find((p) => p.id === selectedProductId);
 
+  // Stock is never issued to a job with no technician (enforced server-side
+  // too — JobsService.issueInventory rejects with JOB_NOT_ASSIGNED). The job
+  // detail payload carries the lead technician and/or live assignments.
+  const hasAssignedTechnician =
+    Boolean(job?.assignedTechnicianId) ||
+    (Array.isArray(job?.assignments) &&
+      job.assignments.some((a: any) => a.status !== "Removed"));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasAssignedTechnician) {
+      setErrorMsg("Assign a technician before issuing stock to this job");
+      return;
+    }
     const qty = Number(issueQuantity);
 
     if (!selectedProductId || isNaN(qty) || qty <= 0) {
@@ -191,6 +207,7 @@ export default function IssueWarehouseStockDrawer({
             disabled={
               isSubmitting ||
               loadingProducts ||
+              !hasAssignedTechnician ||
               !selectedProduct ||
               selectedProduct.stockQuantity <= 0 ||
               (remainingNeeded > 0 && remainingNeeded <= 0)
@@ -204,6 +221,16 @@ export default function IssueWarehouseStockDrawer({
       }
     >
       <div className="space-y-4 text-xs">
+        {!hasAssignedTechnician && (
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <span>
+              <strong>No technician assigned.</strong> Assign a technician before
+              issuing stock to this job.
+            </span>
+          </div>
+        )}
+
         {reqItem && (
           <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-950 space-y-2.5">
             <div className="flex items-center justify-between font-bold">

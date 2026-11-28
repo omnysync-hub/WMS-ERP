@@ -80,6 +80,13 @@ export async function GET(req: NextRequest) {
             select: {
               id: true,
               jobNumber: true,
+              assignedTechnicianId: true,
+              assignedTechnician: { select: { id: true, name: true } },
+              assignments: {
+                where: { status: { not: "Removed" } },
+                select: { id: true },
+                take: 1,
+              },
               customer: { select: { id: true, name: true } },
             },
           },
@@ -99,12 +106,31 @@ export async function GET(req: NextRequest) {
         : [];
       const nameById = new Map(technicians.map((t) => [t.id, t.name]));
       return NextResponse.json(
-        requests.map((r) => ({
-          ...r,
-          technician: nameById.has(r.technicianId)
-            ? { id: r.technicianId, name: nameById.get(r.technicianId) }
-            : null,
-        }))
+        requests.map((r) => {
+          const { job, ...rest } = r;
+          // Stock may only be issued to a job with a technician (the
+          // fulfill gate enforces it server-side); the queue needs the same
+          // fact up front to disable the Issue action and to name the
+          // assignee in its confirmation dialog. Derived here from the
+          // job's lead technician or any live JobAssignment — the raw
+          // assignments array itself is not shipped.
+          const hasAssignedTechnician =
+            Boolean(job.assignedTechnicianId) || (job.assignments?.length ?? 0) > 0;
+          return {
+            ...rest,
+            job: {
+              id: job.id,
+              jobNumber: job.jobNumber,
+              customer: job.customer,
+              assignedTechnicianId: job.assignedTechnicianId,
+              assignedTechnicianName: job.assignedTechnician?.name ?? null,
+              hasAssignedTechnician,
+            },
+            technician: nameById.has(r.technicianId)
+              ? { id: r.technicianId, name: nameById.get(r.technicianId) }
+              : null,
+          };
+        })
       );
     }
 
@@ -472,6 +498,32 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           );
         }
+        // The product being issued must be the product the request names.
+        // The queue row, its confirmation dialog and this deduction all key
+        // off the request's own productId — a client that re-derives the
+        // product from the display string (or guesses) is rejected here
+        // instead of silently deducting a different item.
+        if (existingRequest.productId && existingRequest.productId !== productId) {
+          return NextResponse.json(
+            {
+              error: "The selected product does not match the product on this inventory request. Refresh the queue and retry.",
+              code: "REQUEST_PRODUCT_MISMATCH",
+            },
+            { status: 400 }
+          );
+        }
+        // Never issue more than the request still needs.
+        const remainingQty =
+          Math.round((Number(existingRequest.qtyRequested) - Number(existingRequest.qtyIssued)) * 1000) / 1000;
+        if (qty > remainingQty) {
+          return NextResponse.json(
+            {
+              error: `Only ${remainingQty} unit(s) remain on this request (${existingRequest.qtyIssued} of ${existingRequest.qtyRequested} already issued).`,
+              code: "REQUEST_QTY_EXCEEDS_REMAINING",
+            },
+            { status: 400 }
+          );
+        }
         const productCheck = await prisma.product.findUnique({ where: { id: productId } });
         if (!productCheck) {
           return NextResponse.json({ error: "Product not found" }, { status: 400 });
@@ -479,53 +531,104 @@ export async function POST(req: NextRequest) {
 
         // Consume + COGS posting + request status + job line item commit or
         // roll back together in a single transaction.
-        const { invReq, product, createdJobItem } = await prisma.$transaction(
-          async (tx) => {
-            // Claim the request first (status-guarded) so a concurrent fulfill
-            // of the same request cannot double-issue stock.
-            const claimed = await tx.inventoryRequest.updateMany({
-              where: { id: requestId, status: { in: ["pending", "partially_issued"] } },
-              data: { status: "issued" },
-            });
-            if (claimed.count === 0) {
-              throw new Error(
-                "Inventory request changed state before it could be fulfilled. Refresh and retry."
-              );
-            }
-
-            await InventoryService.consumeStock(
-              productId,
-              qty,
-              "job_consumption",
-              requestId,
-              `Fulfilled tech request`,
-              tx
-            );
-
-            const updatedReq = await tx.inventoryRequest.findUnique({
-              where: { id: requestId },
-              include: { job: true },
-            });
-
-            // Automatically add the issued physical inventory item to the job's line items
-            const prod = await tx.product.findUnique({ where: { id: productId } });
-            let jobItem = null;
-            if (prod && updatedReq?.jobId) {
-              jobItem = await tx.jobItem.create({
-                data: {
-                  jobId: updatedReq.jobId,
-                  description: `${prod.name}${prod.sku ? ` - ${prod.sku}` : ""} - Issued by Storekeeper`,
-                  quantityPlanned: qty,
-                  quantityActual: qty,
-                  unitRate: prod.unitPrice,
+        let txResult: { invReq: any; product: any; createdJobItem: any };
+        try {
+          txResult = await prisma.$transaction(
+            async (tx) => {
+              // Assignment gate, inside the transaction before any stock
+              // moves: stock is never issued to a job with no technician —
+              // neither a lead assignedTechnicianId nor a live JobAssignment.
+              const jobForGate = await tx.job.findUnique({
+                where: { id: existingRequest.jobId },
+                select: {
+                  assignedTechnicianId: true,
+                  assignments: {
+                    where: { status: { not: "Removed" } },
+                    select: { id: true },
+                    take: 1,
+                  },
                 },
               });
-            }
+              if (!jobForGate?.assignedTechnicianId && !(jobForGate?.assignments.length)) {
+                const gateError: any = new Error(
+                  "Assign a technician before issuing stock to this job"
+                );
+                gateError.code = "JOB_NOT_ASSIGNED";
+                throw gateError;
+              }
 
-            return { invReq: updatedReq, product: prod, createdJobItem: jobItem };
-          },
-          { maxWait: 10000, timeout: 30000 }
-        );
+              // Claim the request first (status-guarded) so a concurrent fulfill
+              // of the same request cannot double-issue stock.
+              const claimed = await tx.inventoryRequest.updateMany({
+                where: { id: requestId, status: { in: ["pending", "partially_issued"] } },
+                data: { status: "issued" },
+              });
+              if (claimed.count === 0) {
+                throw new Error(
+                  "Inventory request changed state before it could be fulfilled. Refresh and retry."
+                );
+              }
+
+              await InventoryService.consumeStock(
+                productId,
+                qty,
+                "job_consumption",
+                requestId,
+                `Fulfilled tech request`,
+                tx
+              );
+
+              // Record how much has now been issued and settle the status:
+              // fully covered -> issued, otherwise it stays partially_issued
+              // with an accurate qtyIssued (previously qtyIssued was never
+              // updated on this path, so a partial issue looked untouched).
+              const newQtyIssued =
+                Math.round((Number(existingRequest.qtyIssued) + qty) * 1000) / 1000;
+              await tx.inventoryRequest.update({
+                where: { id: requestId },
+                data: {
+                  qtyIssued: newQtyIssued,
+                  status:
+                    newQtyIssued >= Number(existingRequest.qtyRequested)
+                      ? "issued"
+                      : "partially_issued",
+                },
+              });
+
+              const updatedReq = await tx.inventoryRequest.findUnique({
+                where: { id: requestId },
+                include: { job: true },
+              });
+
+              // Automatically add the issued physical inventory item to the job's line items
+              const prod = await tx.product.findUnique({ where: { id: productId } });
+              let jobItem = null;
+              if (prod && updatedReq?.jobId) {
+                jobItem = await tx.jobItem.create({
+                  data: {
+                    jobId: updatedReq.jobId,
+                    description: `${prod.name}${prod.sku ? ` - ${prod.sku}` : ""} - Issued by Storekeeper`,
+                    quantityPlanned: qty,
+                    quantityActual: qty,
+                    unitRate: prod.unitPrice,
+                  },
+                });
+              }
+
+              return { invReq: updatedReq, product: prod, createdJobItem: jobItem };
+            },
+            { maxWait: 10000, timeout: 30000 }
+          );
+        } catch (txError: any) {
+          if (txError?.code === "JOB_NOT_ASSIGNED") {
+            return NextResponse.json(
+              { error: txError.message, code: "JOB_NOT_ASSIGNED" },
+              { status: 400 }
+            );
+          }
+          throw txError;
+        }
+        const { invReq, product, createdJobItem } = txResult;
 
         await AuditService.recordCrudAction({
           actorName: payload.storeKeeperName || "Storekeeper",
@@ -536,7 +639,7 @@ export async function POST(req: NextRequest) {
           actionType: "INVENTORY",
           description: `Storekeeper issued ${qty}x ${product?.name || "item"} for Job #${invReq?.job?.jobNumber || ""}`,
           stateBefore: { status: existingRequest.status, productId, quantity: qty },
-          stateAfter: { status: "issued", productId, quantity: qty, jobItemId: createdJobItem?.id },
+          stateAfter: { status: invReq?.status || "issued", productId, quantity: qty, jobItemId: createdJobItem?.id },
           canRollback: true,
         });
 

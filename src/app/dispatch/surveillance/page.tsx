@@ -4,14 +4,41 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import SurveillanceMap from "@/components/maps/SurveillanceMap";
-import { formatBatteryPercent, formatDurationMinutes } from "@/components/maps/surveillanceFormat";
+import {
+  formatBatteryPercent,
+  formatDurationMinutes,
+  formatPktTime,
+  formatPktDateTime,
+} from "@/components/maps/surveillanceFormat";
 import { useRole } from "@/contexts/RoleContext";
-import { pktParts, pktTodayStart } from "@/lib/pktTime";
+import { pktTodayStart, pktDateString, pktDateTimeLocalToInstant } from "@/lib/pktTime";
+import { deriveStops, initialsOf } from "@/lib/routeTrack";
 
-/** "YYYY-MM-DD" of an instant as seen on a clock in Pakistan (Asia/Karachi). */
-function pktDateStr(d: Date): string {
-  const { year, month, day } = pktParts(d);
-  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+/** Status → dot colour for the technician picker and timeline header. */
+function statusDotClass(status?: string): string {
+  switch (status) {
+    case "On Job":
+      return "bg-emerald-500";
+    case "Paused":
+      return "bg-amber-500";
+    case "Assigned":
+      return "bg-blue-500";
+    case "Available & Ready":
+      return "bg-emerald-400";
+    default:
+      return "bg-zinc-300";
+  }
+}
+
+/** "12m ago" / "3h ago" / "2d ago" — relative spans are timezone-free. */
+function agoLabel(iso?: string | null): string | null {
+  if (!iso) return null;
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 import {
@@ -84,7 +111,7 @@ export default function SurveillanceDashboardPage() {
 
   // Initialize dates (Pakistan calendar day, not UTC)
   useEffect(() => {
-    const todayStr = pktDateStr(new Date());
+    const todayStr = pktDateString(new Date());
     setStartDate(`${todayStr}T00:00`);
     setEndDate(`${todayStr}T23:59`);
   }, []);
@@ -142,17 +169,17 @@ export default function SurveillanceDashboardPage() {
     const DAY_MS = 24 * 60 * 60 * 1000;
 
     if (preset === "today") {
-      const todayStr = pktDateStr(todayStart);
+      const todayStr = pktDateString(todayStart);
       setStartDate(`${todayStr}T00:00`);
       setEndDate(`${todayStr}T23:59`);
     } else if (preset === "yesterday") {
-      const yStr = pktDateStr(new Date(todayStart.getTime() - DAY_MS));
+      const yStr = pktDateString(new Date(todayStart.getTime() - DAY_MS));
       setStartDate(`${yStr}T00:00`);
       setEndDate(`${yStr}T23:59`);
     } else if (preset === "week") {
-      const weekAgoStr = pktDateStr(new Date(todayStart.getTime() - 7 * DAY_MS));
+      const weekAgoStr = pktDateString(new Date(todayStart.getTime() - 7 * DAY_MS));
       setStartDate(`${weekAgoStr}T00:00`);
-      setEndDate(`${pktDateStr(todayStart)}T23:59`);
+      setEndDate(`${pktDateString(todayStart)}T23:59`);
     }
   };
 
@@ -165,10 +192,13 @@ export default function SurveillanceDashboardPage() {
       setErrorMsg(null);
       setIsPlaying(false);
 
+      // The datetime-local values are Pakistan wall-clock (the presets build
+      // PKT days) — parse them as PKT, not in the viewer's timezone, or the
+      // window silently shifts for anyone outside Pakistan.
       const params = new URLSearchParams({
         employeeId: selectedTechId,
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString(),
+        startDate: pktDateTimeLocalToInstant(startDate).toISOString(),
+        endDate: pktDateTimeLocalToInstant(endDate).toISOString(),
         scope,
       });
 
@@ -235,6 +265,134 @@ export default function SurveillanceDashboardPage() {
 
   const activeTechObj = technicians.find((t) => t.id === selectedTechId);
 
+  // Day-history timeline: ONLY events backed by data — attendance punches
+  // from AttendanceLog (via the history API), first/last real pings, stops
+  // derived from real ping clusters (same helper as the map), recorded
+  // offline gaps, and jobs first observed in the ping stream. Nothing is
+  // synthesised.
+  type TimelineEvent = {
+    id: string;
+    kind: "checkin" | "checkout" | "punch" | "firstping" | "lastping" | "stop" | "gap" | "job";
+    timeMs: number;
+    title: string;
+    detail?: string;
+    pingIndex?: number;
+  };
+
+  const timelineEvents: TimelineEvent[] = (() => {
+    const events: TimelineEvent[] = [];
+    if (!telemetryData) return events;
+
+    const pingIndexAtOrAfter = (ms: number): number | undefined => {
+      const idx = pings.findIndex((p: any) => new Date(p.timestamp).getTime() >= ms);
+      return idx >= 0 ? idx : pings.length > 0 ? pings.length - 1 : undefined;
+    };
+
+    for (const ev of telemetryData.attendanceEvents || []) {
+      const ms = new Date(ev.timestamp).getTime();
+      events.push({
+        id: `att-${ev.id}`,
+        kind: ev.type === "CHECK_IN" ? "checkin" : ev.type === "CHECK_OUT" ? "checkout" : "punch",
+        timeMs: ms,
+        title:
+          ev.type === "CHECK_IN"
+            ? "Checked in"
+            : ev.type === "CHECK_OUT"
+              ? "Checked out"
+              : "Attendance punch",
+        detail: ev.flaggedForReview
+          ? "Flagged for review"
+          : ev.result === "fail"
+            ? "Verification failed"
+            : undefined,
+        pingIndex: pingIndexAtOrAfter(ms),
+      });
+    }
+
+    if (pings.length > 0) {
+      events.push({
+        id: "first-ping",
+        kind: "firstping",
+        timeMs: new Date(pings[0].timestamp).getTime(),
+        title: "First GPS ping of the window",
+        pingIndex: 0,
+      });
+      if (pings.length > 1) {
+        events.push({
+          id: "last-ping",
+          kind: "lastping",
+          timeMs: new Date(pings[pings.length - 1].timestamp).getTime(),
+          title: "Last GPS ping of the window",
+          pingIndex: pings.length - 1,
+        });
+      }
+    }
+
+    deriveStops(pings).forEach((stop, i) => {
+      events.push({
+        id: `stop-${i}`,
+        kind: "stop",
+        timeMs: new Date(stop.startTimestamp as string).getTime(),
+        title: `Stop ${i + 1}`,
+        detail: `Stopped ${formatDurationMinutes(stop.durationMinutes)} · ${formatPktTime(stop.startTimestamp as string)} – ${formatPktTime(stop.endTimestamp as string)}`,
+        pingIndex: stop.startIndex,
+      });
+    });
+
+    for (const gap of gaps) {
+      const ms = new Date(gap.gapStartAt).getTime();
+      events.push({
+        id: `gap-${gap.id}`,
+        kind: "gap",
+        timeMs: ms,
+        title: "Offline gap",
+        detail: gap.gapEndAt
+          ? `${formatDurationMinutes(gap.durationMinutes || 0)} without signal · resumed ${formatPktTime(gap.gapEndAt)}`
+          : `${formatDurationMinutes(gap.durationMinutes || 0)} without signal · not yet resumed`,
+        pingIndex: gap.gapEndAt ? pingIndexAtOrAfter(new Date(gap.gapEndAt).getTime()) : undefined,
+      });
+    }
+
+    const seenJobs = new Set<string>();
+    pings.forEach((p: any, i: number) => {
+      const job = p.activeJob;
+      if (job && !seenJobs.has(job.id)) {
+        seenJobs.add(job.id);
+        events.push({
+          id: `job-${job.id}`,
+          kind: "job",
+          timeMs: new Date(p.timestamp).getTime(),
+          title: `On job ${job.jobNumber}`,
+          detail: job.customerName || undefined,
+          pingIndex: i,
+        });
+      }
+    });
+
+    const kindOrder: Record<TimelineEvent["kind"], number> = {
+      checkin: 0,
+      firstping: 1,
+      job: 2,
+      stop: 3,
+      gap: 4,
+      punch: 5,
+      lastping: 6,
+      checkout: 7,
+    };
+    events.sort((a, b) => a.timeMs - b.timeMs || kindOrder[a.kind] - kindOrder[b.kind]);
+    return events;
+  })();
+
+  // The event the playback cursor currently sits in (last seekable event at
+  // or before the cursor) — highlighted in the timeline.
+  const activeEventId = (() => {
+    let active: string | undefined;
+    for (const ev of timelineEvents) {
+      if (ev.pingIndex != null && ev.pingIndex <= currentPingIndex) active = ev.id;
+    }
+    return active;
+  })();
+
   // Playback Step Controls
   const handleStepBackward = () => {
     setIsPlaying(false);
@@ -281,8 +439,8 @@ export default function SurveillanceDashboardPage() {
     if (!selectedTechId) return;
     const params = new URLSearchParams({
       employeeId: selectedTechId,
-      startDate: new Date(startDate).toISOString(),
-      endDate: new Date(endDate).toISOString(),
+      startDate: pktDateTimeLocalToInstant(startDate).toISOString(),
+      endDate: pktDateTimeLocalToInstant(endDate).toISOString(),
       format,
       scope,
     });
@@ -363,24 +521,65 @@ export default function SurveillanceDashboardPage() {
 
       {/* Surveillance Control & Filter Bar */}
       <div className="bg-white rounded-2xl border border-zinc-200 p-5 shadow-xs space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-          {/* 1. Technician Selector */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+          {/* 1. Technician Picker — avatar, live status, last seen (PKT) */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
               Technician
             </label>
-            <select
-              value={selectedTechId}
-              onChange={(e) => setSelectedTechId(e.target.value)}
-              disabled={loadingTechs}
-              className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-            >
-              {technicians.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.phone || t.department || "Operations"})
-                </option>
-              ))}
-            </select>
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden">
+              <div className="max-h-48 overflow-y-auto divide-y divide-zinc-100">
+                {loadingTechs ? (
+                  <p className="px-3 py-3 text-xs text-zinc-500">Loading technicians…</p>
+                ) : technicians.length === 0 ? (
+                  <p className="px-3 py-3 text-xs text-zinc-500">No technicians found.</p>
+                ) : (
+                  technicians.map((t) => {
+                    const selected = t.id === selectedTechId;
+                    const seen = agoLabel(t.lastPingAt);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSelectedTechId(t.id)}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-left transition ${
+                          selected ? "bg-emerald-50" : "bg-white hover:bg-zinc-50"
+                        }`}
+                      >
+                        <span className="relative shrink-0">
+                          <span
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-extrabold ${
+                              selected
+                                ? "bg-[#0D7A5F] text-white"
+                                : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                            }`}
+                          >
+                            {initialsOf(t.name || "")}
+                          </span>
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${statusDotClass(t.currentStatus)}`}
+                          />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-semibold text-zinc-900 truncate">
+                            {t.name}
+                          </span>
+                          <span className="block text-[10px] text-zinc-500 truncate">
+                            {t.currentStatus || t.department || "Operations"}
+                            {seen ? ` · seen ${seen}` : ""}
+                          </span>
+                        </span>
+                        {t.lastPingAt && (
+                          <span className="shrink-0 text-[10px] font-mono text-zinc-400">
+                            {formatPktTime(t.lastPingAt)}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
 
           {/* 2. Date Preset Selector */}
@@ -474,6 +673,7 @@ export default function SurveillanceDashboardPage() {
             onChange={(e) => setEndDate(e.target.value)}
             className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-xs"
           />
+          <span className="text-[10px] font-semibold text-zinc-400">Pakistan time (PKT)</span>
         </div>
       </div>
 
@@ -516,9 +716,10 @@ export default function SurveillanceDashboardPage() {
         </div>
       )}
 
-      {/* Interactive Map & Surveillance Trajectory View */}
-      <div className="space-y-3">
-        <SurveillanceMap
+      {/* Interactive Map & Surveillance Trajectory View + Day Timeline */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_370px] gap-4 items-start">
+        <div className="space-y-3">
+          <SurveillanceMap
           pings={pings}
           gaps={gaps}
           currentPingIndex={currentPingIndex}
@@ -618,7 +819,7 @@ export default function SurveillanceDashboardPage() {
                 <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-300 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-zinc-800">
                   <span className="text-emerald-400 font-bold flex items-center gap-1">
                     <Clock className="w-3 h-3 text-emerald-500" />
-                    {new Date(currentPing.timestamp).toLocaleTimeString()}
+                    {formatPktTime(currentPing.timestamp)} PKT
                   </span>
                   <span>
                     ⚡ {currentPing.speed != null ? `${Math.round(currentPing.speed)} km/h` : "0 km/h"}
@@ -650,12 +851,12 @@ export default function SurveillanceDashboardPage() {
                 className="w-full accent-[#0D7A5F] cursor-pointer h-2 bg-zinc-800 rounded-lg appearance-none"
               />
               <div className="flex justify-between text-[10px] text-zinc-400 font-mono">
-                <span>Start: {new Date(pings[0].timestamp).toLocaleTimeString()}</span>
+                <span>Start: {formatPktTime(pings[0].timestamp)} PKT</span>
                 <span className="font-bold text-emerald-400">
                   Waymark {currentPingIndex + 1} of {pings.length} (
                   {Math.round(((currentPingIndex + 1) / pings.length) * 100)}%)
                 </span>
-                <span>End: {new Date(pings[pings.length - 1].timestamp).toLocaleTimeString()}</span>
+                <span>End: {formatPktTime(pings[pings.length - 1].timestamp)} PKT</span>
               </div>
             </div>
           </div>
@@ -669,7 +870,8 @@ export default function SurveillanceDashboardPage() {
               <h3 className="text-sm font-bold text-zinc-900">No Location Telemetry In Selected Range</h3>
               <p className="text-xs text-zinc-500 mt-1 max-w-md mx-auto">
                 No GPS location pings were reported for <strong>{activeTechObj?.name || "this technician"}</strong> between{" "}
-                {new Date(startDate).toLocaleDateString()} and {new Date(endDate).toLocaleDateString()}.
+                {formatPktDateTime(pktDateTimeLocalToInstant(startDate))} and{" "}
+                {formatPktDateTime(pktDateTimeLocalToInstant(endDate))} PKT.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-2">
@@ -690,6 +892,126 @@ export default function SurveillanceDashboardPage() {
             </div>
           </div>
         )}
+        </div>
+
+        {/* Day-History Timeline — every event is backed by recorded data */}
+        <aside className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-hidden xl:sticky xl:top-4">
+          <div className="p-4 border-b border-zinc-100">
+            <div className="flex items-center gap-3">
+              <span className="relative shrink-0">
+                <span className="w-10 h-10 rounded-full bg-[#0D7A5F] text-white flex items-center justify-center text-xs font-extrabold">
+                  {initialsOf(activeTechObj?.name || "Technician")}
+                </span>
+                <span
+                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${statusDotClass(activeTechObj?.currentStatus)}`}
+                />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-zinc-900 truncate">
+                  {activeTechObj?.name || "Technician"}
+                </h3>
+                <p className="text-[11px] text-zinc-500 truncate">
+                  {activeTechObj?.currentStatus || "—"}
+                  {activeTechObj?.lastPingAt
+                    ? ` · last seen ${formatPktTime(activeTechObj.lastPingAt)} PKT (${agoLabel(activeTechObj.lastPingAt)})`
+                    : ""}
+                </p>
+              </div>
+            </div>
+            {summary && (
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <div className="bg-zinc-50 border border-zinc-100 rounded-lg py-1.5">
+                  <p className="text-[13px] font-extrabold font-mono text-zinc-900">
+                    {summary.totalDistanceKm} km
+                  </p>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+                    Distance
+                  </p>
+                </div>
+                <div className="bg-zinc-50 border border-zinc-100 rounded-lg py-1.5">
+                  <p className="text-[13px] font-extrabold font-mono text-zinc-900">
+                    {pings.length}
+                  </p>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+                    GPS Pings
+                  </p>
+                </div>
+                <div className="bg-zinc-50 border border-zinc-100 rounded-lg py-1.5">
+                  <p className="text-[13px] font-extrabold font-mono text-zinc-900">
+                    {timelineEvents.filter((e) => e.kind === "stop").length}
+                  </p>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+                    Stops
+                  </p>
+                </div>
+              </div>
+            )}
+            <p className="text-[10px] text-zinc-400 mt-2.5">
+              All times are Pakistan time (PKT). Click an event to jump the replay to it.
+            </p>
+          </div>
+
+          <div className="max-h-[540px] overflow-y-auto p-4">
+            {timelineEvents.length === 0 ? (
+              <p className="text-xs text-zinc-500 text-center py-6">
+                No recorded events in this window — no punches, pings, stops or gaps were logged.
+              </p>
+            ) : (
+              <ol className="relative border-l-2 border-zinc-100 ml-1.5 space-y-1">
+                {timelineEvents.map((ev) => {
+                  const dotClass =
+                    ev.kind === "checkin"
+                      ? "bg-emerald-500"
+                      : ev.kind === "checkout"
+                        ? "bg-zinc-800"
+                        : ev.kind === "gap"
+                          ? "bg-rose-500"
+                          : ev.kind === "stop"
+                            ? "bg-[#0D7A5F]"
+                            : ev.kind === "job"
+                              ? "bg-cyan-600"
+                              : "bg-zinc-300";
+                  const isActive = ev.id === activeEventId;
+                  const seekable = ev.pingIndex != null;
+                  return (
+                    <li key={ev.id}>
+                      <button
+                        type="button"
+                        disabled={!seekable}
+                        onClick={() => {
+                          if (ev.pingIndex != null) {
+                            setIsPlaying(false);
+                            setCurrentPingIndex(ev.pingIndex);
+                          }
+                        }}
+                        className={`relative w-full text-left pl-5 pr-2 py-1.5 rounded-lg transition ${
+                          isActive ? "bg-emerald-50" : seekable ? "hover:bg-zinc-50" : ""
+                        }`}
+                      >
+                        <span
+                          className={`absolute -left-[5px] top-2.5 w-2 h-2 rounded-full ring-2 ring-white ${dotClass}`}
+                        />
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span
+                            className={`text-xs font-semibold ${isActive ? "text-emerald-900" : "text-zinc-800"}`}
+                          >
+                            {ev.title}
+                          </span>
+                          <span className="text-[10px] font-mono text-zinc-400 shrink-0">
+                            {formatPktTime(ev.timeMs)}
+                          </span>
+                        </span>
+                        {ev.detail && (
+                          <span className="block text-[11px] text-zinc-500 mt-0.5">{ev.detail}</span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
+        </aside>
       </div>
 
       {/* Offline Gap Analysis Callout List */}
@@ -720,12 +1042,12 @@ export default function SurveillanceDashboardPage() {
                   </span>
                 </div>
                 <p className="text-zinc-600 text-[11px]">
-                  <strong>Signal Lost:</strong> {new Date(gap.gapStartAt).toLocaleTimeString()} at (
+                  <strong>Signal Lost:</strong> {formatPktDateTime(gap.gapStartAt)} PKT at (
                   {gap.lastKnownLat.toFixed(4)}, {gap.lastKnownLng.toFixed(4)})
                 </p>
                 {gap.gapEndAt && (
                   <p className="text-zinc-600 text-[11px]">
-                    <strong>Resumed:</strong> {new Date(gap.gapEndAt).toLocaleTimeString()} at (
+                    <strong>Resumed:</strong> {formatPktDateTime(gap.gapEndAt)} PKT at (
                     {gap.resumeLat?.toFixed(4)}, {gap.resumeLng?.toFixed(4)})
                   </p>
                 )}
@@ -802,7 +1124,7 @@ export default function SurveillanceDashboardPage() {
                     <strong>{cleanupResult.eligibleOfflineGaps ?? cleanupResult.purgedGapsCount}</strong>
                   </p>
                   <p className="text-zinc-400 text-[10px]">
-                    Cutoff timestamp: {new Date(cleanupResult.cutoffDate).toLocaleString()}
+                    Cutoff timestamp: {formatPktDateTime(cleanupResult.cutoffDate)} PKT
                   </p>
                 </div>
               )}

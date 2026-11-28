@@ -23,6 +23,7 @@ import {
   FileText,
 } from "lucide-react";
 import { realtimeSync, notifySync } from "@/lib/realtimeSync";
+import { formatPktDate, formatPktDateTime } from "@/lib/pktTime";
 import { useRole } from "@/contexts/RoleContext";
 
 interface RollbackRecord {
@@ -747,11 +748,13 @@ export default function AuditHubPage() {
                       const isRolledBack = item.status === "ROLLED_BACK";
                       const dateObj = new Date(item.timestamp);
                       const formattedDate = dateObj.toLocaleDateString("en-US", {
+                        timeZone: "Asia/Karachi",
                         month: "short",
                         day: "numeric",
                         year: "numeric",
                       });
                       const formattedTime = dateObj.toLocaleTimeString("en-US", {
+                        timeZone: "Asia/Karachi",
                         hour: "2-digit",
                         minute: "2-digit",
                       });
@@ -842,7 +845,7 @@ export default function AuditHubPage() {
                           <td className="py-3.5 px-4 text-right whitespace-nowrap">
                             {isRolledBack ? (
                               <span className="text-[11px] text-[#71717A] italic">
-                                Reverted on {new Date(item.rolledBackAt || "").toLocaleDateString()}
+                                Reverted on {formatPktDate(new Date(item.rolledBackAt || ""))}
                               </span>
                             ) : (
                               <button
@@ -950,7 +953,7 @@ export default function AuditHubPage() {
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[#71717A]">Snapshot Date</span>
                   <p className="font-semibold text-[#18181B] mt-0.5 text-xs">
-                    {new Date(selectedRollback.timestamp).toLocaleString()}
+                    {formatPktDateTime(new Date(selectedRollback.timestamp))}
                   </p>
                 </div>
                 <div>

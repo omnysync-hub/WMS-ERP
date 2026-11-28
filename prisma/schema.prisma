@@ -1105,6 +1105,11 @@ model Employee {
   lat                    Float?
   lng                    Float?
   lastPingAt             DateTime?
+  // Accuracy radius (m) of the fix that produced lat/lng, and when that
+  // position was set. The telemetry ingest protects a recent pinpoint
+  // position from being overwritten by a sloppy fix (see locationIntegrity).
+  lastPingAccuracy       Float?
+  lastGoodFixAt          DateTime?
   jobs                   Job[]
   jobAssignments         JobAssignment[]
   attendanceLogs         AttendanceLog[]
@@ -1766,6 +1771,9 @@ model TechnicianLocationPing {
   lat           Float
   lng           Float
   accuracy      Float?
+  // OS-reported mock-location flag for this fix. Mocked fixes are stored
+  // (visible audit trail) but NEVER used as the technician's position.
+  mocked        Boolean  @default(false)
   speed         Float? // km/h
   batteryLevel  Float? // percentage 0-100
   isMoving      Boolean  @default(false)

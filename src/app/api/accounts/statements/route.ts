@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { actorHasPermission, resolveJobsActor } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
 import { normalizeAgingBuckets } from "@/lib/accountingConfig";
+import { pktDayFromString, pktEndOfDay, pktStartOfDay } from "@/lib/pktTime";
 
 type PartyType = "customer" | "vendor" | "employee" | "care_of";
 type Aging = { current: number; days31To60: number; days61To90: number; days90Plus: number };
@@ -60,8 +61,13 @@ function makeStatement(lines: LedgerLine[], partyType: PartyType, fromText: stri
   const payable = partyType === "vendor" || partyType === "employee";
   const effect = (line: LedgerLine) => payable ? line.credit - line.debit : line.debit - line.credit;
   const ordered = [...lines].sort((a, b) => a.date.getTime() - b.date.getTime());
-  const from = fromText ? new Date(`${fromText}T00:00:00`) : null;
-  const to = toText ? new Date(`${toText}T23:59:59.999`) : null;
+  // The from/to filters are Pakistan calendar days (that's what the client
+  // sends); parsing them with new Date("...T00:00:00") would interpret them
+  // in the SERVER's timezone (Europe/Berlin), shifting the window by hours.
+  const fromParts = fromText ? pktDayFromString(fromText) : null;
+  const toParts = toText ? pktDayFromString(toText) : null;
+  const from = fromParts ? pktStartOfDay(fromParts.year, fromParts.month, fromParts.day) : null;
+  const to = toParts ? pktEndOfDay(toParts.year, toParts.month, toParts.day) : null;
   const openingBalance = round(ordered.filter((line) => from && line.date < from).reduce((sum, line) => sum + effect(line), 0));
   let runningBalance = openingBalance;
   const transactions = ordered
@@ -368,7 +374,18 @@ export async function GET(req: NextRequest) {
   try {
     const params = new URL(req.url).searchParams;
     const mode = params.get("mode") || "directory";
-    const asOf = params.get("asOf") ? new Date(`${params.get("asOf")}T23:59:59.999`) : new Date();
+    // The as-of date is a Pakistan calendar day. Parsing "YYYY-MM-DDT23:59:59"
+    // with new Date() interprets it in the SERVER's timezone (Europe/Berlin):
+    // end-of-day Nov 28 Berlin serialised back and rendered in PKT became
+    // "Nov 29" on the printed statement (QA round 2). pktEndOfDay pins the
+    // boundary to PKT, so the echoed asOfDate formats back to the same day.
+    const asOfParam = params.get("asOf");
+    const asOfParts = asOfParam ? pktDayFromString(asOfParam) : null;
+    const asOf = asOfParam
+      ? asOfParts
+        ? pktEndOfDay(asOfParts.year, asOfParts.month, asOfParts.day)
+        : new Date(NaN)
+      : new Date();
     if (Number.isNaN(asOf.getTime())) return NextResponse.json({ error: "Invalid as-of date" }, { status: 400 });
     if (mode === "directory") return NextResponse.json({ success: true, ...(await directory(asOf)) });
 

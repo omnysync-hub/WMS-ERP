@@ -15,6 +15,8 @@ export function formatDate(date: Date | string | null | undefined): string {
   if (!date) return "—";
   const d = typeof date === "string" ? new Date(date) : date;
   return new Intl.DateTimeFormat("en-US", {
+    // Operational dates are Pakistan dates, wherever the viewer is.
+    timeZone: "Asia/Karachi",
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -25,6 +27,8 @@ export function formatDateTime(date: Date | string | null | undefined): string {
   if (!date) return "—";
   const d = typeof date === "string" ? new Date(date) : date;
   return new Intl.DateTimeFormat("en-US", {
+    // Operational timestamps are Pakistan time, wherever the viewer is.
+    timeZone: "Asia/Karachi",
     month: "short",
     day: "numeric",
     hour: "numeric",

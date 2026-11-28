@@ -86,6 +86,8 @@ export async function GET(req: NextRequest) {
           lat: true,
           lng: true,
           lastPingAt: true,
+          lastPingAccuracy: true,
+          lastGoodFixAt: true,
           jobs: {
             where: { status: { in: ["Assigned", "Accepted", "InProgress", "Paused"] } },
             include: { customer: true },
@@ -101,9 +103,31 @@ export async function GET(req: NextRequest) {
       }),
       prisma.job.findMany({
         where: { status: "Created", assignedTechnicianId: null },
-        include: { customer: true },
+        include: {
+          customer: true,
+          // Same technician sources the jobs data resolves elsewhere:
+          // the lead `assignedTechnician` relation plus active assignments.
+          assignedTechnician: { select: { id: true, name: true } },
+          assignments: {
+            where: { status: { not: "Removed" } },
+            include: { technician: { select: { id: true, name: true } } },
+          },
+        },
       }),
     ]);
+
+    // Additive: resolve a display technician name per job (lead technician
+    // first, then the primary active assignment) so dispatch map markers can
+    // label by person. Null when the job truly has no technician.
+    const unassignedJobsWithTech = unassignedJobs.map((job) => {
+      const primaryAssignment =
+        job.assignments?.find((a) => a.role === "primary") || job.assignments?.[0];
+      return {
+        ...job,
+        assignedTechnicianName:
+          job.assignedTechnician?.name || primaryAssignment?.technician?.name || null,
+      };
+    });
 
     // Determine current status based on today's attendance and active jobs
     const formatted = technicians.map((tech) => {
@@ -139,6 +163,11 @@ export async function GET(req: NextRequest) {
         lat: tech.lat || 25.2048,
         lng: tech.lng || 55.2708,
         lastPingAt: tech.lastPingAt,
+        // Accuracy radius (m) of the fix behind lat/lng — the live map
+        // draws it as the pin's accuracy circle and "±N m" label. Null when
+        // the stored position predates accuracy tracking.
+        lastPingAccuracy: tech.lastPingAccuracy ?? null,
+        lastGoodFixAt: tech.lastGoodFixAt || null,
         currentStatus,
         isCheckedIn,
         checkInTime: firstCheckIn?.timestamp || null,
@@ -172,7 +201,7 @@ export async function GET(req: NextRequest) {
       technicians: outputTechnicians,
       presentTechnicians,
       allTechnicians: formatted,
-      unassignedJobs,
+      unassignedJobs: unassignedJobsWithTech,
       totalCount: formatted.length,
       presentCount: presentTechnicians.length,
       offDutyCount: formatted.length - presentTechnicians.length,

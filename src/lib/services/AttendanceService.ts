@@ -14,6 +14,10 @@ export interface AttendanceSubmissionPayload {
   punchType?: "CHECK_IN" | "CHECK_OUT";
   /** Set only by the authenticated API after verifying the employee's work password. */
   backupVerified?: boolean;
+  /** Accuracy radius (m) of the punch's GPS fix, as reported by the app. */
+  gpsAccuracyM?: number;
+  /** OS mock-location flag for the punch's GPS fix, as reported by the app. */
+  gpsMocked?: boolean;
 }
 
 export interface AttendanceVerificationResult {
@@ -77,6 +81,8 @@ export class AttendanceService {
       notes,
       punchType = "CHECK_IN",
       backupVerified = false,
+      gpsAccuracyM,
+      gpsMocked = false,
     } = params;
 
     const serverReceiptTime = new Date();
@@ -287,6 +293,24 @@ export class AttendanceService {
     // 5. Evaluate flags
     let flaggedForReview = false;
     const flagReasons: string[] = [];
+
+    // GPS fix quality (pinpoint-capture payload from the app): a mocked
+    // fix means the device itself reported a fake location — the punch is
+    // recorded (the audit trail is the point) but flagged for office
+    // review, exactly like an implausible jump. A very imprecise fix is
+    // flagged too: at >100 m radius the punch cannot prove presence at a
+    // specific site. Same 100 m bar as the telemetry position rules.
+    if (gpsMocked) {
+      flaggedForReview = true;
+      flagReasons.push(
+        "Device reported a MOCKED (fake) GPS location for this punch — position not trusted."
+      );
+    } else if (gpsAccuracyM != null && gpsAccuracyM > 100) {
+      flaggedForReview = true;
+      flagReasons.push(
+        `GPS fix for this punch was imprecise (±${Math.round(gpsAccuracyM)} m) — presence at the exact site is not proven.`
+      );
+    }
 
     if (jumpDetected && jumpReason) {
       flaggedForReview = true;
