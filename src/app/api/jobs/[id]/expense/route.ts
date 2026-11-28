@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { prisma } from "@/lib/prisma";
-import { validateReceiptUrl } from "@/lib/receiptUrl";
+import { validateReceiptPhotos } from "@/lib/receiptUrl";
 
 export async function POST(
   req: NextRequest,
@@ -13,7 +13,7 @@ export async function POST(
   if (gate.error) return gate.error;
   try {
     const body = await req.json();
-    const { technicianId, amount, note, receiptUrl, category } = body;
+    const { technicianId, amount, note, receiptUrl, receiptUrls, category } = body;
     // Verified mobile technician: file strictly as self
     const isMobileTechnician =
       (req.headers.get("authorization") || "").startsWith("Bearer ") &&
@@ -45,7 +45,9 @@ export async function POST(
       return NextResponse.json({ error: "Select an active expense category configured in Accounting Onboarding." }, { status: 400 });
     }
 
-    const receipt = validateReceiptUrl(receiptUrl);
+    // Accept the multi-photo set (receiptUrls) or the legacy single
+    // receiptUrl; the claim stores the full set plus the primary photo.
+    const receipt = validateReceiptPhotos(receiptUrls ?? receiptUrl);
     if (!receipt.ok) {
       return NextResponse.json({ error: receipt.error }, { status: 400 });
     }
@@ -87,7 +89,8 @@ export async function POST(
         amount: numericAmount,
         note: cleanNote || "Job expense",
         category: cleanCategory,
-        receiptUrl: receipt.value,
+        receiptUrl: receipt.values[0] || null,
+        receiptUrls: receipt.values,
         status: "pending",
       },
     });

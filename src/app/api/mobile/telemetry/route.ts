@@ -152,7 +152,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       technician: employee,
-      pingId: locationPing.id,
+      // locationPing is null when the ping was throttled (stationary +
+      // recent) — reading .id off it used to 500 the whole ingest even
+      // though the employee position had already been updated.
+      pingId: locationPing?.id ?? null,
       isShiftActive,
       activeJobId,
       pendingUrgentCount: urgentRequests.length,

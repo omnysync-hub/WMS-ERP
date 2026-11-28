@@ -13,6 +13,20 @@ export const SHARED_SETTING_PERMISSIONS: Record<string, string[]> = {
 
 export const SHARED_SETTING_KEYS = Object.keys(SHARED_SETTING_PERMISSIONS);
 
+/**
+ * Scalar (single-value) settings stored in the same AppSetting table.
+ * Unlike the list settings above, these are NOT synced into localStorage —
+ * they are read by the API routes that need them (e.g. the mobile auth
+ * bootstrap hands `storekeeper_phone` to the technician app as appConfig).
+ */
+export const SCALAR_SETTING_PERMISSIONS: Record<string, string[]> = {
+  storekeeper_phone: ["settings.accounting", "jobs.manage"],
+};
+
+export const SCALAR_SETTING_KEYS = Object.keys(SCALAR_SETTING_PERMISSIONS);
+
+export const STOREKEEPER_PHONE_KEY = "storekeeper_phone";
+
 function broadcast(key: string, value: unknown) {
   window.dispatchEvent(new Event("storage"));
   window.dispatchEvent(new CustomEvent(`${key}_updated`, { detail: value }));

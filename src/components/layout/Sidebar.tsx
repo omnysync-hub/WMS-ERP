@@ -50,6 +50,7 @@ import {
   Wrench,
   Percent,
   Fingerprint,
+  Phone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
@@ -434,12 +435,6 @@ export default function Sidebar({
     ["/inventory", "/workshops"].includes(item.href)
   );
 
-  // Temporary Vouchers tab: visible to voucher creators, voucher posters, or ledger viewers
-  const canAccessVouchers =
-    hasPermission("accounts.vouchers") ||
-    hasPermission("accounts.post_voucher") ||
-    hasPermission("accounts.general_ledger");
-
   // Dedicated Accounts & Ledgers Accordion Sub-Items
   const accountingSubItems = [
     { label: "Statements of Account", tab: "statements", icon: FileText },
@@ -451,9 +446,6 @@ export default function Sidebar({
     { label: "Chart of Accounts (COA)", tab: "chart", icon: BookOpen },
     { label: "Account Mapping", tab: "mapping", icon: Sliders },
     { label: "General Journal", tab: "journal", icon: Scale },
-    ...(canAccessVouchers
-      ? [{ label: "Temporary Vouchers", tab: "vouchers", icon: Receipt }]
-      : []),
     { label: "Financial Statements", tab: "reports", icon: FileText },
     { label: "Bank Reconciliation", tab: "bankrec", icon: Building },
     { label: "Fixed Assets & Depr", tab: "fixedassets", icon: Layers },
@@ -475,9 +467,7 @@ export default function Sidebar({
 
   const hasAccountsAccess =
     ["admin", "accountant", "cashier", "auditor"].includes(activeRole) ||
-    hasPermission("accounts.general_ledger") ||
-    hasPermission("accounts.vouchers") ||
-    hasPermission("accounts.post_voucher");
+    hasPermission("accounts.general_ledger");
 
   // Dedicated Settings Accordion Sub-Items
   const allSettingsSubItems = [
@@ -513,6 +503,13 @@ export default function Sidebar({
       icon: Layers,
       roles: ["admin", "storekeeper", "accountant"],
       perm: "inventory.stock_units",
+    },
+    {
+      label: "Storekeeper Contact",
+      href: "/settings/storekeeper-contact",
+      icon: Phone,
+      roles: ["admin", "manager"],
+      perm: "settings.accounting|jobs.manage",
     },
     {
       label: "Users & Role Settings",

@@ -21,6 +21,21 @@ import {
  * Field Technicians and Office/General Staff.
  */
 
+/**
+ * App-facing configuration the software side controls (Settings ›
+ * Storekeeper Contact). Handed to the app at login and on every profile
+ * refresh so a changed number reaches phones without an app update.
+ */
+async function readAppConfig(): Promise<{ storekeeperPhone: string | null }> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: "storekeeper_phone" } });
+    const value = typeof row?.value === "string" ? row.value.trim() : "";
+    return { storekeeperPhone: value || null };
+  } catch {
+    return { storekeeperPhone: null }; // AppSetting table not migrated yet
+  }
+}
+
 export async function POST(req: NextRequest) {
   const b0: any = await req.clone().json().catch(() => ({}));
   const rl = loginRateLimit("mobile", req.headers, String(b0.username || b0.phone || b0.email || b0.employeeId || ""));
@@ -267,6 +282,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       token,
+      appConfig: await readAppConfig(),
       employee: {
         id: employee.id,
         name: employee.name,
@@ -361,6 +377,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
+      appConfig: await readAppConfig(),
       employee: {
         id: employee.id,
         name: employee.name,

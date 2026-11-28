@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { pktParts, pktStartOfDay, pktEndOfDay } from "@/lib/pktTime";
 import { syncUserFromEmployee } from "@/lib/hr/userEmployeeLink";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
@@ -1203,10 +1204,11 @@ export class HrmService {
   // ==========================================
 
   static async getHrAnalytics() {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    // PKT calendar day — server-local setHours() bounds drift from the
+    // business day because the VPS clock is not PKT.
+    const { year, month, day } = pktParts(new Date());
+    const startOfToday = pktStartOfDay(year, month, day);
+    const endOfToday = pktEndOfDay(year, month, day);
 
     const [
       totalEmployees,

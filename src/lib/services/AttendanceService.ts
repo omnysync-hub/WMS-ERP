@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { pktParts, pktStartOfDay, pktEndOfDay } from "@/lib/pktTime";
 
 export interface AttendanceSubmissionPayload {
   employeeId: string;
@@ -132,11 +133,11 @@ export class AttendanceService {
     // 1b. One punch pair per day — re-punches are not allowed. Persisted
     // logs encode the punch type only in the notes prefix
     // ([CHECK_IN] / [CHECK_OUT]), so classify today's logs by that prefix
-    // using server-local day bounds.
-    const dayStart = new Date(serverReceiptTime);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(serverReceiptTime);
-    dayEnd.setHours(23, 59, 59, 999);
+    // using PKT day bounds (the VPS clock is not PKT; server-local bounds
+    // misfiled punches between midnight and ~05:00 PKT into the wrong day).
+    const { year, month, day } = pktParts(serverReceiptTime);
+    const dayStart = pktStartOfDay(year, month, day);
+    const dayEnd = pktEndOfDay(year, month, day);
     const todaysLogs = await prisma.attendanceLog.findMany({
       where: { employeeId, timestamp: { gte: dayStart, lte: dayEnd } },
       orderBy: { timestamp: "asc" },

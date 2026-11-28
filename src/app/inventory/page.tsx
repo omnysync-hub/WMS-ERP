@@ -762,8 +762,12 @@ export default function InventoryPurchasingPage() {
 
 
   const pendingStorekeeperCount =
-    techRequests.filter((r) => r.status === "Pending").length +
-    techReturns.filter((r) => r.status === "Pending").length;
+    // InventoryRequest statuses are stored lowercase ("pending",
+    // "partially_issued", "issued"); StockReturn rows carry the API-derived
+    // "Pending"/"Acknowledged". Compare case-insensitively so the badge
+    // counts real open work in both lists.
+    techRequests.filter((r) => ["pending", "partially_issued"].includes(String(r.status || "").toLowerCase())).length +
+    techReturns.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
 
   const physicalProducts = products.filter((p) => !isServiceProduct(p));
   const serviceProducts = products.filter((p) => isServiceProduct(p));
@@ -2005,7 +2009,7 @@ export default function InventoryPurchasingPage() {
                         <td className="py-3 px-4 font-mono text-[#0D7A5F]">{req.job?.jobNumber || "—"}</td>
                         <td className="py-3 px-4 text-center"><StatusBadge status={req.status} /></td>
                         <td className="py-3 px-4 text-right">
-                          {req.status === "Pending" ? (
+                          {["pending", "partially_issued"].includes(String(req.status || "").toLowerCase()) ? (
                             canFulfillRequests ? (
                               <button
                                 type="button"

@@ -86,15 +86,74 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { createdAt: "desc" },
       });
-      return NextResponse.json(requests);
+      // InventoryRequest carries only a technicianId string (no relation),
+      // so the Storekeeper Queue's technician column needs the name resolved
+      // here — one batch lookup for the page of requests, attached additively
+      // as `technician: { id, name }` (null when the employee is gone).
+      const technicianIds = [...new Set(requests.map((r) => r.technicianId).filter(Boolean))];
+      const technicians = technicianIds.length
+        ? await prisma.employee.findMany({
+            where: { id: { in: technicianIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const nameById = new Map(technicians.map((t) => [t.id, t.name]));
+      return NextResponse.json(
+        requests.map((r) => ({
+          ...r,
+          technician: nameById.has(r.technicianId)
+            ? { id: r.technicianId, name: nameById.get(r.technicianId) }
+            : null,
+        }))
+      );
     }
 
     if (view === "returns") {
+      // Same select-whitelist treatment as requests: consumers (the
+      // inventory page's returns tab) read the return scalars plus
+      // job.jobNumber / job.customer.name — not the whole job + customer rows.
       const returns = await prisma.stockReturn.findMany({
-        include: { job: { include: { customer: true } } },
+        select: {
+          id: true,
+          jobId: true,
+          technicianId: true,
+          item: true,
+          productId: true,
+          qtyReturned: true,
+          acknowledgedBy: true,
+          acknowledgedAt: true,
+          createdAt: true,
+          job: {
+            select: {
+              id: true,
+              jobNumber: true,
+              customer: { select: { id: true, name: true } },
+            },
+          },
+        },
         orderBy: { createdAt: "desc" },
       });
-      return NextResponse.json(returns);
+      // StockReturn has no status column and no technician relation, but the
+      // returns tab renders both: derive `status` from the acknowledgement
+      // (the tab's exact contract: "Pending" until acknowledged) and resolve
+      // the technician name in one batch lookup, same as the requests view.
+      const technicianIds = [...new Set(returns.map((r) => r.technicianId).filter(Boolean))];
+      const technicians = technicianIds.length
+        ? await prisma.employee.findMany({
+            where: { id: { in: technicianIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const nameById = new Map(technicians.map((t) => [t.id, t.name]));
+      return NextResponse.json(
+        returns.map((r) => ({
+          ...r,
+          status: r.acknowledgedAt ? "Acknowledged" : "Pending",
+          technician: nameById.has(r.technicianId)
+            ? { id: r.technicianId, name: nameById.get(r.technicianId) }
+            : null,
+        }))
+      );
     }
 
 
