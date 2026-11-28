@@ -570,18 +570,6 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
         description: "Allow viewing Trial Balance, Income Statement (P&L), and Balance Sheet",
         module: "accounts",
       },
-      {
-        key: "accounts.vouchers",
-        label: "Create Temporary Vouchers",
-        description: "Allow creating temporary (unposted) vouchers — expenses, payments, receipts and general vouchers — that take effect only when posted by an authorised poster",
-        module: "accounts",
-      },
-      {
-        key: "accounts.post_voucher",
-        label: "Post / Reject Temporary Vouchers",
-        description: "Allow viewing temporary vouchers and posting them into the live journal (or rejecting them) — the Auditor verification step",
-        module: "accounts",
-      },
     ],
   },
   {
@@ -698,8 +686,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "projects.hisaab": true,
     "projects.view": true,
     "hrm.payroll_disburse": true,
-    "accounts.post_voucher": true,
-    "accounts.vouchers": true,
     // Jobs
     "jobs.view_directory": true,
     "jobs.view_financials": true,
@@ -950,7 +936,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "projects.hisaab": true,
     "projects.view": true,
     "hrm.payroll_disburse": true,
-    "accounts.vouchers": true,
     // Jobs
     "jobs.view_directory": true,
     "jobs.view_financials": true,
@@ -1168,8 +1153,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "hrm.advances": true,
     "hrm.payroll_disburse": true,
     "hrm.payroll": true,
-    "accounts.post_voucher": true,
-    "accounts.vouchers": true,
     "projects.approve_change_order": true,
     "jobs.view_directory": true,
     "jobs.view_financials": true,
@@ -1286,9 +1269,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "hrm.advances": false,
     "settings.accounting": false,
     "settings.taxes": false,
-    // Role-spec: auditor verifies & posts vouchers, audits completion, creates the final bill — nothing else mutates.
+    // Role-spec: auditor audits completion and creates the final bill — nothing else mutates.
     "hrm.payroll_disburse": false,
-    "accounts.vouchers": false,
     "projects.tasks": false,
     "projects.delivery_order": false,
     "projects.approve_overrun": false,

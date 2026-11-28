@@ -165,14 +165,11 @@ export async function POST(
     if (gate.error) return gate.error;
 
     // accounts.general_ledger is a view-level key; posting a ledger entry additionally
-    // requires a posting right — direct journal posting or voucher creation (any of).
-    if (
-      !actorHasPermission(gate.actor, "accounts.post_entries") &&
-      !actorHasPermission(gate.actor, "accounts.vouchers")
-    ) {
+    // requires the direct journal posting right.
+    if (!actorHasPermission(gate.actor, "accounts.post_entries")) {
       return NextResponse.json(
         {
-          error: `Forbidden: role '${gate.actor.role}' lacks permission 'accounts.post_entries' or 'accounts.vouchers'`,
+          error: `Forbidden: role '${gate.actor.role}' lacks permission 'accounts.post_entries'`,
           permission: "accounts.post_entries",
           role: gate.actor.role,
           code: "PERMISSION_DENIED",
