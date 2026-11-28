@@ -20,7 +20,7 @@ import { FieldErrorText, INVALID_FIELD_CLS } from "@/components/ui/form";
 import { useRole } from "@/contexts/RoleContext";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
-import { pktDateString } from "@/lib/pktTime";
+import { pktDateString, pktParts, pktStartOfDay, pktTodayStart } from "@/lib/pktTime";
 import { notify } from "@/lib/notify";
 import {
   CreditCard,
@@ -645,17 +645,18 @@ export default function AccountsPage() {
           accountCode: cashbookFilterAccount,
         });
         if (cashbookPeriod === "today") {
-          const start = new Date();
-          start.setHours(0, 0, 0, 0);
-          queryParams.set("from", start.toISOString());
+          // PKT start of today: the cashbook day is a Pakistan calendar day,
+          // whatever timezone the viewer's browser is set to.
+          queryParams.set("from", pktTodayStart().toISOString());
         } else if (cashbookPeriod === "7d") {
+          // Rolling 7×24h window ending now — an instant offset, identical in
+          // every timezone, so no day boundary is involved.
           const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
           queryParams.set("from", start.toISOString());
         } else if (cashbookPeriod === "month") {
-          const start = new Date();
-          start.setDate(1);
-          start.setHours(0, 0, 0, 0);
-          queryParams.set("from", start.toISOString());
+          // PKT start of the 1st of the current Pakistan month.
+          const { year, month } = pktParts();
+          queryParams.set("from", pktStartOfDay(year, month, 1).toISOString());
         }
         const res = await fetch(`/api/accounts?${queryParams.toString()}`);
         const data = await res.json();

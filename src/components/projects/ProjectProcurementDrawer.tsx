@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import { formatCurrency } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import {
   ShoppingCart,
   Send,
@@ -55,7 +56,7 @@ export default function ProjectProcurementDrawer({
   const [department, setDepartment] = useState("Project Execution");
   const [priority, setPriority] = useState<"Normal" | "Urgent">("Normal");
   const [dateRequired, setDateRequired] = useState(
-    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+    pktDateString(new Date(Date.now() + 7 * 86400000))
   );
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);

@@ -1,3 +1,5 @@
+import { pktParts } from "@/lib/pktTime";
+
 type SequenceClient = {
   companySettings: {
     findFirst: (args?: any) => Promise<any>;
@@ -17,7 +19,9 @@ export class DocumentSequenceService {
 
     const prefix = String(current.invoicePrefix || "INV").trim().toUpperCase();
     const padding = Math.min(10, Math.max(3, Number(current.invoiceNumberPadding) || 4));
-    const year = issuedAt.getFullYear();
+    // The serial's year is the Pakistan calendar year of issue — a serial
+    // generated in the first hours of Jan 1 PKT must carry the new year.
+    const year = pktParts(issuedAt).year;
 
     let seq = Math.max(1, Number(current.invoiceNextNumber) || 1);
 

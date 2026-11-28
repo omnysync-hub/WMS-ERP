@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime, formatDate, formatJobType } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import {
   CheckCircle2,
   Clock,
@@ -44,14 +45,8 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
 
   // Filter states
   const [period, setPeriod] = useState<"today" | "yesterday" | "this_week" | "this_month" | "custom">("today");
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date();
-    return d.toISOString().split("T")[0];
-  });
-  const [endDate, setEndDate] = useState<string>(() => {
-    const d = new Date();
-    return d.toISOString().split("T")[0];
-  });
+  const [startDate, setStartDate] = useState<string>(() => pktDateString());
+  const [endDate, setEndDate] = useState<string>(() => pktDateString());
   const [statusGroupFilter, setStatusGroupFilter] = useState<string>("all");
   const [technicianFilter, setTechnicianFilter] = useState<string>("ALL");
   const [jobTypeFilter, setJobTypeFilter] = useState<string>("ALL");
@@ -203,7 +198,7 @@ export default function JobReportsView({ onBackToDirectory }: JobReportsViewProp
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `Job_Report_Audit_${reportData?.meta?.dateRangeLabel || period}_${new Date().toISOString().slice(0, 10)}.csv`
+      `Job_Report_Audit_${reportData?.meta?.dateRangeLabel || period}_${pktDateString()}.csv`
     );
     document.body.appendChild(link);
     link.click();

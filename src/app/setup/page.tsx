@@ -24,6 +24,7 @@ import {
   Scale,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import AccountingPoliciesStep from "@/components/setup/AccountingPoliciesStep";
 import TreasuryAndCareOfStep from "@/components/setup/TreasuryAndCareOfStep";
@@ -72,7 +73,7 @@ export default function SetupWizardPage() {
   const [deactivateCodes, setDeactivateCodes] = useState("");
 
   // Step 4 Opening Balances
-  const [goLiveDate, setGoLiveDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [goLiveDate, setGoLiveDate] = useState<string>(pktDateString());
   const [openingBalances, setOpeningBalances] = useState<Record<string, { debit: string; credit: string }>>({});
 
   // Optional master data (on go-live step)

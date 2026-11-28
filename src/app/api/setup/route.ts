@@ -10,6 +10,7 @@ import { STANDARD_COA_DEFINITIONS } from "@/lib/constants/chartOfAccountsHierarc
 import { BASELINE_MAPPINGS } from "@/lib/constants/baselineMappings";
 import { requirePermission } from "@/lib/auth/erpActor";
 import { careOfReceivableAccountId } from "@/lib/careOfLedger";
+import { pktDateString, pktParts } from "@/lib/pktTime";
 import {
   accountingPolicyReadiness,
   ExpenseCategoryConfig,
@@ -373,7 +374,7 @@ export async function POST(req: NextRequest) {
       if (!Number.isInteger(invoiceNextNumber) || invoiceNextNumber < 1 || !Number.isInteger(invoiceNumberPadding) || invoiceNumberPadding < 3 || invoiceNumberPadding > 10) {
         return NextResponse.json({ error: "Invoice next number and padding are invalid." }, { status: 400 });
       }
-      const nextInvoicePreview = `${invoicePrefix}-${new Date().getFullYear()}-${String(invoiceNextNumber).padStart(invoiceNumberPadding, "0")}`;
+      const nextInvoicePreview = `${invoicePrefix}-${pktParts().year}-${String(invoiceNextNumber).padStart(invoiceNumberPadding, "0")}`;
       if (await prisma.invoice.findUnique({ where: { invoiceNumber: nextInvoicePreview } })) {
         return NextResponse.json({ error: `Invoice number ${nextInvoicePreview} already exists. Increase the next invoice number.` }, { status: 400 });
       }
@@ -676,7 +677,7 @@ export async function POST(req: NextRequest) {
           }
           return AccountsPostingService.post({
             date: targetDate,
-            memo: `[GO-LIVE OPENING BALANCES] Initial Balances as of ${targetDate.toISOString().slice(0, 10)}`,
+            memo: `[GO-LIVE OPENING BALANCES] Initial Balances as of ${pktDateString(targetDate)}`,
             refType: "opening_balance",
             refId: "GO_LIVE",
             postedBy,

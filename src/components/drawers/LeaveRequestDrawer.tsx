@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import { pktDateString } from "@/lib/pktTime";
 import { Calendar, AlertCircle } from "lucide-react";
 
 interface LeaveRequestDrawerProps {
@@ -24,8 +25,8 @@ export default function LeaveRequestDrawer({
 }: LeaveRequestDrawerProps) {
   const [employeeId, setEmployeeId] = useState(defaultEmployeeId || (employees[0]?.id || ""));
   const [leaveTypeId, setLeaveTypeId] = useState(leaveTypes[0]?.id || "");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState(pktDateString());
+  const [endDate, setEndDate] = useState(pktDateString(new Date(Date.now() + 86400000 * 2)));
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");

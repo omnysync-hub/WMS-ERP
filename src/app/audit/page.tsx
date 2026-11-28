@@ -23,7 +23,7 @@ import {
   FileText,
 } from "lucide-react";
 import { realtimeSync, notifySync } from "@/lib/realtimeSync";
-import { formatPktDate, formatPktDateTime } from "@/lib/pktTime";
+import { formatPktDate, formatPktDateTime, pktDateString } from "@/lib/pktTime";
 import { useRole } from "@/contexts/RoleContext";
 
 interface RollbackRecord {
@@ -534,7 +534,7 @@ export default function AuditHubPage() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `rollbacks_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `rollbacks_audit_${pktDateString()}.csv`;
     a.click();
   };
 

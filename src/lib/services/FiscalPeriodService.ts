@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
+import { pktEndOfDay, pktParts, pktStartOfDay } from "@/lib/pktTime";
 
 export class FiscalPeriodService {
   /**
@@ -9,9 +10,12 @@ export class FiscalPeriodService {
    */
   /** Fiscal year label (the year it ends in) that contains `date`, e.g. Oct 2026 with a July start → FY2027. */
   static fiscalYearFor(date: Date = new Date(), startMonth: number = 7) {
-    const y = date.getUTCFullYear();
+    // The containing month is the Pakistan calendar month of the instant —
+    // fiscal periods are PKT months (see seedFiscalYear), so the lookup
+    // must use the same basis, not UTC or server-local time.
+    const { year: y, month } = pktParts(date);
     if (!startMonth || startMonth === 1) return y;
-    return date.getUTCMonth() + 1 >= startMonth ? y + 1 : y;
+    return month + 1 >= startMonth ? y + 1 : y;
   }
 
   static async seedFiscalYear(fiscalYear: number, startMonth: number = 7) {
@@ -27,9 +31,11 @@ export class FiscalPeriodService {
       // Year calculation: if startMonth is July (7) and period is 7 (January), year is fiscalYear
       const calYear = startMonth === 1 ? fiscalYear : (currentMonthIndex < startMonth - 1 ? fiscalYear : fiscalYear - 1);
 
-      const startDate = new Date(Date.UTC(calYear, currentMonthIndex, 1, 0, 0, 0));
+      // Period bounds are Pakistan calendar month bounds: a journal entry
+      // belongs to the month a Pakistan clock says it was posted in.
+      const startDate = pktStartOfDay(calYear, currentMonthIndex, 1);
       // Last day of month
-      const endDate = new Date(Date.UTC(calYear, currentMonthIndex + 1, 0, 23, 59, 59, 999));
+      const endDate = pktEndOfDay(calYear, currentMonthIndex + 1, 0);
       const name = `${monthNames[currentMonthIndex]} ${calYear} (FY${fiscalYear}-P${String(p).padStart(2, "0")})`;
 
       const existing = await prisma.fiscalPeriod.findFirst({

@@ -6,6 +6,16 @@ import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { pktDateString, pktDateTimeLocalToInstant, PKT_OFFSET_MS } from "@/lib/pktTime";
+
+/** "YYYY-MM-DDTHH:mm" of an instant as Pakistan wall-clock — the value shape
+ *  a datetime-local input expects, in the timezone this app runs on.
+ *  (toISOString() would give the UTC wall-clock instead.) */
+function pktDateTimeLocalString(d: Date): string {
+  const s = new Date(d.getTime() + PKT_OFFSET_MS);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${s.getUTCFullYear()}-${p(s.getUTCMonth() + 1)}-${p(s.getUTCDate())}T${p(s.getUTCHours())}:${p(s.getUTCMinutes())}`;
+}
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 import {
   User,
@@ -36,7 +46,7 @@ export default function CandidateDetailPage() {
   // Interview scheduling modal
   const [showInterviewModal, setShowInterviewModal] = useState(false);
   const [interviewDate, setInterviewDate] = useState(
-    new Date(Date.now() + 86400000).toISOString().slice(0, 16)
+    pktDateTimeLocalString(new Date(Date.now() + 86400000))
   );
   const [interviewer, setInterviewer] = useState("");
   const [interviewNotes, setInterviewNotes] = useState("");
@@ -46,7 +56,7 @@ export default function CandidateDetailPage() {
   const [offerRole, setOfferRole] = useState("");
   const [offerSalary, setOfferSalary] = useState("6500");
   const [offerStartDate, setOfferStartDate] = useState(
-    new Date(Date.now() + 86400000 * 14).toISOString().split("T")[0]
+    pktDateString(new Date(Date.now() + 86400000 * 14))
   );
 
   async function loadCandidate() {
@@ -101,7 +111,7 @@ export default function CandidateDetailPage() {
         body: JSON.stringify({
           action: "schedule_interview",
           candidateId,
-          scheduledAt: new Date(interviewDate).toISOString(),
+          scheduledAt: pktDateTimeLocalToInstant(interviewDate).toISOString(),
           interviewer,
           notes: interviewNotes,
         }),

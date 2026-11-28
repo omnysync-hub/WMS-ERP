@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
-import { pktTodayStart } from "@/lib/pktTime";
+import { pktDateString, pktTodayStart } from "@/lib/pktTime";
 
 import { requireOfficePermission } from "@/lib/auth/erpActor";
 
@@ -142,7 +142,7 @@ export async function GET(req: NextRequest) {
     });
 
     const csvContent = [headers.join(","), ...rows].join("\n");
-    const filename = `telemetry_${employee.name.toLowerCase().replace(/\s+/g, "_")}_${start.toISOString().slice(0, 10)}.csv`;
+    const filename = `telemetry_${employee.name.toLowerCase().replace(/\s+/g, "_")}_${pktDateString(start)}.csv`;
 
     return new Response(csvContent, {
       status: 200,

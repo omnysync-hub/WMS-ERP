@@ -48,6 +48,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { pktDateString } from "@/lib/pktTime";
 import { logActivity } from "@/lib/telemetry";
 import { parseJobRemarks } from "@/components/jobs/JobRemarksCard";
 
@@ -68,13 +69,16 @@ export default function MobileCompanionPage() {
     "all" | "assigned" | "accepted" | "inventory" | "inprogress" | "paused" | "completed" | "expenses"
   >("all");
 
-  // Live Phone Clock
+  // Live Phone Clock — Pakistan time, whatever the viewer's device zone is
   useEffect(() => {
+    const clockFormat = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Karachi",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
     const updateClock = () => {
-      const now = new Date();
-      const hours = String(now.getHours()).padStart(2, "0");
-      const mins = String(now.getMinutes()).padStart(2, "0");
-      setCurrentTime(`${hours}:${mins}`);
+      setCurrentTime(clockFormat.format(new Date()));
     };
     updateClock();
     const interval = setInterval(updateClock, 30000);
@@ -173,8 +177,8 @@ export default function MobileCompanionPage() {
   const [essSubTab, setEssSubTab] = useState<"assets" | "ledger" | "leave" | "payslips" | "helpdesk">("assets");
   const [showMobileLeaveModal, setShowMobileLeaveModal] = useState(false);
   const [mobileLeaveTypeId, setMobileLeaveTypeId] = useState("");
-  const [mobileLeaveStart, setMobileLeaveStart] = useState(new Date().toISOString().split("T")[0]);
-  const [mobileLeaveEnd, setMobileLeaveEnd] = useState(new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]);
+  const [mobileLeaveStart, setMobileLeaveStart] = useState(pktDateString());
+  const [mobileLeaveEnd, setMobileLeaveEnd] = useState(pktDateString(new Date(Date.now() + 86400000 * 2)));
   const [mobileLeaveReason, setMobileLeaveReason] = useState("");
   const [showMobileGrievanceModal, setShowMobileGrievanceModal] = useState(false);
   const [mobileGrievanceCat, setMobileGrievanceCat] = useState("Equipment & Tools");

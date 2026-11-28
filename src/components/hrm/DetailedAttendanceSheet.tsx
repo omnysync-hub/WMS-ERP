@@ -22,6 +22,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
+import { pktDateString } from "@/lib/pktTime";
 
 interface AttendanceRecord {
   employee: {
@@ -97,7 +98,7 @@ interface SummaryData {
 }
 
 export default function DetailedAttendanceSheet() {
-  const getTodayStr = () => new Date().toISOString().split("T")[0];
+  const getTodayStr = () => pktDateString();
 
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
   const [departmentFilter, setDepartmentFilter] = useState("all");

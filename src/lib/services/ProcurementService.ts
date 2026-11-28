@@ -17,6 +17,7 @@ import {
   generateSupplierInvoiceNumber,
   generateSupplierPaymentNumber,
 } from "@/lib/sequenceUtils";
+import { formatPktDate } from "@/lib/pktTime";
 
 
 export interface CreateVendorInput {
@@ -743,12 +744,11 @@ export class ProcurementService {
       });
     }
 
-    const expectedDate = new Date();
-    if (winnerRfqVendor.deliveryDays) {
-      expectedDate.setDate(expectedDate.getDate() + winnerRfqVendor.deliveryDays);
-    } else {
-      expectedDate.setDate(expectedDate.getDate() + 7);
-    }
+    // Expected delivery = today + deliveryDays as Pakistan calendar days.
+    // Adding whole days to the instant (instead of setDate on server-local
+    // time) makes the PKT day of the result exactly PKT-today + N.
+    const deliveryDays = winnerRfqVendor.deliveryDays || 7;
+    const expectedDate = new Date(Date.now() + deliveryDays * 24 * 60 * 60 * 1000);
 
     const po = await prisma.purchaseOrder.create({
       data: {
@@ -964,7 +964,7 @@ export class ProcurementService {
     const po = await prisma.purchaseOrder.findUnique({ where: { id } });
     if (!po) throw new Error("Purchase order not found");
 
-    const rejectionNote = `[REJECTED by ${actorName} on ${new Date().toLocaleDateString()}: ${reason || "Purchase order rejected"}]`;
+    const rejectionNote = `[REJECTED by ${actorName} on ${formatPktDate(new Date())}: ${reason || "Purchase order rejected"}]`;
     const updatedTerms = po.termsAndConditions
       ? `${rejectionNote}\n\n${po.termsAndConditions}`
       : rejectionNote;

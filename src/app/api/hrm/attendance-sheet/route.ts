@@ -7,6 +7,7 @@ import {
   UnifiedAttendanceService,
   type UnifiedPunch,
 } from "@/lib/services/UnifiedAttendanceService";
+import { pktDateString, pktEndOfDay, pktParts, pktStartOfDay } from "@/lib/pktTime";
 
 /**
  * GET /api/hrm/attendance-sheet
@@ -25,22 +26,23 @@ export async function GET(req: NextRequest) {
     const role = searchParams.get("role") || undefined;
     const search = searchParams.get("search")?.trim().toLowerCase() || "";
 
-    // Parse target date boundaries (00:00:00.000 to 23:59:59.999 in local / UTC)
+    // Parse target date boundaries (00:00:00.000 to 23:59:59.999 Pakistan
+    // time — the sheet is a PKT document; the server clock is not PKT, so
+    // local Date constructions would bound the wrong day).
     let startDate: Date;
     let endDate: Date;
 
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       const [year, month, day] = dateParam.split("-").map(Number);
-      startDate = new Date(year, month - 1, day, 0, 0, 0, 0);
-      endDate = new Date(year, month - 1, day, 23, 59, 59, 999);
+      startDate = pktStartOfDay(year, month - 1, day);
+      endDate = pktEndOfDay(year, month - 1, day);
     } else {
-      const now = new Date();
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const { year, month, day } = pktParts(new Date());
+      startDate = pktStartOfDay(year, month, day);
+      endDate = pktEndOfDay(year, month, day);
     }
 
-    const isToday =
-      new Date().toDateString() === startDate.toDateString();
+    const isToday = pktDateString(new Date()) === pktDateString(startDate);
 
     // Query all active employees
     const employeeWhere: any = {
@@ -236,7 +238,7 @@ export async function GET(req: NextRequest) {
     });
 
     const summary = {
-      date: startDate.toISOString().split("T")[0],
+      date: pktDateString(startDate),
       isToday,
       totalEmployees: employees.length,
       availableAndReady: summaryAvailable,

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HrmService } from "@/lib/services/HrmService";
 import { prisma } from "@/lib/prisma";
 import { resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
+import { pktParts } from "@/lib/pktTime";
 
 export async function GET(req: NextRequest) {
   try {
@@ -175,7 +176,7 @@ export async function POST(req: NextRequest) {
       }
       const existingHolidaysCount = await prisma.companyHoliday.count();
       if (existingHolidaysCount === 0) {
-        const year = new Date().getFullYear();
+        const year = pktParts().year;
         const defaultHolidays = [
           { name: "New Year's Day", date: new Date(`${year}-01-01T00:00:00.000Z`), description: "Federal Holiday" },
           { name: "Eid Al-Fitr Holiday 1", date: new Date(`${year}-03-20T00:00:00.000Z`), description: "National Public Holiday" },

@@ -9,6 +9,7 @@ import { TaxSettingsService } from "@/lib/tax/TaxSettingsService";
 import { computeTax, findRate } from "@/lib/tax/taxConfig";
 import { requirePermission } from "@/lib/auth/erpActor";
 import { InventoryService } from "@/lib/services/InventoryService";
+import { pktDateString } from "@/lib/pktTime";
 
 export async function GET(req: NextRequest) {
   try {
@@ -275,7 +276,11 @@ export async function POST(req: NextRequest) {
       }
 
       // Step 2: Generate Unique POS Receipt Number
-      const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      // The serial's date component is the Pakistan calendar day (a sale in
+      // the first hours of a PKT day previously carried the UTC date). The
+      // serial is never parsed back — lookups use the stored string and the
+      // random part provides uniqueness — so only the day basis changes.
+      const datePart = pktDateString().replace(/-/g, "");
       const randomPart = crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase();
       const saleNumber = `POS-${datePart}-${randomPart}`;
 

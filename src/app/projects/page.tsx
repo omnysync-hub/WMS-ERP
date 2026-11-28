@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
+import { pktDateString } from "@/lib/pktTime";
 import ProgressRing from "@/components/ui/ProgressRing";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
@@ -582,10 +583,10 @@ export default function ProjectsPage() {
     setNewProjectCustomerId(customers[0]?.id || "");
     setNewProjectBudget("");
     setNewProjectStatus("planning");
-    setNewProjectStartDate(new Date().toISOString().split("T")[0]);
+    setNewProjectStartDate(pktDateString());
     const nextMonth = new Date();
     nextMonth.setMonth(nextMonth.getMonth() + 1);
-    setNewProjectEndDate(nextMonth.toISOString().split("T")[0]);
+    setNewProjectEndDate(pktDateString(nextMonth));
     setNewProjectBoqRows([
       { itemCode: "BOQ-01", description: "", unit: "unit", plannedQty: 1, unitRate: 0 },
     ]);

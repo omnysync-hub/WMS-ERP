@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { pktParts } from "@/lib/pktTime";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 
@@ -51,7 +52,7 @@ export class WorkshopService {
    * HVAC: HJC-2026-0001
    */
   static async generateJobCardNumber(workshopType: WorkshopType): Promise<string> {
-    const year = new Date().getFullYear();
+    const year = pktParts().year;
     const prefix = workshopType === "bike" ? `BJC-${year}-` : `HJC-${year}-`;
 
     const count = await prisma.workshopJobCard.count({

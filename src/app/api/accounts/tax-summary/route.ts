@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireJobsPermission } from "@/lib/auth/erpActor";
 import { AccountMappingService } from "@/lib/services/AccountMappingService";
+import { pktDayFromString, pktEndOfDay, pktParts, pktStartOfDay } from "@/lib/pktTime";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -18,8 +19,25 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   const now = new Date();
-  const from = sp.get("from") ? new Date(`${sp.get("from")}T00:00:00`) : new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = sp.get("to") ? new Date(`${sp.get("to")}T23:59:59.999`) : now;
+  // Period bounds are Pakistan calendar days: the client sends PKT date
+  // strings, and parsing them with new Date("...T00:00:00") would interpret
+  // them in the server's timezone, shifting the window by hours. An
+  // unparseable value becomes an Invalid Date so the check below still 400s.
+  const fromParam = sp.get("from");
+  const toParam = sp.get("to");
+  const fromParts = fromParam ? pktDayFromString(fromParam) : null;
+  const toParts = toParam ? pktDayFromString(toParam) : null;
+  const nowParts = pktParts(now);
+  const from = fromParam
+    ? fromParts
+      ? pktStartOfDay(fromParts.year, fromParts.month, fromParts.day)
+      : new Date(NaN)
+    : pktStartOfDay(nowParts.year, nowParts.month, 1);
+  const to = toParam
+    ? toParts
+      ? pktEndOfDay(toParts.year, toParts.month, toParts.day)
+      : new Date(NaN)
+    : now;
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
     return NextResponse.json({ error: "Choose a valid date range." }, { status: 400 });
   }

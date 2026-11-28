@@ -5,12 +5,17 @@ import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import { FileBarChart, RefreshCw, Settings2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { pktDateString, pktParts, pktStartOfDay } from "@/lib/pktTime";
 
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+// PKT calendar day ("YYYY-MM-DD") — toISOString() is UTC, which renders the
+// previous day for a Pakistan viewer in the small hours and shifts the
+// first-of-month default back into the previous month.
+const iso = (d: Date) => pktDateString(d);
 
 export default function TaxReportPage() {
   const now = new Date();
-  const [from, setFrom] = useState(iso(new Date(now.getFullYear(), now.getMonth(), 1)));
+  const pktNow = pktParts(now);
+  const [from, setFrom] = useState(iso(pktStartOfDay(pktNow.year, pktNow.month, 1)));
   const [to, setTo] = useState(iso(now));
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");

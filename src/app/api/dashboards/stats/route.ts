@@ -21,16 +21,20 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     let startDate: Date | undefined;
 
+    // Calendar ranges start on Pakistan calendar boundaries (the server
+    // clock is not PKT, so local Date constructions would start the range
+    // on the server's day/month, not Pakistan's).
+    const rangeParts = pktParts(now);
     if (range === "today") {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      startDate = pktTodayStart(now);
     } else if (range === "this_week") {
       startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     } else if (range === "this_month") {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate = pktStartOfDay(rangeParts.year, rangeParts.month, 1);
     } else if (range === "this_quarter") {
       startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     } else if (range === "this_year") {
-      startDate = new Date(now.getFullYear(), 0, 1);
+      startDate = pktStartOfDay(rangeParts.year, 0, 1);
     }
 
     const dateFilter = startDate ? { gte: startDate } : undefined;

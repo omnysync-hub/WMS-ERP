@@ -339,7 +339,7 @@ export async function GET(req: NextRequest) {
 
     // 0.5 FISCAL PERIODS
     if (view === "fiscal_periods") {
-      const year = searchParams.get("year") ? parseInt(searchParams.get("year")!) : new Date().getFullYear();
+      const year = searchParams.get("year") ? parseInt(searchParams.get("year")!) : pktParts().year;
       const periods = await FiscalPeriodService.listPeriods(year);
       return NextResponse.json({
         success: true,
@@ -2636,7 +2636,9 @@ export async function POST(req: NextRequest) {
 
       // 16. FIXED ASSET - RUN DEPRECIATION
       case "run_depreciation": {
-        const { year = new Date().getFullYear(), month = new Date().getMonth() + 1, actorName = "Finance & Accounts" } = payload;
+        // Default depreciation period = the current Pakistan calendar month.
+        const pktNow = pktParts();
+        const { year = pktNow.year, month = pktNow.month + 1, actorName = "Finance & Accounts" } = payload;
         const periodStr = `${year}-${String(month).padStart(2, "0")}`;
         const result = await FixedAssetService.runMonthlyDepreciation(
           periodStr,

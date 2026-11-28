@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { pktDateString } from "@/lib/pktTime";
 
 /**
  * UnifiedAttendanceService — read-only merge layer over the two attendance
@@ -114,10 +115,9 @@ function devicePunchType(raw: string): UnifiedPunchType {
 }
 
 function localDateKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  // Punches are grouped by Pakistan calendar day — the server's local day
+  // would split one PKT workday across two groups around midnight.
+  return pktDateString(d);
 }
 
 export class UnifiedAttendanceService {
@@ -244,7 +244,7 @@ export class UnifiedAttendanceService {
     return UnifiedAttendanceService.mergePunches(appLogs, devicePunches);
   }
 
-  /** Group merged punches into per-employee, per-local-day records. */
+  /** Group merged punches into per-employee, per-Pakistan-day records. */
   static groupIntoDays(punches: UnifiedPunch[]): UnifiedAttendanceDay[] {
     const byKey = new Map<string, UnifiedPunch[]>();
     for (const p of punches) {

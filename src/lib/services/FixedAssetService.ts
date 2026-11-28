@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { pktParts } from "@/lib/pktTime";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 
@@ -24,7 +25,7 @@ export class FixedAssetService {
   static async createFixedAsset(params: CreateFixedAssetParams) {
     const db = params.tx ?? prisma;
     const count = await db.fixedAsset.count();
-    const assetNumber = `FA-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
+    const assetNumber = `FA-${pktParts().year}-${String(count + 1).padStart(4, "0")}`;
 
     const salvage = params.salvageValue || 0;
     const cost = params.acquisitionCost;

@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { AccountsPostingService } from "./AccountsPostingService";
 import { AccountMappingService } from "./AccountMappingService";
 import { generateGrnNumber } from "@/lib/sequenceUtils";
+import { pktDateString } from "@/lib/pktTime";
 import { currentAccountCode } from "@/lib/constants/chartOfAccountsHierarchy";
 
 const RECEIVABLE_PO_STATUSES = ["approved", "sent_to_vendor", "sent", "partially_received"];
@@ -629,7 +630,7 @@ export class InventoryService {
         qty: quantity,
         direction: "in",
         refType: "opening_stock",
-        notes: notes || `Opening stock balance declared as of ${entryDate.toISOString().split("T")[0]}`,
+        notes: notes || `Opening stock balance declared as of ${pktDateString(entryDate)}`,
         createdAt: entryDate,
       },
     });

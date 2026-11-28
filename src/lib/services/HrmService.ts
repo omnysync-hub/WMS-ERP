@@ -935,7 +935,7 @@ export class HrmService {
     reason: string;
   }) {
     const count = await prisma.jobRequisition.count();
-    const requisitionNumber = `REQ-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
+    const requisitionNumber = `REQ-${pktParts().year}-${String(count + 1).padStart(3, "0")}`;
 
     return await prisma.jobRequisition.create({
       data: {
@@ -1132,7 +1132,7 @@ export class HrmService {
     description: string;
   }) {
     const count = await prisma.grievanceTicket.count();
-    const ticketNumber = `GRV-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
+    const ticketNumber = `GRV-${pktParts().year}-${String(count + 1).padStart(3, "0")}`;
 
     const ticket = await prisma.grievanceTicket.create({
       data: {

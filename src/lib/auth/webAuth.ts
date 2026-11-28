@@ -7,6 +7,7 @@ import {
   DEVELOPMENT_DEMO_USERS,
   demoLoginEnabled,
 } from "@/lib/auth/erpRoles";
+import { formatPktTime } from "@/lib/pktTime";
 
 export const ERP_SESSION_COOKIE = "workman_erp_session";
 /**
@@ -320,7 +321,7 @@ export async function verifyErpLogin(login: string, password: string) {
   }
   if (user.status !== "active") return { error: "This account is suspended. Contact an administrator.", status: 403 as const };
   if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-    return { error: `Too many attempts. Try again after ${user.lockedUntil.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`, status: 423 as const };
+    return { error: `Too many attempts. Try again after ${formatPktTime(user.lockedUntil)}.`, status: 423 as const };
   }
 
   const valid = await bcrypt.compare(password || "", user.passwordHash);
