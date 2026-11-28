@@ -8,16 +8,19 @@ export async function GET(req: NextRequest) {
   const gate = await requireOfficePermission(req, ["jobs.feedback", "jobs.reports", "jobs.verify"]);
   if (gate.error) return gate.error;
   try {
-    const queue = await FeedbackService.getFeedbackQueue();
-    const allFeedbackCalls = await prisma.feedbackCall.findMany({
-      include: {
-        job: {
-          include: { customer: true, assignedTechnician: true },
+    // Independent reads — one parallel batch instead of two sequential trips.
+    const [queue, allFeedbackCalls] = await Promise.all([
+      FeedbackService.getFeedbackQueue(),
+      prisma.feedbackCall.findMany({
+        include: {
+          job: {
+            include: { customer: true, assignedTechnician: true },
+          },
         },
-      },
-      orderBy: { calledAt: "desc" },
-      take: 50,
-    });
+        orderBy: { calledAt: "desc" },
+        take: 50,
+      }),
+    ]);
 
     return NextResponse.json({ queue, calls: allFeedbackCalls });
   } catch (err: any) {

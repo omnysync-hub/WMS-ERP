@@ -60,8 +60,30 @@ export async function GET(req: NextRequest) {
     const productId = searchParams.get("productId");
 
     if (view === "requests") {
+      // Select-whitelist (perf round 2): the only consumers — the inventory
+      // page's Storekeeper Queue and the RealtimeRequestWatcher — read the
+      // request scalars plus job.jobNumber and job.customer.name. The old
+      // full include shipped the whole job row (incl. completionPhotos
+      // base64, ~99% of the payload) and the whole customer row.
       const requests = await prisma.inventoryRequest.findMany({
-        include: { job: { include: { customer: true } } },
+        select: {
+          id: true,
+          jobId: true,
+          technicianId: true,
+          item: true,
+          productId: true,
+          qtyRequested: true,
+          qtyIssued: true,
+          status: true,
+          createdAt: true,
+          job: {
+            select: {
+              id: true,
+              jobNumber: true,
+              customer: { select: { id: true, name: true } },
+            },
+          },
+        },
         orderBy: { createdAt: "desc" },
       });
       return NextResponse.json(requests);

@@ -57,36 +57,53 @@ export async function GET(req: NextRequest) {
   if (gate.error) return gate.error;
   try {
 
-    const technicians = await prisma.employee.findMany({
-      where: {
-        OR: [
-          { role: { equals: "technician", mode: "insensitive" } },
-          { designation: { contains: "technician", mode: "insensitive" } },
-          { department: { equals: "Operations", mode: "insensitive" } },
-        ],
-        AND: [
-          {
-            OR: [
-              { active: true },
-              { status: { equals: "Active", mode: "insensitive" } },
-            ],
+    // The two reads are independent — run them in one parallel batch.
+    // The employee query selects only the scalars the formatter below reads
+    // (the full row carries faceEmbedding and other data this endpoint never
+    // ships); relations are unchanged, so the response is identical.
+    const [technicians, unassignedJobs] = await Promise.all([
+      prisma.employee.findMany({
+        where: {
+          OR: [
+            { role: { equals: "technician", mode: "insensitive" } },
+            { designation: { contains: "technician", mode: "insensitive" } },
+            { department: { equals: "Operations", mode: "insensitive" } },
+          ],
+          AND: [
+            {
+              OR: [
+                { active: true },
+                { status: { equals: "Active", mode: "insensitive" } },
+              ],
+            },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          lat: true,
+          lng: true,
+          lastPingAt: true,
+          jobs: {
+            where: { status: { in: ["Assigned", "Accepted", "InProgress", "Paused"] } },
+            include: { customer: true },
           },
-        ],
-      },
-      include: {
-        jobs: {
-          where: { status: { in: ["Assigned", "Accepted", "InProgress", "Paused"] } },
-          include: { customer: true },
+          attendanceLogs: {
+            where: { timestamp: { gte: startOfToday } },
+            orderBy: { timestamp: "desc" },
+            take: 10,
+            include: { geofenceZone: true },
+          },
         },
-        attendanceLogs: {
-          where: { timestamp: { gte: startOfToday } },
-          orderBy: { timestamp: "desc" },
-          take: 10,
-          include: { geofenceZone: true },
-        },
-      },
-      orderBy: { name: "asc" },
-    });
+        orderBy: { name: "asc" },
+      }),
+      prisma.job.findMany({
+        where: { status: "Created", assignedTechnicianId: null },
+        include: { customer: true },
+      }),
+    ]);
 
     // Determine current status based on today's attendance and active jobs
     const formatted = technicians.map((tech) => {
@@ -150,11 +167,6 @@ export async function GET(req: NextRequest) {
 
     const presentTechnicians = formatted.filter((t) => t.isCheckedIn);
     const outputTechnicians = presentOnly ? presentTechnicians : formatted;
-
-    const unassignedJobs = await prisma.job.findMany({
-      where: { status: "Created", assignedTechnicianId: null },
-      include: { customer: true },
-    });
 
     return NextResponse.json({
       technicians: outputTechnicians,

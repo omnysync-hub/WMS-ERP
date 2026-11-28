@@ -1579,18 +1579,25 @@ export async function GET(req: NextRequest) {
     }
 
     // 10. CHART OF ACCOUNTS (LEVEL 4 HIERARCHY + TREE + TABULAR)
-    const accounts = await prisma.account.findMany({
-      include: {
-        journalLines: true,
-      },
-      orderBy: { code: "asc" },
-    });
+    // Perf round 2: balances come from a JournalLine groupBy aggregation
+    // instead of fetching every journal line into JS. signedLineBalance is
+    // linear (debit - credit or credit - debit), so summing first gives
+    // identical balances; entriesCount is the group count.
+    const [accounts, lineAggregates] = await Promise.all([
+      prisma.account.findMany({
+        orderBy: { code: "asc" },
+      }),
+      prisma.journalLine.groupBy({
+        by: ["accountId"],
+        _sum: { debit: true, credit: true },
+        _count: { _all: true },
+      }),
+    ]);
+    const aggregateByAccount = new Map(lineAggregates.map((g) => [g.accountId, g]));
 
     const accountsWithBalance = accounts.map((acc) => {
-      let balance = 0;
-      for (const line of acc.journalLines) {
-        balance += signedLineBalance(acc.type, line.debit, line.credit);
-      }
+      const aggregate = aggregateByAccount.get(acc.id);
+      const balance = signedLineBalance(acc.type, aggregate?._sum.debit ?? 0, aggregate?._sum.credit ?? 0);
       return {
         id: acc.id,
         code: acc.code,
@@ -1603,7 +1610,7 @@ export async function GET(req: NextRequest) {
         currency: acc.currency,
         description: acc.description,
         balance: Math.round(balance * 100) / 100,
-        entriesCount: acc.journalLines.length,
+        entriesCount: aggregate?._count._all ?? 0,
       };
     });
 

@@ -361,6 +361,22 @@ export default function InventoryPurchasingPage() {
   // The AP ("On credit") option and the default label come from the live
   // account mappings (ap_control / stock_in_disbursing) when readable.
   useEffect(() => {
+    // The mappings fetch is independent of the accounts chain below, so it
+    // starts in parallel instead of waiting for the chain to settle
+    // (perf round 2). Its error handling is unchanged: a failed/unreadable
+    // fetch resolves to null and the legacy AP option stays.
+    const mappingsPromise = (async () => {
+      try {
+        const res = await fetch("/api/accounts?view=account_mappings");
+        if (res.ok) {
+          const data = await res.json();
+          return Array.isArray(data.mappings) ? data.mappings : [];
+        }
+      } catch {
+        /* mappings unreadable for this role — legacy AP option stays */
+      }
+      return null;
+    })();
     (async () => {
       let accounts: { code: string; name: string }[] = [];
       try {
@@ -405,19 +421,13 @@ export default function InventoryPurchasingPage() {
       }
       setPaidFromAccounts(accounts);
 
-      try {
-        const res = await fetch("/api/accounts?view=account_mappings");
-        if (res.ok) {
-          const data = await res.json();
-          const list = Array.isArray(data.mappings) ? data.mappings : [];
-          setMappingsKnown(true);
-          const ap = list.find((m: any) => m.transactionType === "ap_control" && m.accountCode);
-          if (ap) setApAccountOption({ code: String(ap.accountCode), name: String(ap.accountName || "Accounts Payable") });
-          const def = list.find((m: any) => m.transactionType === "stock_in_disbursing" && m.accountCode);
-          if (def) setDefaultPaidFromLabel(`Default (mapped: ${def.accountName} ${def.accountCode})`);
-        }
-      } catch {
-        /* mappings unreadable for this role — legacy AP option stays */
+      const list = await mappingsPromise;
+      if (list) {
+        setMappingsKnown(true);
+        const ap = list.find((m: any) => m.transactionType === "ap_control" && m.accountCode);
+        if (ap) setApAccountOption({ code: String(ap.accountCode), name: String(ap.accountName || "Accounts Payable") });
+        const def = list.find((m: any) => m.transactionType === "stock_in_disbursing" && m.accountCode);
+        if (def) setDefaultPaidFromLabel(`Default (mapped: ${def.accountName} ${def.accountCode})`);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

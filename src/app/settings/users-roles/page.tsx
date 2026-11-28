@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import SideDrawer from "@/components/ui/SideDrawer";
@@ -59,7 +59,13 @@ export default function UsersAndRolesSettingsPage() {
     toggleUserStatus,
     deleteUser,
     setUserPermissionOverride,
+    ensureAdminData,
   } = useRole();
+  // This screen is the one consumer of the all-users + all-roles data; it is
+  // loaded lazily here instead of in the session bootstrap (perf round 2).
+  useEffect(() => {
+    void ensureAdminData();
+  }, [ensureAdminData]);
   const roleDisplayName = (role: string, fallback?: string) =>
     roleDefinitions.find((item) => item.key === role)?.label ||
     ERP_ROLE_OPTIONS.find((item) => item.key === role)?.label ||

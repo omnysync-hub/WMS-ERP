@@ -14,11 +14,17 @@ export async function GET(req: NextRequest) {
     const category = searchParams.get("category");
     const actor = searchParams.get("actor");
     const entityType = searchParams.get("entityType");
+    // Optional exact-purpose filter used by lightweight pollers (e.g. the
+    // Topbar blocked-device alert): narrows activities to one action family
+    // server-side instead of shipping the generic search result. Absent =
+    // behaviour exactly as before.
+    const action = searchParams.get("action");
 
     // Fetch Activities
     const activityWhere: any = {};
     if (category && category !== "ALL") activityWhere.category = category;
     if (actor && actor !== "ALL") activityWhere.actorName = { contains: actor };
+    if (action) activityWhere.action = { contains: action };
     if (search) {
       activityWhere.OR = [
         { action: { contains: search } },
@@ -26,12 +32,6 @@ export async function GET(req: NextRequest) {
         { target: { contains: search } },
       ];
     }
-
-    const activities = await prisma.activityLog.findMany({
-      where: activityWhere,
-      orderBy: { timestamp: "desc" },
-      take: 100,
-    });
 
     // Fetch Rollbacks
     const rollbackWhere: any = {};
@@ -45,21 +45,35 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    const rollbacks = await prisma.rollbackLog.findMany({
-      where: rollbackWhere,
-      orderBy: { timestamp: "desc" },
-      take: 100,
-    });
-
-    // Summary Stats
-    const totalActivities = await prisma.activityLog.count();
-    const totalRollbacks = await prisma.rollbackLog.count();
-    const availableForRollback = await prisma.rollbackLog.count({
-      where: { status: "ACTIVE", canRollback: true },
-    });
-    const executedRollbacks = await prisma.rollbackLog.count({
-      where: { status: "ROLLED_BACK" },
-    });
+    // All six reads are independent: run them in one parallel batch instead
+    // of six sequential round-trips (same filters, same order, same limits).
+    const [
+      activities,
+      rollbacks,
+      totalActivities,
+      totalRollbacks,
+      availableForRollback,
+      executedRollbacks,
+    ] = await Promise.all([
+      prisma.activityLog.findMany({
+        where: activityWhere,
+        orderBy: { timestamp: "desc" },
+        take: 100,
+      }),
+      prisma.rollbackLog.findMany({
+        where: rollbackWhere,
+        orderBy: { timestamp: "desc" },
+        take: 100,
+      }),
+      prisma.activityLog.count(),
+      prisma.rollbackLog.count(),
+      prisma.rollbackLog.count({
+        where: { status: "ACTIVE", canRollback: true },
+      }),
+      prisma.rollbackLog.count({
+        where: { status: "ROLLED_BACK" },
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,

@@ -115,7 +115,7 @@ export default function Topbar({
     const loadBlockedDeviceAlerts = async () => {
       try {
         const res = await fetch(
-          "/api/audit?search=MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE"
+          "/api/audit?action=MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE"
         );
         if (!res.ok) return;
         const data = await res.json();

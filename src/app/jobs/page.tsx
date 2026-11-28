@@ -125,14 +125,22 @@ export default function JobsListPage() {
       fetchJobs();
     });
 
-    // Auto-poll in background every 8 seconds for true zero-refresh live data
+    // Auto-poll in background every 8 seconds for true zero-refresh live data.
+    // Perf round 2: polling pauses while the tab is hidden (the cadence while
+    // visible is unchanged) and refreshes once when the tab becomes visible.
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       fetchJobs();
     }, 8000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) fetchJobs();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       unsub();
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 

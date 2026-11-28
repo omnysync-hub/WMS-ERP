@@ -369,6 +369,11 @@ interface RoleContextType {
   deleteRole: (roleKey: string) => Promise<void>;
   resetRolePermissions: (roleKey: string) => Promise<void>;
   refreshRoles: () => Promise<void>;
+  /** Lazily load the all-users + all-roles admin data (only the Users & Roles
+   * settings screen needs it). Perf round 2: this used to run eagerly inside
+   * the session bootstrap, putting /api/users + /api/roles on the critical
+   * path of every admin page load. Idempotent — fetches at most once. */
+  ensureAdminData: () => Promise<void>;
 
   // System Users Management
   users: SystemUser[];
@@ -391,6 +396,14 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
   const [activeUserId, setActiveUserIdState] = useState<string>("usr-admin-01");
   const [sessionReady, setSessionReady] = useState(false);
 
+  // Latest session scope, kept so ensureAdminData can run the admin-data
+  // load lazily (after bootstrap) with the same gate loadAdminData applies.
+  const sessionScopeRef = useRef<{ perms: Record<string, boolean> | null; role: string }>({
+    perms: null,
+    role: "",
+  });
+  const adminDataPromiseRef = useRef<Promise<void> | null>(null);
+
   const loadAdminData = async (perms: Record<string, boolean> | null, role: string) => {
     const canAdmin = role === "admin" || Boolean(perms?.["settings.manage_users"] || perms?.["settings.manage_roles"]);
     if (!canAdmin) return;
@@ -406,6 +419,14 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       const rolesData = await rolesResponse.json();
       if (Array.isArray(rolesData.roles)) setRoleDefinitions(rolesData.roles);
     }
+  };
+
+  const ensureAdminData = async () => {
+    if (!adminDataPromiseRef.current) {
+      const { perms, role } = sessionScopeRef.current;
+      adminDataPromiseRef.current = loadAdminData(perms, role).catch(() => undefined);
+    }
+    return adminDataPromiseRef.current;
   };
 
   const refreshSession = async (initial = false) => {
@@ -431,6 +452,7 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
     const sessionUser = sessionData.user as SystemUser;
     if (!sessionUser) return;
     const perms = (sessionData.effectivePermissions || null) as Record<string, boolean> | null;
+    sessionScopeRef.current = { perms, role: sessionUser.role };
     setActiveRoleState(sessionUser.role);
     setActiveUserIdState(sessionUser.id);
     setEffectivePermissions(perms);
@@ -439,7 +461,10 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       return [sessionUser, ...others];
     });
     if (initial) {
-      await loadAdminData(perms, sessionUser.role);
+      // Admin data (all users + all roles) is NOT loaded here anymore: only
+      // the Users & Roles screen consumes it, and it calls ensureAdminData()
+      // on mount. The bootstrap itself needs only the caller's session +
+      // effective-permissions map, which /api/auth/session already returns.
       // Shared settings lists come from the server so every user/device sees the same values.
       const can = (key: string) =>
         sessionUser.role === "admin" || (SHARED_SETTING_PERMISSIONS[key] || []).some((k) => Boolean(perms?.[k]));
@@ -712,6 +737,7 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
         deleteRole,
         resetRolePermissions,
         refreshRoles,
+        ensureAdminData,
         users,
         activeUser,
         setActiveUserId,

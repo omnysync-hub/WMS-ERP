@@ -77,6 +77,22 @@ function expectedJobCollection(job: any): number {
   return Math.max(0, gross - (job.discountAmount || 0));
 }
 
+// Perf round 2: the chart view is this page's heaviest payload and it used
+// to be fetched by the mount effect AND the chart/vouchers tab loads at the
+// same time. All callers now share one in-flight request; once it settles,
+// the next caller refetches fresh, so there is no staleness window.
+let chartRequestInFlight: Promise<any> | null = null;
+function fetchChartShared(): Promise<any> {
+  if (!chartRequestInFlight) {
+    chartRequestInFlight = fetch("/api/accounts?view=chart")
+      .then((res) => res.json())
+      .finally(() => {
+        chartRequestInFlight = null;
+      });
+  }
+  return chartRequestInFlight;
+}
+
 export default function AccountsPage() {
   const { currentPersona, activeUser, hasPermission, activeRole } = useRole();
   const currentActor = `${activeUser?.name || currentPersona?.name || "Accountant"}`;
@@ -508,8 +524,7 @@ export default function AccountsPage() {
       .catch(() => null);
     // Load the chart on mount: the cashbook contra picker, the expense drawer's
     // fallback list and the COA drilldown all read it, on whichever tab opens first.
-    fetch("/api/accounts?view=chart")
-      .then((res) => res.json())
+    fetchChartShared()
       .then((data) => {
         if (data.rawAccounts) setAccounts(data.rawAccounts);
         else if (Array.isArray(data)) setAccounts(data);
@@ -619,8 +634,7 @@ export default function AccountsPage() {
         if (data.sales) setPosSales(data.sales);
         if (data.stats) setPosStats(data.stats);
       } else if (activeTab === "chart") {
-        const res = await fetch("/api/accounts?view=chart");
-        const data = await res.json();
+        const data = await fetchChartShared();
         if (data.tree) setCoaTree(data.tree);
         if (data.flat) setCoaFlat(data.flat);
         if (data.rawAccounts) setAccounts(data.rawAccounts);
@@ -663,15 +677,15 @@ export default function AccountsPage() {
       } else if (activeTab === "vouchers") {
         setVouchersLoading(true);
         try {
-          const [vouchersRes, coaRes] = await Promise.all([
+          const [vouchersRes, coaData] = await Promise.all([
             fetch("/api/accounts?view=vouchers"),
-            fetch("/api/accounts?view=chart"),
+            fetchChartShared(),
           ]);
           const data = await vouchersRes.json();
           const list = data.vouchers || data.entries || (Array.isArray(data) ? data : []);
           setVouchers(list);
           // Populate the COA list used by the voucher form's account picker
-          const coaData = await coaRes.json();
+          // (coaData is the shared chart payload, already parsed)
           if (coaData.rawAccounts) setAccounts(coaData.rawAccounts);
           else if (Array.isArray(coaData)) setAccounts(coaData);
           if (coaData.flat) setCoaFlat(coaData.flat);
