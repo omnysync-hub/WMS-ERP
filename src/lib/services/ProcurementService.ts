@@ -416,7 +416,7 @@ export class ProcurementService {
 
     if (existingPr.status !== "draft" && existingPr.status !== "rejected") {
       throw new Error(
-        `Cannot edit PR in '${existingPr.status}' status. Only Draft or Rejected PRs can be edited.`
+        `PR in '${existingPr.status}' status cannot be edited. Only Draft or Rejected PRs can be edited.`
       );
     }
 
@@ -876,7 +876,7 @@ export class ProcurementService {
           const remaining = Math.max(0, prItem.quantity - prItem.convertedQuantity);
           if (qty > remaining + 1e-9) {
             throw new Error(
-              `Cannot convert ${qty} for item '${prItem.description || desc}'. Only ${remaining} remaining of ${prItem.quantity} approved on PR.`
+              `Quantity ${qty} for item '${prItem.description || desc}' cannot be converted. Only ${remaining} remaining of ${prItem.quantity} approved on PR.`
             );
           }
         }
@@ -1111,7 +1111,7 @@ export class ProcurementService {
     if (!po) throw new Error("Purchase order not found");
     if (!ProcurementService.GRN_RECEIVABLE_PO_STATUSES.includes(po.status)) {
       throw new Error(
-        `Cannot receive goods against PO ${po.poNumber} in status '${po.status}'. Allowed: approved, sent_to_vendor, partially_received.`
+        `Goods cannot be received against PO ${po.poNumber} in status '${po.status}'. Allowed: approved, sent_to_vendor, partially_received.`
       );
     }
     if (!Array.isArray(data.items) || data.items.length === 0) {
@@ -1560,7 +1560,7 @@ export class ProcurementService {
 
     if (invoice.matchStatus === "discrepancy" && !invoice.matchNotes?.includes("[Variance Approved]")) {
       throw new Error(
-        `Cannot approve invoice ${invoice.invoiceNumber}: Invoice has an unresolved 3-Way Match discrepancy (Qty variance: ${invoice.quantityVariance}, Price variance: ${invoice.priceVariance}). Please reconcile or add '[Variance Approved]' to match notes before approving.`
+        `Approval refused: invoice ${invoice.invoiceNumber} cannot be approved — it has an unresolved 3-Way Match discrepancy (Qty variance: ${invoice.quantityVariance}, Price variance: ${invoice.priceVariance}). Please reconcile or add '[Variance Approved]' to match notes before approving.`
       );
     }
 
