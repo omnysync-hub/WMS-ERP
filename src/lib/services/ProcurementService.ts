@@ -1348,6 +1348,22 @@ export class ProcurementService {
         })
       : null;
 
+    // A bill may only be raised against an APPROVED purchase order (the AP
+    // chain is: PO approved by manager -> goods received -> bill -> payment).
+    // Draft / rejected / cancelled POs take no bills; a dangling poId is a
+    // client error, not a silent direct bill.
+    if (data.poId) {
+      if (!po) {
+        throw new Error("Purchase order not found for this bill.");
+      }
+      const BILLABLE_PO_STATUSES = ["approved", "sent", "sent_to_vendor", "partially_received", "fully_received"];
+      if (!BILLABLE_PO_STATUSES.includes(po.status)) {
+        throw new Error(
+          `Bill cannot be recorded against Purchase Order ${po.poNumber}: the PO must be approved before bills can be raised against it (current status: '${po.status}').`
+        );
+      }
+    }
+
     // Support single or multiple GRNs
     const allGrnIds = Array.from(new Set([
       ...(data.grnId ? [data.grnId] : []),
@@ -1417,7 +1433,20 @@ export class ProcurementService {
       const lineTotal = lineCalc.net; // net of line discount
 
       const expectedPoPrice = poItem ? poItem.unitCost : billedPrice;
-      const expectedGrnQty = grnItem ? grnItem.quantityAccepted : billedQty;
+      // Received-quantity expectation for the match. A line linked to a GRN
+      // item matches against that receipt's accepted quantity. A line linked
+      // to a PO item WITHOUT a GRN item must still match against what was
+      // actually received on that PO line (PurchaseOrderItem.quantityReceived,
+      // maintained by GRN posting) — previously it silently expected the
+      // billed quantity itself, so a bill against an approved PO with no
+      // goods receipt at all computed a clean "matched" and could be approved
+      // and paid. Service POs (poType "service") are billed without goods
+      // receipt by design and keep the billed-quantity expectation.
+      const expectedGrnQty = grnItem
+        ? grnItem.quantityAccepted
+        : poItem && po && po.poType !== "service"
+          ? Number(poItem.quantityReceived) || 0
+          : billedQty;
 
       // Variances: compare the NET unit cost (after line + allocated bill discount) with the PO price
       const qtyVar = billedQty - expectedGrnQty;
@@ -1718,6 +1747,13 @@ export class ProcurementService {
       if (!invoice) throw new Error("Supplier invoice not found");
       // Only invoices explicitly approved for payment may be paid ("matched" still needs approval).
       if (invoice.matchStatus !== "approved_for_payment") {
+        if (invoice.matchStatus === "discrepancy") {
+          // Name the mismatch: the bill failed the 3-way match computed at
+          // bill entry (billed vs GRN-received quantities / billed vs PO price).
+          throw new Error(
+            `Payment rejected: Bill ${invoice.invoiceNumber} failed the 3-way match (quantity variance: ${invoice.quantityVariance}, price variance: PKR ${invoice.priceVariance}) — the billed quantity exceeds the received (GRN) quantity or the billed price exceeds the PO price. The match must be reconciled and the bill approved for payment before it can be paid.`
+          );
+        }
         throw new Error(
           `Payment rejected: invoice matchStatus must be 'approved_for_payment' (current: '${invoice.matchStatus}')`
         );

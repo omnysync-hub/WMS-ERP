@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import {
   User,
@@ -10,6 +10,13 @@ import {
   AlertCircle,
 } from "lucide-react";
 import PakistanAddressAutofill from "@/components/maps/PakistanAddressAutofill";
+import {
+  FieldErrorText,
+  FormField,
+  INVALID_FIELD_CLS,
+  focusFirstInvalidField,
+} from "@/components/ui/form";
+import { cn } from "@/lib/utils";
 import toast from "@/lib/toast";
 
 interface AddCustomerDrawerProps {
@@ -34,6 +41,27 @@ export default function AddCustomerDrawer({
   const [lng, setLng] = useState<number>(74.3587);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const formRef = useRef<HTMLFormElement>(null);
+  const touch = (key: string) =>
+    setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  const showError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(touched[key]) || submitAttempted);
+
+  // Inline field errors — the same checks handleSubmit always made, now
+  // shown under each field instead of one banner message.
+  const nameError = !name.trim() ? "Customer name is required." : null;
+  const phoneError = !phone.trim()
+    ? "Primary phone number is required."
+    : phone.replace(/\D/g, "").length !== 11
+      ? "Customer primary phone number must be exactly 11 digits (e.g., 03001234567)."
+      : null;
+  const secPhoneError =
+    secPhone.trim() && secPhone.replace(/\D/g, "").length !== 11
+      ? "Secondary phone number must be exactly 11 digits (e.g., 03211234567)."
+      : null;
+  const addressError = !addressText.trim() ? "Service address is required." : null;
 
   // Sync initial query when drawer opens
   React.useEffect(() => {
@@ -50,23 +78,10 @@ export default function AddCustomerDrawer({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim() || !addressText.trim()) {
-      setErrorMsg("Customer name, primary phone, and service address are required.");
+    setSubmitAttempted(true);
+    if (nameError || phoneError || secPhoneError || addressError) {
+      focusFirstInvalidField(formRef.current);
       return;
-    }
-
-    const primaryDigits = phone.replace(/\D/g, "");
-    if (primaryDigits.length !== 11) {
-      setErrorMsg("Customer primary phone number must be exactly 11 digits (e.g., 03001234567).");
-      return;
-    }
-
-    if (secPhone.trim()) {
-      const secDigits = secPhone.replace(/\D/g, "");
-      if (secDigits.length !== 11) {
-        setErrorMsg("Secondary phone number must be exactly 11 digits (e.g., 03211234567).");
-        return;
-      }
     }
 
     try {
@@ -101,6 +116,8 @@ export default function AddCustomerDrawer({
       setAddressText("");
       setLat(31.5204);
       setLng(74.3587);
+      setSubmitAttempted(false);
+      setTouched({});
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -137,7 +154,7 @@ export default function AddCustomerDrawer({
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-4 text-xs">
         {errorMsg && (
           <div
             role="alert"
@@ -149,57 +166,81 @@ export default function AddCustomerDrawer({
         )}
 
         {/* 1. Customer Name */}
-        <div>
-          <label className="font-semibold text-[#18181B] block mb-1">
-            Customer / Company Name *
-          </label>
-          <div className="relative">
-            <User className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
-            <input
-              type="text"
-              required
-              placeholder="e.g. Al-Noor Commercial Plaza / Tariq Mansoor"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full bg-[#F4F4F5] pl-9 pr-3 py-2 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium"
-            />
-          </div>
-        </div>
+        <FormField
+          label="Customer / Company Name"
+          required
+          labelClassName="font-semibold text-[#18181B] block mb-1"
+          error={nameError}
+          showError={showError("name", nameError)}
+        >
+          {({ invalid }) => (
+            <div className="relative">
+              <User className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
+              <input
+                type="text"
+                placeholder="e.g. Al-Noor Commercial Plaza / Tariq Mansoor"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => touch("name")}
+                className={cn(
+                  "w-full bg-[#F4F4F5] pl-9 pr-3 py-2 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-medium",
+                  invalid && INVALID_FIELD_CLS
+                )}
+              />
+            </div>
+          )}
+        </FormField>
 
         {/* 2. Phone Numbers: Primary & Secondary (Optional) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="font-semibold text-[#18181B] block mb-1">
-              Primary Phone Number *
-            </label>
-            <div className="relative">
-              <Phone className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
-              <input
-                type="tel"
-                required
-                placeholder="e.g. +92 300 1234567"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full bg-[#F4F4F5] pl-9 pr-3 py-2 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono"
-              />
-            </div>
-          </div>
+          <FormField
+            label="Primary Phone Number"
+            required
+            labelClassName="font-semibold text-[#18181B] block mb-1"
+            error={phoneError}
+            showError={showError("phone", phoneError)}
+          >
+            {({ invalid }) => (
+              <div className="relative">
+                <Phone className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A]" />
+                <input
+                  type="tel"
+                  placeholder="e.g. +92 300 1234567"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  onBlur={() => touch("phone")}
+                  className={cn(
+                    "w-full bg-[#F4F4F5] pl-9 pr-3 py-2 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              </div>
+            )}
+          </FormField>
 
-          <div>
-            <label className="font-semibold text-[#71717A] block mb-1">
-              Secondary Phone (Optional)
-            </label>
-            <div className="relative">
-              <Phone className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#A1A1AA]" />
-              <input
-                type="tel"
-                placeholder="e.g. 042 35789123"
-                value={secPhone}
-                onChange={(e) => setSecPhone(e.target.value)}
-                className="w-full bg-[#F4F4F5] pl-9 pr-3 py-2 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono"
-              />
-            </div>
-          </div>
+          <FormField
+            label="Secondary Phone (Optional)"
+            labelClassName="font-semibold text-[#71717A] block mb-1"
+            error={secPhoneError}
+            showError={showError("secPhone", secPhoneError)}
+          >
+            {({ invalid }) => (
+              <div className="relative">
+                <Phone className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#A1A1AA]" />
+                <input
+                  type="tel"
+                  placeholder="e.g. 042 35789123"
+                  value={secPhone}
+                  onChange={(e) => setSecPhone(e.target.value)}
+                  onBlur={() => touch("secPhone")}
+                  className={cn(
+                    "w-full bg-[#F4F4F5] pl-9 pr-3 py-2 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B] font-mono",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              </div>
+            )}
+          </FormField>
         </div>
 
         {/* 3. Email (Optional) */}
@@ -220,7 +261,10 @@ export default function AddCustomerDrawer({
         </div>
 
         {/* 4. Pakistan Address Autofill & Exact GPS Pinpoint Picker */}
-        <div className="pt-2 border-t border-[#EDEDED]">
+        <div
+          className="pt-2 border-t border-[#EDEDED]"
+          data-field-invalid={showError("address", addressError) ? "true" : undefined}
+        >
           <PakistanAddressAutofill
             value={addressText}
             lat={lat}
@@ -229,6 +273,7 @@ export default function AddCustomerDrawer({
               setAddressText(newAddress);
               setLat(newLat);
               setLng(newLng);
+              touch("address");
             }}
             label="Customer Service Address *"
             placeholder="Type street, sector, phase (e.g. DHA Phase 5, Gulberg III, Model Town, Johar Town)..."
@@ -236,6 +281,9 @@ export default function AddCustomerDrawer({
             showMapPicker={true}
             cityBias="lahore"
           />
+          {showError("address", addressError) && (
+            <FieldErrorText>{addressError}</FieldErrorText>
+          )}
         </div>
       </form>
     </SideDrawer>

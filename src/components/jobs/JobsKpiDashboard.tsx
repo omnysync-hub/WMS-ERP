@@ -412,18 +412,24 @@ export default function JobsKpiDashboard({
     },
   ];
 
-  // Financial Cards: CASH COLLECTION 1ST, then Pending Cash, Partially Cleared Expenses, Receivables (Mahinay Baad), Cleared, Pending
+  // Financial Cards — ordered as the money pipeline (owner, 2026-11-28):
+  // Completed Jobs → Tech Cash Left / Pending → Partially Cleared Expenses →
+  // Discount Requested → Tech Payments Collected → then the rest
+  // (Receivables, Expenses Fully Cleared, Expenses Left / Pending).
+  // "Completed Jobs" reuses the lifecycle "completed" metric (same status set
+  // as the Completed lifecycle card); "Discount Requested" reuses the
+  // pending-discount metric — the same count the Discount Requested tab shows.
   const financialCards = [
     {
-      key: "cash_collected",
-      label: "Tech Payments Collected",
-      count: jobsWithCollectedHandover.length,
-      sublabel: `${formatCurrency(totalCashReceivedByAccountant)} received in safe`,
-      icon: Banknote,
-      color: "text-teal-700",
-      bg: "bg-teal-50",
-      border: "border-teal-200",
-      activeRing: "ring-teal-500",
+      key: "completed",
+      label: "Completed Jobs",
+      count: completedCount,
+      sublabel: "Done & verified",
+      icon: CheckCircle2,
+      color: "text-emerald-700",
+      bg: "bg-emerald-50",
+      border: "border-emerald-200",
+      activeRing: "ring-emerald-500",
     },
     {
       key: "pending_cash_handover",
@@ -448,6 +454,29 @@ export default function JobsKpiDashboard({
       border: "border-purple-200",
       activeRing: "ring-purple-500",
       badgeAlert: jobsWithPartiallyClearedExpenses.length > 0,
+    },
+    {
+      key: "pending_discount",
+      label: "Discount Requested",
+      count: pendingDiscountReqsCount,
+      sublabel: "Awaiting approval",
+      icon: Percent,
+      color: "text-amber-700",
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+      activeRing: "ring-amber-500",
+      badgeAlert: pendingDiscountReqsCount > 0,
+    },
+    {
+      key: "cash_collected",
+      label: "Tech Payments Collected",
+      count: jobsWithCollectedHandover.length,
+      sublabel: `${formatCurrency(totalCashReceivedByAccountant)} received in safe`,
+      icon: Banknote,
+      color: "text-teal-700",
+      bg: "bg-teal-50",
+      border: "border-teal-200",
+      activeRing: "ring-teal-500",
     },
     {
       key: "receivables",
@@ -485,6 +514,14 @@ export default function JobsKpiDashboard({
       badgeAlert: jobsWithPendingExpenses.length > 0,
     },
   ];
+
+  // The strict accountant view drops the two expense-outcome cards from the
+  // strip (owner, 2026-11-28); every other role keeps the full strip. The
+  // matching filters stay available in the Filter-by-KPI dropdown, as with
+  // every other card row on this dashboard.
+  const visibleFinancialCards = isAccountantStrict
+    ? financialCards.filter((c) => c.key !== "expenses_cleared" && c.key !== "pending_expenses")
+    : financialCards;
 
   const requestCards = [
     {
@@ -796,7 +833,7 @@ export default function JobsKpiDashboard({
                   : "text-[#71717A] hover:text-[#18181B]"
               )}
             >
-              All ({lifecycleCards.length + (isAccountant && !isDispatcher ? financialCards.length : 0) + (!isDispatcher ? requestCards.length : 0)})
+              All ({lifecycleCards.length + (isAccountant && !isDispatcher ? visibleFinancialCards.length : 0) + (!isDispatcher ? requestCards.length : 0)})
             </button>
             <button
               type="button"
@@ -821,7 +858,7 @@ export default function JobsKpiDashboard({
                     : "text-[#71717A] hover:text-[#18181B]"
                 )}
               >
-                Cash & Clearance ({financialCards.length})
+                Cash & Clearance ({visibleFinancialCards.length})
               </button>
             )}
             {!isDispatcher && (
@@ -956,7 +993,7 @@ export default function JobsKpiDashboard({
                 </div>
               )}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-2">
-                {financialCards.map((c, idx) => renderKpiCard(c, idx))}
+                {visibleFinancialCards.map((c, idx) => renderKpiCard(c, idx))}
               </div>
             </div>
           )}

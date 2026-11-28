@@ -390,24 +390,180 @@ export class AuditService {
           }
 
           case "InventoryRequest": {
-            const curReq = await tx.inventoryRequest.findUnique({ where: { id: log.entityId } });
-            if (curReq && curReq.status === "issued" && stateBefore?.status !== "issued") {
-              const matchedProd = await tx.product.findFirst({
-                where: { name: { contains: curReq.item.split(" ")[0] } },
-              });
-              if (matchedProd) {
-                await tx.product.update({
-                  where: { id: matchedProd.id },
-                  data: { stockQuantity: { increment: curReq.qtyRequested } },
+            // The only writer of InventoryRequest rollback entries is the
+            // storekeeper stock issue (fulfill_request in /api/inventory).
+            // Its exact inverse is append-only, mirroring the GL: reverse the
+            // COGS journal through the posting service, restore the stock
+            // counter by exactly the quantity that issue moved, append a
+            // reversal stock-ledger row (the OUT row stays as history),
+            // remove the job line the issue created, and put the request's
+            // qtyIssued/status back to their pre-issue values.
+            const snapQty = Number(stateAfter?.quantity ?? stateBefore?.quantity);
+            const snapProductId: string | null =
+              stateAfter?.productId ?? stateBefore?.productId ?? null;
+
+            // A snapshot without product/quantity is not a stock issue:
+            // keep the legacy status-only restore.
+            if (!snapProductId || !Number.isFinite(snapQty) || snapQty <= 0) {
+              if (stateBefore) {
+                await tx.inventoryRequest.update({
+                  where: { id: log.entityId },
+                  data: { status: stateBefore.status || "pending" },
                 });
               }
+              break;
             }
-            if (stateBefore) {
-              await tx.inventoryRequest.update({
-                where: { id: log.entityId },
-                data: { status: stateBefore.status || "pending" },
+
+            // Fail safe on entries recorded before the writer captured the
+            // pre-issue qtyIssued: without it the request cannot be restored
+            // exactly. (The previous rollback guessed — it credited back the
+            // full qtyRequested against a product matched by the first word
+            // of the request's item text.) Throwing aborts the transaction,
+            // so the claim above is undone and the entry stays ACTIVE.
+            const beforeQtyIssued = Number(stateBefore?.qtyIssued);
+            if (!Number.isFinite(beforeQtyIssued) || typeof stateBefore?.status !== "string") {
+              throw new Error(
+                "Cannot reverse this stock issue exactly: it was recorded before rollback snapshots captured the pre-issue quantity, so reversing it would guess at the stock and request state. Restore it manually from the stock ledger instead — nothing was changed."
+              );
+            }
+
+            const request = await tx.inventoryRequest.findUnique({ where: { id: log.entityId } });
+            if (!request) {
+              throw new Error("Cannot reverse stock issue: the inventory request no longer exists. Nothing was changed.");
+            }
+
+            // Exactness guard (LIFO): the request must still sit exactly
+            // where this issue left it. A later issue moved qtyIssued/status
+            // further — that movement must be reversed first, otherwise
+            // restoring stateBefore would silently erase its effect.
+            const afterQtyIssued = Number(stateAfter?.qtyIssued);
+            if (
+              (Number.isFinite(afterQtyIssued) &&
+                Math.abs(Number(request.qtyIssued) - afterQtyIssued) > 1e-9) ||
+              (typeof stateAfter?.status === "string" && request.status !== stateAfter.status)
+            ) {
+              throw new Error(
+                "Cannot reverse this stock issue yet: the request has been changed by a later issue. Reverse the later issue first — nothing was changed."
+              );
+            }
+
+            const product = await tx.product.findUnique({ where: { id: snapProductId } });
+            if (!product) {
+              throw new Error(
+                "Cannot reverse stock issue: the issued product no longer exists in the catalogue. Nothing was changed."
+              );
+            }
+
+            // The original OUT stock-ledger row for this issue: by recorded
+            // id, or — only when exactly one candidate matches — by the
+            // (request, product, quantity) triple consumeStock wrote.
+            let outLedger: { id: string };
+            if (stateAfter?.stockLedgerId) {
+              const byId = await tx.stockLedger.findFirst({
+                where: {
+                  id: stateAfter.stockLedgerId,
+                  productId: snapProductId,
+                  direction: "out",
+                  refType: "job_consumption",
+                },
+                select: { id: true },
+              });
+              if (!byId) {
+                throw new Error(
+                  "Cannot reverse stock issue exactly: the recorded stock-ledger row for this issue was not found. Nothing was changed."
+                );
+              }
+              outLedger = byId;
+            } else {
+              const candidates = await tx.stockLedger.findMany({
+                where: {
+                  productId: snapProductId,
+                  direction: "out",
+                  refType: "job_consumption",
+                  refId: log.entityId,
+                  qty: snapQty,
+                },
+                select: { id: true },
+              });
+              if (candidates.length !== 1) {
+                throw new Error(
+                  "Cannot reverse stock issue exactly: the original stock-ledger row could not be identified unambiguously. Nothing was changed."
+                );
+              }
+              outLedger = candidates[0];
+            }
+
+            const alreadyReversed = await tx.stockLedger.findFirst({
+              where: { refType: "job_consumption_reversal", refId: outLedger.id },
+              select: { id: true },
+            });
+            if (alreadyReversed) {
+              throw new Error("This stock issue has already been reversed in the stock ledger. Nothing was changed.");
+            }
+
+            // The COGS journal this issue posted (absent when the issued
+            // stock had zero cost, in which case consumeStock posted none).
+            let cogsEntry: { id: string } | null = null;
+            if (stateAfter?.journalEntryId) {
+              cogsEntry = await tx.journalEntry.findUnique({
+                where: { id: stateAfter.journalEntryId },
+                select: { id: true },
+              });
+              if (!cogsEntry) {
+                throw new Error(
+                  "Cannot reverse stock issue exactly: the recorded COGS journal entry was not found. Nothing was changed."
+                );
+              }
+            } else {
+              cogsEntry = await tx.journalEntry.findFirst({
+                where: { refType: "inventory_cogs", refId: outLedger.id },
+                select: { id: true },
               });
             }
+
+            // 1. Reverse the COGS journal: equal-and-opposite entry linked to
+            //    the original, original marked reversed (the posting service
+            //    itself refuses to reverse an entry twice).
+            if (cogsEntry) {
+              await AccountsPostingService.reverseEntry({
+                journalEntryId: cogsEntry.id,
+                reversedBy: rolledBackBy || "System",
+                reason: `Audit rollback of stock issue for request ${log.entityNumber || log.entityId}`,
+                tx,
+              });
+            }
+
+            // 2. Restore the stock counter by exactly the quantity this
+            //    issue moved — never qtyRequested.
+            await tx.product.update({
+              where: { id: snapProductId },
+              data: { stockQuantity: { increment: snapQty } },
+            });
+
+            // 3. Append the reversal stock-ledger row; the OUT row remains
+            //    as history, exactly like a GL reversal entry.
+            await tx.stockLedger.create({
+              data: {
+                productId: snapProductId,
+                qty: snapQty,
+                direction: "in",
+                refType: "job_consumption_reversal",
+                refId: outLedger.id,
+                notes: `Reversal of stock issue (ledger ${outLedger.id}) for request ${log.entityId} — audit rollback by ${rolledBackBy}`,
+              },
+            });
+
+            // 4. Remove the job line the issue created — the same treatment
+            //    the JobItem case above gives a rolled-back creation.
+            if (stateAfter?.jobItemId) {
+              await tx.jobItem.deleteMany({ where: { id: stateAfter.jobItemId } });
+            }
+
+            // 5. Restore the request to its exact pre-issue state.
+            await tx.inventoryRequest.update({
+              where: { id: log.entityId },
+              data: { qtyIssued: beforeQtyIssued, status: stateBefore.status },
+            });
             break;
           }
 

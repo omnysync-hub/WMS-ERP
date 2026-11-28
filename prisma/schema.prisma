@@ -1700,6 +1700,28 @@ model ActivityLog {
   createdAt DateTime @default(now())
 }
 
+// Per-user read state for the web notification bell (GET /api/notifications).
+// The feed itself is computed (aggregate notices + audit-derived alerts), so
+// read state is stored against the item's stable id plus a content signature:
+//   - aggregate notices use signature "count:<n>" — marking "5 pending leaves"
+//     read keeps it read until the count next EXCEEDS what was read;
+//   - discrete alerts (blocked-device logins) use "evt:<activityLogId>" and
+//     stay read once read.
+// userId is the ErpUser id from the signed web actor (plain string, no FK —
+// the notifications route degrades gracefully if this table is missing).
+model NotificationRead {
+  id             String   @id @default(uuid())
+  userId         String
+  notificationId String
+  signature      String   @default("")
+  readAt         DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, notificationId])
+  @@index([userId])
+}
+
 model RollbackLog {
   id           String    @id @default(uuid())
   timestamp    DateTime  @default(now())

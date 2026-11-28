@@ -640,7 +640,12 @@ export default function ThreeWayMatchTab({
                     value={selectedPoId}
                     onChange={(val) => handlePoSelect(val)}
                     options={pos
-                      .filter((p) => p.status !== "draft")
+                      // Only approved-or-later POs can take a bill — mirrors the
+                      // server rule in ProcurementService.createSupplierInvoice
+                      // (draft / rejected / cancelled / closed POs are not billable).
+                      .filter((p) =>
+                        ["approved", "sent", "sent_to_vendor", "partially_received", "fully_received"].includes(p.status)
+                      )
                       .map((p) => ({
                         value: p.id,
                         label: `${p.poNumber} — ${p.supplierName}`,

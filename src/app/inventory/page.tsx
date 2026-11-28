@@ -1,11 +1,16 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { formatCurrency, formatDateTime, formatStockUnitName } from "@/lib/utils";
+import { cn, formatCurrency, formatDateTime, formatStockUnitName } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
+import {
+  FormField,
+  INVALID_FIELD_CLS,
+  focusFirstInvalidField,
+} from "@/components/ui/form";
 import { ensureStockUnit } from "@/lib/stockUnits";
 import {
   Package,
@@ -306,6 +311,21 @@ export default function InventoryPurchasingPage() {
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductQty, setNewProductQty] = useState("10");
   const [newProductMinAlert, setNewProductMinAlert] = useState("5");
+  const [productSubmitAttempted, setProductSubmitAttempted] = useState(false);
+  const [productTouched, setProductTouched] = useState<Record<string, boolean>>({});
+  const productFormRef = useRef<HTMLFormElement>(null);
+  const touchProductField = (key: string) =>
+    setProductTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  const showProductError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(productTouched[key]) || productSubmitAttempted);
+  // Inline errors mirroring handleCreateProductSubmit's guard, which used
+  // to fail silently.
+  const productSkuError = !newProductSku ? "SKU / item code is required." : null;
+  const productNameError = !newProductName ? "Product name is required." : null;
+  useEffect(() => {
+    setProductSubmitAttempted(false);
+    setProductTouched({});
+  }, [showAddStockModal, stockModalTab]);
 
   // Predefined Service State
   const [newServiceSku, setNewServiceSku] = useState("");
@@ -699,7 +719,11 @@ export default function InventoryPurchasingPage() {
   // Create New Product
   const handleCreateProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProductSku || !newProductName) return;
+    setProductSubmitAttempted(true);
+    if (productSkuError || productNameError) {
+      focusFirstInvalidField(productFormRef.current);
+      return;
+    }
     try {
       setIsSubmittingStock(true);
       let effectiveUnit = (isCustomUnit ? customUnitInput.trim() : newProductUnit) || configuredStockUnits[0] || "Pieces";
@@ -737,6 +761,8 @@ export default function InventoryPurchasingPage() {
       setShowAddStockModal(false);
       setNotification(`Product "${newProductName}" (${newProductSku}) created with ${newProductQty} initial ${effectiveUnit}.`);
       notify.success(`Product "${newProductName}" (${newProductSku}) created with ${newProductQty} initial ${effectiveUnit}.`);
+      setProductSubmitAttempted(false);
+      setProductTouched({});
       setNewProductSku("");
       setNewProductName("");
       setNewProductCost("");
@@ -3663,21 +3689,29 @@ export default function InventoryPurchasingPage() {
 
             {/* TAB 3: CREATE NEW PRODUCT */}
             {stockModalTab === "new_product" && canCreateProduct && (
-              <form onSubmit={handleCreateProductSubmit} className="p-5 space-y-4">
+              <form ref={productFormRef} onSubmit={handleCreateProductSubmit} className="p-5 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                      SKU / Item Code *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. PCB-GREE-1.5T"
-                      value={newProductSku}
-                      onChange={(e) => setNewProductSku(e.target.value.toUpperCase())}
-                      className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold uppercase"
-                      required
-                    />
-                  </div>
+                  <FormField
+                    label="SKU / Item Code"
+                    required
+                    labelClassName="text-xs font-semibold text-[#18181B] block mb-1"
+                    error={productSkuError}
+                    showError={showProductError("sku", productSkuError)}
+                  >
+                    {({ invalid }) => (
+                      <input
+                        type="text"
+                        placeholder="e.g. PCB-GREE-1.5T"
+                        value={newProductSku}
+                        onChange={(e) => setNewProductSku(e.target.value.toUpperCase())}
+                        onBlur={() => touchProductField("sku")}
+                        className={cn(
+                          "w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-mono font-bold uppercase",
+                          invalid && INVALID_FIELD_CLS
+                        )}
+                      />
+                    )}
+                  </FormField>
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-semibold text-[#18181B] block">
@@ -3724,19 +3758,27 @@ export default function InventoryPurchasingPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                    Product / Part Name *
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Gree 1.5-Ton Inverter PCB Main Board"
-                    value={newProductName}
-                    onChange={(e) => setNewProductName(e.target.value)}
-                    className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-medium"
-                    required
-                  />
-                </div>
+                <FormField
+                  label="Product / Part Name"
+                  required
+                  labelClassName="text-xs font-semibold text-[#18181B] block mb-1"
+                  error={productNameError}
+                  showError={showProductError("name", productNameError)}
+                >
+                  {({ invalid }) => (
+                    <input
+                      type="text"
+                      placeholder="e.g. Gree 1.5-Ton Inverter PCB Main Board"
+                      value={newProductName}
+                      onChange={(e) => setNewProductName(e.target.value)}
+                      onBlur={() => touchProductField("name")}
+                      className={cn(
+                        "w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none font-medium",
+                        invalid && INVALID_FIELD_CLS
+                      )}
+                    />
+                  )}
+                </FormField>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>

@@ -74,6 +74,16 @@ export default function JobsListPage() {
     }
   }, [router]);
 
+  // The accountant ledger no longer carries the "Awaiting Feedback" /
+  // "Needs Finalization" tabs — if this session's tab state ever points at
+  // one of them (e.g. it was selected before switching to the accountant
+  // persona), fall back to the full ledger.
+  useEffect(() => {
+    if (isAccountant && (activeTab === "awaiting_feedback" || activeTab === "pending_clearance")) {
+      setActiveTab("all");
+    }
+  }, [isAccountant, activeTab]);
+
   // Reassign Drawer state
   const [reassignJob, setReassignJob] = useState<any>(null);
   const [returnJob, setReturnJob] = useState<any>(null);
@@ -1155,8 +1165,6 @@ export default function JobsListPage() {
   // Role-specific tab presets
   const accountantTabs = [
     { id: "all", label: "All Jobs Ledger", count: jobs.length },
-    { id: "awaiting_feedback", label: "Awaiting Feedback", count: jobs.filter((j) => j.status === "AwaitingFeedback").length },
-    { id: "pending_clearance", label: "Needs Finalization", count: jobs.filter((j) => j.status === "CompletedPendingVerification").length },
     { id: "discount_requests", label: "Discount Requested", count: jobs.filter((j) => j.items?.some((it: any) => it.description?.includes("[Discount Requested:"))).length },
     { id: "pending_expenses", label: "Pending Expenses", count: jobs.filter((j) => j.expenseClaims?.some((c: any) => c.status === "pending")).length },
     {

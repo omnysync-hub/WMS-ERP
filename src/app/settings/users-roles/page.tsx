@@ -1,9 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/layout/PageHeader";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import SideDrawer from "@/components/ui/SideDrawer";
+import PasswordField from "@/components/ui/PasswordField";
+import {
+  FormField,
+  INVALID_FIELD_CLS,
+  focusFirstInvalidField,
+} from "@/components/ui/form";
+import { passwordSatisfiesPolicy } from "@/lib/passwordRules";
+import { cn } from "@/lib/utils";
 import { useRole, SystemUser, RoleType } from "@/contexts/RoleContext";
 import { PERMISSION_GROUPS, ALL_PERMISSION_KEYS } from "@/lib/permissions";
 import { ERP_ROLE_OPTIONS } from "@/lib/auth/erpRoles";
@@ -33,8 +41,6 @@ import {
   Filter,
   KeyRound,
   Copy,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 
 export default function UsersAndRolesSettingsPage() {
@@ -127,6 +133,42 @@ export default function UsersAndRolesSettingsPage() {
   const [formDepartment, setFormDepartment] = useState("Customer Care & Operations");
   const [formStatus, setFormStatus] = useState<"active" | "suspended">("active");
 
+  // Inline validation state for the create/edit user form: errors render
+  // under each field (on blur, live while typing, all at once on submit)
+  // instead of a lone alert after clicking Create.
+  const [userFormSubmitAttempted, setUserFormSubmitAttempted] = useState(false);
+  const [userFormTouched, setUserFormTouched] = useState<Record<string, boolean>>({});
+  const [userFormError, setUserFormError] = useState("");
+  const userFormRef = useRef<HTMLFormElement>(null);
+  const touchUserField = (key: string) =>
+    setUserFormTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  const showUserError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(userFormTouched[key]) || userFormSubmitAttempted);
+
+  // These mirror the server-side checks in POST /api/users and
+  // PATCH /api/users/[id] exactly (same patterns, same messages).
+  const formNameError =
+    formName.trim().length > 0 && (formName.trim().length < 2 || formName.trim().length > 100)
+      ? "Full name must be between 2 and 100 characters if provided."
+      : null;
+  const formUsernameError = !formUsername.trim()
+    ? "Username is required."
+    : !/^[a-z0-9][a-z0-9._-]{2,39}$/.test(formUsername.trim().toLowerCase())
+      ? "Username must be 3–40 characters using letters, numbers, dot, dash, or underscore."
+      : null;
+  const formEmailError = !formEmail.trim()
+    ? "Email is required."
+    : !/^\S+@\S+\.\S+$/.test(formEmail.trim())
+      ? "Enter a valid email address."
+      : null;
+  const formPhoneError =
+    formPhone.trim() && !/^[+\d][\d\s-]{6,29}$/.test(formPhone.trim())
+      ? "Enter a valid phone number."
+      : null;
+  const formPasswordInvalid = editingUser
+    ? formPassword.length > 0 && !passwordSatisfiesPolicy("web", formPassword)
+    : !passwordSatisfiesPolicy("web", formPassword);
+
   // New Role Form State
   const [newRoleKey, setNewRoleKey] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
@@ -181,6 +223,12 @@ export default function UsersAndRolesSettingsPage() {
     }
   };
 
+  const resetUserFormValidation = () => {
+    setUserFormSubmitAttempted(false);
+    setUserFormTouched({});
+    setUserFormError("");
+  };
+
   const handleOpenAddUser = () => {
     setEditingUser(null);
     setFormName("");
@@ -192,6 +240,7 @@ export default function UsersAndRolesSettingsPage() {
     setFormDesignation("Operations Coordinator");
     setFormDepartment("Customer Care & Operations");
     setFormStatus("active");
+    resetUserFormValidation();
     setShowAddUserModal(true);
   };
 
@@ -206,16 +255,19 @@ export default function UsersAndRolesSettingsPage() {
     setFormDesignation(user.designation);
     setFormDepartment(user.department);
     setFormStatus(user.status);
+    resetUserFormValidation();
     setShowAddUserModal(true);
   };
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formUsername.trim() || !formEmail.trim()) {
-      return alert("Username and email are required");
-    }
-    if (!editingUser && !formPassword) {
-      return alert("Set a temporary password for the new user");
+    setUserFormSubmitAttempted(true);
+    setUserFormError("");
+    if (formNameError || formUsernameError || formEmailError || formPhoneError || formPasswordInvalid) {
+      // Highlight every invalid field inline and jump to the first one —
+      // no lone alert for a validation problem the form can point at.
+      focusFirstInvalidField(userFormRef.current);
+      return;
     }
 
     const persona = availablePersonas.find((p) => p.role === formRole);
@@ -257,7 +309,7 @@ export default function UsersAndRolesSettingsPage() {
       }
       setShowAddUserModal(false);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Could not save this user");
+      setUserFormError(error instanceof Error ? error.message : "Could not save this user");
     }
   };
 
@@ -925,70 +977,116 @@ export default function UsersAndRolesSettingsPage() {
           </div>
         }
       >
-        <form id="user-form" onSubmit={handleSaveUser} className="space-y-4 text-xs">
+        <form id="user-form" ref={userFormRef} onSubmit={handleSaveUser} noValidate className="space-y-4 text-xs">
+          {userFormError && (
+            <div role="alert" className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{userFormError}</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Full Name (Optional / Blank)</label>
-              <input
-                type="text"
-                placeholder="e.g. Asad Mehmood (or leave blank)"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-              />
-            </div>
+            <FormField
+              label="Full Name (Optional / Blank)"
+              labelClassName="block text-[11px] font-mono text-[#71717A] mb-1"
+              error={formNameError}
+              showError={showUserError("name", formNameError)}
+            >
+              {({ invalid }) => (
+                <input
+                  type="text"
+                  placeholder="e.g. Asad Mehmood (or leave blank)"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  onBlur={() => touchUserField("name")}
+                  className={cn(
+                    "w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              )}
+            </FormField>
 
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Username (Login) *</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. asad.ops"
-                value={formUsername}
-                onChange={(e) => setFormUsername(e.target.value)}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-              />
-            </div>
+            <FormField
+              label="Username (Login)"
+              required
+              labelClassName="block text-[11px] font-mono text-[#71717A] mb-1"
+              error={formUsernameError}
+              showError={showUserError("username", formUsernameError)}
+            >
+              {({ invalid }) => (
+                <input
+                  type="text"
+                  placeholder="e.g. asad.ops"
+                  value={formUsername}
+                  onChange={(e) => setFormUsername(e.target.value)}
+                  onBlur={() => touchUserField("username")}
+                  className={cn(
+                    "w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] font-mono focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              )}
+            </FormField>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-              {editingUser ? "New Password (leave blank to keep current)" : "Temporary Password *"}
-            </label>
-            <input
-              type="password"
-              required={!editingUser}
-              autoComplete="new-password"
-              placeholder="10+ characters with upper, lower, number, symbol"
-              value={formPassword}
-              onChange={(e) => setFormPassword(e.target.value)}
-              className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-            />
-            <p className="text-[10px] text-[#71717A] mt-1">Changing a password signs the user out of any other browser immediately.</p>
-          </div>
+          <PasswordField
+            id="user-form-password"
+            label={editingUser ? "New Password (leave blank to keep current)" : "Temporary Password"}
+            required={!editingUser}
+            optional={Boolean(editingUser)}
+            policy="web"
+            placeholder="10+ characters with upper, lower, number, symbol"
+            value={formPassword}
+            onChange={setFormPassword}
+            submitAttempted={userFormSubmitAttempted}
+            hint={
+              <p className="text-[10px] text-[#71717A] mt-1">Changing a password signs the user out of any other browser immediately.</p>
+            }
+          />
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Official Email</label>
-              <input
-                type="email"
-                placeholder="asad@company.com"
-                value={formEmail}
-                onChange={(e) => setFormEmail(e.target.value)}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-              />
-            </div>
+            <FormField
+              label="Official Email"
+              required
+              labelClassName="block text-[11px] font-mono text-[#71717A] mb-1"
+              error={formEmailError}
+              showError={showUserError("email", formEmailError)}
+            >
+              {({ invalid }) => (
+                <input
+                  type="email"
+                  placeholder="asad@company.com"
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  onBlur={() => touchUserField("email")}
+                  className={cn(
+                    "w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              )}
+            </FormField>
 
-            <div>
-              <label className="block text-[11px] font-mono text-[#71717A] mb-1">Phone (synced to HR)</label>
-              <input
-                type="tel"
-                placeholder="03001234567"
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-              />
-            </div>
+            <FormField
+              label="Phone (synced to HR)"
+              labelClassName="block text-[11px] font-mono text-[#71717A] mb-1"
+              error={formPhoneError}
+              showError={showUserError("phone", formPhoneError)}
+            >
+              {({ invalid }) => (
+                <input
+                  type="tel"
+                  placeholder="03001234567"
+                  value={formPhone}
+                  onChange={(e) => setFormPhone(e.target.value)}
+                  onBlur={() => touchUserField("phone")}
+                  className={cn(
+                    "w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              )}
+            </FormField>
 
             <div>
               <label className="block text-[11px] font-mono text-[#71717A] mb-1">Assigned Role *</label>
@@ -1212,7 +1310,7 @@ export default function UsersAndRolesSettingsPage() {
             <button
               type="submit"
               form="reset-password-form"
-              disabled={resetSubmitting || !resetPasswordValue.trim()}
+              disabled={resetSubmitting || !passwordSatisfiesPolicy("web", resetPasswordValue)}
               className="px-5 py-2 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold shadow-xs transition disabled:opacity-50"
             >
               {resetSubmitting ? "Updating…" : "Apply New Password"}
@@ -1221,7 +1319,7 @@ export default function UsersAndRolesSettingsPage() {
         }
       >
         {resetPasswordUser && (
-          <form id="reset-password-form" onSubmit={handlePerformResetPassword} className="space-y-4 text-xs">
+          <form id="reset-password-form" onSubmit={handlePerformResetPassword} noValidate className="space-y-4 text-xs">
             <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 space-y-1">
               <div className="font-bold flex items-center justify-between">
                 <span>Account: @{resetPasswordUser.username}</span>
@@ -1234,11 +1332,17 @@ export default function UsersAndRolesSettingsPage() {
               </p>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-[11px] font-mono text-[#71717A]">
-                  New Password *
-                </label>
+            <PasswordField
+              id="reset-password-input"
+              label="New Password"
+              required
+              policy="web"
+              value={resetPasswordValue}
+              onChange={setResetPasswordValue}
+              visible={resetShowPassword}
+              onVisibleChange={setResetShowPassword}
+              inputClassName="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 text-xs font-mono text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] focus:border-[#0D7A5F] outline-none"
+              headerAction={
                 <button
                   type="button"
                   onClick={() => {
@@ -1251,44 +1355,22 @@ export default function UsersAndRolesSettingsPage() {
                   <Sparkles className="w-3 h-3 text-[#0D7A5F]" />
                   <span>Generate Strong Password</span>
                 </button>
-              </div>
-
-              <div className="relative">
-                <input
-                  type={resetShowPassword ? "text" : "password"}
-                  required
-                  autoComplete="new-password"
-                  value={resetPasswordValue}
-                  onChange={(e) => setResetPasswordValue(e.target.value)}
-                  className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-2 pr-20 text-xs font-mono text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(resetPasswordValue);
-                      setResetCopied(true);
-                      setTimeout(() => setResetCopied(false), 2000);
-                    }}
-                    className="p-1 text-[#71717A] hover:text-[#18181B] hover:bg-slate-100 rounded"
-                    title="Copy Password to Clipboard"
-                  >
-                    {resetCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResetShowPassword(!resetShowPassword)}
-                    className="p-1 text-[#71717A] hover:text-[#18181B] hover:bg-slate-100 rounded"
-                    title={resetShowPassword ? "Hide password" : "Show password"}
-                  >
-                    {resetShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-              <p className="text-[10px] text-[#71717A] mt-1.5">
-                Must be at least 10 characters with uppercase, lowercase, numeric, and special characters.
-              </p>
-            </div>
+              }
+              trailingAction={
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(resetPasswordValue);
+                    setResetCopied(true);
+                    setTimeout(() => setResetCopied(false), 2000);
+                  }}
+                  className="p-1 text-[#71717A] hover:text-[#18181B] hover:bg-slate-100 rounded"
+                  title="Copy Password to Clipboard"
+                >
+                  {resetCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              }
+            />
           </form>
         )}
       </SideDrawer>

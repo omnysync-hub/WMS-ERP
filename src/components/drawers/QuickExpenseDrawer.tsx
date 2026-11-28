@@ -2,6 +2,13 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import {
+  FieldErrorText,
+  FormField,
+  INVALID_FIELD_CLS,
+  focusFirstInvalidField,
+} from "@/components/ui/form";
+import { cn } from "@/lib/utils";
 import { Receipt, Check, Upload, X } from "lucide-react";
 
 /** Mirrors RECEIPT_DATA_URL_MAX_LENGTH in src/lib/receiptUrl.ts (server-enforced). */
@@ -29,32 +36,49 @@ export default function QuickExpenseDrawer({
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [receiptError, setReceiptError] = useState("");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const formRef = useRef<HTMLFormElement>(null);
   const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
   const [receiptName, setReceiptName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const touch = (key: string) =>
+    setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  const showError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(touched[key]) || submitAttempted);
+
+  // Inline field errors — the same checks handleSubmit always made.
+  const categoryError = !category ? "Select an expense category." : null;
+  const amountError = !amount
+    ? "Expense amount is required."
+    : Number(amount) <= 0
+      ? "Expense amount must be greater than zero."
+      : null;
+  const noteError = !note.trim() ? "Expense description is required." : null;
 
   const handleReceiptFile = (file: File | undefined | null) => {
     if (!file) return;
     if (!RECEIPT_IMAGE_TYPES.includes(file.type)) {
-      setErrorMsg("Receipt photo must be a JPEG, PNG or WebP image.");
+      setReceiptError("Receipt photo must be a JPEG, PNG or WebP image.");
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = typeof reader.result === "string" ? reader.result : "";
       if (!dataUrl) {
-        setErrorMsg("Could not read the selected receipt image.");
+        setReceiptError("Could not read the selected receipt image.");
         return;
       }
       if (dataUrl.length > RECEIPT_DATA_URL_MAX_LENGTH) {
-        setErrorMsg("Receipt photo is too large. Please choose a smaller image.");
+        setReceiptError("Receipt photo is too large. Please choose a smaller image.");
         return;
       }
-      setErrorMsg("");
+      setReceiptError("");
       setReceiptDataUrl(dataUrl);
       setReceiptName(file.name);
     };
-    reader.onerror = () => setErrorMsg("Could not read the selected receipt image.");
+    reader.onerror = () => setReceiptError("Could not read the selected receipt image.");
     reader.readAsDataURL(file);
   };
 
@@ -78,8 +102,9 @@ export default function QuickExpenseDrawer({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || Number(amount) <= 0 || !note.trim() || !category) {
-      setErrorMsg("Expense category, amount, and description are required.");
+    setSubmitAttempted(true);
+    if (categoryError || amountError || noteError) {
+      focusFirstInvalidField(formRef.current);
       return;
     }
 
@@ -108,6 +133,8 @@ export default function QuickExpenseDrawer({
       setAmount("");
       setNote("");
       setCategory(expenseCategories[0]?.code || "");
+      setSubmitAttempted(false);
+      setTouched({});
       clearReceipt();
       onClose();
     } catch (err: any) {
@@ -144,10 +171,9 @@ export default function QuickExpenseDrawer({
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-4 text-xs">
         {errorMsg && (
           <div
-            id="exp-error"
             role="alert"
             className="p-3 bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] rounded-lg font-medium"
           >
@@ -155,48 +181,78 @@ export default function QuickExpenseDrawer({
           </div>
         )}
 
-        <div>
-          <label className="font-semibold text-[#1A1D1F] block mb-1">Expense Category *</label>
-          <select required value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-[#F4F4F5] px-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none">
-            <option value="">Select category…</option>
-            {expenseCategories.map((item) => <option key={item.id || item.code} value={item.code}>{item.name}</option>)}
-          </select>
-          {!expenseCategories.length && <p className="mt-1 text-[11px] text-amber-700">Configure expense categories in Accounting Onboarding before recording expenses.</p>}
-        </div>
+        <FormField
+          label="Expense Category"
+          required
+          labelClassName="font-semibold text-[#1A1D1F] block mb-1"
+          error={categoryError}
+          showError={showError("category", categoryError)}
+          hint={!expenseCategories.length ? <p className="mt-1 text-[11px] text-amber-700">Configure expense categories in Accounting Onboarding before recording expenses.</p> : undefined}
+        >
+          {({ invalid }) => (
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              onBlur={() => touch("category")}
+              className={cn(
+                "w-full bg-[#F4F4F5] px-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none",
+                invalid && INVALID_FIELD_CLS
+              )}
+            >
+              <option value="">Select category…</option>
+              {expenseCategories.map((item) => <option key={item.id || item.code} value={item.code}>{item.name}</option>)}
+            </select>
+          )}
+        </FormField>
 
-        <div>
-          <label className="font-semibold text-[#1A1D1F] block mb-1">
-            Expense Amount *
-          </label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] font-mono">PKR</span>
-            <input
-              type="number"
-              required
-              min="0.5"
-              step="0.5"
-              placeholder="e.g. 25.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              aria-describedby={errorMsg ? "exp-error" : undefined}
-              className="w-full bg-[#F4F4F5] pl-12 pr-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-mono"
+        <FormField
+          label="Expense Amount"
+          required
+          labelClassName="font-semibold text-[#1A1D1F] block mb-1"
+          error={amountError}
+          showError={showError("amount", amountError)}
+        >
+          {({ invalid }) => (
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#71717A] font-mono">PKR</span>
+              <input
+                type="number"
+                min="0.5"
+                step="0.5"
+                placeholder="e.g. 25.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onBlur={() => touch("amount")}
+                className={cn(
+                  "w-full bg-[#F4F4F5] pl-12 pr-3 py-2 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-mono",
+                  invalid && INVALID_FIELD_CLS
+                )}
+              />
+            </div>
+          )}
+        </FormField>
+
+        <FormField
+          label="Expense Description / Notes"
+          required
+          labelClassName="font-semibold text-[#1A1D1F] block mb-1"
+          error={noteError}
+          showError={showError("note", noteError)}
+        >
+          {({ invalid }) => (
+            <textarea
+              rows={3}
+              placeholder="e.g. Purchased emergency Teflon seals & duct tape from hardware store"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => touch("note")}
+              className={cn(
+                "w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none resize-none",
+                invalid && INVALID_FIELD_CLS
+              )}
             />
-          </div>
-        </div>
-
-        <div>
-          <label className="font-semibold text-[#1A1D1F] block mb-1">
-            Expense Description / Notes *
-          </label>
-          <textarea
-            rows={3}
-            required
-            placeholder="e.g. Purchased emergency Teflon seals & duct tape from hardware store"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#E4E4E7] focus:bg-white focus:border-[#0D7A5F] focus:outline-none resize-none"
-          />
-        </div>
+          )}
+        </FormField>
 
         {/* Receipt Photo Upload (data-URL, validated server-side by validateReceiptUrl) */}
         <div>
@@ -256,6 +312,7 @@ export default function QuickExpenseDrawer({
               <p className="text-[10px] text-[#A1A1AA] mt-0.5">JPEG, PNG or WebP</p>
             </div>
           )}
+          {receiptError && <FieldErrorText>{receiptError}</FieldErrorText>}
         </div>
       </form>
     </SideDrawer>

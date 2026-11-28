@@ -1,8 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import {
+  FormField,
+  INVALID_FIELD_CLS,
+  focusFirstInvalidField,
+} from "@/components/ui/form";
+import { cn } from "@/lib/utils";
 import { User, AlertCircle, Building2, Phone, ShieldCheck, Landmark } from "lucide-react";
 
 interface EditEmployeeDrawerProps {
@@ -47,6 +53,17 @@ export default function EditEmployeeDrawer({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const formRef = useRef<HTMLFormElement>(null);
+  const touch = (key: string) =>
+    setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  const showError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(touched[key]) || submitAttempted);
+
+  // Inline field errors — the same checks handleSubmit always made.
+  const nameError = !name.trim() ? "Name is required." : null;
+  const phoneError = !phone.trim() ? "Phone number is required." : null;
 
   useEffect(() => {
     if (isOpen && employee) {
@@ -75,13 +92,16 @@ export default function EditEmployeeDrawer({
       setBankAccountNumber(employee.bankAccountNumber || "");
       setBankIban(employee.bankIban || "");
       setErrorMsg("");
+      setSubmitAttempted(false);
+      setTouched({});
     }
   }, [isOpen, employee]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !phone) {
-      setErrorMsg("Name and phone number are required.");
+    setSubmitAttempted(true);
+    if (nameError || phoneError) {
+      focusFirstInvalidField(formRef.current);
       return;
     }
 
@@ -160,7 +180,7 @@ export default function EditEmployeeDrawer({
         </div>
       }
     >
-      <form id="edit-employee-form" onSubmit={handleSubmit} className="space-y-5 pb-6 text-zinc-900">
+      <form id="edit-employee-form" ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-5 pb-6 text-zinc-900">
         {errorMsg && (
           <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -175,33 +195,49 @@ export default function EditEmployeeDrawer({
             Personal & Contact Information
           </h3>
 
-          <div>
-            <label className="block text-xs font-medium text-zinc-700 mb-1">
-              Full Legal Name <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full h-9 px-3 text-xs bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-zinc-700 mb-1">
-                Primary Mobile Phone <span className="text-rose-500">*</span>
-              </label>
+          <FormField
+            label="Full Legal Name"
+            required
+            labelClassName="block text-xs font-medium text-zinc-700 mb-1"
+            error={nameError}
+            showError={showError("name", nameError)}
+          >
+            {({ invalid }) => (
               <input
                 type="text"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. 03001234567"
-                className="w-full h-9 px-3 text-xs bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => touch("name")}
+                className={cn(
+                  "w-full h-9 px-3 text-xs bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs",
+                  invalid && INVALID_FIELD_CLS
+                )}
               />
-            </div>
+            )}
+          </FormField>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField
+              label="Primary Mobile Phone"
+              required
+              labelClassName="block text-xs font-medium text-zinc-700 mb-1"
+              error={phoneError}
+              showError={showError("phone", phoneError)}
+            >
+              {({ invalid }) => (
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  onBlur={() => touch("phone")}
+                  placeholder="e.g. 03001234567"
+                  className={cn(
+                    "w-full h-9 px-3 text-xs bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:border-[#0D7A5F] focus:ring-1 focus:ring-[#0D7A5F] outline-none shadow-2xs",
+                    invalid && INVALID_FIELD_CLS
+                  )}
+                />
+              )}
+            </FormField>
             <div>
               <label className="block text-xs font-medium text-zinc-700 mb-1">
                 Corporate Email Address

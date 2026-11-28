@@ -37,13 +37,13 @@ import {
   Unlock,
   RefreshCw,
   AlertTriangle,
-  Eye,
-  EyeOff,
   Sparkles,
   Camera,
 } from "lucide-react";
 
 import EditEmployeeDrawer from "@/components/drawers/EditEmployeeDrawer";
+import PasswordField from "@/components/ui/PasswordField";
+import { passwordSatisfiesPolicy } from "@/lib/passwordRules";
 
 export default function EmployeeProfilePage() {
   const params = useParams();
@@ -76,6 +76,7 @@ export default function EmployeeProfilePage() {
   const [credentialModalMode, setCredentialModalMode] = useState<"create" | "reset">("create");
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
+  const [credentialSubmitAttempted, setCredentialSubmitAttempted] = useState(false);
   const [showPasswordText, setShowPasswordText] = useState(true);
   const [mobileActionLoading, setMobileActionLoading] = useState(false);
   const [mobileActionError, setMobileActionError] = useState<string | null>(null);
@@ -192,6 +193,7 @@ export default function EmployeeProfilePage() {
     setFormUsername(employee?.mobileUsername || "");
     handleGeneratePassword();
     setMobileActionError(null);
+    setCredentialSubmitAttempted(false);
     setShowCredentialModal(true);
   };
 
@@ -199,6 +201,7 @@ export default function EmployeeProfilePage() {
     setCredentialModalMode("reset");
     handleGeneratePassword();
     setMobileActionError(null);
+    setCredentialSubmitAttempted(false);
     setShowCredentialModal(true);
   };
 
@@ -207,10 +210,12 @@ export default function EmployeeProfilePage() {
     setFormUsername("");
     setFormPassword("");
     setMobileActionError(null);
+    setCredentialSubmitAttempted(false);
   };
 
   const handleSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCredentialSubmitAttempted(true);
     if (!formPassword || formPassword.length < 8) {
       setMobileActionError("Password must be at least 8 characters long.");
       return;
@@ -1920,11 +1925,20 @@ export default function EmployeeProfilePage() {
                 </div>
               )}
 
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-semibold text-zinc-700 block">
-                    Password <span className="text-rose-500">*</span>
-                  </label>
+              <PasswordField
+                id="mobile-credential-password"
+                label="Password"
+                required
+                policy="mobile"
+                value={formPassword}
+                onChange={setFormPassword}
+                visible={showPasswordText}
+                onVisibleChange={setShowPasswordText}
+                submitAttempted={credentialSubmitAttempted}
+                placeholder="Enter at least 8 characters"
+                labelClassName="text-[11px] font-semibold text-zinc-700 block"
+                inputClassName="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F] focus:border-[#0D7A5F]"
+                headerAction={
                   <button
                     type="button"
                     onClick={handleGeneratePassword}
@@ -1933,35 +1947,8 @@ export default function EmployeeProfilePage() {
                     <Sparkles className="w-3 h-3" />
                     Generate Suggested
                   </button>
-                </div>
-
-                <div className="relative">
-                  <input
-                    type={showPasswordText ? "text" : "password"}
-                    value={formPassword}
-                    onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder="Enter at least 6 characters"
-                    required
-                    minLength={6}
-                    className="w-full px-3 py-2 pr-10 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono text-zinc-900 focus:outline-none focus:ring-2 focus:ring-[#0D7A5F]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswordText(!showPasswordText)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
-                  >
-                    {showPasswordText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-zinc-400">
-                  <span>Minimum 6 characters. Alphanumeric & symbols supported.</span>
-                  {formPassword.length >= 6 && (
-                    <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
-                      <Check className="w-3 h-3" /> Valid length
-                    </span>
-                  )}
-                </div>
-              </div>
+                }
+              />
 
               {mobileActionError && (
                 <div className="p-2.5 bg-rose-50 rounded-xl border border-rose-200 text-rose-800 text-[11px] flex items-start gap-2">
@@ -1982,7 +1969,7 @@ export default function EmployeeProfilePage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={mobileActionLoading || formPassword.length < 8}
+                  disabled={mobileActionLoading || !passwordSatisfiesPolicy("mobile", formPassword)}
                   className="px-5 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
                 >
                   {mobileActionLoading ? (

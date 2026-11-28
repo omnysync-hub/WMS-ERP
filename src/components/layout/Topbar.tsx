@@ -25,12 +25,14 @@ import {
   LogOut,
   Volume2,
   VolumeX,
+  CheckCheck,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { formatJobType } from "@/lib/utils";
 import { formatPktDateTime } from "@/lib/pktTime";
 import toast from "@/lib/toast";
+import { notify } from "@/lib/notify";
 import {
   isSoundEnabled,
   setSoundEnabled,
@@ -85,11 +87,85 @@ export default function Topbar({
     if (next) playSuccessCue(); // the click is a user gesture, so this can play
   };
 
+  // Popup discipline for the bell feed: the first successful poll baselines
+  // silently (existing unread items get ONE quiet summary toast, never a
+  // storm); later polls pop a soft toast per genuinely new unread item.
+  // "New" is keyed on id + content signature (an aggregate notice whose
+  // count grows past what was seen counts as new again), persisted in
+  // localStorage so a reload never re-pops what this browser already showed.
+  const bellBaselinedRef = useRef(false);
+  const bellSeenRef = useRef<Set<string> | null>(null);
+  const BELL_SEEN_KEY = "wms_seen_bell_popups";
+  const MAX_BELL_SEEN = 500;
+  const MAX_BELL_POPUPS = 3;
+
+  const persistBellSeen = () => {
+    try {
+      window.localStorage.setItem(
+        BELL_SEEN_KEY,
+        JSON.stringify(Array.from(bellSeenRef.current ?? []).slice(-MAX_BELL_SEEN))
+      );
+    } catch {
+      // Storage unavailable — in-memory dedupe still applies for this session.
+    }
+  };
+
+  // Mark-as-read: optimistic local flip, then the server records it (it only
+  // ever marks items in the caller's own permission-scoped feed).
+  const markNotificationRead = async (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
+    );
+    if (id.startsWith("notice-") || id.startsWith("device-login-")) {
+      try {
+        await fetch("/api/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "mark_read", id }),
+        });
+      } catch {
+        // Best-effort — the next poll re-syncs the server's read state.
+      }
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+    } catch {
+      // Best-effort — the next poll re-syncs the server's read state.
+    }
+  };
+
   useEffect(() => {
-    // Server-computed office notices (pending leaves, low stock, unassigned jobs,
-    // pending discount approvals) from the real notifications API. Refreshed on a
-    // 60s poll; each refresh replaces the previous API-sourced entries (their ids
-    // are prefixed "notice-") so counts never go stale or duplicate.
+    if (bellSeenRef.current === null) {
+      try {
+        const raw = window.localStorage.getItem(BELL_SEEN_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        bellSeenRef.current = new Set(
+          Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : []
+        );
+      } catch {
+        bellSeenRef.current = new Set();
+      }
+    }
+    const seen = bellSeenRef.current;
+
+    // The whole bell feed — office notices AND blocked-device alerts — comes
+    // from GET /api/notifications, which scopes every item server-side by the
+    // caller's permissions (device alerts ride along only for audit.view_logs
+    // holders) and returns each item's per-user read state. Refreshed on a
+    // 60s poll; each refresh replaces the previous server-sourced entries
+    // (ids prefixed "notice-" / "device-login-") so nothing goes stale or
+    // duplicates, while same-browser realtime events are preserved.
+    const isServerItem = (id: unknown) =>
+      typeof id === "string" && (id.startsWith("notice-") || id.startsWith("device-login-"));
+
     const loadServerNotifications = async () => {
       try {
         const res = await fetch("/api/notifications");
@@ -100,70 +176,62 @@ export default function Topbar({
           title: n.title,
           message: n.message,
           timestamp: n.createdAt ? formatPktDateTime(n.createdAt) : "Active now",
-          unread: true,
+          unread: !n.read,
+          signature: typeof n.signature === "string" ? n.signature : "",
           href: n.link,
           isDiscount: n.id === "notice-discounts",
         }));
+
+        // Popup toasts for NEW unread items (soft notification cue via the
+        // toast bus — the loud siren/voice stays with RealtimeRequestWatcher).
+        const unreadItems = notices.filter((n: any) => n.unread);
+        const keyOf = (n: any) => `${n.id}@${n.signature}`;
+        if (!bellBaselinedRef.current) {
+          bellBaselinedRef.current = true;
+          unreadItems.forEach((n: any) => seen.add(keyOf(n)));
+          persistBellSeen();
+          const unreadCount =
+            typeof data.unreadCount === "number" ? data.unreadCount : unreadItems.length;
+          if (unreadCount > 0) {
+            notify.notification(
+              "Field Activity & Alerts",
+              `${unreadCount} unread update(s) waiting in the bell.`,
+              { sound: false, duration: 6000 }
+            );
+          }
+        } else {
+          const fresh = unreadItems.filter((n: any) => !seen.has(keyOf(n)));
+          unreadItems.forEach((n: any) => seen.add(keyOf(n)));
+          persistBellSeen();
+          const shown = fresh.slice(0, MAX_BELL_POPUPS);
+          for (const item of shown) {
+            notify.notification(item.title, item.message, {
+              duration: 6500,
+              action: item.href ? { label: "View", href: item.href } : undefined,
+            });
+          }
+          if (fresh.length > shown.length) {
+            notify.notification(
+              "More updates",
+              `${fresh.length - shown.length} more new update(s) in Field Activity & Alerts.`,
+              { duration: 6000 }
+            );
+          }
+        }
+
         setNotifications((prev) => [
           ...notices,
-          ...prev.filter((n) => !String(n.id).startsWith("notice-")),
+          ...prev.filter((n) => !isServerItem(n.id)),
         ]);
       } catch {
         // Best-effort: a failed fetch leaves the last known notices in place.
       }
     };
 
-    const loadBlockedDeviceAlerts = async () => {
-      try {
-        const res = await fetch(
-          "/api/audit?action=MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE"
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const alerts = (Array.isArray(data.activities) ? data.activities : [])
-          .filter((activity: any) => activity.action === "MOBILE_LOGIN_BLOCKED_DIFFERENT_DEVICE")
-          .slice(0, 20)
-          .map((activity: any) => {
-            let metadata: Record<string, unknown> = {};
-            try {
-              metadata = activity.metadata ? JSON.parse(activity.metadata) : {};
-            } catch {
-              metadata = {};
-            }
-            const attemptedDevice =
-              typeof metadata.attemptedDeviceName === "string" && metadata.attemptedDeviceName
-                ? metadata.attemptedDeviceName
-                : "another device";
-            return {
-              id: `device-login-${activity.id}`,
-              title: "Blocked second-device login",
-              message: `${activity.actorName || "A technician"} tried to sign in from ${attemptedDevice}. The existing device session was kept active.`,
-              timestamp: activity.timestamp
-                ? formatPktDateTime(activity.timestamp)
-                : "Recently",
-              unread: true,
-              href: "/audit",
-            };
-          });
-
-        if (alerts.length > 0) {
-          setNotifications((prev) => {
-            const ids = new Set(prev.map((notice) => notice.id));
-            return [...alerts.filter((notice: any) => !ids.has(notice.id)), ...prev];
-          });
-        }
-      } catch {
-        // The audit feed is permission-gated; non-admin roles simply do not receive these alerts.
-      }
-    };
-
     loadServerNotifications();
-    loadBlockedDeviceAlerts();
     const noticesTimer = window.setInterval(loadServerNotifications, 60_000);
-    const securityAlertTimer = window.setInterval(loadBlockedDeviceAlerts, 30_000);
     return () => {
       window.clearInterval(noticesTimer);
-      window.clearInterval(securityAlertTimer);
     };
   }, []);
 
@@ -437,10 +505,24 @@ export default function Topbar({
                   onClick={() => setIsNotificationsOpen(false)}
                 />
                 <div className="absolute right-0 top-full mt-1.5 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-80 py-2 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
-                  <div className="px-3 pb-2 border-b border-[#EDEDED] flex items-center justify-between">
+                  <div className="px-3 pb-2 border-b border-[#EDEDED] flex items-center justify-between gap-2">
                     <span className="font-bold text-[#18181B] text-xs">Field Activity & Alerts</span>
-                    <span className="text-[10px] text-[#0D7A5F] font-semibold bg-emerald-50 px-2 py-0.5 rounded-full font-mono">
-                      {notifications.length} updates
+                    <span className="flex items-center gap-1.5">
+                      {notifications.some((n) => n.unread) && (
+                        <button
+                          type="button"
+                          onClick={markAllNotificationsRead}
+                          className="text-[10px] font-semibold text-[#0D7A5F] hover:bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1 transition"
+                        >
+                          <CheckCheck className="w-3 h-3" />
+                          Mark all read
+                        </button>
+                      )}
+                      <span className="text-[10px] text-[#0D7A5F] font-semibold bg-emerald-50 px-2 py-0.5 rounded-full font-mono">
+                        {notifications.filter((n) => n.unread).length > 0
+                          ? `${notifications.filter((n) => n.unread).length} unread`
+                          : `${notifications.length} updates`}
+                      </span>
                     </span>
                   </div>
 
@@ -449,6 +531,7 @@ export default function Topbar({
                       <div
                         key={n.id}
                         onClick={() => {
+                          if (n.unread) void markNotificationRead(n.id);
                           if (n.href) {
                             router.push(n.href);
                             setIsNotificationsOpen(false);
@@ -456,20 +539,52 @@ export default function Topbar({
                         }}
                         className={`p-3 hover:bg-[#F9FAFB] transition space-y-0.5 ${
                           n.href ? "cursor-pointer" : ""
-                        } ${n.isDiscount ? "bg-amber-50/60" : ""}`}
+                        } ${n.isDiscount ? "bg-amber-50/60" : ""} ${
+                          n.unread ? "bg-emerald-50/40" : ""
+                        }`}
                       >
                         <div className="flex items-center justify-between">
-                          <p className="font-bold text-[#18181B] text-xs flex items-center gap-1.5">
+                          <p
+                            className={`text-xs flex items-center gap-1.5 ${
+                              n.unread
+                                ? "font-bold text-[#18181B]"
+                                : "font-semibold text-[#71717A]"
+                            }`}
+                          >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
-                                n.isDiscount ? "bg-amber-500 animate-pulse" : "bg-[#0D7A5F]"
+                                !n.unread
+                                  ? "bg-[#D4D4D8]"
+                                  : n.isDiscount
+                                    ? "bg-amber-500 animate-pulse"
+                                    : "bg-[#0D7A5F]"
                               }`}
                             />
                             {n.title}
                           </p>
-                          <span className="text-[10px] text-[#71717A] font-mono">{n.timestamp}</span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-[#71717A] font-mono">{n.timestamp}</span>
+                            {n.unread && (
+                              <button
+                                type="button"
+                                title="Mark as read"
+                                aria-label={`Mark "${n.title}" as read`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void markNotificationRead(n.id);
+                                }}
+                                className="text-[10px] font-semibold text-[#0D7A5F] hover:underline"
+                              >
+                                Mark read
+                              </button>
+                            )}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-[#52525B] pl-3 leading-relaxed">
+                        <p
+                          className={`text-[11px] pl-3 leading-relaxed ${
+                            n.unread ? "text-[#52525B]" : "text-[#A1A1AA]"
+                          }`}
+                        >
                           {n.message}
                         </p>
                         {n.isDiscount && (

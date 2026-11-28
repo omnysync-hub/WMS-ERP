@@ -531,7 +531,7 @@ export async function POST(req: NextRequest) {
 
         // Consume + COGS posting + request status + job line item commit or
         // roll back together in a single transaction.
-        let txResult: { invReq: any; product: any; createdJobItem: any };
+        let txResult: { invReq: any; product: any; createdJobItem: any; stockLedger: any };
         try {
           txResult = await prisma.$transaction(
             async (tx) => {
@@ -569,7 +569,7 @@ export async function POST(req: NextRequest) {
                 );
               }
 
-              await InventoryService.consumeStock(
+              const stockLedger = await InventoryService.consumeStock(
                 productId,
                 qty,
                 "job_consumption",
@@ -615,7 +615,7 @@ export async function POST(req: NextRequest) {
                 });
               }
 
-              return { invReq: updatedReq, product: prod, createdJobItem: jobItem };
+              return { invReq: updatedReq, product: prod, createdJobItem: jobItem, stockLedger };
             },
             { maxWait: 10000, timeout: 30000 }
           );
@@ -630,6 +630,17 @@ export async function POST(req: NextRequest) {
         }
         const { invReq, product, createdJobItem } = txResult;
 
+        // The COGS journal consumeStock posted against this issue's ledger
+        // row (absent when the issued stock had zero cost). Its id is recorded
+        // in the rollback snapshot so an audit rollback can reverse exactly
+        // this entry instead of hunting for it — or guessing — later.
+        const cogsJournal = txResult.stockLedger
+          ? await prisma.journalEntry.findFirst({
+              where: { refType: "inventory_cogs", refId: txResult.stockLedger.id },
+              select: { id: true },
+            })
+          : null;
+
         await AuditService.recordCrudAction({
           actorName: payload.storeKeeperName || "Storekeeper",
           actorRole: "storekeeper",
@@ -638,8 +649,25 @@ export async function POST(req: NextRequest) {
           entityNumber: invReq?.job?.jobNumber || `REQ-${requestId.slice(0, 8)}`,
           actionType: "INVENTORY",
           description: `Storekeeper issued ${qty}x ${product?.name || "item"} for Job #${invReq?.job?.jobNumber || ""}`,
-          stateBefore: { status: existingRequest.status, productId, quantity: qty },
-          stateAfter: { status: invReq?.status || "issued", productId, quantity: qty, jobItemId: createdJobItem?.id },
+          // Rollback snapshot: everything the exact inverse needs — the
+          // request's pre/post qtyIssued and status, the product and quantity
+          // THIS fulfil moved, and the ids of the rows it created (job item,
+          // stock-ledger OUT row, COGS journal).
+          stateBefore: {
+            status: existingRequest.status,
+            qtyIssued: Number(existingRequest.qtyIssued) || 0,
+            productId,
+            quantity: qty,
+          },
+          stateAfter: {
+            status: invReq?.status || "issued",
+            qtyIssued: Number(invReq?.qtyIssued) || 0,
+            productId,
+            quantity: qty,
+            jobItemId: createdJobItem?.id,
+            stockLedgerId: txResult.stockLedger?.id || null,
+            journalEntryId: cogsJournal?.id || null,
+          },
           canRollback: true,
         });
 

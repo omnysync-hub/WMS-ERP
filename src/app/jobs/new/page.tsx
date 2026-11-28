@@ -20,6 +20,7 @@ import { realtimeSync } from "@/lib/realtimeSync";
 import { cn, formatCurrency } from "@/lib/utils";
 import SearchableSelect, { SelectOption } from "@/components/ui/SearchableSelect";
 import SearchableCombobox from "@/components/ui/SearchableCombobox";
+import { FieldErrorText, INVALID_FIELD_CLS } from "@/components/ui/form";
 import PakistanAddressAutofill from "@/components/maps/PakistanAddressAutofill";
 
 // Standard Dropdown Fallback Data
@@ -154,6 +155,18 @@ export default function FastJobIntakePage() {
   // Status & Feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [jobSubmitAttempted, setJobSubmitAttempted] = useState(false);
+
+  // Scroll to (and where possible focus) a field flagged inline on submit.
+  const focusJobField = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const inner = el.matches("input, select, textarea")
+      ? (el as HTMLElement)
+      : el.querySelector<HTMLElement>("input, select, textarea");
+    window.setTimeout(() => inner?.focus({ preventScroll: true }), 250);
+  };
 
   // Fetch Master Data on Mount
   useEffect(() => {
@@ -407,6 +420,7 @@ export default function FastJobIntakePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg("");
+    setJobSubmitAttempted(true);
 
     try {
       setIsSubmitting(true);
@@ -437,14 +451,18 @@ export default function FastJobIntakePage() {
       // If customer doesn't exist yet, automatically register them inline
       if (!targetCustomerId) {
         if (!customerName.trim()) {
-          throw new Error("Please enter customer name.");
+          // Inline under the name field instead of the banner.
+          focusJobField("job-customer-name");
+          return;
         }
         const phoneDigits = customerMobile.replace(/\D/g, "");
         if (phoneDigits.length !== 11) {
           throw new Error("Customer primary mobile must be exactly 11 digits (e.g., 03001234567).");
         }
         if (!customerAddress.trim()) {
-          throw new Error("Please enter the customer address.");
+          // Inline under the address field instead of the banner.
+          focusJobField("job-customer-address");
+          return;
         }
 
         const createCustRes = await fetch("/api/customers", {
@@ -586,6 +604,17 @@ export default function FastJobIntakePage() {
   const isMobileInvalid = isMobileTouched && mobileDigits.length !== 11;
   const isMobileValid = isMobileTouched && mobileDigits.length === 11;
 
+  // Inline errors for the new-customer fields, revealed on a submit attempt
+  // (mirrors the checks handleSubmit makes before creating the customer).
+  const customerNameError =
+    jobSubmitAttempted && !selectedCustomerId && !customerName.trim()
+      ? "Please enter customer name."
+      : null;
+  const customerAddressError =
+    jobSubmitAttempted && !selectedCustomerId && !customerAddress.trim()
+      ? "Please enter the customer address."
+      : null;
+
   const secMobileDigits = customerSecMobile.replace(/\D/g, "");
   const isSecMobileTouched = customerSecMobile.length > 0;
   const isSecMobileInvalid = isSecMobileTouched && secMobileDigits.length !== 11;
@@ -691,14 +720,22 @@ export default function FastJobIntakePage() {
               </div>
 
               {isNewCustomer ? (
-                <input
-                  type="text"
-                  required
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Enter full customer name..."
-                  className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition"
-                />
+                <div data-field-invalid={customerNameError ? "true" : undefined}>
+                  <input
+                    id="job-customer-name"
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Enter full customer name..."
+                    className={cn(
+                      "w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition",
+                      customerNameError && INVALID_FIELD_CLS
+                    )}
+                  />
+                  {customerNameError && (
+                    <FieldErrorText>{customerNameError}</FieldErrorText>
+                  )}
+                </div>
               ) : (
                 <SearchableSelect
                   value={selectedCustomerId || ""}
@@ -746,7 +783,6 @@ export default function FastJobIntakePage() {
               <div className="relative">
                 <input
                   type="tel"
-                  required
                   maxLength={11}
                   value={customerMobile}
                   onChange={(e) => {
@@ -861,7 +897,10 @@ export default function FastJobIntakePage() {
           {/* ========================================================================= */}
           {/* ROW 2: Address (Mapbox Autofill & GPS Pinpoint)                          */}
           {/* ========================================================================= */}
-          <div>
+          <div
+            id="job-customer-address"
+            data-field-invalid={customerAddressError ? "true" : undefined}
+          >
             <PakistanAddressAutofill
               value={customerAddress}
               lat={customerLat}
@@ -879,6 +918,9 @@ export default function FastJobIntakePage() {
               showMapPicker={true}
               cityBias="lahore"
             />
+            {customerAddressError && (
+              <FieldErrorText>{customerAddressError}</FieldErrorText>
+            )}
           </div>
 
           {/* ========================================================================= */}
@@ -1168,7 +1210,12 @@ export default function FastJobIntakePage() {
                               : Math.max(0, parseInt(e.target.value) || 0)
                           )
                         }
-                        className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono font-bold"
+                        className={cn(
+                          "w-full h-10 px-3.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-600 focus:border-emerald-600 transition font-mono font-bold",
+                          jobSubmitAttempted &&
+                            (!Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0) &&
+                            INVALID_FIELD_CLS
+                        )}
                       />
                     </div>
 

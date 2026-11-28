@@ -16,6 +16,7 @@ import AccountMappingTab from "@/components/accounts/AccountMappingTab";
 import CoaManagerModal from "@/components/accounts/CoaManagerModal";
 import StatementOfAccountsTab from "@/components/accounts/StatementOfAccountsTab";
 import SideDrawer from "@/components/ui/SideDrawer";
+import { FieldErrorText, INVALID_FIELD_CLS } from "@/components/ui/form";
 import { useRole } from "@/contexts/RoleContext";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
@@ -228,6 +229,22 @@ export default function AccountsPage() {
   const [newExpenseAmount, setNewExpenseAmount] = useState("");
   const [newExpenseMemo, setNewExpenseMemo] = useState("");
   const [newExpenseRef, setNewExpenseRef] = useState("");
+  const [expenseSubmitAttempted, setExpenseSubmitAttempted] = useState(false);
+  const [expenseTouched, setExpenseTouched] = useState<Record<string, boolean>>({});
+  const touchExpenseField = (key: string) =>
+    setExpenseTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  // Inline errors for the expense voucher — payee was already required via
+  // the form's native validation; the amount check used to fail silently.
+  const expensePayeeError = !newExpensePayee.trim()
+    ? "Payee / beneficiary is required."
+    : null;
+  const expenseAmountError = !newExpenseAmount
+    ? "Amount is required."
+    : Number(newExpenseAmount) <= 0
+      ? "Amount must be greater than zero."
+      : null;
+  const showExpenseError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(expenseTouched[key]) || expenseSubmitAttempted);
 
   // POS Sales state
   const [posSales, setPosSales] = useState<any[]>([]);
@@ -1033,7 +1050,16 @@ export default function AccountsPage() {
   // 6. ACTION: ADD GENERAL EXPENSE
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newExpenseAmount || Number(newExpenseAmount) <= 0) return;
+    setExpenseSubmitAttempted(true);
+    if (expensePayeeError || expenseAmountError) {
+      const firstInvalidId = expensePayeeError
+        ? "expense-payee-input"
+        : "expense-amount-input";
+      const el = document.getElementById(firstInvalidId);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+      return;
+    }
 
     try {
       const res = await fetch("/api/accounts", {
@@ -1059,6 +1085,8 @@ export default function AccountsPage() {
       setNewExpenseMemo("");
       setNewExpenseRef("");
       setNewExpensePayee("");
+      setExpenseSubmitAttempted(false);
+      setExpenseTouched({});
       setActionSuccessMsg(`Expense voucher recorded and posted to General Ledger.`);
       notify.success(`Expense voucher recorded and posted to General Ledger.`);
       loadData();
@@ -3846,19 +3874,26 @@ export default function AccountsPage() {
           </div>
         }
       >
-        <form id="add-expense-form" onSubmit={handleAddExpense} className="space-y-4 text-xs">
-          <div>
+        <form id="add-expense-form" onSubmit={handleAddExpense} noValidate className="space-y-4 text-xs">
+          <div data-field-invalid={showExpenseError("payee", expensePayeeError) ? "true" : undefined}>
             <label className="text-xs font-semibold text-[#18181B] block mb-1">
-              Payee / Beneficiary *
+              Payee / Beneficiary <span className="text-rose-500">*</span>
             </label>
             <input
+              id="expense-payee-input"
               type="text"
               placeholder="e.g. Shell Petrol Station, DEWA Electricity, Office Supplies"
               value={newExpensePayee}
               onChange={(e) => setNewExpensePayee(e.target.value)}
-              className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
-              required
+              onBlur={() => touchExpenseField("payee")}
+              className={cn(
+                "w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]",
+                showExpenseError("payee", expensePayeeError) && INVALID_FIELD_CLS
+              )}
             />
+            {showExpenseError("payee", expensePayeeError) && (
+              <FieldErrorText>{expensePayeeError}</FieldErrorText>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -3907,20 +3942,27 @@ export default function AccountsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div data-field-invalid={showExpenseError("amount", expenseAmountError) ? "true" : undefined}>
               <label className="text-xs font-semibold text-[#18181B] block mb-1">
-                Amount (PKR) *
+                Amount (PKR) <span className="text-rose-500">*</span>
               </label>
               <input
+                id="expense-amount-input"
                 type="number"
                 min="1"
                 step="0.01"
                 placeholder="0.00"
                 value={newExpenseAmount}
                 onChange={(e) => setNewExpenseAmount(e.target.value)}
-                className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] font-mono font-bold text-sm focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
-                required
+                onBlur={() => touchExpenseField("amount")}
+                className={cn(
+                  "w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] font-mono font-bold text-sm focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]",
+                  showExpenseError("amount", expenseAmountError) && INVALID_FIELD_CLS
+                )}
               />
+              {showExpenseError("amount", expenseAmountError) && (
+                <FieldErrorText>{expenseAmountError}</FieldErrorText>
+              )}
             </div>
             <div>
               <label className="text-xs font-semibold text-[#18181B] block mb-1">

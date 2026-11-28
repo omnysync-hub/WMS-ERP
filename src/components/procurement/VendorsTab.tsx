@@ -5,8 +5,13 @@ import { notify } from "@/lib/notify";
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
+import {
+  FormField,
+  INVALID_FIELD_CLS,
+  focusFirstInvalidField,
+} from "@/components/ui/form";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import {
   Search,
@@ -53,6 +58,17 @@ export default function VendorsTab({
   const [editingVendor, setEditingVendor] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [vendorSubmitAttempted, setVendorSubmitAttempted] = useState(false);
+  const [vendorTouched, setVendorTouched] = useState<Record<string, boolean>>({});
+  const vendorFormRef = useRef<HTMLFormElement>(null);
+  const touchVendorField = (key: string) =>
+    setVendorTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  const resetVendorValidation = () => {
+    setVendorSubmitAttempted(false);
+    setVendorTouched({});
+  };
+  const showVendorError = (key: string, error: string | null) =>
+    Boolean(error) && (Boolean(vendorTouched[key]) || vendorSubmitAttempted);
 
   // Form State
   const [vendorCode, setVendorCode] = useState("");
@@ -72,6 +88,13 @@ export default function VendorsTab({
   const [category, setCategory] = useState("Spares & Raw Material");
   const [status, setStatus] = useState("Active");
   const [whtRate, setWhtRate] = useState("4.5");
+
+  // Inline field errors — the same checks handleSubmit always made.
+  const vendorNameError = !name.trim() ? "Vendor Name is required." : null;
+  const vendorPhoneError =
+    phone.trim() && phone.replace(/\D/g, "").length !== 11
+      ? "Vendor phone number must be exactly 11 digits (e.g. 03001234567)."
+      : null;
 
   const openCreateModal = () => {
     if (!canManageVendor) return;
@@ -94,6 +117,7 @@ export default function VendorsTab({
     setStatus("Active");
     setWhtRate("4.5");
     setFormError("");
+    resetVendorValidation();
     setShowModal(true);
   };
 
@@ -118,24 +142,17 @@ export default function VendorsTab({
     setStatus(v.status || "Active");
     setWhtRate(String(v.whtRate ?? "4.5"));
     setFormError("");
+    resetVendorValidation();
     setShowModal(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     if (!canManageVendor) { notify.warning("Missing permission: procurement.vendor.manage", { title: "Permission Denied" }); return; }
     e.preventDefault();
-    if (!name.trim()) {
-      setFormError("Vendor Name is required.");
+    setVendorSubmitAttempted(true);
+    if (vendorNameError || vendorPhoneError) {
+      focusFirstInvalidField(vendorFormRef.current);
       return;
-    }
-
-    if (phone.trim()) {
-      const phoneDigits = phone.replace(/\D/g, "");
-      if (phoneDigits.length !== 11) {
-        setFormError("Vendor phone number must be exactly 11 digits (e.g. 03001234567).");
-        setIsSubmitting(false);
-        return;
-      }
     }
 
     try {
@@ -459,7 +476,7 @@ export default function VendorsTab({
           </div>
         }
       >
-        <form id="vendor-form" onSubmit={handleSubmit} className="space-y-4 pb-8 text-[#18181B]">
+        <form id="vendor-form" ref={vendorFormRef} onSubmit={handleSubmit} noValidate className="space-y-4 pb-8 text-[#18181B]">
           
               {formError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
@@ -482,19 +499,28 @@ export default function VendorsTab({
                   />
                 </div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Vendor Legal Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                    placeholder="e.g. Pak HVAC Spares & Engineering Ltd"
-                  />
-                </div>
+                <FormField
+                  className="sm:col-span-2"
+                  label="Vendor Legal Name"
+                  required
+                  labelClassName="block text-[11px] font-mono text-[#71717A] mb-1"
+                  error={vendorNameError}
+                  showError={showVendorError("name", vendorNameError)}
+                >
+                  {({ invalid }) => (
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onBlur={() => touchVendorField("name")}
+                      className={cn(
+                        "w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                        invalid && INVALID_FIELD_CLS
+                      )}
+                      placeholder="e.g. Pak HVAC Spares & Engineering Ltd"
+                    />
+                  )}
+                </FormField>
               </div>
 
               {/* Category & Status */}
@@ -559,18 +585,26 @@ export default function VendorsTab({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-mono text-[#71717A] mb-1">
-                    Phone / Mobile
-                  </label>
-                  <input
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
-                    placeholder="+92-300-1234567"
-                  />
-                </div>
+                <FormField
+                  label="Phone / Mobile"
+                  labelClassName="block text-[11px] font-mono text-[#71717A] mb-1"
+                  error={vendorPhoneError}
+                  showError={showVendorError("phone", vendorPhoneError)}
+                >
+                  {({ invalid }) => (
+                    <input
+                      type="text"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      onBlur={() => touchVendorField("phone")}
+                      className={cn(
+                        "w-full bg-white border border-[#D4D4D8] rounded-lg px-3 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                        invalid && INVALID_FIELD_CLS
+                      )}
+                      placeholder="+92-300-1234567"
+                    />
+                  )}
+                </FormField>
 
                 <div>
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">

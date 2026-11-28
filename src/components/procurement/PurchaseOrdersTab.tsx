@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
+import { FieldErrorText } from "@/components/ui/form";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { printDocument } from "@/lib/printUtils";
 import {
@@ -138,6 +139,13 @@ export default function PurchaseOrdersTab({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  // Inline vendor validation for the create PO form; formError is reserved
+  // for server errors.
+  const [poSubmitAttempted, setPoSubmitAttempted] = useState(false);
+  useEffect(() => {
+    if (showCreateModal) setPoSubmitAttempted(false);
+  }, [showCreateModal]);
+  const vendorError = !vendorId ? "Please select a vendor." : null;
 
   const handleAddItem = () => {
     setItems([
@@ -299,8 +307,8 @@ export default function PurchaseOrdersTab({
   const handleCreatePo = async (e: React.FormEvent) => {
     if (!canCreatePo) { notify.warning("Missing permission: procurement.po.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
-    if (!vendorId) {
-      setFormError("Please select a vendor.");
+    setPoSubmitAttempted(true);
+    if (vendorError) {
       return;
     }
 
@@ -859,12 +867,16 @@ export default function PurchaseOrdersTab({
 
               {/* Vendor & PO Type */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
+                <div
+                  className="sm:col-span-2"
+                  data-field-invalid={
+                    poSubmitAttempted && vendorError ? "true" : undefined
+                  }
+                >
                   <label className="block text-[11px] font-mono text-[#71717A] mb-1">
                     Select Vendor / Supplier *
                   </label>
                   <SearchableSelect
-                    required
                     value={vendorId}
                     onChange={(val) => {
                       setVendorId(val);
@@ -880,6 +892,9 @@ export default function PurchaseOrdersTab({
                       }))}
                     placeholder="-- Choose Vendor --"
                   />
+                  {poSubmitAttempted && vendorError && (
+                    <FieldErrorText>{vendorError}</FieldErrorText>
+                  )}
                 </div>
 
                 <div>

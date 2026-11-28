@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime, formatJobType, cn } from "@/lib/utils";
 import SideDrawer from "@/components/ui/SideDrawer";
+import { FieldErrorText, INVALID_FIELD_CLS } from "@/components/ui/form";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import PurchaseRequisitionDocument from "@/components/documents/PurchaseRequisitionDocument";
 import { printDocument } from "@/lib/printUtils";
@@ -174,6 +175,14 @@ export default function RequisitionsTab({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  // Inline per-item validation for the create/edit PR form; formError is
+  // reserved for server errors.
+  const [prSubmitAttempted, setPrSubmitAttempted] = useState(false);
+  useEffect(() => {
+    if (showCreateModal) setPrSubmitAttempted(false);
+  }, [showCreateModal]);
+  const itemNeedsDetail = (i: { description: string; productId: string }) =>
+    !i.description.trim() && !i.productId;
 
   // Handlers for Items in PR Form
   const handleAddItem = () => {
@@ -273,8 +282,8 @@ export default function RequisitionsTab({
   const handleCreatePr = async (e: React.FormEvent) => {
     if (!canCreatePr) { notify.warning("Missing permission: procurement.pr.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
-    if (items.some((i) => !i.description.trim() && !i.productId)) {
-      setFormError("Please provide description or select product for all items.");
+    setPrSubmitAttempted(true);
+    if (items.some(itemNeedsDetail)) {
       return;
     }
 
@@ -1185,20 +1194,32 @@ export default function RequisitionsTab({
                     </div>
 
                     {/* Description */}
-                    <div className="sm:col-span-5">
+                    <div
+                      className="sm:col-span-5"
+                      data-field-invalid={
+                        prSubmitAttempted && itemNeedsDetail(it) ? "true" : undefined
+                      }
+                    >
                       <label className="block text-[10px] font-mono text-[#71717A] mb-0.5">
                         Item Description & Specs *
                       </label>
                       <input
                         type="text"
-                        required
                         value={it.description}
                         onChange={(e) =>
                           handleItemChange(idx, "description", e.target.value)
                         }
-                        className="w-full bg-white border border-[#D4D4D8] rounded-lg px-2.5 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none"
+                        className={cn(
+                          "w-full bg-white border border-[#D4D4D8] rounded-lg px-2.5 py-1.5 text-xs text-[#18181B] focus:ring-1 focus:ring-[#0D7A5F] outline-none",
+                          prSubmitAttempted && itemNeedsDetail(it) && INVALID_FIELD_CLS
+                        )}
                         placeholder="Specification / model / brand"
                       />
+                      {prSubmitAttempted && itemNeedsDetail(it) && (
+                        <FieldErrorText>
+                          Provide a description or select a product for this item.
+                        </FieldErrorText>
+                      )}
                     </div>
 
                     {/* Quantity */}
