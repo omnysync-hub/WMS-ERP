@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveCaller } from "@/lib/auth/mobileAuth";
-import { pktTodayStart } from "@/lib/pktTime";
+import { pktParts, pktStartOfDay, pktEndOfDay } from "@/lib/pktTime";
 
 export async function POST(req: NextRequest) {
   try {
@@ -52,16 +52,22 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Check active shift and active job context
-    const todayStart = pktTodayStart(now); // PKT midnight
+    // "On shift" reuses the attendance system's own definition of an open
+    // session (AttendanceService.validateAndRecordAttendance classifies
+    // today's punches exactly this way): a PKT-day AttendanceLog whose notes
+    // carry the [CHECK_IN] prefix, with no [CHECK_OUT] log yet today.
+    const { year, month, day } = pktParts(now);
+    const dayStart = pktStartOfDay(year, month, day);
+    const dayEnd = pktEndOfDay(year, month, day);
 
-    const [todayAttendance, activeJob] = await Promise.all([
-      prisma.attendanceLog.findFirst({
+    const [todaysLogs, activeJob] = await Promise.all([
+      prisma.attendanceLog.findMany({
         where: {
           employeeId,
-          timestamp: { gte: todayStart },
-          result: "pass",
+          timestamp: { gte: dayStart, lte: dayEnd },
         },
-        select: { id: true },
+        orderBy: { timestamp: "asc" },
+        select: { notes: true },
       }),
       prisma.job.findFirst({
         where: {
@@ -72,8 +78,44 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
-    const isShiftActive = Boolean(todayAttendance || activeJob);
+    const hasCheckIn = todaysLogs.some((l) => l.notes?.startsWith("[CHECK_IN]"));
+    const hasCheckOut = todaysLogs.some((l) => l.notes?.startsWith("[CHECK_OUT]"));
+    const isShiftActive = hasCheckIn && !hasCheckOut;
     const activeJobId = activeJob?.id || null;
+
+    // 2b. On-shift-only tracking gate (owner rule, 2026-11-28): off shift,
+    // the ping is acknowledged with the normal 200 response shape — so old
+    // app builds neither break nor retry-storm — but NOTHING is stored: no
+    // TechnicianLocationPing row, no Employee lat/lng/lastPingAt update, no
+    // offline-gap log. The position freezes at its clock-out state, which is
+    // what dispatch/surveillance and /api/technicians are meant to show.
+    if (!isShiftActive) {
+      const urgentRequests = await prisma.mobileAppRequest.findMany({
+        where: {
+          recipientId: employeeId,
+          actionStatus: "pending",
+          priority: { in: ["urgent", "high"] },
+        },
+        take: 5,
+      });
+
+      return NextResponse.json({
+        success: true,
+        technician: {
+          id: currentEmployee.id,
+          name: currentEmployee.name,
+          lat: currentEmployee.lat,
+          lng: currentEmployee.lng,
+          lastPingAt: currentEmployee.lastPingAt,
+        },
+        pingId: null,
+        isShiftActive: false,
+        activeJobId,
+        pendingUrgentCount: urgentRequests.length,
+        urgentRequests,
+        serverTime: now.toISOString(),
+      });
+    }
 
     // 3. Offline Gap Detection (>= 10 minutes silence while active)
     if (currentEmployee.lastPingAt) {
