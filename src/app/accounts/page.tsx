@@ -78,7 +78,7 @@ function expectedJobCollection(job: any): number {
 }
 
 export default function AccountsPage() {
-  const { currentPersona, activeUser, hasPermission } = useRole();
+  const { currentPersona, activeUser, hasPermission, activeRole } = useRole();
   const currentActor = `${activeUser?.name || currentPersona?.name || "Accountant"}`;
 
   // Temporary Voucher permissions (Cashier creates; Auditor / poster posts into the live journal)
@@ -91,6 +91,13 @@ export default function AccountsPage() {
   const canPostEntries = hasPermission("accounts.post_entries");
   const canManageChart = hasPermission("accounts.chart_of_accounts");
   const canApproveDiscount = hasPermission("jobs.approve_discount");
+  // Owner rule: POS Register, Account Mapping, Bank Reconciliation and Fixed Assets
+  // are hidden entirely for the accountant role. No permission key separates
+  // accountant from admin/manager for these tabs (accountant holds accounts.pos,
+  // settings.accounting and every other accounts.* key), so this is an explicit
+  // role gate — mirrored in the Sidebar sub-item list, and enforced here so a
+  // stale ?tab= URL cannot render the sections either.
+  const ACCOUNTANT_HIDDEN_TABS: string[] = ["pos", "mapping", "bankrec", "fixedassets"];
   const [activeTab, setActiveTab] = useState<
     | "ledgers"
     | "statements"
@@ -109,6 +116,8 @@ export default function AccountsPage() {
     | "vouchers"
     | "discounts"
   >("ledgers");
+  const activeTabHiddenForAccountant =
+    activeRole === "accountant" && ACCOUNTANT_HIDDEN_TABS.includes(activeTab);
 
   // Sync tab with URL query parameter (?tab=...)
   useEffect(() => {
@@ -2482,7 +2491,7 @@ export default function AccountsPage() {
       {/* ========================================================================= */}
       {/* TAB 5: POINT OF SALE (POS) SALES REGISTER */}
       {/* ========================================================================= */}
-      {activeTab === "pos" && (
+      {activeTab === "pos" && !activeTabHiddenForAccountant && (
         <div className="space-y-4">
           {/* POS Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -3448,7 +3457,7 @@ export default function AccountsPage() {
       )}
 
       {/* TAB: ACCOUNT MAPPING SETTINGS */}
-      {activeTab === "mapping" && (
+      {activeTab === "mapping" && !activeTabHiddenForAccountant && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-gradient-to-r from-emerald-950 via-[#18181B] to-[#18181B] border border-emerald-800/40 rounded-xl text-white shadow-xs">
             <div className="flex items-center gap-3">
@@ -3707,6 +3716,15 @@ export default function AccountsPage() {
         </div>
       )}
 
+      {/* Accountant-hidden tabs (POS / Mapping / Bank Rec / Fixed Assets): if the
+          accountant lands here via a stale ?tab= URL, show a notice instead of the
+          section — same pattern as the Temporary Vouchers denial above. */}
+      {activeTabHiddenForAccountant && (
+        <div className="p-12 text-center bg-white rounded-xl border border-[#E4E4E7] text-xs text-[#71717A]">
+          This section is not available for the accountant role.
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* ENTERPRISE TAB 8: FINANCIAL STATEMENTS */}
       {/* ========================================================================= */}
@@ -3715,12 +3733,12 @@ export default function AccountsPage() {
       {/* ========================================================================= */}
       {/* ENTERPRISE TAB 9: BANK RECONCILIATION */}
       {/* ========================================================================= */}
-      {activeTab === "bankrec" && <BankReconciliationTab />}
+      {activeTab === "bankrec" && !activeTabHiddenForAccountant && <BankReconciliationTab />}
 
       {/* ========================================================================= */}
       {/* ENTERPRISE TAB 10: FIXED ASSETS & DEPRECIATION */}
       {/* ========================================================================= */}
-      {activeTab === "fixedassets" && <FixedAssetsTab />}
+      {activeTab === "fixedassets" && !activeTabHiddenForAccountant && <FixedAssetsTab />}
 
       {/* ========================================================================= */}
       {/* ENTERPRISE TAB 11: SUB-LEDGER DRIFT & AGING */}

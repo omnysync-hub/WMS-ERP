@@ -77,10 +77,10 @@ export default function PurchaseOrdersTab({
 
   // initialAction sync
   useEffect(() => {
-    if (initialAction === "new") {
+    if (initialAction === "new" && canCreatePo) {
       setShowCreateModal(true);
     }
-  }, [initialAction]);
+  }, [initialAction, canCreatePo]);
   const [poSourceMode, setPoSourceMode] = useState<"blank" | "from_pr">("blank");
   const [selectedPrIdsForPo, setSelectedPrIdsForPo] = useState<string[]>([]);
   const [selectedPrItemKeysForPo, setSelectedPrItemKeysForPo] = useState<string[]>([]);
@@ -510,17 +510,19 @@ export default function PurchaseOrdersTab({
           </div>
         </div>
 
-        <button
-          onClick={() => {
-            setVendorId(vendors[0]?.id || "");
-            setShowCreateModal(true);
-            setFormError("");
-          }}
-          className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Create Purchase Order
-        </button>
+        {canCreatePo && (
+          <button
+            onClick={() => {
+              setVendorId(vendors[0]?.id || "");
+              setShowCreateModal(true);
+              setFormError("");
+            }}
+            className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Create Purchase Order
+          </button>
+        )}
       </div>
 
       {/* PO Table */}

@@ -287,6 +287,9 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "create_vendor": {
+        // The service calls `name.trim()` unguarded — a missing name used to
+        // surface as a raw TypeError 500. Validate up front instead.
+        if (!payload.name || !String(payload.name).trim()) return missingField("name");
         const vendor = await ProcurementService.createVendor(payload);
         return NextResponse.json(vendor, { status: 201 });
       }
@@ -298,6 +301,18 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_pr": {
+        // The service calls `requestedBy.trim()` and iterates `items`
+        // unguarded — missing either used to surface as a raw TypeError 500.
+        // Validate up front instead.
+        if (!payload.requestedBy || !String(payload.requestedBy).trim()) {
+          return missingField("requestedBy");
+        }
+        if (!Array.isArray(payload.items) || payload.items.length === 0) {
+          return NextResponse.json(
+            { error: "At least one requisition line item is required ('items')." },
+            { status: 400 }
+          );
+        }
         const pr = await ProcurementService.createPurchaseRequisition(payload);
         return NextResponse.json(pr, { status: 201 });
       }
@@ -356,6 +371,9 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_rfq": {
+        // The service calls `title.trim()` unguarded — a missing title used
+        // to surface as a raw TypeError 500. Validate up front instead.
+        if (!payload.title || !String(payload.title).trim()) return missingField("title");
         const rfq = await ProcurementService.createRfq(payload);
         return NextResponse.json(rfq, { status: 201 });
       }
@@ -368,6 +386,19 @@ export async function POST(req: NextRequest) {
       case "award_rfq": {
         if (!payload.rfqId) return missingField("rfqId");
         if (!payload.winnerVendorId) return missingField("winnerVendorId");
+        // Awarding an RFQ generates a purchase order, so it must also follow
+        // PO-create rights (purchasing only) — not rfq.award alone.
+        if (!actorHasPermission(actor, "procurement.po.create")) {
+          return NextResponse.json(
+            {
+              error: `Forbidden: role '${actor.role}' lacks permission 'procurement.po.create' (awarding an RFQ creates a purchase order)`,
+              permission: "procurement.po.create",
+              role: actor.role,
+              code: "PERMISSION_DENIED",
+            },
+            { status: 403 }
+          );
+        }
         // Creator of the generated PO = the signed actor who awarded the RFQ (not a body-supplied name).
         const result = await ProcurementService.awardRfqAndGeneratePo(
           payload.rfqId,
@@ -379,6 +410,14 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_po": {
+        // The service iterates `items` unconditionally — a missing list used
+        // to surface as a raw TypeError 500. Validate up front instead.
+        if (!Array.isArray(payload.items) || payload.items.length === 0) {
+          return NextResponse.json(
+            { error: "At least one order line item is required ('items')." },
+            { status: 400 }
+          );
+        }
         // Segregation of duties: the creator is the logged-in user, never a name sent by the browser.
         payload.createdBy = actor.name;
         payload.createdById = actor.id;
@@ -427,6 +466,10 @@ export async function POST(req: NextRequest) {
             { error: "At least one bill line item is required ('items')." },
             { status: 400 }
           );
+        }
+        // The service also calls `invoiceNumber.trim()` unguarded.
+        if (!payload.invoiceNumber || !String(payload.invoiceNumber).trim()) {
+          return missingField("invoiceNumber");
         }
         const invoice = await ProcurementService.createSupplierInvoice(payload);
         return NextResponse.json(invoice, { status: 201 });

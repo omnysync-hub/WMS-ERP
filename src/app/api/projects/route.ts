@@ -369,8 +369,10 @@ export async function POST(req: NextRequest) {
     // 1. DIRECT PROCUREMENT LINKING
     // ==========================================
     if (action === "create_requisition_from_boq") {
-      if (!has("procurement.pr.create") && !has("projects.manage")) {
-        return permissionDenied(actor, "procurement.pr.create' or 'projects.manage");
+      // This creates a purchase requisition, so it follows PR-create rights
+      // (storekeeper only) — projects.manage must not bypass that model.
+      if (!has("procurement.pr.create")) {
+        return permissionDenied(actor, "procurement.pr.create");
       }
       const { projectId, boqItemIds, requestedBy, department, priority, dateRequired, notes } = payload;
       if (!projectId || !boqItemIds || !Array.isArray(boqItemIds) || boqItemIds.length === 0) {

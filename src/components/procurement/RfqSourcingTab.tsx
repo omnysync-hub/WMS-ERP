@@ -46,6 +46,8 @@ export default function RfqSourcingTab({
   const { currentRole, activeRole, hasPermission, currentPersona, activeUser } = useRole();
   const canManageRfq = hasPermission("procurement.rfq.manage");
   const canAwardRfq = hasPermission("procurement.rfq.award");
+  // Awarding generates a PO, so the award action also follows PO-create rights.
+  const canCreatePo = hasPermission("procurement.po.create");
   const [search, setSearch] = useState("");
   const [selectedRfq, setSelectedRfq] = useState<any | null>(null);
 
@@ -308,6 +310,7 @@ export default function RfqSourcingTab({
 
   const handleAwardWinner = async (rfqId: string, vendorId: string) => {
     if (!canAwardRfq) { notify.warning("Missing permission: procurement.rfq.award", { title: "Permission Denied" }); return; }
+    if (!canCreatePo) { notify.warning("Missing permission: procurement.po.create", { title: "Permission Denied" }); return; }
     if (!confirm("Are you sure you want to award this contract to the selected vendor? A Purchase Order will be automatically created.")) {
       return;
     }
@@ -605,8 +608,8 @@ export default function RfqSourcingTab({
                                     {isQuoted && !hasWinner && (
                                       <button
                                         onClick={() => handleAwardWinner(rfq.id, rv.vendorId)}
-                                        disabled={isSubmitting || !canAwardRfq}
-                                        title={!canAwardRfq ? "Missing permission" : undefined}
+                                        disabled={isSubmitting || !canAwardRfq || !canCreatePo}
+                                        title={!canAwardRfq || !canCreatePo ? "Missing permission" : undefined}
                                         className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0B6851] text-white rounded text-[10px] font-bold shadow-2xs transition"
                                       >
                                         Select Winner

@@ -397,7 +397,7 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
       {
         key: "procurement.approve_po",
         label: "Approve PO (legacy)",
-        description: "Legacy alias spanning po.approve / pr.approve",
+        description: "Legacy alias of procurement.po.approve",
         module: "procurement",
       },
       {
@@ -1352,14 +1352,19 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
   },
 };
 
-/** Legacy <-> fine-grained procurement permission aliases (bidirectional). */
+/**
+ * Legacy <-> fine-grained procurement permission aliases (bidirectional).
+ * NOTE: procurement.pr.approve is deliberately NOT aliased to the legacy
+ * procurement.approve_po key — PR approval (manager) and PO approval
+ * (manager) are separate rights in the owner's model and must stay
+ * independently grantable/revocable; approve_po maps to po.approve only.
+ */
 export const PROCUREMENT_PERMISSION_ALIASES: Record<string, string[]> = {
   "procurement.pr.create": ["procurement.create_pr"],
   "procurement.create_pr": ["procurement.pr.create"],
   "procurement.pr.submit": ["procurement.create_pr", "procurement.pr.create"],
-  "procurement.pr.approve": ["procurement.approve_po"],
   "procurement.po.approve": ["procurement.approve_po"],
-  "procurement.approve_po": ["procurement.po.approve", "procurement.pr.approve"],
+  "procurement.approve_po": ["procurement.po.approve"],
   "procurement.grn.create": ["procurement.grn"],
   "procurement.grn.quality": ["procurement.grn"],
   "procurement.grn": ["procurement.grn.create", "procurement.grn.quality"],

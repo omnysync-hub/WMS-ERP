@@ -1809,7 +1809,7 @@ export default function ProjectsPage() {
                     </div>
 
                     <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                      {selectedBoqIds.length > 0 && (
+                      {selectedBoqIds.length > 0 && hasPermission("procurement.pr.create") && (
                         <button
                           type="button"
                           onClick={() => setShowProcurementDrawer(true)}

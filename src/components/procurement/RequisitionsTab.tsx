@@ -84,10 +84,10 @@ export default function RequisitionsTab({
 
   // initialAction sync (e.g. ?action=new opens creation drawer)
   useEffect(() => {
-    if (initialAction === "new") {
+    if (initialAction === "new" && canCreatePr) {
       setShowCreateModal(true);
     }
-  }, [initialAction]);
+  }, [initialAction, canCreatePr]);
 
   const [priorityFilter, setPriorityFilter] = useState("all");
 
@@ -613,16 +613,18 @@ export default function RequisitionsTab({
             </button>
           )}
 
-          <button
-            onClick={() => {
-              setShowCreateModal(true);
-              setFormError("");
-            }}
-            className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Create Purchase Requisition
-          </button>
+          {canCreatePr && (
+            <button
+              onClick={() => {
+                setShowCreateModal(true);
+                setFormError("");
+              }}
+              className="inline-flex items-center gap-1.5 bg-[#0D7A5F] hover:bg-[#0B6851] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create Purchase Requisition
+            </button>
+          )}
         </div>
       </div>
 

@@ -14,6 +14,7 @@ if [ -f .deploy-lock.sum ] && [ "$(cat .deploy-lock.sum)" != "$LOCK_SUM" ]; then
 fi
 echo "$LOCK_SUM" > .deploy-lock.sum
 npx prisma generate >>"$LOG" 2>&1
+rm -rf .next/types
 rm -rf .next-build
 NEXT_DIST_DIR=.next-build npm run build >>"$LOG" 2>&1 || { echo "BUILD FAILED, live site untouched. See $LOG"; exit 1; }
 if [ -d .next/static ]; then cp -rn .next/static/. .next-build/static/ ; fi

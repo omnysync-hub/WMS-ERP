@@ -462,6 +462,17 @@ export default function Sidebar({
     { label: "Returns (Credit / Debit Notes)", tab: "returns", icon: ArrowLeftRight },
   ];
 
+  // Owner rule: the accountant's Accounts view excludes these four tabs entirely.
+  // No permission key separates accountant from admin/manager for them (accountant
+  // holds accounts.pos, settings.accounting and every other accounts.* key), so this
+  // is an explicit role gate — mirrored by the section render guards in
+  // src/app/accounts/page.tsx so a stale ?tab= URL cannot surface them either.
+  const ACCOUNTANT_HIDDEN_ACCOUNT_TABS = ["pos", "mapping", "bankrec", "fixedassets"];
+  const visibleAccountingSubItems =
+    activeRole === "accountant"
+      ? accountingSubItems.filter((sub) => !ACCOUNTANT_HIDDEN_ACCOUNT_TABS.includes(sub.tab))
+      : accountingSubItems;
+
   const hasAccountsAccess =
     ["admin", "accountant", "cashier", "auditor"].includes(activeRole) ||
     hasPermission("accounts.general_ledger") ||
@@ -841,7 +852,7 @@ export default function Sidebar({
               {/* Accounts Sub-Items List */}
               {isAccountsOpen && !isCollapsed && (
                 <div className="pl-4 pr-1 pt-1 pb-1 space-y-0.5 border-l border-zinc-700/60 ml-5 mt-1 animate-in fade-in duration-150">
-                  {accountingSubItems.map((sub) => {
+                  {visibleAccountingSubItems.map((sub) => {
                     const SubIcon = sub.icon;
                     const isSubActive =
                       pathname === "/accounts" &&
