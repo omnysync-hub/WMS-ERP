@@ -660,6 +660,18 @@ export class JobsService {
       return created;
     });
 
+    // The transaction above writes JobStatusHistory directly; route the
+    // transition through logStatusChange as well so it reaches the Audit
+    // Trail (ActivityLog / RollbackLog), like every other status change.
+    await this.logStatusChange(jobId, job.status, "TechnicianReassigned", assignedBy, {
+      action: "reassignTechnician",
+      previousTechnicianId: job.assignedTechnicianId,
+      newTechnicianId,
+      successorJobId: newJob.id,
+      successorJobNumber: newJob.jobNumber,
+      notes: opts?.notes || null,
+    });
+
     try {
       await MobilePushService.sendAppRequest({
         recipientId: newTechnicianId,
@@ -1061,7 +1073,7 @@ export class JobsService {
     await this.logStatusChange(
       jobId,
       "InProgress",
-      "AwaitingFeedback",
+      "CompletedPendingVerification",
       technicianId,
       {
         actualItems,
@@ -1470,7 +1482,7 @@ export class JobsService {
       : 0;
     const focTaxAccount = focRate && focTax > 0 ? await TaxSettingsService.accountFor(focRate, "sales_tax_payable") : null;
 
-    return prisma.$transaction(async (tx) => {
+    const focResult = await prisma.$transaction(async (tx) => {
       const cashAcc = input.receivingAccountCode
         ? await AccountsPostingService.getCashBankAccountByCode(String(input.receivingAccountCode), tx)
         : await AccountMappingService.resolveAccount({ transactionType: "customer_payment_receiving", prismaClient: tx });
@@ -1547,6 +1559,18 @@ export class JobsService {
 
       return { journal, totalReceived, creditedTo: legacyRevenue > 0 ? "receivable" : "revenue", clearedReceivable: toAr, extraRevenue: extra };
     }, TX_OPTS);
+
+    // The transaction above writes JobStatusHistory directly; log through
+    // logStatusChange as well so the payment reaches the Audit Trail.
+    await this.logStatusChange(jobId, job.status, job.status, actorName, {
+      action: "recordFocPayment",
+      amount,
+      totalReceived: focResult.totalReceived,
+      paymentMethod: method,
+      reference: reference || null,
+    });
+
+    return focResult;
   }
 
   // ------------------------------------------------------------------
@@ -2038,6 +2062,7 @@ export class JobsService {
 
     const wasSentBack = job.qualityFlag === "sent_back";
 
+    let finalizedInvoiceNumber: string | null = null;
     const result = await prisma.$transaction(async (tx) => {
       // Status guard: only one finalize wins (concurrency / replay)
       const claimed = await tx.job.updateMany({
@@ -2124,6 +2149,7 @@ export class JobsService {
         if (inv) advanceAdjusted = await CustomerReceiptService.applyAdvancesToInvoice(tx, { invoiceId: inv.id, postedBy: accountantName });
       }
 
+      finalizedInvoiceNumber = invoiceNumber ?? null;
       await tx.jobStatusHistory.create({
         data: {
           jobId,
@@ -2148,6 +2174,14 @@ export class JobsService {
 
       return await tx.job.findUnique({ where: { id: jobId } });
     }, { maxWait: 10000, timeout: 30000 });
+
+    // The transaction above writes JobStatusHistory directly; log through
+    // logStatusChange as well so finalization reaches the Audit Trail.
+    await this.logStatusChange(jobId, "CompletedPendingVerification", "Finalized", accountantName, {
+      action: "finalize",
+      invoiceNumber: finalizedInvoiceNumber,
+      finalAmount,
+    });
 
     return result!;
   }
@@ -2965,6 +2999,15 @@ export class JobsService {
       return ack;
     }, TX_OPTS);
 
+    // The transaction above writes JobStatusHistory directly; log through
+    // logStatusChange as well so the return reaches the Audit Trail.
+    await this.logStatusChange(jobId, job.status, job.status, storekeeperName, {
+      action: "recordStockReturn",
+      item,
+      productId: product.id,
+      qtyReturned: qty,
+    });
+
     return acknowledged;
   }
 
@@ -3518,6 +3561,15 @@ export class JobsService {
       return saved;
     }, TX_OPTS);
 
+    // The transaction above writes JobStatusHistory directly; log through
+    // logStatusChange as well so the handover reaches the Audit Trail.
+    await this.logStatusChange(jobId, job.status, job.status, actor, {
+      action: "recordTechnicianCashHandover",
+      amountReceived: amount,
+      settlementId: settlement?.id ?? settlementId,
+      depositAccount,
+    });
+
     return settlement;
   }
 
@@ -3561,7 +3613,7 @@ export class JobsService {
       // Paid before the invoice exists: Dr Cash/Bank/Wallet / Cr 21105 Customer Advances.
       // It is adjusted (Dr Advances / Cr AR) automatically when the job is invoiced.
       if (whtDeducted > 0) throw new Error("WHT can only be recorded against an invoice. Record the advance without WHT.");
-      return prisma.$transaction(async (tx) => {
+      const advanceResult = await prisma.$transaction(async (tx) => {
         const cashAcc = await CustomerReceiptService.receivingAccount(tx, {
           receivingAccountCode: opts?.receivingAccountCode,
           mode: opts?.receiptMode,
@@ -3595,10 +3647,21 @@ export class JobsService {
           advance: amount,
         };
       }, TX_OPTS);
+
+      // The transaction above writes JobStatusHistory directly; log through
+      // logStatusChange as well so the advance reaches the Audit Trail.
+      await this.logStatusChange(jobId, job.status, job.status, actorName, {
+        action: "recordOfficeJobReceipt",
+        amount,
+        paymentMethod,
+        advance: true,
+      });
+
+      return advanceResult;
     }
     if (invoice.status === "paid") throw new Error(`Invoice ${invoice.invoiceNumber} is already fully paid.`);
 
-    return prisma.$transaction(async (tx) => {
+    const receiptResult = await prisma.$transaction(async (tx) => {
       const prior = await tx.journalEntry.findMany({
         where: { refType: "customer_payment", refId: invoice.id, status: "posted" },
         include: { lines: true },
@@ -3690,6 +3753,18 @@ export class JobsService {
         status: fullyPaid ? "paid" : "partially_paid",
       };
     }, TX_OPTS);
+
+    // The transaction above writes JobStatusHistory directly; log through
+    // logStatusChange as well so the receipt reaches the Audit Trail.
+    await this.logStatusChange(jobId, job.status, job.status, actorName, {
+      action: "recordOfficeJobReceipt",
+      amount,
+      paymentMethod,
+      invoiceNumber: receiptResult.invoiceNumber,
+      status: receiptResult.status,
+    });
+
+    return receiptResult;
   }
 
   /** Invoice outstanding for a job (invoice amount minus posted customer receipts). */

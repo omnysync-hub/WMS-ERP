@@ -19,6 +19,7 @@ import SideDrawer from "@/components/ui/SideDrawer";
 import { useRole } from "@/contexts/RoleContext";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { notify } from "@/lib/notify";
 import {
   CreditCard,
   User,
@@ -63,6 +64,19 @@ import {
   Edit2,
 } from "lucide-react";
 
+// Expected customer collection for a hisaab-pending job, computed exactly as
+// handleOpenSettlement does: Σ (quantityActual ?? quantityPlanned) × unitRate,
+// less the job discount; zero when the technician does not collect the cash
+// himself (FOC job, or payment collected at the office).
+function expectedJobCollection(job: any): number {
+  const gross = (job.items || []).reduce(
+    (s: number, item: any) => s + (item.quantityActual ?? item.quantityPlanned) * item.unitRate,
+    0
+  );
+  if (job.isFoc || job.paymentCollectionMode === "office") return 0;
+  return Math.max(0, gross - (job.discountAmount || 0));
+}
+
 export default function AccountsPage() {
   const { currentPersona, activeUser, hasPermission } = useRole();
   const currentActor = `${activeUser?.name || currentPersona?.name || "Accountant"}`;
@@ -72,6 +86,11 @@ export default function AccountsPage() {
   const canPostVoucher = hasPermission("accounts.post_voucher");
   const canViewVouchers =
     canCreateVoucher || canPostVoucher || hasPermission("accounts.general_ledger");
+  // Mutation gating (mirrors the API's per-action permission map): controls the role
+  // cannot use are not rendered at all.
+  const canPostEntries = hasPermission("accounts.post_entries");
+  const canManageChart = hasPermission("accounts.chart_of_accounts");
+  const canApproveDiscount = hasPermission("jobs.approve_discount");
   const [activeTab, setActiveTab] = useState<
     | "ledgers"
     | "statements"
@@ -292,6 +311,145 @@ export default function AccountsPage() {
   const [nextVisitDate, setNextVisitDate] = useState("");
   const [isSubmittingSettlement, setIsSubmittingSettlement] = useState(false);
 
+  // ── Quick Expense Clearance Queue ──────────────────────────────────────────
+  // Flat list of ALL pending technician expense claims (oldest first) so the
+  // accountant can clear/pay in bulk from this screen at peak time, without
+  // opening a hisaab session per job. Fed by the slim /api/jobs/expenses?queue=1
+  // payload (no receipt bodies); photos load on demand via ?receiptFor=.
+  interface QuickQueueClaim {
+    id: string;
+    jobId: string;
+    jobNumber: string;
+    customerName: string;
+    technicianId: string;
+    technicianName: string;
+    amount: number;
+    note: string;
+    category: string;
+    createdAt: string;
+    hasReceipt: boolean;
+    receiptCount: number;
+    isJobCompleted: boolean;
+    isPartial: boolean;
+  }
+  const [quickQueue, setQuickQueue] = useState<QuickQueueClaim[]>([]);
+  const [quickQueueLoading, setQuickQueueLoading] = useState(false);
+  const [quickQueueTruncated, setQuickQueueTruncated] = useState(false);
+  const [quickSelected, setQuickSelected] = useState<string[]>([]);
+  const [quickErrors, setQuickErrors] = useState<Record<string, string>>({});
+  const [quickAccountCode, setQuickAccountCode] = useState("");
+  const [quickNotes, setQuickNotes] = useState("");
+  const [quickPartial, setQuickPartial] = useState("");
+  const [quickProcessing, setQuickProcessing] = useState(false);
+  const [quickThumbs, setQuickThumbs] = useState<Record<string, string>>({});
+  const [quickReceiptView, setQuickReceiptView] = useState<string[] | null>(null);
+
+  const fetchQuickQueue = useCallback(async () => {
+    try {
+      setQuickQueueLoading(true);
+      const res = await fetch("/api/jobs/expenses?queue=1");
+      if (!res.ok) return;
+      const json = await res.json();
+      const rows: QuickQueueClaim[] = json.queue || [];
+      setQuickQueue(rows);
+      setQuickQueueTruncated(Boolean(json.summary?.truncated));
+      setQuickSelected((prev) => prev.filter((id) => rows.some((c) => c.id === id)));
+    } catch {
+      // keep the last good queue on screen
+    } finally {
+      setQuickQueueLoading(false);
+    }
+  }, []);
+
+  // Queue-only refresh for the hisaab settlement list (1 request instead of the
+  // full tab reload) after a settlement or a bulk pay changes it.
+  const refreshSettlementsQueue = useCallback(async () => {
+    try {
+      const res = await fetch("/api/hisaab");
+      const data = await res.json();
+      if (Array.isArray(data)) setPendingSettlements(data);
+    } catch {
+      // ignore — the row was already updated locally where it mattered
+    }
+  }, []);
+
+  async function fetchQuickReceipts(claimId: string): Promise<string[]> {
+    try {
+      const res = await fetch(`/api/jobs/expenses?receiptFor=${claimId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (json.receiptUrls || []).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  async function ensureQuickThumb(claimId: string) {
+    if (quickThumbs[claimId]) return;
+    const urls = await fetchQuickReceipts(claimId);
+    if (urls[0]) setQuickThumbs((prev) => ({ ...prev, [claimId]: urls[0] }));
+  }
+
+  async function executeQuickBulk(partialAmount?: number) {
+    if (quickSelected.length === 0 || quickProcessing) return;
+    try {
+      setQuickProcessing(true);
+      setQuickErrors({});
+      const res = await fetch("/api/jobs/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "clear_claims_bulk",
+          claimIds: quickSelected,
+          disbursingAccountCode: quickAccountCode || undefined,
+          paymentNotes: quickNotes.trim(),
+          ...(partialAmount ? { amountToPay: partialAmount } : {}),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Bulk clearance failed");
+
+      const results: Array<{ claimId: string; success: boolean; isPartial?: boolean; error?: string }> =
+        json.results || [];
+      const succeededIds = new Set(results.filter((r) => r.success).map((r) => r.claimId));
+      const errors: Record<string, string> = {};
+      results
+        .filter((r) => !r.success)
+        .forEach((r) => {
+          errors[r.claimId] = r.error || "Failed";
+        });
+      setQuickErrors(errors);
+      // Local update: paid rows leave the queue immediately, failed rows stay with the reason.
+      setQuickQueue((prev) => prev.filter((c) => !succeededIds.has(c.id)));
+      setQuickSelected((prev) => prev.filter((id) => !succeededIds.has(id)));
+      setQuickPartial("");
+      setActionSuccessMsg(
+        `Quick clearance: paid ${formatCurrency(json.totalPaid || 0)} across ${json.clearedCount} claim(s)` +
+          (json.failedCount ? ` · ${json.failedCount} failed/skipped and kept in the queue.` : ".")
+      );
+      if (json.failedCount) {
+        notify.warning(
+          `Quick clearance: paid ${formatCurrency(json.totalPaid || 0)} across ${json.clearedCount} claim(s); ${json.failedCount} failed/skipped and kept in the queue.`,
+          { title: "Bulk Clearance — Partial" }
+        );
+      } else {
+        notify.success(
+          `Quick clearance: paid ${formatCurrency(json.totalPaid || 0)} across ${json.clearedCount} claim(s).`,
+          { title: "Bulk Clearance Complete" }
+        );
+      }
+      // Partial splits create remainder claims — refresh the slim queue to surface them,
+      // and refresh the settlement queue above (its per-job claim lists changed too).
+      if (results.some((r) => r.success && r.isPartial)) fetchQuickQueue();
+      refreshSettlementsQueue();
+    } catch (err: any) {
+      setActionErrorMsg(err.message);
+      notify.error(err.message);
+    } finally {
+      setQuickProcessing(false);
+    }
+  }
+
   // Counter-offer / Modify discount modal
   const [modifyingDiscount, setModifyingDiscount] = useState<any>(null);
   const [modifiedDiscountAmount, setModifiedDiscountAmount] = useState("");
@@ -321,7 +479,13 @@ export default function AccountsPage() {
         setAccountingConfig(data);
         const configuredCash = (data.financialAccounts || []).map((item: any) => item.ledgerAccount).filter(Boolean);
         if (configuredCash.length) {
-          setCashAccounts(configuredCash);
+          // Merge with (never shrink) the cashbook view's chart-derived list, which also
+          // carries group accounts like 11105 that Setup may not have configured.
+          setCashAccounts((prev: any[]) => {
+            const byCode = new Map<string, any>();
+            for (const acc of [...prev, ...configuredCash]) if (acc?.code) byCode.set(acc.code, acc);
+            return [...byCode.values()].sort((a, b) => String(a.code).localeCompare(String(b.code)));
+          });
           const defaultCode = (data.financialAccounts || []).find((item: any) => item.isDefault)?.ledgerAccount?.code || configuredCash[0].code;
           setCashFormAccount(defaultCode);
           setCashFormTransferTo(configuredCash.find((item: any) => item.code !== defaultCode)?.code || defaultCode);
@@ -333,7 +497,72 @@ export default function AccountsPage() {
         if (firstMethod) setPaymentMethod(firstMethod);
       })
       .catch(() => null);
+    // Load the chart on mount: the cashbook contra picker, the expense drawer's
+    // fallback list and the COA drilldown all read it, on whichever tab opens first.
+    fetch("/api/accounts?view=chart")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.rawAccounts) setAccounts(data.rawAccounts);
+        else if (Array.isArray(data)) setAccounts(data);
+        if (data.flat) setCoaFlat(data.flat);
+        if (data.tree) setCoaTree(data.tree);
+      })
+      .catch(() => null);
   }, []);
+
+  // ---- Chart-derived picker lists (the pickers follow the live COA, never frozen lists) ----
+  // Active posting (leaf) accounts from the chart view's raw accounts.
+  const chartLeafAccounts = (accounts || []).filter((a: any) => a && a.level >= 4 && a.isActive !== false);
+  // Cash/bank codes: the loaded cash list plus every chart leaf sitting under the
+  // "1110 Cash & Bank" group (so 11105 is recognised even before the cashbook loads).
+  const cashGroupId = (accounts || []).find((a: any) => a.code === "1110")?.id;
+  const cashBankCodeSet = new Set<string>([
+    ...(cashAccounts || []).map((a: any) => a.code),
+    ...chartLeafAccounts.filter((a: any) => cashGroupId && a.parentId === cashGroupId).map((a: any) => a.code),
+  ]);
+  // Cash/bank list for the payment pickers: the loaded list when present, otherwise the
+  // chart's Cash & Bank group leaves — a picker must never render empty just because
+  // the cashbook tab has not been visited yet.
+  const effectiveCashAccounts = cashAccounts.length
+    ? cashAccounts
+    : chartLeafAccounts
+        .filter((a: any) => cashGroupId && a.parentId === cashGroupId)
+        .map((a: any) => ({ id: a.id, code: a.code, name: a.name }));
+
+  // Quick-queue disbursing account: default to the first configured cash/bank account.
+  useEffect(() => {
+    if (!quickAccountCode && effectiveCashAccounts.length) {
+      setQuickAccountCode(effectiveCashAccounts[0].code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveCashAccounts.length, quickAccountCode]);
+  // Contra / allocation picker for cashbook entries: any active leaf except the cash/bank
+  // accounts themselves (those are picked in the Cash / Bank Account select).
+  const contraAccountOptions = chartLeafAccounts.filter((a: any) => !cashBankCodeSet.has(a.code));
+  // Expense voucher debit picker: configured categories when onboarding provided them,
+  // otherwise the chart's expense ledgers — the form must stay completable either way.
+  const configuredExpenseOptions = (accountingConfig?.expenseCategories || [])
+    .filter((item: any) => item.account)
+    .map((item: any) => ({ code: item.account.code, label: `${item.account.code} — ${item.name}` }));
+  const expenseAccountOptions = configuredExpenseOptions.length
+    ? configuredExpenseOptions
+    : chartLeafAccounts
+        .filter((a: any) => a.type === "expense" || a.type === "contra_expense")
+        .map((a: any) => ({ code: a.code, label: `${a.code} — ${a.name}` }));
+
+  // Keep the contra + expense selections valid as the chart loads.
+  useEffect(() => {
+    if (contraAccountOptions.length && !contraAccountOptions.some((a: any) => a.code === cashFormContra)) {
+      setCashFormContra(contraAccountOptions[0].code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, cashAccounts]);
+  useEffect(() => {
+    if (expenseAccountOptions.length && !expenseAccountOptions.some((o: any) => o.code === newExpenseAccount)) {
+      setNewExpenseAccount(expenseAccountOptions[0].code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountingConfig, accounts]);
 
   // 1. DATA LOADER
   const loadData = useCallback(async () => {
@@ -360,6 +589,8 @@ export default function AccountsPage() {
         } catch (e) {
           // ignore
         }
+        // The quick clearance queue lives on this tab too — load it alongside.
+        fetchQuickQueue();
       } else if (activeTab === "expenses") {
         const res = await fetch("/api/accounts?view=expenses");
         const data = await res.json();
@@ -408,7 +639,13 @@ export default function AccountsPage() {
         const data = await res.json();
         if (data.entries) setCashbookEntries(data.entries);
         if (data.summary) setCashbookSummary(data.summary);
-        if (data.cashAccounts) setCashAccounts(data.cashAccounts);
+        if (data.cashAccounts) {
+          setCashAccounts((prev: any[]) => {
+            const byCode = new Map<string, any>();
+            for (const acc of [...prev, ...data.cashAccounts]) if (acc?.code) byCode.set(acc.code, acc);
+            return [...byCode.values()].sort((a, b) => String(a.code).localeCompare(String(b.code)));
+          });
+        }
         setCashbookLoading(false);
       } else if (activeTab === "journal") {
         const res = await fetch("/api/accounts?view=journal");
@@ -568,10 +805,12 @@ export default function AccountsPage() {
       });
 
       setActionSuccessMsg(`Approved discount of PKR ${amountToApprove} for ${discount.customerName} on Job #${discount.jobNumber}.`);
+      notify.success(`Approved discount of PKR ${amountToApprove} for ${discount.customerName} on Job #${discount.jobNumber}.`);
       setModifyingDiscount(null);
       loadData();
     } catch (e: any) {
       setActionErrorMsg(e.message);
+      notify.error(e.message);
     }
   };
 
@@ -611,9 +850,11 @@ export default function AccountsPage() {
       });
 
       setActionSuccessMsg(`Discount request declined on Job #${discount.jobNumber}.`);
+      notify.success(`Discount request declined on Job #${discount.jobNumber}.`);
       loadData();
     } catch (e: any) {
       setActionErrorMsg(e.message);
+      notify.error(e.message);
     }
   };
 
@@ -643,10 +884,12 @@ export default function AccountsPage() {
       setPaymentAmount("");
       setPaymentNotes("");
       setActionSuccessMsg(`Recorded payment of ${formatCurrency(Number(paymentAmount))} from ${selectedCustomer.name}.`);
+      notify.success(`Recorded payment of ${formatCurrency(Number(paymentAmount))} from ${selectedCustomer.name}.`);
       handleOpenCustomerStatement(selectedCustomer);
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     }
   };
 
@@ -670,7 +913,7 @@ export default function AccountsPage() {
   const handleSubmitJobPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedJobForPayment || !jobPaymentAmount || Number(jobPaymentAmount) <= 0) {
-      alert("Please enter a valid positive payment amount");
+      notify.warning("Please enter a valid positive payment amount");
       return;
     }
 
@@ -696,6 +939,7 @@ export default function AccountsPage() {
       setActionSuccessMsg(
         `Recorded payment of ${formatCurrency(Number(jobPaymentAmount))} on Job #${selectedJobForPayment.jobNumber}${selectedJobForPayment.isFoc ? " (FOC Company Settlement)" : ""}.`
       );
+      notify.success(`Recorded payment of ${formatCurrency(Number(jobPaymentAmount))} on Job #${selectedJobForPayment.jobNumber}${selectedJobForPayment.isFoc ? " (FOC Company Settlement)" : ""}.`);
       setShowJobPaymentModal(false);
       setSelectedJobForPayment(null);
       loadData();
@@ -707,6 +951,7 @@ export default function AccountsPage() {
       }
     } catch (err: any) {
       setActionErrorMsg(err.message || "Failed to record payment");
+      notify.error(err.message || "Failed to record payment");
     } finally {
       setIsSubmittingJobPayment(false);
     }
@@ -736,10 +981,12 @@ export default function AccountsPage() {
       setAdvanceAmount("");
       setAdvanceNotes("");
       setActionSuccessMsg(`Disbursed cash advance of ${formatCurrency(Number(advanceAmount))} to technician.`);
+      notify.success(`Disbursed cash advance of ${formatCurrency(Number(advanceAmount))} to technician.`);
       handleSelectTech(selectedTechId);
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     }
   };
 
@@ -790,9 +1037,11 @@ export default function AccountsPage() {
       setActionSuccessMsg(
         `Disbursed supplier payment of ${formatCurrency(Number(vendorPayAmount))} to ${selectedVendor.name}${whtInfo}.`
       );
+      notify.success(`Disbursed supplier payment of ${formatCurrency(Number(vendorPayAmount))} to ${selectedVendor.name}${whtInfo}.`);
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     }
   };
 
@@ -826,9 +1075,11 @@ export default function AccountsPage() {
       setNewExpenseRef("");
       setNewExpensePayee("");
       setActionSuccessMsg(`Expense voucher recorded and posted to General Ledger.`);
+      notify.success(`Expense voucher recorded and posted to General Ledger.`);
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     }
   };
 
@@ -839,7 +1090,7 @@ export default function AccountsPage() {
     const totalCredit = manualLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
 
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      alert(`Journal entry is unbalanced! Total Debit: ${formatCurrency(totalDebit)} vs Total Credit: ${formatCurrency(totalCredit)}`);
+      notify.warning(`Journal entry is unbalanced! Total Debit: ${formatCurrency(totalDebit)} vs Total Credit: ${formatCurrency(totalCredit)}`);
       return;
     }
 
@@ -867,9 +1118,11 @@ export default function AccountsPage() {
         { accountId: "", debit: "", credit: "" },
       ]);
       setActionSuccessMsg("Manual balanced journal entry posted successfully to General Ledger.");
+      notify.success("Manual balanced journal entry posted successfully to General Ledger.");
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     }
   };
 
@@ -881,12 +1134,14 @@ export default function AccountsPage() {
 
     if (totalDebit <= 0) {
       setActionErrorMsg("Voucher has no amounts. Enter at least one debit and one credit line.");
+      notify.error("Voucher has no amounts. Enter at least one debit and one credit line.");
       return;
     }
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       setActionErrorMsg(
         `Voucher is unbalanced! Total Debit: ${formatCurrency(totalDebit)} vs Total Credit: ${formatCurrency(totalCredit)}`
       );
+      notify.error(`Voucher is unbalanced! Total Debit: ${formatCurrency(totalDebit)} vs Total Credit: ${formatCurrency(totalCredit)}`);
       return;
     }
 
@@ -923,9 +1178,11 @@ export default function AccountsPage() {
       setActionSuccessMsg(
         "Temporary voucher created. It will take effect only when an authorised poster posts it to the journal."
       );
+      notify.success("Temporary voucher created. It will take effect only when an authorised poster posts it to the journal.");
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     } finally {
       setVoucherSubmitting(false);
     }
@@ -949,9 +1206,11 @@ export default function AccountsPage() {
         throw new Error(err.error || "Failed to post voucher");
       }
       setActionSuccessMsg(`Voucher "${voucher.memo}" posted to the General Ledger.`);
+      notify.success(`Voucher "${voucher.memo}" posted to the General Ledger.`);
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     } finally {
       setVoucherActionId("");
     }
@@ -978,9 +1237,11 @@ export default function AccountsPage() {
         throw new Error(err.error || "Failed to reject voucher");
       }
       setActionSuccessMsg(`Voucher "${voucher.memo}" rejected.`);
+      notify.success(`Voucher "${voucher.memo}" rejected.`);
       loadData();
     } catch (err: any) {
       setActionErrorMsg(err.message);
+      notify.error(err.message);
     } finally {
       setVoucherActionId("");
     }
@@ -1009,9 +1270,10 @@ export default function AccountsPage() {
         setSettlementJob({ ...settlementJob, stockReturns: updatedReturns });
       }
       setActionSuccessMsg("Stock return acknowledged by Warehouse Storekeeper. Settlement clearance unlocked.");
-      loadData();
+      notify.success("Stock return acknowledged by Warehouse Storekeeper. Settlement clearance unlocked.");
+      refreshSettlementsQueue();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
@@ -1127,10 +1389,20 @@ export default function AccountsPage() {
           syncAndLockJob ? " Work order synced and locked in read-only mode with official invoice generated." : ""
         }`
       );
+      notify.success(`Settlement clearance recorded successfully for Job ${settlementJob.jobNumber}.`);
+      // No full tab reload: a finalized job leaves the queue locally right away;
+      // otherwise refresh ONLY the settlement queue feed (1 request) so the row's
+      // claim states are exact. The quick clearance queue below may also have
+      // changed (this job's claims were paid/accrued) — refresh it too (slim).
+      if (syncAndLockJob) {
+        setPendingSettlements((prev) => prev.filter((j: any) => j.id !== settlementJob.id));
+      } else {
+        refreshSettlementsQueue();
+      }
+      fetchQuickQueue();
       setSettlementJob(null);
-      loadData();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsSubmittingSettlement(false);
     }
@@ -1140,7 +1412,7 @@ export default function AccountsPage() {
   const handleRecordCashTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cashFormAmount || Number(cashFormAmount) <= 0) {
-      alert("Please enter a valid positive transaction amount");
+      notify.warning("Please enter a valid positive transaction amount");
       return;
     }
     try {
@@ -1168,13 +1440,14 @@ export default function AccountsPage() {
           Number(cashFormAmount)
         )}`
       );
+      notify.success(`Successfully recorded Cashbook ${cashFormType.toUpperCase()} of ${formatCurrency(Number(cashFormAmount))}`);
       setShowRecordCashModal(false);
       setCashFormAmount("");
       setCashFormMemo("");
       setCashFormParty("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setCashFormSubmitting(false);
     }
@@ -1358,32 +1631,36 @@ export default function AccountsPage() {
                           <span className="italic">"{disc.reason}"</span>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleApproveDiscount(disc)}
-                              className="px-2.5 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-[11px] inline-flex items-center gap-1 transition shadow-xs"
-                            >
-                              <Check className="w-3 h-3" /> Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setModifyingDiscount(disc);
-                                setModifiedDiscountAmount(String(disc.requestedDiscount));
-                              }}
-                              className="px-2 py-1.5 bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] rounded-lg font-bold text-[11px] transition"
-                            >
-                              Counter
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRejectDiscount(disc)}
-                              className="px-2 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg font-bold text-[11px] transition"
-                            >
-                              Reject
-                            </button>
-                          </div>
+                          {canApproveDiscount ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleApproveDiscount(disc)}
+                                className="px-2.5 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-[11px] inline-flex items-center gap-1 transition shadow-xs"
+                              >
+                                <Check className="w-3 h-3" /> Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModifyingDiscount(disc);
+                                  setModifiedDiscountAmount(String(disc.requestedDiscount));
+                                }}
+                                className="px-2 py-1.5 bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] rounded-lg font-bold text-[11px] transition"
+                              >
+                                Counter
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRejectDiscount(disc)}
+                                className="px-2 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg font-bold text-[11px] transition"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-[#71717A]">Awaiting a discount approver</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1706,17 +1983,19 @@ export default function AccountsPage() {
                           </td>
                           <td className="py-3 px-4 text-center font-mono text-xs">{vnd.ordersCount} POs</td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedVendor(vnd);
-                                setVendorPayAmount(String(vnd.balanceDue));
-                                setShowVendorPayModal(true);
-                              }}
-                              className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1"
-                            >
-                              <DollarSign className="w-3 h-3" /> Disburse Payment
-                            </button>
+                            {canPostEntries && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedVendor(vnd);
+                                  setVendorPayAmount(String(vnd.balanceDue));
+                                  setShowVendorPayModal(true);
+                                }}
+                                className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1"
+                              >
+                                <DollarSign className="w-3 h-3" /> Disburse Payment
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1725,108 +2004,239 @@ export default function AccountsPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 3: FIELD SETTLEMENTS & CLEARANCE QUEUE */}
-      {/* ========================================================================= */}
-      {(activeTab as string) === "settlements" && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#FAFAFA] border-b border-[#E4E4E7] flex items-center justify-between">
+          {/* ── QUICK EXPENSE CLEARANCE QUEUE (bulk pay, peak-time) ─────────────
+              Flat list of every pending technician claim, oldest first. The hisaab
+              session above settles a job's collection; this queue pays the claims
+              themselves in one request when the counter is busy. */}
+          <div className="bg-white rounded-xl border border-amber-200 shadow-xs overflow-hidden ring-1 ring-amber-100 mt-4">
+            <div className="px-5 py-3.5 bg-[#FFFBEB] border-b border-amber-200/80 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
               <div>
-                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider">
-                  Pending Expense & Field Clearance Queue
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-amber-700" />
+                  Quick Expense Clearance — Pending Technician Claims
+                  <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full normal-case tracking-normal">
+                    {quickQueue.length} pending · {formatCurrency(quickQueue.reduce((s, c) => s + c.amount, 0))}
+                  </span>
                 </h3>
                 <p className="text-[11px] text-[#71717A] mt-0.5">
-                  Completed work orders awaiting cash reconciliation, customer payment verification, and field expense clearances.
+                  All outstanding claims across all dates, oldest first. Tick and pay in one go — each claim posts its own balanced GL journal.
+                  {quickQueueTruncated && (
+                    <span className="text-amber-800 font-semibold"> Showing the oldest 500 — clear some to reveal the rest.</span>
+                  )}
                 </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchQuickQueue}
+                disabled={quickQueueLoading}
+                className="h-8 px-3 rounded-lg border border-[#E4E4E7] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shrink-0"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5 text-[#0D7A5F]", quickQueueLoading && "animate-spin")} />
+                Refresh
+              </button>
+            </div>
+
+            {/* Bulk bar */}
+            <div className="px-5 py-3 bg-white border-b border-[#E4E4E7] flex flex-col xl:flex-row xl:items-center gap-3">
+              <div className="text-xs text-[#52525B] font-medium">
+                Selected:{" "}
+                <strong className="text-[#0D7A5F]">
+                  {quickQueue.filter((c) => quickSelected.includes(c.id)).length}
+                </strong>{" "}
+                ·{" "}
+                <strong className="font-mono text-[#0D7A5F]">
+                  {formatCurrency(
+                    quickQueue
+                      .filter((c) => quickSelected.includes(c.id))
+                      .reduce((s, c) => s + c.amount, 0)
+                  )}
+                </strong>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap xl:ml-auto">
+                <select
+                  value={quickAccountCode}
+                  onChange={(e) => setQuickAccountCode(e.target.value)}
+                  className="bg-[#F4F4F5] px-2.5 py-2 rounded-lg border border-[#D4D4D8] font-semibold text-xs focus:bg-white focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none"
+                  title="Disbursing account"
+                >
+                  {effectiveCashAccounts.map((acc: any) => (
+                    <option key={acc.code} value={acc.code}>
+                      {acc.code} — {acc.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={quickNotes}
+                  onChange={(e) => setQuickNotes(e.target.value)}
+                  placeholder="Voucher ref (optional)"
+                  className="px-2.5 py-2 rounded-lg border border-[#D4D4D8] bg-[#FAFAFA] text-xs focus:bg-white focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none w-40"
+                />
+                <input
+                  type="number"
+                  min="1"
+                  value={quickPartial}
+                  onChange={(e) => setQuickPartial(e.target.value)}
+                  placeholder="Partial amount (optional)"
+                  className="px-2.5 py-2 rounded-lg border border-[#D4D4D8] bg-[#FAFAFA] text-xs font-mono focus:bg-white focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none w-40"
+                  title="Leave blank to pay the full selected total; a smaller amount is allocated oldest-first"
+                />
+                {canPostEntries ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={quickSelected.length === 0 || quickProcessing}
+                      onClick={() => executeQuickBulk()}
+                      className="px-3.5 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-40 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                    >
+                      <Wallet className="w-3.5 h-3.5" />
+                      {quickProcessing ? "Paying..." : "Pay Selected"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        quickSelected.length === 0 ||
+                        quickProcessing ||
+                        !quickPartial ||
+                        !Number(quickPartial) ||
+                        Number(quickPartial) <= 0
+                      }
+                      onClick={() => executeQuickBulk(Number(quickPartial))}
+                      className="px-3.5 py-2 bg-white hover:bg-[#F4F4F5] disabled:opacity-40 text-zinc-800 border border-[#0D7A5F] rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5"
+                      title="Disburse the partial amount across the selected claims, oldest first"
+                    >
+                      <Check className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                      Clear Partial
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-[#71717A] italic">
+                    Your role can view the queue but cannot post payments.
+                  </span>
+                )}
               </div>
             </div>
 
-            {pendingSettlements.length === 0 ? (
-              <div className="p-12 text-center text-xs text-[#71717A]">
-                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                No jobs pending settlement. All customer payments and field expenses are fully cleared.
+            {quickQueueLoading && quickQueue.length === 0 ? (
+              <div className="p-10 text-center text-xs text-[#71717A]">Loading pending claims...</div>
+            ) : quickQueue.length === 0 ? (
+              <div className="p-10 text-center space-y-1.5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+                <p className="text-xs font-bold text-[#18181B]">No pending technician claims — all clear.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F4F4F5]">
-                      <th className="py-2.5 px-4">Job Number</th>
-                      <th className="py-2.5 px-4">Customer</th>
-                      <th className="py-2.5 px-4">Technician</th>
-                      <th className="py-2.5 px-4 text-center">Status</th>
-                      <th className="py-2.5 px-4 text-right">Expected Revenue</th>
-                      <th className="py-2.5 px-4 text-right">Action</th>
+                  <thead className="sticky top-0 z-10">
+                    <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                      <th className="py-2.5 px-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={
+                            quickQueue.filter((c) => c.isJobCompleted).length > 0 &&
+                            quickQueue
+                              .filter((c) => c.isJobCompleted)
+                              .every((c) => quickSelected.includes(c.id))
+                          }
+                          onChange={(e) => {
+                            const selectableIds = quickQueue
+                              .filter((c) => c.isJobCompleted)
+                              .map((c) => c.id);
+                            setQuickSelected((prev) =>
+                              e.target.checked
+                                ? [...new Set([...prev, ...selectableIds])]
+                                : prev.filter((id) => !selectableIds.includes(id))
+                            );
+                          }}
+                          className="w-4 h-4 rounded accent-[#0D7A5F]"
+                          title="Select all clearable claims"
+                        />
+                      </th>
+                      <th className="py-2.5 px-3">Logged</th>
+                      <th className="py-2.5 px-3">Technician</th>
+                      <th className="py-2.5 px-3">Work Order</th>
+                      <th className="py-2.5 px-3">Category</th>
+                      <th className="py-2.5 px-3">Description</th>
+                      <th className="py-2.5 px-3 text-center">Receipt</th>
+                      <th className="py-2.5 px-3 text-right">Amount</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E4E4E7]">
-                    {pendingSettlements.map((job) => {
-                      let expected = 0;
-                      for (const item of job.items || []) {
-                        const qty = item.quantityActual ?? item.quantityPlanned;
-                        expected += qty * item.unitRate;
-                      }
-                      const net = Math.max(0, expected - (job.discountAmount || 0));
-
+                    {quickQueue.map((claim) => {
+                      const checked = quickSelected.includes(claim.id);
                       return (
-                        <tr key={job.id} className="hover:bg-[#FAFAFA] transition">
-                          <td className="py-3 px-4 font-mono font-bold text-[#0D7A5F]">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span>{job.jobNumber}</span>
-                              {job.isFoc && (
-                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                                  FOC
-                                </span>
-                              )}
-                            </div>
+                        <tr key={claim.id} className={cn("transition", checked ? "bg-emerald-50/60" : "hover:bg-[#FAFAFA]")}>
+                          <td className="py-2 px-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!claim.isJobCompleted}
+                              onChange={(e) =>
+                                setQuickSelected((prev) =>
+                                  e.target.checked
+                                    ? [...new Set([...prev, claim.id])]
+                                    : prev.filter((id) => id !== claim.id)
+                                )
+                              }
+                              className="w-4 h-4 rounded accent-[#0D7A5F] disabled:opacity-30"
+                              title={claim.isJobCompleted ? "Select claim" : "Job not completed yet — cannot clear"}
+                            />
                           </td>
-                          <td className="py-3 px-4 font-medium text-[#18181B]">
-                            <div>{job.customer?.name}</div>
-                            {job.isFoc && (
-                              <span className="text-[10px] text-purple-700 font-semibold block">
-                                c/o {job.careOfParty?.companyName || "Corporate Partner"}
+                          <td className="py-2 px-3 whitespace-nowrap text-[#52525B]">
+                            {formatDateTime(claim.createdAt)}
+                            {claim.isPartial && (
+                              <span className="block text-[10px] font-bold text-blue-700">Instalment remainder</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-semibold text-zinc-900 whitespace-nowrap">{claim.technicianName}</td>
+                          <td className="py-2 px-3">
+                            <span className="font-mono font-bold text-[#0D7A5F]">{claim.jobNumber}</span>
+                            <span className="block text-[10px] text-zinc-500 truncate max-w-[150px]">{claim.customerName}</span>
+                            {!claim.isJobCompleted && (
+                              <span className="inline-flex items-center gap-1 mt-0.5 text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                Job incomplete
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-[#52525B]">{job.assignedTechnician?.name || "Unassigned"}</td>
-                          <td className="py-3 px-4 text-center">
-                            <StatusBadge status={job.status} />
-                            {job.stockReturns?.some((sr: any) => !sr.acknowledgedAt) && (
-                              <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
-                                <AlertTriangle className="w-3 h-3 text-rose-600" />
-                                Unreturned Stock
-                              </span>
+                          <td className="py-2 px-3">
+                            <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 font-semibold text-[11px] border border-zinc-200">
+                              {claim.category}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 max-w-[300px]">
+                            <p className="font-medium text-zinc-900 leading-snug line-clamp-2">{claim.note}</p>
+                            {quickErrors[claim.id] && (
+                              <p className="text-[10px] font-semibold text-rose-700 mt-0.5 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3 shrink-0" /> {quickErrors[claim.id]}
+                              </p>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right">
-                            {job.isFoc ? (
-                              <div>
-                                <span className="font-mono font-bold text-purple-700 block">
-                                  PKR 0 <span className="text-[10px] font-normal text-[#71717A]">(Cust FOC)</span>
-                                </span>
-                                <span className="text-[10px] font-mono text-[#71717A]">
-                                  Co: {formatCurrency(net)}
-                                </span>
-                              </div>
+                          <td className="py-2 px-3 text-center">
+                            {claim.hasReceipt ? (
+                              <button
+                                type="button"
+                                onMouseEnter={() => ensureQuickThumb(claim.id)}
+                                onFocus={() => ensureQuickThumb(claim.id)}
+                                onClick={async () => {
+                                  const urls = await fetchQuickReceipts(claim.id);
+                                  if (urls.length > 0) setQuickReceiptView(urls);
+                                }}
+                                className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 overflow-hidden transition"
+                                title={`View receipt photo${claim.receiptCount > 1 ? `s (${claim.receiptCount})` : ""}`}
+                              >
+                                {quickThumbs[claim.id] ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={quickThumbs[claim.id]} alt="Receipt" className="w-full h-full object-cover" />
+                                ) : (
+                                  <Receipt className="w-4 h-4 text-emerald-700" />
+                                )}
+                              </button>
                             ) : (
-                              <span className="font-mono font-bold text-[#18181B]">
-                                {formatCurrency(net)}
-                              </span>
+                              <span className="text-[#A1A1AA] text-[10px] italic">None</span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenSettlement(job)}
-                              className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs"
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              Open Clearance Session
-                            </button>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-zinc-900 text-sm whitespace-nowrap">
+                            {formatCurrency(claim.amount)}
                           </td>
                         </tr>
                       );
@@ -1836,8 +2246,163 @@ export default function AccountsPage() {
               </div>
             )}
           </div>
+
+          {/* ── FIELD SETTLEMENTS (hisaab sessions) ─────────────────────────────
+              Jobs whose field work is finished, settled with the technician in
+              one session: confirm the customer collection, clear the job's
+              pending expense claims, and lock the job. Each row opens the Field
+              Settlement modal (handleOpenSettlement → handleSubmitSettlement →
+              POST /api/hisaab). Data: pendingSettlements from GET /api/hisaab,
+              loaded with this tab and refreshed by refreshSettlementsQueue. */}
+          <div className="bg-white rounded-xl border border-emerald-200 shadow-xs overflow-hidden ring-1 ring-emerald-100 mt-4">
+            <div className="px-5 py-3.5 bg-[#ECFDF5] border-b border-emerald-200/80 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-[#18181B] uppercase tracking-wider flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-emerald-700" />
+                  Field Settlements — Jobs Awaiting Hisaab
+                  <span className="text-[10px] font-bold text-emerald-900 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full normal-case tracking-normal">
+                    {pendingSettlements.length} awaiting ·{" "}
+                    {formatCurrency(
+                      pendingSettlements.reduce((s, job) => s + expectedJobCollection(job), 0)
+                    )}{" "}
+                    to collect
+                  </span>
+                </h3>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  Completed jobs waiting for their settlement session with the technician — confirm what the
+                  customer paid, clear the job&apos;s pending claims, and lock the job, all in one sitting.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={refreshSettlementsQueue}
+                className="h-8 px-3 rounded-lg border border-[#E4E4E7] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shrink-0"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                Refresh
+              </button>
+            </div>
+
+            {pendingSettlements.length === 0 ? (
+              <div className="p-10 text-center space-y-1.5">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+                <p className="text-xs font-bold text-[#18181B]">No jobs awaiting settlement</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                      <th className="py-2.5 px-3">Work Order</th>
+                      <th className="py-2.5 px-3">Technician</th>
+                      <th className="py-2.5 px-3">Customer</th>
+                      <th className="py-2.5 px-3 text-right">Expected Collection</th>
+                      <th className="py-2.5 px-3 text-right">Pending Claims</th>
+                      <th className="py-2.5 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E4E4E7]">
+                    {pendingSettlements.map((job) => {
+                      const claims = job.expenseClaims || [];
+                      const claimsTotal = claims.reduce((s: number, c: any) => s + c.amount, 0);
+                      const fieldReported = (job.hisaabSettlements || []).some(
+                        (h: any) => h.status === "field_reported"
+                      );
+                      return (
+                        <tr key={job.id} className="hover:bg-[#FAFAFA] transition">
+                          <td className="py-2 px-3">
+                            <span className="font-mono font-bold text-[#0D7A5F]">{job.jobNumber}</span>
+                            {fieldReported && (
+                              <span className="block mt-0.5">
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                                  Field reported
+                                </span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-semibold text-zinc-900 whitespace-nowrap">
+                            {job.assignedTechnician?.name || "—"}
+                          </td>
+                          <td className="py-2 px-3 text-[#52525B]">{job.customer?.name || "—"}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-zinc-900 text-sm whitespace-nowrap">
+                            {job.isFoc ? (
+                              <span className="font-sans text-[11px] font-bold text-[#71717A]">FOC — PKR 0</span>
+                            ) : job.paymentCollectionMode === "office" ? (
+                              <span className="font-sans text-[11px] font-bold text-[#71717A]">
+                                Collected at office
+                              </span>
+                            ) : (
+                              formatCurrency(expectedJobCollection(job))
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-right whitespace-nowrap">
+                            {claims.length > 0 ? (
+                              <>
+                                <span className="font-mono font-bold text-zinc-900">
+                                  {formatCurrency(claimsTotal)}
+                                </span>
+                                <span className="block text-[10px] text-zinc-500">
+                                  {claims.length} claim{claims.length === 1 ? "" : "s"} pending
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[#A1A1AA] text-[10px] italic">None</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            {canPostEntries ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenSettlement(job)}
+                                className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1"
+                              >
+                                <Scale className="w-3 h-3" /> Open Clearance Session
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-[#71717A] italic">View only</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Quick-queue receipt viewer */}
+          {quickReceiptView && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+              role="dialog"
+              aria-modal="true"
+              onClick={() => setQuickReceiptView(null)}
+            >
+              <div
+                className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-4 space-y-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#18181B]">Expense Receipt Proof</h3>
+                  <button
+                    type="button"
+                    onClick={() => setQuickReceiptView(null)}
+                    className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {quickReceiptView.map((url, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={url} alt={`Receipt ${i + 1}`} className="w-full rounded-lg border border-[#E4E4E7]" />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
+
 
       {/* ========================================================================= */}
       {/* TAB 4: EXPENSES & OUTFLOWS */}
@@ -1851,13 +2416,15 @@ export default function AccountsPage() {
                 Every operating expense, tool purchase, vehicle fuel, and technician field reimbursement.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAddExpenseModal(true)}
-              className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
-            >
-              <Plus className="w-4 h-4" /> + Add Expense Voucher
-            </button>
+            {canPostEntries && (
+              <button
+                type="button"
+                onClick={() => setShowAddExpenseModal(true)}
+                className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Plus className="w-4 h-4" /> + Add Expense Voucher
+              </button>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
@@ -2057,41 +2624,43 @@ export default function AccountsPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCashFormType("receipt");
-                    setShowRecordCashModal(true);
-                  }}
-                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] border border-emerald-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
-                >
-                  <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-700" />
-                  + Cash Receipt
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCashFormType("payment");
-                    setShowRecordCashModal(true);
-                  }}
-                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
-                >
-                  <ArrowUpRight className="w-3.5 h-3.5 text-rose-700" />
-                  + Cash Payment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCashFormType("transfer");
-                    setShowRecordCashModal(true);
-                  }}
-                  className="px-3 py-1.5 bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] border border-[#D4D4D8] rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
-                >
-                  <ArrowLeftRight className="w-3.5 h-3.5 text-[#52525B]" />
-                  Transfer
-                </button>
-              </div>
+              {canPostEntries && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCashFormType("receipt");
+                      setShowRecordCashModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#0D7A5F] border border-emerald-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
+                  >
+                    <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-700" />
+                    + Cash Receipt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCashFormType("payment");
+                      setShowRecordCashModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
+                  >
+                    <ArrowUpRight className="w-3.5 h-3.5 text-rose-700" />
+                    + Cash Payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCashFormType("transfer");
+                      setShowRecordCashModal(true);
+                    }}
+                    className="px-3 py-1.5 bg-[#F4F4F5] hover:bg-[#E4E4E7] text-[#18181B] border border-[#D4D4D8] rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-2xs"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5 text-[#52525B]" />
+                    Transfer
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Cashbook Summary KPI Cards */}
@@ -2344,29 +2913,33 @@ export default function AccountsPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedAccountToEdit(null);
-                      setCoaModalMode("create");
-                      setShowCoaModal(true);
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    New Account
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCoaModalMode("import");
-                      setShowCoaModal(true);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    Import CSV
-                  </button>
+                  {canManageChart && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedAccountToEdit(null);
+                          setCoaModalMode("create");
+                          setShowCoaModal(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        New Account
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCoaModalMode("import");
+                          setShowCoaModal(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-[#EDEDED] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Import CSV
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={handleExportCoaCsv}
@@ -2910,13 +3483,15 @@ export default function AccountsPage() {
                 Strictly enforced mathematical parity: sum(debit) == sum(credit) for every voucher.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowManualJournalModal(true)}
-              className="px-4 py-2 bg-[#18181B] hover:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
-            >
-              <Plus className="w-4 h-4" /> + New Journal Entry
-            </button>
+            {canPostEntries && (
+              <button
+                type="button"
+                onClick={() => setShowManualJournalModal(true)}
+                className="px-4 py-2 bg-[#18181B] hover:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+              >
+                <Plus className="w-4 h-4" /> + New Journal Entry
+              </button>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden divide-y divide-[#E4E4E7]">
@@ -2964,7 +3539,7 @@ export default function AccountsPage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-[11px] text-[#71717A] font-mono">{formatDateTime(je.date)}</span>
-                        {(!je.status || je.status === "posted") && (
+                        {canPostEntries && (!je.status || je.status === "posted") && (
                           <button
                             type="button"
                             onClick={() => setReversingEntry(je)}
@@ -3199,16 +3774,18 @@ export default function AccountsPage() {
 
             <div className="flex items-center justify-between">
               <span className="font-bold text-xs text-[#18181B]">Chronological Statement Ledger</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setPaymentAmount(String(selectedCustomer.balanceDue || ""));
-                  setShowPaymentModal(true);
-                }}
-                className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs inline-flex items-center gap-1"
-              >
-                <DollarSign className="w-3.5 h-3.5" /> Record Payment
-              </button>
+              {canPostEntries && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentAmount(String(selectedCustomer.balanceDue || ""));
+                    setShowPaymentModal(true);
+                  }}
+                  className="px-3 py-1.5 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg font-bold text-xs inline-flex items-center gap-1"
+                >
+                  <DollarSign className="w-3.5 h-3.5" /> Record Payment
+                </button>
+              )}
             </div>
 
             <div className="overflow-x-auto border border-[#E4E4E7] rounded-xl">
@@ -3370,7 +3947,7 @@ export default function AccountsPage() {
                           {formatCurrency(st.balance)}
                         </td>
                         <td className="p-2.5 text-right">
-                          {st.jobId && (st.debit > 0 || st.focAwaiting) ? (
+                          {canPostEntries && st.jobId && (st.debit > 0 || st.focAwaiting) ? (
                             <button
                               type="button"
                               onClick={() =>
@@ -3552,15 +4129,21 @@ export default function AccountsPage() {
                 onChange={(e) => setNewExpenseAccount(e.target.value)}
                 className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs font-semibold focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
               >
-                {(accountingConfig?.expenseCategories || []).map(
-                  (item: any) =>
-                    item.account && (
-                      <option key={item.id || item.code} value={item.account.code}>
-                        {item.account.code} — {item.name}
-                      </option>
-                    )
+                {expenseAccountOptions.length === 0 && (
+                  <option value="">Loading accounts…</option>
                 )}
+                {expenseAccountOptions.map((opt: any) => (
+                  <option key={opt.code} value={opt.code}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
+              {configuredExpenseOptions.length === 0 && (
+                <p className="text-[10px] text-[#71717A] mt-1">
+                  No expense categories configured in Accounting Onboarding — showing the
+                  chart&apos;s expense accounts.
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs font-semibold text-[#18181B] block mb-1">
@@ -3571,7 +4154,8 @@ export default function AccountsPage() {
                 onChange={(e) => setNewExpenseDisbursing(e.target.value)}
                 className="w-full bg-[#F4F4F5] p-2.5 rounded-xl border border-[#EDEDED] text-xs font-semibold focus:bg-white focus:border-[#0D7A5F] focus:outline-none text-[#18181B]"
               >
-                {cashAccounts.map((account: any) => (
+                {effectiveCashAccounts.length === 0 && <option value="">Loading accounts…</option>}
+                {effectiveCashAccounts.map((account: any) => (
                   <option key={account.id || account.code} value={account.code}>
                     {account.code} — {account.name}
                   </option>
@@ -3806,7 +4390,7 @@ export default function AccountsPage() {
                     onChange={(e) => setJobPaymentAccount(e.target.value)}
                     className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
                   >
-                    {cashAccounts.map((account: any) => (
+                    {effectiveCashAccounts.map((account: any) => (
                       <option key={account.id || account.code} value={account.code}>
                         {account.code} — {account.name}
                       </option>
@@ -3902,8 +4486,12 @@ export default function AccountsPage() {
                   onChange={(e) => setVendorPaymentAccountCode(e.target.value)}
                   className="w-full bg-white p-2 rounded-lg border border-[#D4D4D8] text-xs font-semibold"
                 >
-                  <option value="11101">Cash — 11101 Cash on Hand</option>
-                  <option value="11103">Bank — 11103 Operating Bank</option>
+                  {effectiveCashAccounts.length === 0 && <option value="">Loading accounts…</option>}
+                  {effectiveCashAccounts.map((account: any) => (
+                    <option key={account.id || account.code} value={account.code}>
+                      {account.code} — {account.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -4344,6 +4932,7 @@ export default function AccountsPage() {
         technicianId={drawerTechId}
         onExpenseLogged={() => {
           setActionSuccessMsg("Field expense voucher logged and netted to technician ledger.");
+          notify.success("Field expense voucher logged and netted to technician ledger.");
           loadData();
         }}
       />
@@ -4728,42 +5317,19 @@ export default function AccountsPage() {
                     onChange={(e) => setCashFormContra(e.target.value)}
                     className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#EDEDED] focus:bg-white focus:border-[#0D7A5F] focus:outline-none font-medium text-[#18181B]"
                   >
-                    {cashFormType === "receipt" ? (
-                      <>
-                        <option value="41101">41101 — Service Revenue – Installation</option>
-                        <option value="41102">41102 — Service Revenue – Repair & Maintenance</option>
-                        <option value="41103">41103 — Goods Revenue – Parts & Products Sold to Customers</option>
-                        <option value="41104">41104 — POS Counter Sales Revenue</option>
-                        <option value="42101">42101 — Other Income</option>
-                        <option value="11201">11201 — Accounts Receivable (Customer Clearance)</option>
-                        <option value="31101">31101 — Owner Capital / Equity Injection</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="52101">52101 — Job Fuel & Conveyance</option>
-                        <option value="52102">52102 — Job Food & Meals</option>
-                        <option value="52105">52105 — Other Direct Job Costs</option>
-                        <option value="62101">62101 — Staff Travel & Conveyance (Non-Job)</option>
-                        <option value="62102">62102 — General Office Overheads</option>
-                        <option value="62103">62103 — Office Supplies & Stationery</option>
-                        <option value="62104">62104 — Executive Meals & Entertainment</option>
-                        <option value="62105">62105 — Repairs & Maintenance</option>
-                        <option value="62106">62106 — Vehicle Running Costs</option>
-                        <option value="63101">63101 — Electricity</option>
-                        <option value="63102">63102 — Water</option>
-                        <option value="63103">63103 — Internet</option>
-                        <option value="63104">63104 — Telephone & Mobile</option>
-                        <option value="64102">64102 — Rent</option>
-                        <option value="64103">64103 — Bank Charges</option>
-                        <option value="64104">64104 — Marketing & Advertising</option>
-                        <option value="64109">64109 — Miscellaneous Expenses</option>
-                        <option value="61101">61101 — Salaries & Wages</option>
-                        <option value="21101">21101 — Accounts Payable (Vendor Payment)</option>
-                        <option value="21103">21103 — Technician Reimbursement Settlement</option>
-                        <option value="31102">31102 — Owner Drawings</option>
-                      </>
+                    {contraAccountOptions.length === 0 && (
+                      <option value="">Loading chart of accounts…</option>
                     )}
+                    {contraAccountOptions.map((acc: any) => (
+                      <option key={acc.id || acc.code} value={acc.code}>
+                        {acc.code} — {acc.name}
+                      </option>
+                    ))}
                   </select>
+                  <p className="text-[10px] text-[#71717A] mt-1">
+                    Any active posting account from the chart of accounts
+                    {cashFormType === "receipt" ? " (revenue, receivables, capital…)" : " (expenses, payables, drawings…)"}.
+                  </p>
                 </div>
               )}
 
@@ -4847,6 +5413,7 @@ export default function AccountsPage() {
             setActionSuccessMsg(
               `Journal Entry reversed. Reversal voucher #${reversal.id.slice(0, 8).toUpperCase()} posted to General Ledger.`
             );
+            notify.success(`Journal Entry reversed. Reversal voucher #${reversal.id.slice(0, 8).toUpperCase()} posted to General Ledger.`);
             loadData();
           }}
         />

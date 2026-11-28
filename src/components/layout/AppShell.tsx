@@ -4,9 +4,9 @@ import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import MobileSimulatorModal from "./MobileSimulatorModal";
 import AddCustomerDrawer from "@/components/drawers/AddCustomerDrawer";
-import ToastViewport from "@/components/ui/ToastViewport";
+import { ToastProvider } from "@/contexts/ToastContext";
+import RealtimeRequestWatcher from "@/components/RealtimeRequestWatcher";
 
 import { RoleProvider } from "@/contexts/RoleContext";
 import { setupGlobalClickTracker, logActivity } from "@/lib/telemetry";
@@ -130,28 +130,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   if (pathname === "/login" || pathname === "/change-password") {
-    return (
-      <>
-        {children}
-        <ToastViewport />
-      </>
-    );
+    return <ToastProvider>{children}</ToastProvider>;
   }
 
-  // If on dedicated mobile route, render mobile layout with RoleProvider & ToastViewport
+  // If on dedicated mobile route, render mobile layout with RoleProvider & ToastProvider
   if (pathname?.startsWith("/mobile")) {
     return (
       <RoleProvider>
-        <main className="min-h-screen bg-[#0C0D10]">
-          {children}
-          <ToastViewport />
-        </main>
+        <ToastProvider>
+          <main className="min-h-screen bg-[#0C0D10]">{children}</main>
+        </ToastProvider>
       </RoleProvider>
     );
   }
 
   return (
     <RoleProvider>
+      <ToastProvider>
       <a
         href="#main-content"
         className="fixed left-3 top-3 z-[110] -translate-y-20 rounded-lg bg-white px-3 py-2 text-xs font-bold text-[#18181B] shadow-xl transition-transform focus:translate-y-0"
@@ -234,8 +229,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           }}
         />
         <UrgentAlertBanner />
-        <ToastViewport />
+        {/* Server-polling watcher: loud sound + spoken alerts for NEW discount
+            and stock requests (the realtimeSync bus only hears this browser). */}
+        <RealtimeRequestWatcher />
       </div>
+      </ToastProvider>
     </RoleProvider>
   );
 }

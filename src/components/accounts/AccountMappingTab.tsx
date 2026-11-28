@@ -13,6 +13,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 import CoaAccountModal, { CoaModalAccount } from "./CoaAccountModal";
 import toast from "@/lib/toast";
 
@@ -118,6 +119,10 @@ export default function AccountMappingTab({
   setupMode = false,
   onCompletenessChange,
 }: AccountMappingTabProps = {}) {
+  const { hasPermission } = useRole();
+  // Mapping changes are settings.accounting on the API; without it the tab is read-only
+  // (the setup wizard passes setupMode, where the wizard's own gate applies).
+  const canConfigure = setupMode || hasPermission("settings.accounting");
   const [mappings, setMappings] = useState<MappingItem[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [completeness, setCompleteness] = useState<CompletenessSummary | null>(null);
@@ -375,7 +380,7 @@ export default function AccountMappingTab({
             <button
               key={g.id}
               type="button"
-              disabled={!!applyingSameAs}
+              disabled={!!applyingSameAs || !canConfigure}
               onClick={() => handleApplySameAs(g.id)}
               className="text-left p-3 rounded-xl border border-[#E4E4E7] hover:border-[#0D7A5F] hover:bg-emerald-50/40 transition text-xs disabled:opacity-50"
             >
@@ -660,7 +665,7 @@ export default function AccountMappingTab({
                                 </div>
                                 <select
                                   value={item.accountId || ""}
-                                  disabled={isSaving}
+                                  disabled={isSaving || !canConfigure}
                                   onChange={(e) => handleUpdateMapping(item.transactionType, e.target.value)}
                                   className={cn(
                                     "w-full text-xs font-medium rounded-lg border px-2.5 py-2 transition focus:outline-none",

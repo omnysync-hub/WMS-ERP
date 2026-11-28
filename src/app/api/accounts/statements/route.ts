@@ -141,7 +141,11 @@ async function directory(asOf: Date) {
     let transactionCount = 0;
     if (customer.customerLedgerEntries.length) {
       const entries = customer.customerLedgerEntries.filter((entry) => entry.postingDate <= asOf);
-      balance = entries[entries.length - 1]?.runningBalance || 0;
+      // Bug 13 (customer side): sum the entries (debits - credits, as in the party
+      // ledgers view and makeStatement) instead of trusting the latest row's stored
+      // runningBalance, which can be stale — the vendor branch below already did this,
+      // so the two screens disagreed about what the same customer owes.
+      balance = entries.reduce((sum, entry) => sum + entry.debit - entry.credit, 0);
       transactionCount = entries.length;
       for (const entry of entries) addToAging(aging, Math.max(0, entry.debit - entry.clearedAmount), entry.dueDate || entry.postingDate, asOf, agingBuckets);
     } else {

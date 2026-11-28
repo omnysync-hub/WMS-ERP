@@ -18,14 +18,19 @@ import {
   actorHasPermission,
 } from "@/lib/auth/erpActor";
 
+// Per-view gates mirror TAB_PERMS in src/app/procurement/page.tsx exactly: a role
+// that cannot see a tab in the UI must not be able to read its data via the API
+// either (previously e.g. reports.view opened the vendors list and view_pr opened
+// the PO list). "counts" (sidebar badges) and "all" (the page's bootstrap fetch)
+// intentionally stay broad — every procurement role needs them to load the shell.
 const VIEW_PERMISSION: Record<string, string | string[]> = {
-  vendors: ["procurement.vendor.manage", "procurement.po.create", "procurement.rfq.manage", "procurement.invoice.create", "procurement.reports.view"],
+  vendors: ["procurement.vendor.manage", "procurement.po.create", "procurement.rfq.manage"],
   prs: ["procurement.view_pr", "procurement.pr.create", "procurement.pr.submit", "procurement.pr.approve"],
-  rfqs: ["procurement.rfq.manage", "procurement.rfq.award", "procurement.costs.view"],
-  pos: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view", "procurement.view_pr"],
-  grns: ["procurement.grn.create", "procurement.grn.quality", "procurement.invoice.create", "procurement.invoice.match"],
-  invoices: ["procurement.invoice.create", "procurement.invoice.match", "procurement.invoice.approve", "procurement.payment.record"],
-  reports: ["procurement.reports.view", "procurement.costs.view"],
+  rfqs: ["procurement.rfq.manage", "procurement.rfq.award"],
+  pos: ["procurement.po.create", "procurement.po.approve", "procurement.po.send", "procurement.costs.view"],
+  grns: ["procurement.grn.create", "procurement.grn.quality"],
+  invoices: ["procurement.invoice.create", "procurement.invoice.match", "procurement.invoice.approve"],
+  reports: ["procurement.reports.view"],
   counts: ["procurement.view_pr", "procurement.pr.create", "procurement.rfq.manage", "procurement.po.create", "procurement.grn.create", "procurement.invoice.create", "procurement.payment.record", "procurement.reports.view", "procurement.costs.view", "procurement.vendor.manage", "procurement.pr.approve"],
   all: ["procurement.view_pr", "procurement.pr.create", "procurement.rfq.manage", "procurement.po.create", "procurement.grn.create", "procurement.invoice.create", "procurement.payment.record", "procurement.reports.view", "procurement.costs.view", "procurement.vendor.manage"],
 };
@@ -60,6 +65,14 @@ function gateView(req: NextRequest, view: string) {
   const keys = VIEW_PERMISSION[view] || VIEW_PERMISSION.all;
   const list = Array.isArray(keys) ? keys : [keys];
   return requireAnyProcurementPermission(req, list);
+}
+
+/** Clean 400 for a missing required field (instead of a raw Prisma/TypeError 500). */
+function missingField(field: string) {
+  return NextResponse.json(
+    { error: `Missing required field: '${field}'.` },
+    { status: 400 }
+  );
 }
 
 export async function GET(req: NextRequest) {
@@ -255,9 +268,12 @@ export async function POST(req: NextRequest) {
     // Extra hard gate: discrepancy invoice approve requires invoice.approve (already gated),
     // but double-check when client signals discrepancy or invoice is discrepancy.
     if (action === "approve_supplier_invoice") {
-      if (payload.invoiceId) {
+      // Sibling actions address their record by `id`; accept it as well as the
+      // historical `invoiceId` so both client shapes work.
+      const targetInvoiceId = payload.id ?? payload.invoiceId;
+      if (targetInvoiceId) {
         const inv = await prisma.supplierInvoice.findUnique({
-          where: { id: payload.invoiceId },
+          where: { id: targetInvoiceId },
           select: { matchStatus: true },
         });
         if (inv?.matchStatus === "discrepancy" && !actorHasPermission(actor, "procurement.invoice.approve")) {
@@ -276,6 +292,7 @@ export async function POST(req: NextRequest) {
       }
 
       case "update_vendor": {
+        if (!payload.id) return missingField("id");
         const vendor = await ProcurementService.updateVendor(payload.id, payload.data);
         return NextResponse.json(vendor);
       }
@@ -286,24 +303,28 @@ export async function POST(req: NextRequest) {
       }
 
       case "update_pr": {
+        if (!payload.id) return missingField("id");
         const pr = await ProcurementService.updatePurchaseRequisition(payload.id, payload);
         return NextResponse.json(pr);
       }
 
       case "submit_pr":
       case "submitted_pr": {
+        if (!payload.id) return missingField("id");
         const pr = await ProcurementService.updateRequisitionStatus(payload.id, "submitted", actorName);
         return NextResponse.json(pr);
       }
 
       case "approve_pr":
       case "approved_pr": {
+        if (!payload.id) return missingField("id");
         const pr = await ProcurementService.updateRequisitionStatus(payload.id, "approved", actorName);
         return NextResponse.json(pr);
       }
 
       case "reject_pr":
       case "rejected_pr": {
+        if (!payload.id) return missingField("id");
         const pr = await ProcurementService.updateRequisitionStatus(
           payload.id,
           "rejected",
@@ -314,6 +335,13 @@ export async function POST(req: NextRequest) {
       }
 
       case "convert_pr_to_po": {
+        if (!Array.isArray(payload.prIds) || payload.prIds.length === 0) {
+          return NextResponse.json(
+            { error: "At least one purchase requisition is required ('prIds')." },
+            { status: 400 }
+          );
+        }
+        if (!payload.vendorId) return missingField("vendorId");
         const po = await ProcurementService.convertPrsToPo({
           prIds: payload.prIds,
           vendorId: payload.vendorId,
@@ -338,6 +366,8 @@ export async function POST(req: NextRequest) {
       }
 
       case "award_rfq": {
+        if (!payload.rfqId) return missingField("rfqId");
+        if (!payload.winnerVendorId) return missingField("winnerVendorId");
         // Creator of the generated PO = the signed actor who awarded the RFQ (not a body-supplied name).
         const result = await ProcurementService.awardRfqAndGeneratePo(
           payload.rfqId,
@@ -357,6 +387,7 @@ export async function POST(req: NextRequest) {
       }
 
       case "approve_po": {
+        if (!payload.id) return missingField("id");
         // Approver = the logged-in user (the creator cannot approve their own PO; compared by user ID first).
         const po = await ProcurementService.approvePurchaseOrder(payload.id, actor.name, actor.id);
         return NextResponse.json(po);
@@ -364,6 +395,7 @@ export async function POST(req: NextRequest) {
 
       case "reject_po":
       case "rejected_po": {
+        if (!payload.id) return missingField("id");
         const po = await ProcurementService.rejectPurchaseOrder(
           payload.id,
           actorName,
@@ -373,11 +405,13 @@ export async function POST(req: NextRequest) {
       }
 
       case "send_po": {
+        if (!payload.id) return missingField("id");
         const po = await ProcurementService.sendPoToVendor(payload.id);
         return NextResponse.json(po);
       }
 
       case "create_grn": {
+        if (!payload.poId) return missingField("poId");
         const grn = await ProcurementService.createGoodsReceipt({
           ...payload,
           receivedBy: payload.receivedBy || actorName,
@@ -386,16 +420,28 @@ export async function POST(req: NextRequest) {
       }
 
       case "create_supplier_invoice": {
+        // The service iterates `items` unconditionally — a missing list used to
+        // surface as a raw TypeError 500. Validate up front instead.
+        if (!Array.isArray(payload.items) || payload.items.length === 0) {
+          return NextResponse.json(
+            { error: "At least one bill line item is required ('items')." },
+            { status: 400 }
+          );
+        }
         const invoice = await ProcurementService.createSupplierInvoice(payload);
         return NextResponse.json(invoice, { status: 201 });
       }
 
       case "approve_supplier_invoice": {
-        const invoice = await ProcurementService.approveSupplierInvoice(payload.invoiceId, actorName);
+        // Accept `id` (the field every sibling action uses) as well as `invoiceId`.
+        const invoiceId = payload.id ?? payload.invoiceId;
+        if (!invoiceId) return missingField("id");
+        const invoice = await ProcurementService.approveSupplierInvoice(invoiceId, actorName);
         return NextResponse.json(invoice);
       }
 
       case "record_payment": {
+        if (!payload.supplierInvoiceId) return missingField("supplierInvoiceId");
         const payment = await ProcurementService.recordSupplierPayment(payload, actorName);
         return NextResponse.json(payment, { status: 201 });
       }
@@ -405,11 +451,26 @@ export async function POST(req: NextRequest) {
     }
   } catch (err: any) {
     console.error("Procurement API POST Error:", err);
-    const status = /forbidden|not allowed|require|must be|over-receive|over receive|approved_for_payment/i.test(
-      err.message || ""
-    )
-      ? 400
-      : 500;
-    return NextResponse.json({ error: err.message || "Failed to execute procurement action" }, { status });
+    const message = err.message || "Failed to execute procurement action";
+    // Business-rule rejections are client errors, not server faults:
+    // segregation-of-duties / permission-style blocks → 403, missing records →
+    // 404, validation and state-rule failures → 400. Anything else stays a 500.
+    // ("cannot" is matched case-SENSITIVELY on purpose: service messages use it
+    // mid-sentence, while JS TypeErrors start with capital "Cannot" and must
+    // remain 500s.)
+    let status = 500;
+    if (/segregation of duties/i.test(message) || /forbidden|not allowed/i.test(message)) {
+      status = 403;
+    } else if (/not found/i.test(message)) {
+      status = 404;
+    } else if (
+      /must be|is required|choose |at least one|already|no longer|over-receive|over receive|approved_for_payment|switched off|exceed|negative|fully paid/i.test(
+        message
+      ) ||
+      /cannot/.test(message)
+    ) {
+      status = 400;
+    }
+    return NextResponse.json({ error: message }, { status });
   }
 }

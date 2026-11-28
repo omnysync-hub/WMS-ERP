@@ -50,6 +50,7 @@ import {
 // stock movements. The components remain in the codebase, unused, until real
 // warehouse-level stock exists.
 import { realtimeSync } from "@/lib/realtimeSync";
+import { notify } from "@/lib/notify";
 import { useRole } from "@/contexts/RoleContext";
 import { useCompanyProfile } from "@/hooks/useCompanyProfile";
 
@@ -170,9 +171,26 @@ function generateServiceSku(prods: any[] = []) {
 
 export default function InventoryPurchasingPage() {
   const { profile } = useCompanyProfile();
-  const { currentRole, activeRole, currentPersona, activeUser } = useRole();
+  const { currentRole, activeRole, currentPersona, activeUser, hasPermission } = useRole();
   const currentActor = `${activeUser?.name || currentPersona?.name || "Warehouse Storekeeper"} (Storekeeper)`;
   const isStorekeeper = (activeRole || currentRole) === "storekeeper";
+
+  // Permission gates — these mirror INVENTORY_ACTION_PERMISSIONS in
+  // src/app/api/inventory/route.ts exactly, so the UI never offers an action
+  // the API would reject with 403. Read-only stock viewing stays available to
+  // inventory.view_stock holders.
+  const canRestock = hasPermission("inventory.restock");
+  const canCreateProduct = canRestock || hasPermission("inventory.stock_units");
+  const canEditProduct = canRestock || hasPermission("inventory.stock_units");
+  const canFulfillRequests =
+    hasPermission("inventory.storekeeper_queue") || hasPermission("jobs.issue_stock");
+  const canAcknowledgeReturns =
+    hasPermission("jobs.stock_return") || hasPermission("inventory.storekeeper_queue");
+  const canUseStorekeeperQueue = canFulfillRequests || canAcknowledgeReturns;
+  const canTransfer = hasPermission("inventory.branch_transfers");
+  const canAdjust = hasPermission("inventory.adjustments");
+  const canWorkshopConsume = hasPermission("inventory.workshop_consumption");
+  const canToolCrib = hasPermission("inventory.tool_crib");
 
   const [activeTab, setActiveTab] = useState<"stock" | "storekeeper" | "branches">("stock");
 
@@ -255,6 +273,15 @@ export default function InventoryPurchasingPage() {
   const [restockNotes, setRestockNotes] = useState("");
   // Accounts Linking: not every purchase is cash - pick Cash / Bank, or credit (Accounts Payable).
   const [restockPaidFrom, setRestockPaidFrom] = useState("");
+  // "Paid From" options are loaded from the live accounts data (cashbook view,
+  // falling back to the configured financial accounts) — never a frozen code
+  // list. apAccountOption is the mapped Accounts Payable account used for the
+  // "On credit" choice; mappingsKnown=false means the mappings view could not
+  // be read (e.g. no accounts.general_ledger), so the legacy AP code is kept.
+  const [paidFromAccounts, setPaidFromAccounts] = useState<{ code: string; name: string }[]>([]);
+  const [apAccountOption, setApAccountOption] = useState<{ code: string; name: string } | null>(null);
+  const [mappingsKnown, setMappingsKnown] = useState(false);
+  const [defaultPaidFromLabel, setDefaultPaidFromLabel] = useState("Default (mapped disbursing account)");
   const [isSubmittingStock, setIsSubmittingStock] = useState(false);
 
   // New Physical Product State
@@ -324,6 +351,89 @@ export default function InventoryPurchasingPage() {
   useEffect(() => {
     loadData();
   }, [activeTab]);
+
+  // Load the restock "Paid From" options from live accounts data:
+  // 1) the cashbook view's cashAccounts (the same list the Accounts module
+  //    uses — configured cash/bank accounts, 11105 clearing excluded);
+  // 2) fallback: the configured financial accounts from /api/accounting-config
+  //    (readable by any signed-in role);
+  // 3) last resort: the legacy codes, so the picker is never empty.
+  // The AP ("On credit") option and the default label come from the live
+  // account mappings (ap_control / stock_in_disbursing) when readable.
+  useEffect(() => {
+    (async () => {
+      let accounts: { code: string; name: string }[] = [];
+      try {
+        const res = await fetch("/api/accounts?view=cashbook");
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.cashAccounts)) {
+            accounts = data.cashAccounts
+              .filter((a: any) => a?.code)
+              .map((a: any) => ({ code: String(a.code), name: String(a.name || a.code) }));
+          }
+        }
+      } catch {
+        /* fall through to the next source */
+      }
+      if (accounts.length === 0) {
+        try {
+          const res = await fetch("/api/accounting-config");
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data.financialAccounts)) {
+              const seen = new Set<string>();
+              for (const fa of data.financialAccounts) {
+                const code = fa?.ledgerAccount?.code;
+                if (code && !seen.has(String(code))) {
+                  seen.add(String(code));
+                  accounts.push({ code: String(code), name: String(fa.ledgerAccount?.name || fa.name || code) });
+                }
+              }
+            }
+          }
+        } catch {
+          /* fall through to the legacy fallback */
+        }
+      }
+      if (accounts.length === 0) {
+        accounts = [
+          { code: "11101", name: "Cash on Hand / Main Drawer" },
+          { code: "11102", name: "Petty Cash" },
+          { code: "11103", name: "Operating Bank Account" },
+        ];
+      }
+      setPaidFromAccounts(accounts);
+
+      try {
+        const res = await fetch("/api/accounts?view=account_mappings");
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data.mappings) ? data.mappings : [];
+          setMappingsKnown(true);
+          const ap = list.find((m: any) => m.transactionType === "ap_control" && m.accountCode);
+          if (ap) setApAccountOption({ code: String(ap.accountCode), name: String(ap.accountName || "Accounts Payable") });
+          const def = list.find((m: any) => m.transactionType === "stock_in_disbursing" && m.accountCode);
+          if (def) setDefaultPaidFromLabel(`Default (mapped: ${def.accountName} ${def.accountCode})`);
+        }
+      } catch {
+        /* mappings unreadable for this role — legacy AP option stays */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If the selected movement sub-tab is one this role may not use, fall back
+  // to the read-only branch stock view.
+  useEffect(() => {
+    const allowed =
+      activeMovementSubTab === "stock" ||
+      (activeMovementSubTab === "transfer" && canTransfer) ||
+      (activeMovementSubTab === "adjustment" && canAdjust) ||
+      (activeMovementSubTab === "workshop" && canWorkshopConsume) ||
+      (activeMovementSubTab === "equipment" && canToolCrib);
+    if (!allowed) setActiveMovementSubTab("stock");
+  }, [activeMovementSubTab, canTransfer, canAdjust, canWorkshopConsume, canToolCrib]);
 
   // Synchronize stock units from Settings (workman_stock_units)
   useEffect(() => {
@@ -421,6 +531,7 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error);
       }
       setNotification("Stock return physically inspected and acknowledged. Warehouse inventory restored.");
+      notify.success("Stock return physically inspected and acknowledged. Warehouse inventory restored.");
       loadData();
 
       // Publish Real-time Sync Event
@@ -430,7 +541,7 @@ export default function InventoryPurchasingPage() {
         payload: { returnId },
       });
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
@@ -455,6 +566,7 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error);
       }
       setNotification("Inventory issued to technician. Stock deducted and COGS posted.");
+      notify.success("Inventory issued to technician. Stock deducted and COGS posted.");
       loadData();
 
       // Publish Real-time Sync Event
@@ -464,7 +576,7 @@ export default function InventoryPurchasingPage() {
         payload: { requestId, productId: prod.id, quantity: qty },
       });
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
@@ -495,10 +607,11 @@ export default function InventoryPurchasingPage() {
       }
       setShowAddStockModal(false);
       setNotification("Stock added successfully! Warehouse inventory and financial ledgers updated.");
+      notify.success("Stock added successfully! Warehouse inventory and financial ledgers updated.");
       setRestockNotes("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingStock(false);
     }
@@ -519,7 +632,7 @@ export default function InventoryPurchasingPage() {
         try {
           effectiveUnit = await ensureStockUnit(customUnitInput);
         } catch (unitErr: any) {
-          alert(`The new unit '${customUnitInput.trim()}' could not be saved to the Units list, so the product was not created.\n\n${unitErr?.message || "Please try again."}`);
+          notify.error(`The new unit '${customUnitInput.trim()}' could not be saved to the Units list, so the product was not created.\n\n${unitErr?.message || "Please try again."}`);
           return;
         }
       }
@@ -545,6 +658,7 @@ export default function InventoryPurchasingPage() {
       }
       setShowAddStockModal(false);
       setNotification(`Product "${newProductName}" (${newProductSku}) created with ${newProductQty} initial ${effectiveUnit}.`);
+      notify.success(`Product "${newProductName}" (${newProductSku}) created with ${newProductQty} initial ${effectiveUnit}.`);
       setNewProductSku("");
       setNewProductName("");
       setNewProductCost("");
@@ -553,7 +667,7 @@ export default function InventoryPurchasingPage() {
       setCustomUnitInput("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingStock(false);
     }
@@ -588,6 +702,7 @@ export default function InventoryPurchasingPage() {
       }
       setShowAddStockModal(false);
       setNotification(`Predefined Service "${newServiceName}" (${newServiceSku}) added to catalog!`);
+      notify.success(`Predefined Service "${newServiceName}" (${newServiceSku}) added to catalog!`);
       const nextSku = generateServiceSku([...products, { sku: newServiceSku }]);
       setNewServiceSku(nextSku);
       setNewServiceName("");
@@ -595,7 +710,7 @@ export default function InventoryPurchasingPage() {
       setNewServiceNotes("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingStock(false);
     }
@@ -624,10 +739,11 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error);
       }
       setNotification(`Updated details for "${editingProduct.name}" successfully.`);
+      notify.success(`Updated details for "${editingProduct.name}" successfully.`);
       setEditingProduct(null);
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsUpdatingProduct(false);
     }
@@ -770,7 +886,7 @@ export default function InventoryPurchasingPage() {
   const handleSaveBranch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!branchFormName.trim() || !branchFormCity.trim()) {
-      return alert("Branch name and city/region are required.");
+      return notify.warning("Branch name and city/region are required.");
     }
     const parsedLocations = branchFormLocations
       .split(/[,|\n]/)
@@ -797,6 +913,7 @@ export default function InventoryPurchasingPage() {
       saveBranches(updated);
       setSelectedBranch(branchFormName.trim());
       setNotification(`Warehouse branch "${branchFormName.trim()}" updated successfully.`);
+      notify.success(`Warehouse branch "${branchFormName.trim()}" updated successfully.`);
     } else {
       const newBranch: WarehouseBranch = {
         id: `branch-${Date.now()}`,
@@ -817,6 +934,7 @@ export default function InventoryPurchasingPage() {
       saveBranches(updated);
       setSelectedBranch(newBranch.name);
       setNotification(`New warehouse branch "${newBranch.name}" created successfully.`);
+      notify.success(`New warehouse branch "${newBranch.name}" created successfully.`);
     }
     setShowBranchModal(false);
   };
@@ -825,7 +943,7 @@ export default function InventoryPurchasingPage() {
     const target = branches.find((b) => b.id === branchId);
     if (!target) return;
     if (target.isCentral) {
-      return alert("The Central Distribution Hub cannot be deleted.");
+      return notify.warning("The Central Distribution Hub cannot be deleted.");
     }
     if (!confirm(`Are you sure you want to delete "${target.name}"? Stock assignments will be cleared.`)) {
       return;
@@ -836,11 +954,12 @@ export default function InventoryPurchasingPage() {
       setSelectedBranch(updated[0]?.name || "Central Warehouse (Lahore Hub)");
     }
     setNotification(`Branch "${target.name}" deleted.`);
+    notify.success(`Branch "${target.name}" deleted.`);
   };
 
   const handleAddLocationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLocationName.trim()) return alert("Location or Bin name is required");
+    if (!newLocationName.trim()) return notify.warning("Location or Bin name is required");
     const targetName = newLocationTargetBranch || currentBranch.name;
     const updated = branches.map((b) => {
       if (b.name === targetName) {
@@ -855,6 +974,7 @@ export default function InventoryPurchasingPage() {
     });
     saveBranches(updated);
     setNotification(`Storage location "${newLocationName.trim()}" added to ${targetName}.`);
+    notify.success(`Storage location "${newLocationName.trim()}" added to ${targetName}.`);
     setNewLocationName("");
     setShowAddLocationModal(false);
   };
@@ -882,8 +1002,8 @@ export default function InventoryPurchasingPage() {
 
   const handleBranchTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferProductId) return alert("Please select a product");
-    if (transferFromBranch === transferToBranch) return alert("Source and destination branch cannot be the same");
+    if (!transferProductId) return notify.warning("Please select a product");
+    if (transferFromBranch === transferToBranch) return notify.warning("Source and destination branch cannot be the same");
     setIsSubmittingMovement(true);
     try {
       const res = await fetch("/api/inventory", {
@@ -933,10 +1053,11 @@ export default function InventoryPurchasingPage() {
       saveBranches(updated);
 
       setNotification(`Stock transfer dispatched successfully from ${transferFromBranch} to ${transferToBranch}`);
+      notify.success(`Stock transfer dispatched successfully from ${transferFromBranch} to ${transferToBranch}`);
       setTransferNotes("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingMovement(false);
     }
@@ -944,7 +1065,7 @@ export default function InventoryPurchasingPage() {
 
   const handleStockAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adjustProductId) return alert("Please select a product");
+    if (!adjustProductId) return notify.warning("Please select a product");
     setIsSubmittingMovement(true);
     try {
       const res = await fetch("/api/inventory", {
@@ -964,10 +1085,11 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error || "Failed to record adjustment");
       }
       setNotification(`Stock audit adjustment recorded (${adjustType === "increase" ? "+" : "-"}${adjustQty})`);
+      notify.success(`Stock audit adjustment recorded (${adjustType === "increase" ? "+" : "-"}${adjustQty})`);
       setAdjustNotes("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingMovement(false);
     }
@@ -975,7 +1097,7 @@ export default function InventoryPurchasingPage() {
 
   const handleWorkshopConsumption = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!workshopProductId) return alert("Please select a product");
+    if (!workshopProductId) return notify.warning("Please select a product");
     setIsSubmittingMovement(true);
     try {
       const res = await fetch("/api/inventory", {
@@ -995,10 +1117,11 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error || "Failed to log workshop consumption");
       }
       setNotification("Workshop internal consumption recorded and stock updated.");
+      notify.success("Workshop internal consumption recorded and stock updated.");
       setWorkshopNotes("");
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingMovement(false);
     }
@@ -1006,7 +1129,7 @@ export default function InventoryPurchasingPage() {
 
   const handleCheckoutEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAssetForCheckout || !checkoutEmployeeId) return alert("Please select equipment and technician");
+    if (!selectedAssetForCheckout || !checkoutEmployeeId) return notify.warning("Please select equipment and technician");
     setIsSubmittingMovement(true);
     try {
       const res = await fetch("/api/inventory", {
@@ -1025,10 +1148,11 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error || "Failed to checkout equipment");
       }
       setNotification(`Equipment '${selectedAssetForCheckout.name}' checked out to technician`);
+      notify.success(`Equipment '${selectedAssetForCheckout.name}' checked out to technician`);
       setSelectedAssetForCheckout(null);
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmittingMovement(false);
     }
@@ -1054,14 +1178,20 @@ export default function InventoryPurchasingPage() {
         throw new Error(err.error || "Failed to return equipment");
       }
       setNotification(`Equipment '${asset.name}' returned to tool crib storage.`);
+      notify.success(`Equipment '${asset.name}' returned to tool crib storage.`);
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     }
   };
 
   const tabs: Array<{ id: string; label: string; icon: React.ReactNode; badge?: string; count?: number }> = [
     { id: "stock", label: "Stock Levels", icon: <Package className="w-3.5 h-3.5" />, badge: lowStockCount > 0 ? `${lowStockCount} Low` : undefined },
+    // The Storekeeper Queue tab is only offered to roles holding one of the
+    // queue action keys (its section below is gated the same way).
+    ...(canUseStorekeeperQueue
+      ? [{ id: "storekeeper", label: "Storekeeper Queue", icon: <ClipboardList className="w-3.5 h-3.5" />, count: pendingStorekeeperCount }]
+      : []),
     { id: "branches", label: "Branches & Movements", icon: <Building className="w-3.5 h-3.5" /> },
   ];
 
@@ -1074,44 +1204,50 @@ export default function InventoryPurchasingPage() {
         subtitle="Comprehensive inventory levels, parts tracking, on-job field allocations, and multi-branch movements"
         actions={
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setStockModalTab("new_service");
-                setNewServiceSku(generateServiceSku(products));
-                setShowAddStockModal(true);
-              }}
-              className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              + Add Service
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStockModalTab("new_product");
-                setShowAddStockModal(true);
-              }}
-              className="h-8 px-3 rounded-lg border border-[#D4D4D8] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
-            >
-              <Package className="w-3.5 h-3.5 text-[#71717A]" />
-              New Material
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (products.length > 0 && !restockProductId) {
-                  setRestockProductId(products[0].id);
-                  setRestockUnitCost(String(products[0].costPrice || ""));
-                }
-                setStockModalTab("restock");
-                setShowAddStockModal(true);
-              }}
-              className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              + Restock Item
-            </button>
+            {canCreateProduct && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStockModalTab("new_service");
+                  setNewServiceSku(generateServiceSku(products));
+                  setShowAddStockModal(true);
+                }}
+                className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                + Add Service
+              </button>
+            )}
+            {canCreateProduct && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStockModalTab("new_product");
+                  setShowAddStockModal(true);
+                }}
+                className="h-8 px-3 rounded-lg border border-[#D4D4D8] hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none"
+              >
+                <Package className="w-3.5 h-3.5 text-[#71717A]" />
+                New Material
+              </button>
+            )}
+            {canRestock && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (products.length > 0 && !restockProductId) {
+                    setRestockProductId(products[0].id);
+                    setRestockUnitCost(String(products[0].costPrice || ""));
+                  }
+                  setStockModalTab("restock");
+                  setShowAddStockModal(true);
+                }}
+                className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                + Restock Item
+              </button>
+            )}
           </div>
         }
       />
@@ -1570,7 +1706,7 @@ export default function InventoryPurchasingPage() {
                             <div className="flex items-center justify-end gap-1.5">
                               {isService ? (
                                 <>
-                                  {!isStorekeeper && (
+                                  {!isStorekeeper && canEditProduct && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1598,7 +1734,7 @@ export default function InventoryPurchasingPage() {
                                 </>
                               ) : (
                                 <>
-                                  {!isStorekeeper && (
+                                  {!isStorekeeper && canEditProduct && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1614,20 +1750,22 @@ export default function InventoryPurchasingPage() {
                                       Edit
                                     </button>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setRestockProductId(p.id);
-                                      setRestockUnitCost(String(p.costPrice || ""));
-                                      setStockModalTab("restock");
-                                      setShowAddStockModal(true);
-                                    }}
-                                    className="h-7 px-2.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1 transition shadow-xs cursor-pointer focus-visible:outline-none"
-                                    title="Inward / Restock item"
-                                  >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    Restock
-                                  </button>
+                                  {canRestock && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setRestockProductId(p.id);
+                                        setRestockUnitCost(String(p.costPrice || ""));
+                                        setStockModalTab("restock");
+                                        setShowAddStockModal(true);
+                                      }}
+                                      className="h-7 px-2.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1 transition shadow-xs cursor-pointer focus-visible:outline-none"
+                                      title="Inward / Restock item"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      Restock
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => handleViewTimeline(p.id)}
@@ -1821,7 +1959,7 @@ export default function InventoryPurchasingPage() {
       )}
 
       {/* TAB 2: STOREKEEPER QUEUE */}
-      {activeTab === "storekeeper" && (
+      {activeTab === "storekeeper" && canUseStorekeeperQueue && (
         <div className="space-y-6">
           {/* Pending Technician Requests */}
           <div className="bg-white rounded-xl border border-[#E4E4E7] shadow-xs overflow-hidden">
@@ -1858,14 +1996,18 @@ export default function InventoryPurchasingPage() {
                         <td className="py-3 px-4 text-center"><StatusBadge status={req.status} /></td>
                         <td className="py-3 px-4 text-right">
                           {req.status === "Pending" ? (
-                            <button
-                              type="button"
-                              onClick={() => handleFulfillRequest(req.id, req.item, req.qtyRequested)}
-                              className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                            >
-                              <Package className="w-3.5 h-3.5" />
-                              Issue & Deduct Stock
-                            </button>
+                            canFulfillRequests ? (
+                              <button
+                                type="button"
+                                onClick={() => handleFulfillRequest(req.id, req.item, req.qtyRequested)}
+                                className="h-8 px-3 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                              >
+                                <Package className="w-3.5 h-3.5" />
+                                Issue & Deduct Stock
+                              </button>
+                            ) : (
+                              <span className="text-xs text-[#71717A] font-medium">Awaiting storekeeper</span>
+                            )
                           ) : (
                             <span className="text-xs text-emerald-700 font-semibold">✓ Issued</span>
                           )}
@@ -1913,14 +2055,18 @@ export default function InventoryPurchasingPage() {
                         <td className="py-3 px-4 text-center"><StatusBadge status={ret.status} /></td>
                         <td className="py-3 px-4 text-right">
                           {ret.status === "Pending" ? (
-                            <button
-                              type="button"
-                              onClick={() => handleAcknowledgeReturn(ret.id)}
-                              className="h-8 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              Acknowledge & Restock
-                            </button>
+                            canAcknowledgeReturns ? (
+                              <button
+                                type="button"
+                                onClick={() => handleAcknowledgeReturn(ret.id)}
+                                className="h-8 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D7A5F]"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                Acknowledge & Restock
+                              </button>
+                            ) : (
+                              <span className="text-xs text-[#71717A] font-medium">Awaiting storekeeper</span>
+                            )
                           ) : (
                             <span className="text-xs text-emerald-700 font-semibold">✓ Restocked</span>
                           )}
@@ -2168,6 +2314,7 @@ export default function InventoryPurchasingPage() {
                 <span>Stock & Inventory — Total ({physicalProducts.length})</span>
               </button>
 
+              {canTransfer && (
               <button
                 type="button"
                 onClick={() => setActiveMovementSubTab("transfer")}
@@ -2180,7 +2327,9 @@ export default function InventoryPurchasingPage() {
                 <ArrowRightLeft className="w-3.5 h-3.5" />
                 <span>Inter-Branch Stock Transfer</span>
               </button>
+              )}
 
+              {canAdjust && (
               <button
                 type="button"
                 onClick={() => setActiveMovementSubTab("adjustment")}
@@ -2193,7 +2342,9 @@ export default function InventoryPurchasingPage() {
                 <Scale className="w-3.5 h-3.5" />
                 <span>Discrepancy Adjustments (+/-)</span>
               </button>
+              )}
 
+              {canWorkshopConsume && (
               <button
                 type="button"
                 onClick={() => setActiveMovementSubTab("workshop")}
@@ -2206,7 +2357,9 @@ export default function InventoryPurchasingPage() {
                 <Wrench className="w-3.5 h-3.5" />
                 <span>Internal Workshop Consumption</span>
               </button>
+              )}
 
+              {canToolCrib && (
               <button
                 type="button"
                 onClick={() => setActiveMovementSubTab("equipment")}
@@ -2219,6 +2372,7 @@ export default function InventoryPurchasingPage() {
                 <Package className="w-3.5 h-3.5" />
                 <span>Heavy Equipment & Vacuum Pump Tool-Crib ({equipmentList.length})</span>
               </button>
+              )}
             </div>
 
             {/* SUB-VIEW 0: BRANCH STOCK INVENTORY */}
@@ -2403,7 +2557,7 @@ export default function InventoryPurchasingPage() {
             )}
 
             {/* SUB-VIEW 1: INTER-BRANCH STOCK TRANSFER */}
-            {activeMovementSubTab === "transfer" && (
+            {activeMovementSubTab === "transfer" && canTransfer && (
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <form onSubmit={handleBranchTransfer} className="lg:col-span-1 space-y-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#18181B] pb-2 border-b border-slate-200">
@@ -2553,7 +2707,7 @@ export default function InventoryPurchasingPage() {
             )}
 
             {/* SUB-VIEW 2: DISCREPANCY ADJUSTMENTS */}
-            {activeMovementSubTab === "adjustment" && (
+            {activeMovementSubTab === "adjustment" && canAdjust && (
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <form onSubmit={handleStockAdjustment} className="lg:col-span-1 space-y-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#18181B] pb-2 border-b border-slate-200">
@@ -2691,7 +2845,7 @@ export default function InventoryPurchasingPage() {
             )}
 
             {/* SUB-VIEW 3: WORKSHOP CONSUMPTION */}
-            {activeMovementSubTab === "workshop" && (
+            {activeMovementSubTab === "workshop" && canWorkshopConsume && (
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <form onSubmit={handleWorkshopConsumption} className="lg:col-span-1 space-y-4 p-4 rounded-xl border border-slate-200 bg-slate-50/50">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#18181B] pb-2 border-b border-slate-200">
@@ -2814,7 +2968,7 @@ export default function InventoryPurchasingPage() {
             )}
 
             {/* SUB-VIEW 4: HEAVY EQUIPMENT & VACUUM PUMP TOOL-CRIB */}
-            {activeMovementSubTab === "equipment" && (
+            {activeMovementSubTab === "equipment" && canToolCrib && (
               <div className="p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E4E4E7]">
                   <div>
@@ -2883,25 +3037,27 @@ export default function InventoryPurchasingPage() {
                           )}
                         </div>
 
-                        <div className="pt-4 mt-3 border-t border-[#E4E4E7] flex items-center justify-end gap-2">
-                          {isAssigned ? (
-                            <button
-                              type="button"
-                              onClick={() => handleReturnEquipment(asset)}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Return to Tool-Crib
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedAssetForCheckout(asset)}
-                              className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
-                            >
-                              <Package className="w-3.5 h-3.5" /> Check Out to Tech
-                            </button>
-                          )}
-                        </div>
+                        {canToolCrib && (
+                          <div className="pt-4 mt-3 border-t border-[#E4E4E7] flex items-center justify-end gap-2">
+                            {isAssigned ? (
+                              <button
+                                type="button"
+                                onClick={() => handleReturnEquipment(asset)}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Return to Tool-Crib
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAssetForCheckout(asset)}
+                                className="px-3 py-1.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                              >
+                                <Package className="w-3.5 h-3.5" /> Check Out to Tech
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -3038,6 +3194,7 @@ export default function InventoryPurchasingPage() {
 
             {/* Sub-tab Navigation */}
             <div className="flex border-b border-[#E4E4E7] px-6 bg-white overflow-x-auto shrink-0">
+              {canRestock && (
               <button
                 type="button"
                 onClick={() => setStockModalTab("restock")}
@@ -3049,6 +3206,8 @@ export default function InventoryPurchasingPage() {
               >
                 Restock Item
               </button>
+              )}
+              {canCreateProduct && (
               <button
                 type="button"
                 onClick={() => setStockModalTab("new_product")}
@@ -3061,6 +3220,8 @@ export default function InventoryPurchasingPage() {
                 <Package className="w-3.5 h-3.5" />
                 + New Material
               </button>
+              )}
+              {canCreateProduct && (
               <button
                 type="button"
                 onClick={() => {
@@ -3078,13 +3239,14 @@ export default function InventoryPurchasingPage() {
                 <Wrench className="w-3.5 h-3.5" />
                 + Predefined Service
               </button>
+              )}
             </div>
 
             {/* Drawer Scrollable Body */}
             <div className="flex-1 overflow-y-auto">
 
             {/* TAB 1: RESTOCK EXISTING ITEM */}
-            {stockModalTab === "restock" && (
+            {stockModalTab === "restock" && canRestock && (
               <form onSubmit={handleRestockSubmit} className="p-5 space-y-4">
                 <div>
                   <label className="text-xs font-semibold text-[#18181B] block mb-1">
@@ -3170,11 +3332,21 @@ export default function InventoryPurchasingPage() {
                     onChange={(e) => setRestockPaidFrom(e.target.value)}
                     className="w-full bg-[#FAFAFA] p-2 rounded-lg text-xs border border-[#D4D4D8] focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none text-[#18181B]"
                   >
-                    <option value="">Default (mapped: Cash on Hand 11101)</option>
-                    <option value="11101">11101 — Cash on Hand / Main Drawer</option>
-                    <option value="11102">11102 — Petty Cash</option>
-                    <option value="11103">11103 — Operating Bank Account</option>
-                    <option value="21101">21101 — On credit (Accounts Payable)</option>
+                    <option value="">{defaultPaidFromLabel}</option>
+                    {paidFromAccounts.map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.code} — {a.name}
+                      </option>
+                    ))}
+                    {mappingsKnown ? (
+                      apAccountOption && (
+                        <option value={apAccountOption.code}>
+                          {apAccountOption.code} — On credit ({apAccountOption.name})
+                        </option>
+                      )
+                    ) : (
+                      <option value="21101">21101 — On credit (Accounts Payable)</option>
+                    )}
                   </select>
                 </div>
 
@@ -3246,7 +3418,7 @@ export default function InventoryPurchasingPage() {
 
 
             {/* TAB 3: CREATE NEW PRODUCT */}
-            {stockModalTab === "new_product" && (
+            {stockModalTab === "new_product" && canCreateProduct && (
               <form onSubmit={handleCreateProductSubmit} className="p-5 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -3401,7 +3573,7 @@ export default function InventoryPurchasingPage() {
             )}
 
             {/* TAB 4: CREATE PREDEFINED SERVICE */}
-            {stockModalTab === "new_service" && (
+            {stockModalTab === "new_service" && canCreateProduct && (
               <form onSubmit={handleCreateServiceSubmit} className="p-5 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>

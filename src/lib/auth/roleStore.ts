@@ -75,7 +75,7 @@ function defaultMap(roleKey: string): Record<string, boolean> {
 
 // Short cache so middleware does not hit the DB for the role row on every request.
 // Writes through this module clear it; other server instances pick up edits within CACHE_MS.
-const CACHE_MS = 5000;
+const CACHE_MS = 60000;
 const cache = new Map<string, { at: number; row: StoredRole | null }>();
 
 export function invalidateRoleCache() {

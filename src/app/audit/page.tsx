@@ -387,6 +387,57 @@ export default function AuditHubPage() {
   const [rollbackEntityFilter, setRollbackEntityFilter] = useState("ALL");
   const [rollbackStatusFilter, setRollbackStatusFilter] = useState("ALL");
 
+  // Actor id → display name resolution. Some audit rows were recorded with
+  // the actor's raw user/employee UUID in actorName; resolve those against
+  // the users and employees directories (read-only) so the table shows
+  // names instead of UUIDs. Unresolvable ids fall back to a shortened form.
+  const [actorNameById, setActorNameById] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const map: Record<string, string> = {};
+      try {
+        const res = await fetch("/api/users");
+        const data = await res.json().catch(() => ({}));
+        if (Array.isArray(data?.users)) {
+          for (const u of data.users) {
+            if (u?.id && u?.name) map[u.id] = u.name;
+          }
+        }
+      } catch {
+        // Directory unavailable for this role — ids stay shortened.
+      }
+      try {
+        const res = await fetch("/api/hrm/employees");
+        const data = await res.json().catch(() => ({}));
+        if (Array.isArray(data?.employees)) {
+          for (const e of data.employees) {
+            if (e?.id && e?.name && !map[e.id]) map[e.id] = e.name;
+          }
+        }
+      } catch {
+        // Directory unavailable for this role — ids stay shortened.
+      }
+      if (!cancelled) setActorNameById(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const displayActorName = useCallback(
+    (raw: string | null | undefined): string => {
+      const value = (raw || "").trim();
+      if (!value) return "System";
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (UUID_RE.test(value)) {
+        return actorNameById[value] || `${value.slice(0, 8)}…`;
+      }
+      return value;
+    },
+    [actorNameById]
+  );
+
   // Selected item for Diff / Rollback Modal
   const [selectedRollback, setSelectedRollback] = useState<RollbackRecord | null>(null);
   const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
@@ -475,7 +526,7 @@ export default function AuditHubPage() {
     const rows = rollbacks
       .map(
         (r) =>
-          `"${r.id}","${r.timestamp}","${r.entityType}","${r.entityNumber}","${r.action}","${r.actorName}","${r.actorRole}","${r.status}"`
+          `"${r.id}","${r.timestamp}","${r.entityType}","${r.entityNumber}","${r.action}","${displayActorName(r.actorName)}","${r.actorRole}","${r.status}"`
       )
       .join("\n");
     const blob = new Blob([headers + rows], { type: "text/csv" });
@@ -748,11 +799,11 @@ export default function AuditHubPage() {
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             <div className="flex items-center gap-2">
                               <div className="w-6 h-6 rounded-md bg-[#27272A] text-white flex items-center justify-center font-bold text-[10px]">
-                                {item.actorName.slice(0, 2).toUpperCase()}
+                                {displayActorName(item.actorName).slice(0, 2).toUpperCase()}
                               </div>
                               <div>
                                 <p className="text-xs font-semibold text-[#18181B] leading-none">
-                                  {item.actorName}
+                                  {displayActorName(item.actorName)}
                                 </p>
                                 <p className="text-[10px] text-[#71717A] mt-0.5 leading-none">
                                   {item.actorRole}
@@ -893,7 +944,7 @@ export default function AuditHubPage() {
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[#71717A]">Logged By</span>
                   <p className="font-semibold text-[#18181B] mt-0.5 text-xs">
-                    {selectedRollback.actorName} ({selectedRollback.actorRole})
+                    {displayActorName(selectedRollback.actorName)} ({selectedRollback.actorRole})
                   </p>
                 </div>
                 <div>

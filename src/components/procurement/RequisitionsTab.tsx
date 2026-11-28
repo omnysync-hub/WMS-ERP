@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import React, { useState, useEffect } from "react";
 import {
   FileText,
@@ -269,7 +271,7 @@ export default function RequisitionsTab({
   };
 
   const handleCreatePr = async (e: React.FormEvent) => {
-    if (!canCreatePr) { alert("Missing permission: procurement.pr.create"); return; }
+    if (!canCreatePr) { notify.warning("Missing permission: procurement.pr.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (items.some((i) => !i.description.trim() && !i.productId)) {
       setFormError("Please provide description or select product for all items.");
@@ -472,7 +474,7 @@ export default function RequisitionsTab({
   };
 
   const handleGeneratePoSubmit = async (e: React.FormEvent) => {
-    if (!canCreatePo) { alert("Missing permission: procurement.po.create"); return; }
+    if (!canCreatePo) { notify.warning("Missing permission: procurement.po.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (prsToConvert.length === 0 || !convertVendorId) return;
 
@@ -513,7 +515,7 @@ export default function RequisitionsTab({
       onRefresh();
       if (onNavigateToPo) onNavigateToPo();
     } catch (err: any) {
-      alert(err.message || "Error generating Purchase Order");
+      notify.error(err.message || "Error generating Purchase Order");
     } finally {
       setIsSubmitting(false);
     }

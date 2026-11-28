@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ChevronDown,
@@ -64,11 +64,36 @@ export default function PageHeader({
 }: PageHeaderProps) {
   const [isViewDropdownOpen, setIsViewDropdownOpen] = useState(false);
   const [isKebabOpen, setIsKebabOpen] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  // Close header menus on outside click or Escape (replaces the fixed
+  // overlay, which could leave menus stuck open and swallowing clicks).
+  useEffect(() => {
+    if (!isViewDropdownOpen && !isKebabOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
+        setIsViewDropdownOpen(false);
+        setIsKebabOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsViewDropdownOpen(false);
+        setIsKebabOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isViewDropdownOpen, isKebabOpen]);
 
   const displayTitle = title || currentView || moduleName || "Dashboard";
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-[#EDEDED]">
+    <div ref={headerRef} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-[#EDEDED]">
       {/* Breadcrumb / Title with Dropdown Caret */}
       <div className="relative">
         {breadcrumbs && breadcrumbs.length > 0 ? (
@@ -125,10 +150,6 @@ export default function PageHeader({
         {/* View Variants Dropdown Menu */}
         {isViewDropdownOpen && viewVariants && (
           <>
-            <div
-              className="fixed inset-0 z-20"
-              onClick={() => setIsViewDropdownOpen(false)}
-            />
             <div className="absolute left-0 top-full mt-1.5 w-60 bg-white rounded-xl shadow-xl border border-[#EDEDED] py-1.5 z-30 animate-in fade-in zoom-in-95 duration-150">
               <div className="px-3 py-1 text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
                 Saved Views
@@ -248,10 +269,6 @@ export default function PageHeader({
 
             {isKebabOpen && (
               <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setIsKebabOpen(false)}
-                />
                 <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-48 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
                   <button
                     onClick={() => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import React, { useState, useEffect } from "react";
 import {
   CreditCard,
@@ -140,7 +142,7 @@ export default function PaymentsTab({
   };
 
   const handleRecordPayment = async (e: React.FormEvent) => {
-    if (!canRecordPayment) { alert("Missing permission: procurement.payment.record"); return; }
+    if (!canRecordPayment) { notify.warning("Missing permission: procurement.payment.record", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (!selectedInvoice) return;
 
@@ -175,7 +177,7 @@ export default function PaymentsTab({
         throw new Error(err.error || "Failed to disburse payment");
       }
 
-      alert("Vendor payment successfully recorded! Accounts Payable cleared and posted to General Ledger.");
+      notify.success("Vendor payment successfully recorded! Accounts Payable cleared and posted to General Ledger.");
       setShowPayModal(false);
       onRefresh();
     } catch (err: any) {

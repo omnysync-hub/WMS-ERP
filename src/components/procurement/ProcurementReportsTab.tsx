@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   BarChart3,
   FileText,
@@ -39,6 +39,30 @@ export default function ProcurementReportsTab({
     | "grn_pending_invoice"
     | "vendor_spend"
   >("pending_prs");
+
+  // GR/IR clearing account code, resolved live from the account mappings
+  // (grn_receipt_clearing). Falls back to a generic label when the mappings
+  // endpoint is not available to this role.
+  const [grIrAccountCode, setGrIrAccountCode] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/accounts?view=account_mappings");
+        const data = await res.json();
+        if (cancelled || !data?.success || !Array.isArray(data.mappings)) return;
+        const clearing = data.mappings.find(
+          (m: any) => m.transactionType === "grn_receipt_clearing"
+        );
+        if (clearing?.accountCode) setGrIrAccountCode(clearing.accountCode);
+      } catch {
+        // Keep the generic label.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const reportTabs = [
     { id: "pending_prs", label: "a. Pending Requisitions", count: reportsData.pendingRequisitions.length, icon: FileText },
@@ -406,7 +430,9 @@ export default function ProcurementReportsTab({
                         </span>
                       </td>
                       <td className="py-2.5 px-3.5 font-mono text-[10px] text-amber-700">
-                        Credit held in Account 2050 (GR/IR)
+                        {grIrAccountCode
+                          ? `Credit held in Account ${grIrAccountCode} (GR/IR)`
+                          : "Credit held in GR/IR clearing account"}
                       </td>
                     </tr>
                   ))

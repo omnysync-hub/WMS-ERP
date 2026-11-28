@@ -103,6 +103,35 @@ export default function DataTable<T extends Record<string, any>>({
   const [chipSearchQuery, setChipSearchQuery] = useState("");
   const [isViewSelectorOpen, setIsViewSelectorOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const toolbarRef = React.useRef<HTMLDivElement>(null);
+
+  // Close any open toolbar dropdown on outside click or Escape.
+  // (Replaces the old fixed-overlay approach, which could swallow clicks
+  // and left menus stuck open when the overlay missed the event.)
+  const anyDropdownOpen = activeChipDropdown !== null || isViewSelectorOpen || isColumnConfigOpen;
+  React.useEffect(() => {
+    if (!anyDropdownOpen) return;
+    const closeAll = () => {
+      setActiveChipDropdown(null);
+      setChipSearchQuery("");
+      setIsViewSelectorOpen(false);
+      setIsColumnConfigOpen(false);
+    };
+    const handlePointerDown = (e: PointerEvent) => {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+        closeAll();
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAll();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [anyDropdownOpen]);
 
   // Pagination & Sorting State
   const [currentPage, setCurrentPage] = useState(1);
@@ -227,7 +256,7 @@ export default function DataTable<T extends Record<string, any>>({
       )}
 
       {/* 2. Filter Bar with Individual Chips & Table Top-Right Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 py-1">
+      <div ref={toolbarRef} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 py-1">
         {/* Left: Search + Individual Filter Chips */}
         <div className="flex items-center gap-2 flex-wrap flex-1">
           {/* Search Input */}
@@ -283,13 +312,6 @@ export default function DataTable<T extends Record<string, any>>({
 
                 {isOpen && (
                   <>
-                    <div
-                      className="fixed inset-0 z-30"
-                      onClick={() => {
-                        setActiveChipDropdown(null);
-                        setChipSearchQuery("");
-                      }}
-                    />
                     <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-60 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95 flex flex-col">
                       <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold text-[#71717A] uppercase tracking-wider border-b border-[#F4F4F5] mb-1">
                         <span>Filter: {chip.label}</span>
@@ -409,10 +431,6 @@ export default function DataTable<T extends Record<string, any>>({
 
             {isViewSelectorOpen && (
               <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setIsViewSelectorOpen(false)}
-                />
                 <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-48 py-1.5 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
                   <div className="px-3 py-1 text-[10px] font-bold text-[#71717A] uppercase tracking-wider">
                     View Modes
@@ -511,10 +529,6 @@ export default function DataTable<T extends Record<string, any>>({
 
             {isColumnConfigOpen && (
               <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setIsColumnConfigOpen(false)}
-                />
                 <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-[#EDEDED] rounded-xl shadow-xl w-56 p-2 text-xs text-[#18181B] animate-in fade-in zoom-in-95">
                   <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#71717A] border-b border-[#EDEDED] mb-1">
                     Toggle Table Columns

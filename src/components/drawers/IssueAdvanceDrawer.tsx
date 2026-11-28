@@ -34,7 +34,10 @@ export default function IssueAdvanceDrawer({
   const [employeeId, setEmployeeId] = useState("");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
-  const [disbursingAccount, setDisbursingAccount] = useState<"11101" | "11103">("11101");
+  const [disbursingAccount, setDisbursingAccount] = useState<string>("11101");
+  const [cashBankAccounts, setCashBankAccounts] = useState<
+    Array<{ code: string; name: string; isDefault?: boolean }>
+  >([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -50,6 +53,56 @@ export default function IssueAdvanceDrawer({
       }
     }
   }, [isOpen, defaultEmployeeId, employees]);
+
+  // Disbursing accounts come from the configured cash/bank accounts
+  // (/api/accounting-config financialAccounts — readable by any signed-in
+  // role), falling back to the accounts cashbook view for ledger viewers.
+  useEffect(() => {
+    if (!isOpen || cashBankAccounts.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      let list: Array<{ code: string; name: string; isDefault?: boolean }> = [];
+      try {
+        const res = await fetch("/api/accounting-config");
+        if (res.ok) {
+          const data = await res.json();
+          list = (data.financialAccounts || [])
+            .filter((fa: any) => fa.isActive !== false && fa.ledgerAccount?.code)
+            .map((fa: any) => ({
+              code: fa.ledgerAccount.code,
+              name: fa.name || fa.ledgerAccount.name,
+              isDefault: Boolean(fa.isDefault),
+            }));
+        }
+      } catch {
+        // fall through to the cashbook view
+      }
+      if (list.length === 0) {
+        try {
+          const res = await fetch("/api/accounts?view=cashbook");
+          if (res.ok) {
+            const data = await res.json();
+            list = (data.cashAccounts || []).map((a: any) => ({ code: a.code, name: a.name }));
+          }
+        } catch {
+          // keep the built-in defaults below
+        }
+      }
+      if (cancelled) return;
+      if (list.length > 0) {
+        setCashBankAccounts(list);
+        setDisbursingAccount((current) => {
+          if (current && list.some((a) => a.code === current)) return current;
+          return list.find((a) => a.isDefault)?.code || list[0].code;
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, cashBankAccounts.length]);
+
+  const selectedDisbursing = cashBankAccounts.find((a) => a.code === disbursingAccount);
 
   const selectedEmployee = useMemo(() => {
     return employees.find((e) => e.id === employeeId) || employees[0];
@@ -186,35 +239,27 @@ export default function IssueAdvanceDrawer({
           )}
         </div>
 
-        {/* Disbursing Account Selection */}
+        {/* Disbursing Account Selection — live cash/bank accounts from the chart */}
         <div>
           <label className="font-bold text-[#18181B] block mb-1">Disbursing Account *</label>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => setDisbursingAccount("11101")}
-              className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
-                disbursingAccount === "11101"
-                  ? "border-[#0D7A5F] bg-emerald-50/50 text-[#0D7A5F] font-bold"
-                  : "border-[#E4E4E7] bg-white text-[#71717A] hover:bg-zinc-50"
-              }`}
-            >
-              <span>Cash on Hand</span>
-              <span className="font-mono text-[10px] text-[#71717A]">11101 (Vault / Petty Cash)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setDisbursingAccount("11103")}
-              className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
-                disbursingAccount === "11103"
-                  ? "border-[#0D7A5F] bg-emerald-50/50 text-[#0D7A5F] font-bold"
-                  : "border-[#E4E4E7] bg-white text-[#71717A] hover:bg-zinc-50"
-              }`}
-            >
-              <span>Bank Account</span>
-              <span className="font-mono text-[10px] text-[#71717A]">11103 (Bank Transfer)</span>
-            </button>
-          </div>
+          <select
+            value={disbursingAccount}
+            onChange={(e) => setDisbursingAccount(e.target.value)}
+            className="w-full h-9 px-3 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-xs font-semibold text-[#18181B] focus:outline-hidden"
+          >
+            {cashBankAccounts.length === 0 && (
+              <>
+                <option value="11101">11101 — Cash on Hand</option>
+                <option value="11103">11103 — Operating Bank Account</option>
+              </>
+            )}
+            {cashBankAccounts.map((acc) => (
+              <option key={acc.code} value={acc.code}>
+                {acc.code} — {acc.name}
+                {acc.isDefault ? " (Default)" : ""}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Reason / Purpose */}
@@ -242,7 +287,9 @@ export default function IssueAdvanceDrawer({
               <span className="font-mono text-[#18181B]">{amount ? formatCurrency(Number(amount)) : "PKR 0"}</span>
             </div>
             <div className="flex justify-between">
-              <span>Credit: {disbursingAccount === "11101" ? "11101 Cash on Hand" : "11103 Bank Account"}</span>
+              <span>
+                Credit: {disbursingAccount} {selectedDisbursing?.name || (disbursingAccount === "11101" ? "Cash on Hand" : "Bank Account")}
+              </span>
               <span className="font-mono text-[#18181B]">{amount ? formatCurrency(Number(amount)) : "PKR 0"}</span>
             </div>
             <div className="pt-1 border-t border-zinc-200 text-emerald-800 font-medium">

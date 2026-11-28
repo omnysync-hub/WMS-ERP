@@ -50,83 +50,15 @@ export interface ToastEventDetail {
   action?: ToastAction;
 }
 
+import { playToastCue } from "./soundAlerts";
+
 /**
- * Play a subtle, non-intrusive Web Audio synthesis tone matching the toast mood
+ * Play the Web Audio cue matching the toast tone. Delegates to the shared
+ * sound engine (src/lib/soundAlerts.ts), which owns the single AudioContext,
+ * the first-gesture unlock, and the master mute (`wms_sound_alerts`).
  */
 export function playToastSound(tone: ToastTone = "info") {
-  if (typeof window === "undefined") return;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const now = ctx.currentTime;
-    const gain = ctx.createGain();
-    gain.connect(ctx.destination);
-
-    if (tone === "success") {
-      // Harmonic 2-tone pleasant rising chime (D5 -> A5)
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(587.33, now);
-      osc.frequency.exponentialRampToValueAtTime(880.0, now + 0.12);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-      osc.connect(gain);
-      osc.start(now);
-      osc.stop(now + 0.35);
-    } else if (tone === "error") {
-      // 2-tone descending soft alert (440Hz -> 311Hz)
-      const osc = ctx.createOscillator();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.exponentialRampToValueAtTime(311.13, now + 0.16);
-      gain.gain.setValueAtTime(0.09, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
-      osc.connect(gain);
-      osc.start(now);
-      osc.stop(now + 0.38);
-    } else if (tone === "warning") {
-      // Warm alert tone
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(622.25, now);
-      gain.gain.setValueAtTime(0.07, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-      osc.connect(gain);
-      osc.start(now);
-      osc.stop(now + 0.25);
-    } else if (tone === "notification") {
-      // 3-note harmonic chime (C5 -> E5 -> G5)
-      [
-        { f: 523.25, s: 0.0, d: 0.12 },
-        { f: 659.25, s: 0.09, d: 0.14 },
-        { f: 783.99, s: 0.18, d: 0.28 },
-      ].forEach(({ f, s, d }) => {
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.type = "sine";
-        o.frequency.setValueAtTime(f, now + s);
-        g.gain.setValueAtTime(0.07, now + s);
-        g.gain.exponentialRampToValueAtTime(0.001, now + s + d);
-        o.connect(g);
-        g.connect(ctx.destination);
-        o.start(now + s);
-        o.stop(now + s + d);
-      });
-    } else {
-      // Info: gentle soft ping
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(659.25, now);
-      gain.gain.setValueAtTime(0.06, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-      osc.connect(gain);
-      osc.start(now);
-      osc.stop(now + 0.22);
-    }
-  } catch {
-    // Silent fail if browser audio is not permitted or suspended
-  }
+  playToastCue(tone);
 }
 
 /**

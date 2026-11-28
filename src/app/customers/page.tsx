@@ -8,6 +8,7 @@ import AddCustomerDrawer from "@/components/drawers/AddCustomerDrawer";
 import { formatCurrency, formatDateTime, formatJobType, cn } from "@/lib/utils";
 import { useRole } from "@/contexts/RoleContext";
 import toast from "@/lib/toast";
+import { notify } from "@/lib/notify";
 import {
   Users,
   Search,
@@ -54,6 +55,9 @@ export default function Customers360Page() {
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [isAddLedgerOpen, setIsAddLedgerOpen] = useState(false);
   const [ledgerEntryType, setLedgerEntryType] = useState<"payment" | "invoice" | "credit_note">("payment");
+  // Cash/bank account a payment is received into ("" = the mapped account for the mode).
+  const [ledgerReceivingAccount, setLedgerReceivingAccount] = useState("");
+  const [cashBankAccounts, setCashBankAccounts] = useState<any[]>([]);
   const [ledgerAmount, setLedgerAmount] = useState("");
   const [ledgerDocNumber, setLedgerDocNumber] = useState("");
   const [ledgerNotes, setLedgerNotes] = useState("");
@@ -86,6 +90,17 @@ export default function Customers360Page() {
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
+
+  // Cash/bank accounts for the ledger-entry payment picker (from the cashbook view,
+  // which lists every cash/bank posting account in the chart).
+  useEffect(() => {
+    fetch("/api/accounts?view=cashbook")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.cashAccounts)) setCashBankAccounts(data.cashAccounts);
+      })
+      .catch(() => null);
+  }, []);
 
   // 2. Fetch Selected Customer 360 History
   const fetchCustomer360 = useCallback(async (customerId: string) => {
@@ -124,6 +139,10 @@ export default function Customers360Page() {
           amount: Number(ledgerAmount),
           documentNumber: ledgerDocNumber || undefined,
           notes: ledgerNotes || undefined,
+          // Route a payment into the chosen cash/bank account (the API honours this
+          // via CustomerReceiptService.receivingAccount); empty = mapped default.
+          receivingAccountCode:
+            ledgerEntryType === "payment" && ledgerReceivingAccount ? ledgerReceivingAccount : undefined,
           actorName: currentPersona.name,
         }),
       });
@@ -138,9 +157,10 @@ export default function Customers360Page() {
       setLedgerAmount("");
       setLedgerDocNumber("");
       setLedgerNotes("");
+      setLedgerReceivingAccount("");
       fetchCustomer360(selectedCustomerId);
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setPostingLedger(false);
     }
@@ -842,6 +862,26 @@ export default function Customers360Page() {
                   <option value="credit_note">Credit Note / Rebate (Credit Client)</option>
                 </select>
               </div>
+
+              {ledgerEntryType === "payment" && (
+                <div>
+                  <label className="text-xs font-semibold text-zinc-800 block mb-1">
+                    Received Into (Cash / Bank Account)
+                  </label>
+                  <select
+                    value={ledgerReceivingAccount}
+                    onChange={(e) => setLedgerReceivingAccount(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-zinc-200 text-xs bg-zinc-50 focus:bg-white focus:border-[#0D7A5F] outline-none"
+                  >
+                    <option value="">Auto — mapped account for the payment mode</option>
+                    {cashBankAccounts.map((acc: any) => (
+                      <option key={acc.id || acc.code} value={acc.code}>
+                        {acc.code} — {acc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-zinc-800 block mb-1">

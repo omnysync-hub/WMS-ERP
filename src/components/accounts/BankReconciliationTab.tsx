@@ -1,8 +1,17 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import React, { useEffect, useState, useMemo } from "react";
 import { formatCurrency } from "@/lib/utils";
+import { pktParts } from "@/lib/pktTime";
 import { useRole } from "@/contexts/RoleContext";
+
+/** Today as a PKT (Asia/Karachi) YYYY-MM-DD string — toISOString() is UTC and lags a day. */
+const pktTodayString = () => {
+  const { year, month, day } = pktParts();
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
 import {
   Building,
   UploadCloud,
@@ -26,11 +35,14 @@ import {
 } from "lucide-react";
 
 export default function BankReconciliationTab() {
-  const { currentPersona, activeUser } = useRole();
+  const { currentPersona, activeUser, hasPermission } = useRole();
+  // Importing statements and matching/unmatching lines post to the ledger API, which
+  // requires accounts.post_entries — hide those controls without it.
+  const canPost = hasPermission("accounts.post_entries");
   const currentActorName = `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`;
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
-  const [statementDate, setStatementDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [statementDate, setStatementDate] = useState<string>(pktTodayString());
 
   const [loading, setLoading] = useState(false);
   const [reconciliationData, setReconciliationData] = useState<any>(null);
@@ -96,6 +108,7 @@ export default function BankReconciliationTab() {
       }
     } catch (err: any) {
       setErrorMsg(err.message);
+      notify.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -126,11 +139,13 @@ export default function BankReconciliationTab() {
       if (!res.ok) throw new Error(data.error || "Manual match failed");
 
       setSuccessMsg("Line reconciled successfully! General Ledger timing difference cleared.");
+      notify.success("Line reconciled successfully! General Ledger timing difference cleared.");
       setSelectedStatementLine(null);
       setSelectedGlLine(null);
       await loadReconciliation();
     } catch (err: any) {
       setErrorMsg(err.message);
+      notify.error(err.message);
     } finally {
       setMatchingInProgress(false);
     }
@@ -140,7 +155,7 @@ export default function BankReconciliationTab() {
   const handleImportCsv = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!csvText.trim()) {
-      alert("Please paste bank statement CSV text.");
+      notify.warning("Please paste bank statement CSV text.");
       return;
     }
     setImporting(true);
@@ -160,9 +175,11 @@ export default function BankReconciliationTab() {
       setShowImportModal(false);
       setCsvText("");
       setSuccessMsg(`Successfully imported ${data.importedCount || data.count || "rows"} bank statement transactions.`);
+      notify.success(`Successfully imported ${data.importedCount || data.count || "rows"} bank statement transactions.`);
       loadReconciliation();
     } catch (err: any) {
       setErrorMsg(err.message);
+      notify.error(err.message);
     } finally {
       setImporting(false);
     }
@@ -182,9 +199,11 @@ export default function BankReconciliationTab() {
       });
       if (!res.ok) throw new Error("Failed to unmatch");
       setSuccessMsg("Line unmatched. Returned to active un-reconciled pool.");
+      notify.success("Line unmatched. Returned to active un-reconciled pool.");
       loadReconciliation();
     } catch (err: any) {
       setErrorMsg(err.message);
+      notify.error(err.message);
     }
   };
 
@@ -313,14 +332,16 @@ export default function BankReconciliationTab() {
         </div>
 
         <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowImportModal(true)}
-            className="h-8 px-3 bg-[#18181B] hover:bg-black text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
-          >
-            <UploadCloud className="w-3.5 h-3.5" />
-            Import CSV Statement
-          </button>
+          {canPost && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="h-8 px-3 bg-[#18181B] hover:bg-black text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              Import CSV Statement
+            </button>
+          )}
 
           <button
             type="button"
@@ -574,7 +595,7 @@ export default function BankReconciliationTab() {
                               <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-[#0D7A5F] text-white inline-flex items-center gap-1 shadow-xs">
                                 <Check className="w-3 h-3" /> Selected
                               </span>
-                            ) : (
+                            ) : canPost ? (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -585,7 +606,7 @@ export default function BankReconciliationTab() {
                               >
                                 Match Line →
                               </button>
-                            )}
+                            ) : null}
                           </td>
                         </tr>
                       );
@@ -945,15 +966,17 @@ export default function BankReconciliationTab() {
                           )}
                         </td>
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleUnmatch(line.id)}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-700 hover:bg-rose-50 border border-rose-200 transition inline-flex items-center gap-1"
-                            title="Unmatch this line and restore to unreconciled pool"
-                          >
-                            <Unlink className="w-3 h-3 text-rose-600" />
-                            Unmatch
-                          </button>
+                          {canPost && (
+                            <button
+                              type="button"
+                              onClick={() => handleUnmatch(line.id)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-700 hover:bg-rose-50 border border-rose-200 transition inline-flex items-center gap-1"
+                              title="Unmatch this line and restore to unreconciled pool"
+                            >
+                              <Unlink className="w-3 h-3 text-rose-600" />
+                              Unmatch
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

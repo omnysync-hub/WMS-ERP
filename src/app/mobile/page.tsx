@@ -114,6 +114,10 @@ export default function MobileCompanionPage() {
   const [expenseNote, setExpenseNote] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("");
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
+  // Default disbursing (payment-source) account for general expense vouchers,
+  // resolved from the accounting config (the configured default cash/bank
+  // account). Falls back to 11101 Cash on Hand only when nothing is configured.
+  const [defaultDisbursingAccountCode, setDefaultDisbursingAccountCode] = useState<string>("11101");
   const [expenseJobId, setExpenseJobId] = useState("general");
 
   // Item-level discount requests
@@ -260,6 +264,16 @@ export default function MobileCompanionPage() {
         const configured = (accountingData.expenseCategories || []).filter((item: any) => item.active);
         setExpenseCategories(configured);
         setExpenseCategory((current) => current || configured[0]?.code || "");
+        // Resolve the voucher disbursing account from config: the financial
+        // account flagged as default (else the first configured cash/bank
+        // account). Only when the config has none do we keep 11101.
+        const finAccounts = (accountingData.financialAccounts || []).filter(
+          (fa: any) => fa.isActive !== false && fa.ledgerAccount?.code
+        );
+        const defaultFin = finAccounts.find((fa: any) => fa.isDefault) || finAccounts[0];
+        if (defaultFin?.ledgerAccount?.code) {
+          setDefaultDisbursingAccountCode(defaultFin.ledgerAccount.code);
+        }
       }
 
       const productsList = Array.isArray(invData) ? invData : (invData?.products || []);
@@ -485,24 +499,7 @@ export default function MobileCompanionPage() {
         throw new Error(err.error);
       }
 
-      // Broadcast Admin Notification
-      const adminNotice = {
-        id: `notice-${Date.now()}`,
-        title: "Work Order Accepted",
-        message: `Technician ${technician.name} accepted ${selectedJob.jobNumber}. Waiting for on-site start.`,
-        timestamp: new Date().toLocaleTimeString(),
-        jobId: selectedJob.id,
-      };
-
-      try {
-        const existing = JSON.parse(localStorage.getItem("admin_notifications") || "[]");
-        localStorage.setItem("admin_notifications", JSON.stringify([adminNotice, ...existing]));
-        window.dispatchEvent(new Event("admin_notification_update"));
-      } catch (e) {
-        // ignore
-      }
-
-      // Publish Real-time Sync Event
+      // Publish Real-time Sync Event (this is how the admin side is notified)
       realtimeSync.publish("JOB_ACCEPTED", {
         jobId: selectedJob.id,
         jobNumber: selectedJob.jobNumber,
@@ -1099,7 +1096,7 @@ export default function MobileCompanionPage() {
             payeeName: technician.name,
             technicianId: technician.id,
             expenseAccountCode: expenseCategories.find((item) => item.code === expenseCategory)?.account?.code,
-            disbursingAccountCode: "11101",
+            disbursingAccountCode: defaultDisbursingAccountCode,
             amount: Number(expenseAmount),
             memo: expenseNote || "Field expense voucher",
             actorName: technician.name,

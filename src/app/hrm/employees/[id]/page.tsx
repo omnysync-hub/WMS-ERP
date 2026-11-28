@@ -96,6 +96,9 @@ export default function EmployeeProfilePage() {
   const [advanceDeduction, setAdvanceDeduction] = useState("500");
   const [expenseAdjustment, setExpenseAdjustment] = useState("0");
   const [disbursingAccount, setDisbursingAccount] = useState("11103");
+  const [cashBankAccounts, setCashBankAccounts] = useState<
+    Array<{ code: string; name: string; isDefault?: boolean }>
+  >([]);
   const [isSettling, setIsSettling] = useState(false);
 
   async function loadEmployee() {
@@ -126,6 +129,53 @@ export default function EmployeeProfilePage() {
       })
       .catch(() => {});
   }, [employeeId]);
+
+  // Final-settlement disbursing accounts: the configured cash/bank accounts
+  // (/api/accounting-config financialAccounts — readable by any signed-in
+  // role), falling back to the accounts cashbook view for ledger viewers.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let list: Array<{ code: string; name: string; isDefault?: boolean }> = [];
+      try {
+        const res = await fetch("/api/accounting-config");
+        if (res.ok) {
+          const data = await res.json();
+          list = (data.financialAccounts || [])
+            .filter((fa: any) => fa.isActive !== false && fa.ledgerAccount?.code)
+            .map((fa: any) => ({
+              code: fa.ledgerAccount.code,
+              name: fa.name || fa.ledgerAccount.name,
+              isDefault: Boolean(fa.isDefault),
+            }));
+        }
+      } catch {
+        // fall through to the cashbook view
+      }
+      if (list.length === 0) {
+        try {
+          const res = await fetch("/api/accounts?view=cashbook");
+          if (res.ok) {
+            const data = await res.json();
+            list = (data.cashAccounts || []).map((a: any) => ({ code: a.code, name: a.name }));
+          }
+        } catch {
+          // keep the built-in defaults in the select
+        }
+      }
+      if (cancelled || list.length === 0) return;
+      setCashBankAccounts(list);
+      // Preserve the historical default (11103 operating bank) when it is a
+      // real configured account; otherwise use the configured default.
+      setDisbursingAccount((current) => {
+        if (current && list.some((a) => a.code === current)) return current;
+        return list.find((a) => a.isDefault)?.code || list[0].code;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Mobile Credential Form Handlers
   const handleGeneratePassword = () => {
@@ -1742,8 +1792,18 @@ export default function EmployeeProfilePage() {
                           onChange={(e) => setDisbursingAccount(e.target.value)}
                           className="w-full h-9 px-2 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg font-mono text-xs"
                         >
-                          <option value="11103">11103 - Operating Bank Account (WPS Transfer)</option>
-                          <option value="11101">11101 - Main Cash Drawer</option>
+                          {cashBankAccounts.length === 0 && (
+                            <>
+                              <option value="11103">11103 - Operating Bank Account (WPS Transfer)</option>
+                              <option value="11101">11101 - Main Cash Drawer</option>
+                            </>
+                          )}
+                          {cashBankAccounts.map((acc) => (
+                            <option key={acc.code} value={acc.code}>
+                              {acc.code} - {acc.name}
+                              {acc.isDefault ? " (Default)" : ""}
+                            </option>
+                          ))}
                         </select>
                       </div>
 

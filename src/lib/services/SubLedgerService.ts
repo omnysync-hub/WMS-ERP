@@ -275,10 +275,17 @@ export class SubLedgerService {
     let grandTotalAll = 0;
 
     for (const cust of customers) {
-      const entries = cust.customerLedgerEntries;
+      // Balance from the entries themselves (sum of debits - credits up to the as-of
+      // date) — the same source the party ledgers and the GL drift check use. The stored
+      // runningBalance of the latest row is NOT trustworthy here (opening-balance and
+      // reversal rows carry 0 and can sort last), which made this schedule disagree
+      // with the party ledgers and report zero while customers still owed money.
+      const entries = cust.customerLedgerEntries.filter(
+        (e) => new Date(e.postingDate).getTime() <= asOfDate.getTime()
+      );
       if (entries.length === 0) continue;
 
-      const latestBal = entries[entries.length - 1].runningBalance;
+      const latestBal = Math.round(entries.reduce((sum, e) => sum + e.debit - e.credit, 0) * 100) / 100;
       if (latestBal <= 0) continue; // No outstanding balance
 
       let current = 0;
@@ -354,10 +361,14 @@ export class SubLedgerService {
     let grandTotalAll = 0;
 
     for (const v of vendors) {
-      const entries = v.vendorLedgerEntries;
+      // Same fix as the AR aging above: sum the entries (credits - debits) up to the
+      // as-of date instead of trusting the latest row's stored runningBalance.
+      const entries = v.vendorLedgerEntries.filter(
+        (e) => new Date(e.postingDate).getTime() <= asOfDate.getTime()
+      );
       if (entries.length === 0) continue;
 
-      const latestBal = entries[entries.length - 1].runningBalance;
+      const latestBal = Math.round(entries.reduce((sum, e) => sum + e.credit - e.debit, 0) * 100) / 100;
       if (latestBal <= 0) continue;
 
       let current = 0;

@@ -134,6 +134,9 @@ export default function TechnicianExpensesPage() {
   const [clearanceMode, setClearanceMode] = useState<"full" | "partial">("full");
   const [partialAmount, setPartialAmount] = useState<string>("");
   const [disbursingAccountCode, setDisbursingAccountCode] = useState<string>("11101");
+  const [cashBankAccounts, setCashBankAccounts] = useState<
+    Array<{ code: string; name: string; isDefault?: boolean }>
+  >([]);
   const [paymentNotes, setPaymentNotes] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string>("");
@@ -143,6 +146,203 @@ export default function TechnicianExpensesPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  // ── Fast Clearance Queue (flat, pending-only, oldest first, all dates) ──────
+  // Built for peak-time: decide and pay without opening a single modal per claim.
+  interface QueueClaim {
+    id: string;
+    jobId: string;
+    jobNumber: string;
+    customerName: string;
+    technicianId: string;
+    technicianName: string;
+    amount: number;
+    note: string;
+    category: string;
+    createdAt: string;
+    hasReceipt: boolean;
+    receiptCount: number;
+    isJobCompleted: boolean;
+    jobStatus?: string;
+    isPartial: boolean;
+  }
+  const canCollectPayment = hasPermission("jobs.collect_payment");
+  const [queueClaims, setQueueClaims] = useState<QueueClaim[]>([]);
+  const [queueTruncated, setQueueTruncated] = useState(false);
+  const [queueLoading, setQueueLoading] = useState(true);
+  const [queueFilter, setQueueFilter] = useState("");
+  const [selectedQueueIds, setSelectedQueueIds] = useState<string[]>([]);
+  const [queueNotes, setQueueNotes] = useState("");
+  const [queueErrors, setQueueErrors] = useState<Record<string, string>>({});
+  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkPartialAmount, setBulkPartialAmount] = useState("");
+
+  async function fetchQueue() {
+    try {
+      setQueueLoading(true);
+      const res = await fetch("/api/jobs/expenses?queue=1");
+      if (!res.ok) return;
+      const json = await res.json();
+      const rows: QueueClaim[] = json.queue || [];
+      setQueueClaims(rows);
+      setQueueTruncated(Boolean(json.summary?.truncated));
+      setSelectedQueueIds((prev) => prev.filter((id) => rows.some((c) => c.id === id)));
+    } catch {
+      // keep the last good queue on screen
+    } finally {
+      setQueueLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Receipt photos are fetched on demand (never inlined in the queue payload).
+  async function fetchClaimReceipts(claimId: string): Promise<string[]> {
+    try {
+      const res = await fetch(`/api/jobs/expenses?receiptFor=${claimId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (json.receiptUrls || []).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  async function ensureThumb(claimId: string) {
+    if (thumbUrls[claimId]) return;
+    const urls = await fetchClaimReceipts(claimId);
+    if (urls[0]) setThumbUrls((prev) => ({ ...prev, [claimId]: urls[0] }));
+  }
+
+  async function openQueueReceipt(claim: QueueClaim) {
+    const urls = await fetchClaimReceipts(claim.id);
+    if (urls.length > 0) openLightbox(urls);
+  }
+
+  // Mirror paid claims into the grouped technician view locally — no full refetch.
+  function applyPaidToGroupedData(
+    results: Array<{ claimId: string; success: boolean; paidNow?: number }>
+  ) {
+    const paidNowById = new Map(
+      results.filter((r) => r.success).map((r) => [r.claimId, r.paidNow])
+    );
+    if (paidNowById.size === 0) return;
+    setData((prev) => {
+      if (!prev) return prev;
+      const technicians = prev.technicians.map((t) => {
+        const claims = t.claims.map((c) =>
+          paidNowById.has(c.id)
+            ? {
+                ...c,
+                status: "paid",
+                paidAt: new Date().toISOString(),
+                amount: paidNowById.get(c.id) ?? c.amount,
+              }
+            : c
+        );
+        const jobs = t.jobs.map((j) => ({
+          ...j,
+          claims: j.claims.map((c) =>
+            paidNowById.has(c.id) ? { ...c, status: "paid" } : c
+          ),
+        }));
+        const totalClaimed = claims.reduce((s, c) => s + c.amount, 0);
+        const totalPending = claims
+          .filter((c) => c.status === "pending")
+          .reduce((s, c) => s + c.amount, 0);
+        const totalPaid = claims
+          .filter((c) => c.status === "paid")
+          .reduce((s, c) => s + c.amount, 0);
+        return {
+          ...t,
+          claims,
+          jobs,
+          totalClaimed,
+          totalPending,
+          totalPaid,
+          hasPending: totalPending > 0,
+          isAllCleared: totalPending === 0 && totalClaimed > 0,
+        };
+      });
+      return {
+        ...prev,
+        technicians,
+        summary: {
+          ...prev.summary,
+          totalClaimed: technicians.reduce((s, t) => s + t.totalClaimed, 0),
+          totalPending: technicians.reduce((s, t) => s + t.totalPending, 0),
+          totalPaid: technicians.reduce((s, t) => s + t.totalPaid, 0),
+          pendingTechniciansCount: technicians.filter((t) => t.totalPending > 0).length,
+        },
+      };
+    });
+  }
+
+  async function executeBulkClearance(partialAmount?: number) {
+    if (selectedQueueIds.length === 0 || bulkProcessing) return;
+    try {
+      setBulkProcessing(true);
+      setQueueErrors({});
+      const res = await fetch("/api/jobs/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "clear_claims_bulk",
+          claimIds: selectedQueueIds,
+          disbursingAccountCode,
+          paymentNotes: queueNotes.trim(),
+          ...(partialAmount ? { amountToPay: partialAmount } : {}),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Bulk clearance failed");
+
+      const results: Array<{
+        claimId: string;
+        success: boolean;
+        paidNow?: number;
+        isPartial?: boolean;
+        error?: string;
+      }> = json.results || [];
+      const succeededIds = new Set(
+        results.filter((r) => r.success).map((r) => r.claimId)
+      );
+      const errors: Record<string, string> = {};
+      results
+        .filter((r) => !r.success)
+        .forEach((r) => {
+          errors[r.claimId] = r.error || "Failed";
+        });
+      setQueueErrors(errors);
+
+      // Local update only: paid rows leave the queue, failed rows stay with the reason.
+      setQueueClaims((prev) => prev.filter((c) => !succeededIds.has(c.id)));
+      setSelectedQueueIds((prev) => prev.filter((id) => !succeededIds.has(id)));
+      applyPaidToGroupedData(results);
+      // A partial split creates a new pending remainder claim server-side — pull the
+      // slim queue once to surface it (cheap; not a page reload).
+      if (results.some((r) => r.success && r.isPartial)) fetchQueue();
+
+      setBulkConfirmOpen(false);
+      setBulkPartialAmount("");
+      setSuccessMsg(
+        `Bulk clearance: paid ${formatCurrency(json.totalPaid || 0)} across ${json.clearedCount} claim(s)` +
+          (json.failedCount
+            ? ` · ${json.failedCount} failed/skipped and kept in the queue.`
+            : ".")
+      );
+      setTimeout(() => setSuccessMsg(""), 8000);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setBulkProcessing(false);
+    }
+  }
 
   async function fetchExpenses() {
     try {
@@ -172,6 +372,51 @@ export default function TechnicianExpensesPage() {
   useEffect(() => {
     fetchExpenses();
   }, [dateParam, isAllDates]);
+
+  // Disbursing accounts for the clearance payout: the configured cash/bank
+  // accounts (/api/accounting-config financialAccounts — readable by any
+  // signed-in role), falling back to the accounts cashbook view.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let list: Array<{ code: string; name: string; isDefault?: boolean }> = [];
+      try {
+        const res = await fetch("/api/accounting-config");
+        if (res.ok) {
+          const data = await res.json();
+          list = (data.financialAccounts || [])
+            .filter((fa: any) => fa.isActive !== false && fa.ledgerAccount?.code)
+            .map((fa: any) => ({
+              code: fa.ledgerAccount.code,
+              name: fa.name || fa.ledgerAccount.name,
+              isDefault: Boolean(fa.isDefault),
+            }));
+        }
+      } catch {
+        // fall through to the cashbook view
+      }
+      if (list.length === 0) {
+        try {
+          const res = await fetch("/api/accounts?view=cashbook");
+          if (res.ok) {
+            const data = await res.json();
+            list = (data.cashAccounts || []).map((a: any) => ({ code: a.code, name: a.name }));
+          }
+        } catch {
+          // keep the built-in defaults in the select
+        }
+      }
+      if (cancelled || list.length === 0) return;
+      setCashBankAccounts(list);
+      setDisbursingAccountCode((current) => {
+        if (current && list.some((a) => a.code === current)) return current;
+        return list.find((a) => a.isDefault)?.code || list[0].code;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Real-time synchronization subscription
   useEffect(() => {
@@ -274,7 +519,38 @@ export default function TechnicianExpensesPage() {
         } with balanced General Ledger posting.`
       );
       setTimeout(() => setSuccessMsg(""), 6000);
-      fetchExpenses();
+
+      // Local update instead of a full page refetch: mark what was just paid in the
+      // grouped view and drop it from the fast queue. Partial splits create a new
+      // pending remainder claim server-side, so refresh only the slim queue then.
+      if (clearanceTarget.type === "claim" && clearanceTarget.claimId) {
+        applyPaidToGroupedData([
+          { claimId: clearanceTarget.claimId, success: true, paidNow: amountToPay },
+        ]);
+        setQueueClaims((prev) => prev.filter((c) => c.id !== clearanceTarget.claimId));
+        setSelectedQueueIds((prev) => prev.filter((id) => id !== clearanceTarget.claimId));
+        if (amountToPay < clearanceTarget.maxAmount) fetchQueue();
+      } else if (clearanceTarget.type === "technician" && clearanceTarget.technicianId) {
+        // Rebuild the per-claim results from local data (oldest-first allocation,
+        // mirroring the server) so the grouped view updates without a refetch.
+        const tech = data?.technicians.find((t) => t.id === clearanceTarget.technicianId);
+        const pendingOldestFirst = (tech?.claims || [])
+          .filter((c) => c.status === "pending" && c.isJobCompleted !== false)
+          .slice()
+          .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
+        let remaining = amountToPay;
+        const results: Array<{ claimId: string; success: boolean; paidNow?: number }> = [];
+        for (const c of pendingOldestFirst) {
+          if (remaining <= 0) break;
+          const payThis = Math.min(remaining, c.amount);
+          results.push({ claimId: c.id, success: true, paidNow: payThis });
+          remaining = Math.round((remaining - payThis) * 100) / 100;
+        }
+        applyPaidToGroupedData(results);
+        fetchQueue(); // slim queue refresh keeps the queue exact after tech-level clears
+      } else {
+        fetchExpenses();
+      }
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -313,6 +589,40 @@ export default function TechnicianExpensesPage() {
       </div>
     );
   }
+
+  // Fast-queue derived values (visible = after the queue's own text filter)
+  const visibleQueue = queueClaims.filter((c) => {
+    if (!queueFilter.trim()) return true;
+    const q = queueFilter.toLowerCase();
+    return (
+      c.technicianName.toLowerCase().includes(q) ||
+      c.jobNumber.toLowerCase().includes(q) ||
+      c.customerName.toLowerCase().includes(q) ||
+      c.category.toLowerCase().includes(q) ||
+      c.note.toLowerCase().includes(q)
+    );
+  });
+  const selectableVisible = visibleQueue.filter((c) => c.isJobCompleted);
+  const visibleQueueTotal = visibleQueue.reduce((s, c) => s + c.amount, 0);
+  const selectedQueueClaims = queueClaims.filter((c) => selectedQueueIds.includes(c.id));
+  const selectedQueueTotal = selectedQueueClaims.reduce((s, c) => s + c.amount, 0);
+  const allVisibleSelected =
+    selectableVisible.length > 0 &&
+    selectableVisible.every((c) => selectedQueueIds.includes(c.id));
+
+  const toggleQueueClaim = (claimId: string, checked: boolean) => {
+    setSelectedQueueIds((prev) =>
+      checked ? [...new Set([...prev, claimId])] : prev.filter((id) => id !== claimId)
+    );
+  };
+  const toggleSelectAllVisible = (checked: boolean) => {
+    const visibleIds = selectableVisible.map((c) => c.id);
+    setSelectedQueueIds((prev) =>
+      checked
+        ? [...new Set([...prev, ...visibleIds])]
+        : prev.filter((id) => !visibleIds.includes(id))
+    );
+  };
 
   // Filter technicians based on search and status
   const filteredTechnicians = (data?.technicians || []).filter((tech) => {
@@ -464,6 +774,234 @@ export default function TechnicianExpensesPage() {
             Assigned or logged expenses on {isAllDates ? "all dates" : data?.date || "today"}
           </p>
         </div>
+      </div>
+
+      {/* ══════════ FAST CLEARANCE QUEUE (peak-time, one screen, bulk) ══════════ */}
+      <div className="bg-white rounded-xl border border-amber-200 shadow-xs overflow-hidden ring-1 ring-amber-100">
+        <div className="px-4 sm:px-5 py-3.5 bg-[#FFFBEB] border-b border-amber-200/80 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-amber-700" />
+              Pending Clearance Queue
+              <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                {queueClaims.length} pending · {formatCurrency(queueClaims.reduce((s, c) => s + c.amount, 0))}
+              </span>
+            </h3>
+            <p className="text-[11px] text-[#71717A] mt-0.5">
+              Every outstanding technician claim across all dates, oldest first. Tick, then pay — no per-claim windows.
+              {queueTruncated && (
+                <span className="text-amber-800 font-semibold"> Showing the oldest 500 — clear some to reveal the rest.</span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={queueFilter}
+                onChange={(e) => setQueueFilter(e.target.value)}
+                placeholder="Filter queue: tech, job, category..."
+                className="pl-9 pr-3 py-1.5 rounded-lg border border-[#D4D4D8] bg-white text-xs focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none w-52"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={fetchQueue}
+              disabled={queueLoading}
+              className="h-8 px-3 rounded-lg border border-[#E4E4E7] bg-white hover:bg-[#F4F4F5] text-xs font-semibold text-[#18181B] inline-flex items-center gap-1.5 transition"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5 text-[#0D7A5F]", queueLoading && "animate-spin")} />
+              Refresh Queue
+            </button>
+          </div>
+        </div>
+
+        {/* Bulk action bar */}
+        <div className="px-4 sm:px-5 py-3 bg-white border-b border-[#E4E4E7] flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="text-xs text-[#52525B] font-medium flex items-center gap-3 flex-wrap">
+            <span>
+              Visible: <strong className="text-zinc-900">{visibleQueue.length}</strong> ·{" "}
+              <strong className="font-mono text-zinc-900">{formatCurrency(visibleQueueTotal)}</strong>
+            </span>
+            <span className="text-[#D4D4D8]">|</span>
+            <span>
+              Selected: <strong className="text-[#0D7A5F]">{selectedQueueClaims.length}</strong> ·{" "}
+              <strong className="font-mono text-[#0D7A5F]">{formatCurrency(selectedQueueTotal)}</strong>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap lg:ml-auto">
+            <select
+              value={disbursingAccountCode}
+              onChange={(e) => setDisbursingAccountCode(e.target.value)}
+              className="bg-[#F4F4F5] px-2.5 py-2 rounded-lg border border-[#D4D4D8] font-semibold text-xs focus:bg-white focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none"
+              title="Disbursing account for bulk payments"
+            >
+              {cashBankAccounts.length === 0 && (
+                <>
+                  <option value="11101">11101 — Cash on Hand</option>
+                  <option value="11102">11102 — Petty Cash</option>
+                  <option value="11103">11103 — Operating Bank</option>
+                </>
+              )}
+              {cashBankAccounts.map((acc) => (
+                <option key={acc.code} value={acc.code}>
+                  {acc.code} — {acc.name}
+                  {acc.isDefault ? " (Default)" : ""}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={queueNotes}
+              onChange={(e) => setQueueNotes(e.target.value)}
+              placeholder="Voucher ref / notes (optional)"
+              className="px-2.5 py-2 rounded-lg border border-[#D4D4D8] bg-[#FAFAFA] text-xs focus:bg-white focus:ring-1 focus:ring-[#0D7A5F] focus:outline-none w-48"
+            />
+            {canCollectPayment ? (
+              <>
+                <button
+                  type="button"
+                  disabled={selectedQueueIds.length === 0 || bulkProcessing}
+                  onClick={() => setBulkConfirmOpen(true)}
+                  className="px-3.5 py-2 bg-white hover:bg-[#F4F4F5] disabled:opacity-40 text-zinc-800 border border-[#0D7A5F] rounded-lg text-xs font-bold transition inline-flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5 text-[#0D7A5F]" />
+                  Clear Selected…
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedQueueIds.length === 0 || bulkProcessing}
+                  onClick={() => executeBulkClearance()}
+                  className="px-3.5 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:opacity-40 text-white rounded-lg text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                >
+                  <Banknote className="w-3.5 h-3.5" />
+                  {bulkProcessing
+                    ? "Paying..."
+                    : `Pay Selected (${selectedQueueClaims.length}) · ${formatCurrency(selectedQueueTotal)}`}
+                </button>
+              </>
+            ) : (
+              <span className="text-[11px] text-[#71717A] italic">
+                Your role can view the queue but cannot disburse payments.
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Queue table */}
+        {queueLoading && queueClaims.length === 0 ? (
+          <div className="p-10 text-center text-xs text-[#71717A] flex items-center justify-center gap-2">
+            <div className="w-4 h-4 border-2 border-[#0D7A5F] border-t-transparent rounded-full animate-spin" />
+            Loading pending claims...
+          </div>
+        ) : visibleQueue.length === 0 ? (
+          <div className="p-10 text-center bg-white space-y-1.5">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+            <p className="text-xs font-bold text-[#18181B]">
+              {queueClaims.length === 0 ? "No pending claims — all clear." : "No claims match the queue filter."}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-[#E4E4E7] text-[11px] font-semibold text-[#71717A] uppercase tracking-wider bg-[#F9FAFB]">
+                  <th className="py-2.5 px-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={(e) => toggleSelectAllVisible(e.target.checked)}
+                      className="w-4 h-4 rounded accent-[#0D7A5F]"
+                      title="Select all visible (clearable) claims"
+                    />
+                  </th>
+                  <th className="py-2.5 px-3">Logged</th>
+                  <th className="py-2.5 px-3">Technician</th>
+                  <th className="py-2.5 px-3">Work Order</th>
+                  <th className="py-2.5 px-3">Category</th>
+                  <th className="py-2.5 px-3">Description</th>
+                  <th className="py-2.5 px-3 text-center">Receipt</th>
+                  <th className="py-2.5 px-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E4E4E7]">
+                {visibleQueue.map((claim) => {
+                  const checked = selectedQueueIds.includes(claim.id);
+                  return (
+                    <tr key={claim.id} className={cn("transition", checked ? "bg-emerald-50/60" : "hover:bg-[#FAFAFA]")}>
+                      <td className="py-2 px-3">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!claim.isJobCompleted}
+                          onChange={(e) => toggleQueueClaim(claim.id, e.target.checked)}
+                          className="w-4 h-4 rounded accent-[#0D7A5F] disabled:opacity-30"
+                          title={claim.isJobCompleted ? "Select claim" : "Job not completed yet — cannot clear"}
+                        />
+                      </td>
+                      <td className="py-2 px-3 whitespace-nowrap text-[#52525B]">
+                        {formatDateTime(claim.createdAt)}
+                        {claim.isPartial && (
+                          <span className="block text-[10px] font-bold text-blue-700">Instalment remainder</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 font-semibold text-zinc-900 whitespace-nowrap">{claim.technicianName}</td>
+                      <td className="py-2 px-3">
+                        <Link href={`/jobs/${claim.jobId}`} target="_blank" className="font-mono font-bold text-[#0D7A5F] hover:underline">
+                          {claim.jobNumber}
+                        </Link>
+                        <span className="block text-[10px] text-zinc-500 truncate max-w-[150px]">{claim.customerName}</span>
+                        {!claim.isJobCompleted && (
+                          <span className="inline-flex items-center gap-1 mt-0.5 text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                            <Clock className="w-2.5 h-2.5" /> Job incomplete
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 font-semibold text-[11px] border border-zinc-200">
+                          {claim.category}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 max-w-[300px]">
+                        <p className="font-medium text-zinc-900 leading-snug line-clamp-2">{claim.note}</p>
+                        {queueErrors[claim.id] && (
+                          <p className="text-[10px] font-semibold text-rose-700 mt-0.5 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 shrink-0" /> {queueErrors[claim.id]}
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {claim.hasReceipt ? (
+                          <button
+                            type="button"
+                            onMouseEnter={() => ensureThumb(claim.id)}
+                            onFocus={() => ensureThumb(claim.id)}
+                            onClick={() => openQueueReceipt(claim)}
+                            className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 overflow-hidden transition"
+                            title={`View receipt photo${claim.receiptCount > 1 ? `s (${claim.receiptCount})` : ""}`}
+                          >
+                            {thumbUrls[claim.id] ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={thumbUrls[claim.id]} alt="Receipt" className="w-full h-full object-cover" />
+                            ) : (
+                              <ImageIcon className="w-4 h-4 text-emerald-700" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-[#A1A1AA] text-[10px] italic">None</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-zinc-900 text-sm whitespace-nowrap">
+                        {formatCurrency(claim.amount)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Date & Filter Toolbar */}
@@ -1034,10 +1572,19 @@ export default function TechnicianExpensesPage() {
                   onChange={(e) => setDisbursingAccountCode(e.target.value)}
                   className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-semibold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
                 >
-                  <option value="11101">11101 — Cash on Hand / Main Drawer (Cash Box / Office Safe)</option>
-                  <option value="11102">11102 — Petty Cash – Expenses</option>
-                  <option value="11103">11103 — Operating Bank Account</option>
-                  <option value="21103">21103 — Technician Payable Clearing (Owed to Technician)</option>
+                  {cashBankAccounts.length === 0 && (
+                    <>
+                      <option value="11101">11101 — Cash on Hand / Main Drawer (Cash Box / Office Safe)</option>
+                      <option value="11102">11102 — Petty Cash – Expenses</option>
+                      <option value="11103">11103 — Operating Bank Account</option>
+                    </>
+                  )}
+                  {cashBankAccounts.map((acc) => (
+                    <option key={acc.code} value={acc.code}>
+                      {acc.code} — {acc.name}
+                      {acc.isDefault ? " (Default)" : ""}
+                    </option>
+                  ))}
                 </select>
                 <p className="text-[10px] text-[#71717A] mt-1 font-mono">
                   GL Impact: Dr the expense account of each claim's category (fuel, meals, other job costs ...) | Cr {disbursingAccountCode}
@@ -1199,6 +1746,120 @@ export default function TechnicianExpensesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* BULK CLEARANCE CONFIRM MODAL (review + optional partial disbursement) */}
+      {bulkConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 space-y-4 shadow-xl border border-[#E4E4E7] text-xs max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B] flex items-center gap-2">
+                  <Banknote className="w-4 h-4 text-[#0D7A5F]" />
+                  Clear {selectedQueueClaims.length} Selected Claim{selectedQueueClaims.length === 1 ? "" : "s"}
+                </h3>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  One request pays every selected claim — each posts its own balanced GL journal, exactly like clearing them one by one.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(false)}
+                className="text-[#71717A] hover:text-[#18181B] p-1 rounded-md hover:bg-[#F4F4F5]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-emerald-800 uppercase font-bold">Selected total</span>
+                <span className="font-mono text-lg font-black text-emerald-950">
+                  {formatCurrency(selectedQueueTotal)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-emerald-900">
+                <span>Disbursing from</span>
+                <strong>
+                  {disbursingAccountCode} —{" "}
+                  {cashBankAccounts.find((a) => a.code === disbursingAccountCode)?.name || "Selected account"}
+                </strong>
+              </div>
+              {queueNotes.trim() && (
+                <div className="flex items-center justify-between text-[11px] text-emerald-900">
+                  <span>Voucher ref / notes</span>
+                  <strong>{queueNotes.trim()}</strong>
+                </div>
+              )}
+              <p className="text-[10px] text-emerald-800 pt-1 border-t border-emerald-200/50">
+                Technicians: {[...new Set(selectedQueueClaims.map((c) => c.technicianName))].join(", ") || "—"}
+              </p>
+            </div>
+
+            <div>
+              <label className="font-bold text-[#18181B] block mb-1">
+                Amount to Disburse Now (PKR) — blank pays the full selected total
+              </label>
+              <input
+                type="number"
+                min="1"
+                max={selectedQueueTotal}
+                value={bulkPartialAmount}
+                onChange={(e) => setBulkPartialAmount(e.target.value)}
+                placeholder={String(selectedQueueTotal)}
+                className="w-full bg-[#F4F4F5] p-2.5 rounded-lg border border-[#D4D4D8] font-mono font-bold text-xs focus:bg-white focus:ring-2 focus:ring-[#0D7A5F] focus:outline-none"
+              />
+              {Number(bulkPartialAmount) > 0 && Number(bulkPartialAmount) < selectedQueueTotal && (
+                <p className="text-[10px] text-amber-800 mt-1.5 leading-snug">
+                  Partial: funds are allocated oldest-first. Fully covered claims are paid; the claim at the
+                  boundary splits (paid part now, remainder stays pending); later claims stay untouched.
+                </p>
+              )}
+              {Number(bulkPartialAmount) > selectedQueueTotal && (
+                <p className="text-[10px] text-rose-700 font-semibold mt-1.5">
+                  Amount exceeds the selected total — it will be capped at {formatCurrency(selectedQueueTotal)}.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E4E4E7]">
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(false)}
+                className="px-3.5 py-1.5 text-xs text-[#71717A] hover:text-[#18181B] font-medium rounded-lg hover:bg-[#F4F4F5]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  bulkProcessing ||
+                  selectedQueueIds.length === 0 ||
+                  (bulkPartialAmount !== "" &&
+                    (!Number(bulkPartialAmount) || Number(bulkPartialAmount) <= 0))
+                }
+                onClick={() =>
+                  executeBulkClearance(
+                    bulkPartialAmount !== "" ? Number(bulkPartialAmount) : undefined
+                  )
+                }
+                className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:bg-[#D4D4D8] text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1.5"
+              >
+                {bulkProcessing
+                  ? "Posting GL..."
+                  : `Disburse ${formatCurrency(
+                      bulkPartialAmount !== ""
+                        ? Math.min(Number(bulkPartialAmount) || 0, selectedQueueTotal)
+                        : selectedQueueTotal
+                    )}`}
+              </button>
+            </div>
           </div>
         </div>
       )}

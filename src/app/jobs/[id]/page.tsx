@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import ImageLightboxModal, { downloadImageFile } from "@/components/modals/ImageLightboxModal";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { notify } from "@/lib/notify";
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 import { canAddServiceOrItem, canChangeTechnician } from "@/lib/jobStatus";
@@ -169,6 +170,7 @@ export default function JobDetailPage() {
       }
       setItemDiscountModalOpen(false);
       setSuccessMsg(`Discount of PKR ${approvedDiscountAmount} approved on item. Line item rate updated live.`);
+      notify.success(`Discount of PKR ${approvedDiscountAmount} approved on item. Line item rate updated live.`);
       fetchJob();
 
       // Publish Real-time Sync Event
@@ -180,7 +182,7 @@ export default function JobDetailPage() {
         message: `${currentPersona.name} approved PKR ${approvedDiscountAmount} discount on ${selectedItemToDiscount.description}`,
       });
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -346,9 +348,10 @@ export default function JobDetailPage() {
         throw new Error(err.error);
       }
       setSuccessMsg("Job successfully finalized and locked into read-only!");
+      notify.success("Job successfully finalized and locked into read-only!");
       fetchJob();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -361,7 +364,7 @@ export default function JobDetailPage() {
       !verifyChecklist.paymentReconciled ||
       !verifyChecklist.inventoryReturned
     ) {
-      alert("All 3 checklist items must be ticked to verify the job.");
+      notify.warning("All 3 checklist items must be ticked to verify the job.");
       return;
     }
 
@@ -388,6 +391,7 @@ export default function JobDetailPage() {
       setSuccessMsg(
         "Job verified by auditor. Feedback was completed earlier in the call-center step."
       );
+      notify.success("Job verified by auditor. Feedback was completed earlier in the call-center step.");
       fetchJob();
 
       // Publish Real-time Sync Event
@@ -399,7 +403,7 @@ export default function JobDetailPage() {
         message: `Job #${job?.jobNumber || ""} verified and settled in accounting ledger.`,
       });
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -407,7 +411,7 @@ export default function JobDetailPage() {
 
   const handleSendBackFromVerification = async () => {
     if (!sendBackNote.trim()) {
-      alert("A disapproval note / reason is required.");
+      notify.warning("A disapproval note / reason is required.");
       return;
     }
     try {
@@ -441,9 +445,10 @@ export default function JobDetailPage() {
             : "Auditor / Accounting Hold (Disputed)"
         }.`
       );
+      notify.success("Job disapproved by auditor and sent back for rework / re-check.");
       fetchJob();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -1823,6 +1828,7 @@ export default function JobDetailPage() {
         jobNumber={job.jobNumber}
         onDiscountApplied={() => {
           setSuccessMsg("Discount applied successfully to job ledger.");
+          notify.success("Discount applied successfully to job ledger.");
           fetchJob();
         }}
       />
@@ -1836,11 +1842,13 @@ export default function JobDetailPage() {
         onAssigned={(successor?: any) => {
           if (successor?.id && successor.id !== job?.id) {
             setSuccessMsg(`Work Order #${job?.jobNumber} ended & reassigned to Work Order #${successor.jobNumber || "new job"}. Loading new job...`);
+            notify.success(`Work Order #${job?.jobNumber} ended & reassigned to Work Order #${successor.jobNumber || "new job"}. Loading new job...`);
             setTimeout(() => {
               router.push(`/jobs/${successor.id}`);
             }, 600);
           } else {
             setSuccessMsg("Technician assigned and dispatch alert sent successfully!");
+            notify.success("Technician assigned and dispatch alert sent successfully!");
             fetchJob();
           }
         }}
@@ -2170,6 +2178,7 @@ export default function JobDetailPage() {
         isStorekeeper={isStorekeeper}
         onSuccess={() => {
           setSuccessMsg(`Successfully issued warehouse stock to Job #${job?.jobNumber || ""}.`);
+          notify.success(`Successfully issued warehouse stock to Job #${job?.jobNumber || ""}.`);
           fetchJob();
         }}
       />
@@ -2182,6 +2191,7 @@ export default function JobDetailPage() {
         storekeeperName={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
         onSuccess={() => {
           setSuccessMsg("Stock return recorded and restocked in warehouse ledger.");
+          notify.success("Stock return recorded and restocked in warehouse ledger.");
           fetchJob();
         }}
       />
@@ -2194,6 +2204,7 @@ export default function JobDetailPage() {
         actor={`${currentPersona.name} (${currentPersona.designation || "Storekeeper"})`}
         onSuccess={() => {
           setSuccessMsg("Misplaced item recorded in audit log. Technician accountability flagged.");
+          notify.success("Misplaced item recorded in audit log. Technician accountability flagged.");
           fetchJob();
         }}
       />
@@ -2206,6 +2217,7 @@ export default function JobDetailPage() {
         actor={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
         onSuccess={() => {
           setSuccessMsg(`Service item added to Job #${job?.jobNumber || ""} successfully.`);
+          notify.success(`Service item added to Job #${job?.jobNumber || ""} successfully.`);
           fetchJob();
         }}
       />
@@ -2219,6 +2231,7 @@ export default function JobDetailPage() {
         netPayable={netPayable}
         onSuccess={(invNumber) => {
           setSuccessMsg(`Tax Invoice ${invNumber} generated successfully!`);
+          notify.success(`Tax Invoice ${invNumber} generated successfully!`);
           fetchJob();
         }}
       />
@@ -2242,6 +2255,7 @@ export default function JobDetailPage() {
         currentAccountantName={`${currentPersona.name} (${currentPersona.designation || "Accountant"})`}
         onSuccess={() => {
           setSuccessMsg(`Technician cash handover recorded and reconciled successfully!`);
+          notify.success(`Technician cash handover recorded and reconciled successfully!`);
           fetchJob();
         }}
       />

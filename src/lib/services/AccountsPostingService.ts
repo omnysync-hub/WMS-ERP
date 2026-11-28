@@ -491,13 +491,33 @@ export class AccountsPostingService {
    * Helper to look up accounts by code.
    * Throws an error if the account is not found in the Chart of Accounts.
    * Does NOT auto-provision or create accounts on the fly.
+   *
+   * By default the resolved account must be a valid POSTING account — active
+   * and a level-4 leaf — the same rule the journal endpoint enforces per line
+   * (inactive or group accounts can never receive postings). Callers that only
+   * probe for existence (e.g. setup checks) may pass
+   * { requirePostingAccount: false } to opt out explicitly.
    */
-  static async getAccountByCode(code: string, db: DbClient = prisma) {
+  static async getAccountByCode(
+    code: string,
+    db: DbClient = prisma,
+    options?: { requirePostingAccount?: boolean }
+  ) {
     const account =
       (await db.account.findUnique({ where: { code } })) ||
       (await db.account.findUnique({ where: { code: currentAccountCode(code) } }));
     if (!account) {
       throw new Error(`Account with code '${code}' not found in Chart of Accounts.`);
+    }
+    if (options?.requirePostingAccount !== false) {
+      if (!account.isActive) {
+        throw new Error(`Account '${account.name}' (${account.code}) is inactive/disabled.`);
+      }
+      if (account.level < 4) {
+        throw new Error(
+          `Account '${account.name}' (${account.code}) is a group account. Post to one of its sub-accounts.`
+        );
+      }
     }
     return account;
   }

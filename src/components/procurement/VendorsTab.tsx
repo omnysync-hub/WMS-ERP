@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 
@@ -120,7 +122,7 @@ export default function VendorsTab({
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    if (!canManageVendor) { alert("Missing permission: procurement.vendor.manage"); return; }
+    if (!canManageVendor) { notify.warning("Missing permission: procurement.vendor.manage", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (!name.trim()) {
       setFormError("Vendor Name is required.");

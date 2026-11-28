@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { notify } from "@/lib/notify";
 
 export default function JobsListPage() {
   const { activeRole, currentPersona, hasPermission } = useRole();
@@ -79,6 +80,10 @@ export default function JobsListPage() {
   const [receiveCashJob, setReceiveCashJob] = useState<any>(null);
 
   async function fetchJobs() {
+    // Care-Of master list fetch starts together with the jobs/technicians
+    // fetch (below) instead of after it, so first paint is not serialized;
+    // it is still awaited separately in its best-effort block further down.
+    const coPromise = fetch("/api/care-of-parties");
     try {
       setLoading(true);
       const [jobsRes, techRes] = await Promise.all([
@@ -98,7 +103,7 @@ export default function JobsListPage() {
     // Care-Of master list for the Client / Care-Of filter chip (best-effort:
     // the chip falls back to job-derived names if this fails).
     try {
-      const coRes = await fetch("/api/care-of-parties");
+      const coRes = await coPromise;
       const coData = await coRes.json();
       if (Array.isArray(coData?.careOfParties)) {
         setCareOfMasterNames(
@@ -1277,7 +1282,7 @@ export default function JobsListPage() {
                   }
                 : undefined
             }
-            onExport={() => alert("Exporting jobs list...")}
+            onExport={() => notify.info("Exporting jobs list...")}
           />
 
 
@@ -1507,7 +1512,7 @@ export default function JobsListPage() {
             bulkActions={[
               {
                 label: "Export Selected",
-                onClick: (ids) => alert(`Exporting ${ids.length} jobs`),
+                onClick: (ids) => notify.info(`Exporting ${ids.length} jobs`),
               },
             ]}
             emptyMessage={

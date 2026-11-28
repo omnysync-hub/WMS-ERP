@@ -157,12 +157,56 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Select whitelist instead of a deep include: the full Job row carries
+    // completionPhotos (base64 proof photos — ~91% of this payload in
+    // production: 2.6 MB of 2.8 MB for 30 jobs) and the full assigned
+    // Employee record (incl. the 512-value faceEmbedding). No list consumer
+    // reads either — job detail (GET /api/jobs/[id]) serves the photos, and
+    // list screens use only the technician's id/name. Everything else the
+    // directory, care-of, dispatch and search consumers read is kept.
     const jobs = await prisma.job.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        jobNumber: true,
+        customerId: true,
+        careOfPartyId: true,
+        manualJobNumber: true,
+        jobType: true,
+        remarks: true,
+        status: true,
+        assignedTechnicianId: true,
+        parentJobId: true,
+        reassignedFromJobId: true,
+        isFoc: true,
+        focReason: true,
+        focApprovedBy: true,
+        focApprovedAt: true,
+        focAmountReceived: true,
+        focPaymentReceivedAt: true,
+        focPaymentRef: true,
+        paymentCollectionMode: true,
+        discountAmount: true,
+        discountReason: true,
+        qualityFlag: true,
+        verifiedChecklist: true,
+        createdAt: true,
+        finalizedAt: true,
+        verifiedAt: true,
         customer: true,
         careOfParty: true,
-        assignedTechnician: true,
+        assignedTechnician: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            designation: true,
+            department: true,
+            role: true,
+            status: true,
+            active: true,
+          },
+        },
         parentJob: { select: { id: true, jobNumber: true, status: true } },
         childJobs: { select: { id: true, jobNumber: true, status: true } },
         assignments: {

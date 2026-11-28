@@ -18,7 +18,10 @@ import {
 } from "lucide-react";
 
 export default function FixedAssetsTab() {
-  const { currentPersona, activeUser } = useRole();
+  const { currentPersona, activeUser, hasPermission } = useRole();
+  // Capitalizing assets and running depreciation post via the accounts API, which
+  // requires accounts.post_entries — hide those controls without it.
+  const canPost = hasPermission("accounts.post_entries");
   const currentActorName = `${activeUser?.name || currentPersona?.name || "Accountant"} (Accountant)`;
   const [assets, setAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -214,23 +217,27 @@ export default function FixedAssetsTab() {
         </div>
 
         <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowDepreciationModal(true)}
-            className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            Run Monthly Depreciation
-          </button>
+          {canPost && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowDepreciationModal(true)}
+                className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                Run Monthly Depreciation
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="px-3.5 py-2 bg-[#18181B] hover:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            Capitalize New Asset
-          </button>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="px-3.5 py-2 bg-[#18181B] hover:bg-black text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Plus className="w-4 h-4" />
+                Capitalize New Asset
+              </button>
+            </>
+          )}
 
           <button
             type="button"

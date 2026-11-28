@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import { useRole } from "@/contexts/RoleContext";
 import { procurementActorHeaders } from "@/lib/procurementClient";
 
@@ -203,7 +205,7 @@ export default function RfqSourcingTab({
   };
 
   const handleCreateRfq = async (e: React.FormEvent) => {
-    if (!canManageRfq) { alert("Missing permission: procurement.rfq.manage"); return; }
+    if (!canManageRfq) { notify.warning("Missing permission: procurement.rfq.manage", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (invitedVendorIds.length === 0) {
       setFormError("Please invite at least one vendor for competitive bidding.");
@@ -262,7 +264,7 @@ export default function RfqSourcingTab({
   };
 
   const handleSubmitQuote = async (e: React.FormEvent) => {
-    if (!canManageRfq) { alert("Missing permission: procurement.rfq.manage"); return; }
+    if (!canManageRfq) { notify.warning("Missing permission: procurement.rfq.manage", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (!quotingVendor || !selectedRfq) return;
 
@@ -298,14 +300,14 @@ export default function RfqSourcingTab({
       setShowQuoteModal(false);
       onRefresh();
     } catch (err: any) {
-      alert(err.message || "Failed to submit quote");
+      notify.error(err.message || "Failed to submit quote");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleAwardWinner = async (rfqId: string, vendorId: string) => {
-    if (!canAwardRfq) { alert("Missing permission: procurement.rfq.award"); return; }
+    if (!canAwardRfq) { notify.warning("Missing permission: procurement.rfq.award", { title: "Permission Denied" }); return; }
     if (!confirm("Are you sure you want to award this contract to the selected vendor? A Purchase Order will be automatically created.")) {
       return;
     }
@@ -330,13 +332,13 @@ export default function RfqSourcingTab({
       }
 
       const result = await res.json();
-      alert(`Contract awarded! Purchase Order ${result.po?.poNumber} auto-generated.`);
+      notify.success(`Contract awarded! Purchase Order ${result.po?.poNumber} auto-generated.`);
       onRefresh();
       if (onNavigateToPo && result.po) {
         onNavigateToPo(result.po);
       }
     } catch (err: any) {
-      alert(err.message || "Failed to award winner");
+      notify.error(err.message || "Failed to award winner");
     } finally {
       setIsSubmitting(false);
     }

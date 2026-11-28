@@ -349,44 +349,113 @@ export async function POST(req: NextRequest) {
 
       case "fulfill_request": {
         const { requestId, productId, quantity } = payload;
-        await InventoryService.consumeStock(
-          productId,
-          Number(quantity),
-          "job_consumption",
-          requestId,
-          `Fulfilled tech request`
-        );
-        const invReq = await prisma.inventoryRequest.update({
-          where: { id: requestId },
-          data: { status: "issued" },
-          include: { job: true },
-        });
+        const qty = Number(quantity);
 
-        // Automatically add the issued physical inventory item to the job's line items
-        const product = await prisma.product.findUnique({ where: { id: productId } });
-        let createdJobItem = null;
-        if (product && invReq.jobId) {
-          createdJobItem = await prisma.jobItem.create({
-            data: {
-              jobId: invReq.jobId,
-              description: `${product.name}${product.sku ? ` - ${product.sku}` : ""} - Issued by Storekeeper`,
-              quantityPlanned: Number(quantity),
-              quantityActual: Number(quantity),
-              unitRate: product.unitPrice,
-            },
-          });
+        // Validate EVERYTHING before any stock or GL mutation. Previously the
+        // stock consume ran first and a bad requestId only failed afterwards at
+        // the request update — leaving stock decremented and a COGS journal
+        // posted for a request that does not exist.
+        if (!requestId || typeof requestId !== "string") {
+          return NextResponse.json({ error: "requestId is required." }, { status: 400 });
         }
+        if (!productId || typeof productId !== "string") {
+          return NextResponse.json({ error: "productId is required." }, { status: 400 });
+        }
+        if (!Number.isFinite(qty) || qty <= 0) {
+          return NextResponse.json({ error: "quantity must be a positive number." }, { status: 400 });
+        }
+        const existingRequest = await prisma.inventoryRequest.findUnique({
+          where: { id: requestId },
+        });
+        if (!existingRequest) {
+          return NextResponse.json(
+            { error: `Inventory request '${requestId}' not found.` },
+            { status: 400 }
+          );
+        }
+        if (existingRequest.status === "issued") {
+          return NextResponse.json(
+            { error: "This inventory request has already been fulfilled." },
+            { status: 400 }
+          );
+        }
+        if (existingRequest.status === "rejected") {
+          return NextResponse.json(
+            { error: "This inventory request was rejected and cannot be fulfilled." },
+            { status: 400 }
+          );
+        }
+        if (existingRequest.status !== "pending" && existingRequest.status !== "partially_issued") {
+          return NextResponse.json(
+            { error: `Inventory request cannot be fulfilled from status '${existingRequest.status}'.` },
+            { status: 400 }
+          );
+        }
+        const productCheck = await prisma.product.findUnique({ where: { id: productId } });
+        if (!productCheck) {
+          return NextResponse.json({ error: "Product not found" }, { status: 400 });
+        }
+
+        // Consume + COGS posting + request status + job line item commit or
+        // roll back together in a single transaction.
+        const { invReq, product, createdJobItem } = await prisma.$transaction(
+          async (tx) => {
+            // Claim the request first (status-guarded) so a concurrent fulfill
+            // of the same request cannot double-issue stock.
+            const claimed = await tx.inventoryRequest.updateMany({
+              where: { id: requestId, status: { in: ["pending", "partially_issued"] } },
+              data: { status: "issued" },
+            });
+            if (claimed.count === 0) {
+              throw new Error(
+                "Inventory request changed state before it could be fulfilled. Refresh and retry."
+              );
+            }
+
+            await InventoryService.consumeStock(
+              productId,
+              qty,
+              "job_consumption",
+              requestId,
+              `Fulfilled tech request`,
+              tx
+            );
+
+            const updatedReq = await tx.inventoryRequest.findUnique({
+              where: { id: requestId },
+              include: { job: true },
+            });
+
+            // Automatically add the issued physical inventory item to the job's line items
+            const prod = await tx.product.findUnique({ where: { id: productId } });
+            let jobItem = null;
+            if (prod && updatedReq?.jobId) {
+              jobItem = await tx.jobItem.create({
+                data: {
+                  jobId: updatedReq.jobId,
+                  description: `${prod.name}${prod.sku ? ` - ${prod.sku}` : ""} - Issued by Storekeeper`,
+                  quantityPlanned: qty,
+                  quantityActual: qty,
+                  unitRate: prod.unitPrice,
+                },
+              });
+            }
+
+            return { invReq: updatedReq, product: prod, createdJobItem: jobItem };
+          },
+          { maxWait: 10000, timeout: 30000 }
+        );
 
         await AuditService.recordCrudAction({
           actorName: payload.storeKeeperName || "Storekeeper",
           actorRole: "storekeeper",
           entityType: "InventoryRequest",
           entityId: requestId,
-          entityNumber: invReq.job?.jobNumber || `REQ-${requestId.slice(0, 8)}`,
+          entityNumber: invReq?.job?.jobNumber || `REQ-${requestId.slice(0, 8)}`,
           actionType: "INVENTORY",
-          description: `Storekeeper issued ${quantity}x ${product?.name || "item"} for Job #${invReq.job?.jobNumber || ""}`,
-          stateBefore: { status: "pending", productId, quantity: Number(quantity) },
-          stateAfter: { status: "issued", productId, quantity: Number(quantity), jobItemId: createdJobItem?.id },
+          description: `Storekeeper issued ${qty}x ${product?.name || "item"} for Job #${invReq?.job?.jobNumber || ""}`,
+          stateBefore: { status: existingRequest.status, productId, quantity: qty },
+          stateAfter: { status: "issued", productId, quantity: qty, jobItemId: createdJobItem?.id },
           canRollback: true,
         });
 

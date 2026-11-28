@@ -86,8 +86,6 @@ export default function ToastViewport() {
   const [toasts, setToasts] = useState<ActiveToast[]>([]);
   const timeoutsRef = useRef<Map<string | number, ReturnType<typeof setTimeout>>>(new Map());
   const animationFramesRef = useRef<Map<string | number, number>>(new Map());
-  const seenNoticeIdsRef = useRef<Set<string>>(new Set());
-
   // Dismiss a specific toast
   const dismiss = useCallback((id: string | number) => {
     // Clear timeouts
@@ -232,7 +230,7 @@ export default function ToastViewport() {
     [dismiss]
   );
 
-  // Global listeners for workman:toast, window.alert, admin_notification_update
+  // Global listeners for workman:toast and window.alert
   useEffect(() => {
     const originalAlert = window.alert;
 
@@ -286,51 +284,13 @@ export default function ToastViewport() {
       showToast({ message: text, tone, title });
     };
 
-    // 4. Intercept admin_notification_update to pop toast for real-time admin notices
-    const onAdminNoticeUpdate = () => {
-      try {
-        const raw = localStorage.getItem("admin_notifications");
-        if (!raw) return;
-        const notices = JSON.parse(raw);
-        if (Array.isArray(notices) && notices.length > 0) {
-          const newest = notices[0];
-          if (
-            newest &&
-            newest.id &&
-            !seenNoticeIdsRef.current.has(newest.id) &&
-            newest.title !== "System" &&
-            !newest.title?.toLowerCase().includes("system")
-          ) {
-            seenNoticeIdsRef.current.add(newest.id);
-            showToast({
-              id: newest.id,
-              title: newest.title || "New Notification",
-              message: newest.message || "You have a new operational notice.",
-              tone: "notification",
-              duration: 6500,
-              action: newest.href
-                ? {
-                    label: "View",
-                    href: newest.href,
-                  }
-                : undefined,
-            });
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
     window.addEventListener("workman:toast", onToastEvent);
     window.addEventListener("workman:toast:dismiss", onDismissEvent);
-    window.addEventListener("admin_notification_update", onAdminNoticeUpdate);
 
     return () => {
       window.alert = originalAlert;
       window.removeEventListener("workman:toast", onToastEvent);
       window.removeEventListener("workman:toast:dismiss", onDismissEvent);
-      window.removeEventListener("admin_notification_update", onAdminNoticeUpdate);
       timeoutsRef.current.forEach(clearTimeout);
       timeoutsRef.current.clear();
       animationFramesRef.current.forEach(cancelAnimationFrame);

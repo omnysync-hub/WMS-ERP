@@ -23,11 +23,19 @@ import {
   ShoppingBag,
   Menu,
   LogOut,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { useRole } from "@/contexts/RoleContext";
 import { realtimeSync } from "@/lib/realtimeSync";
 import { formatJobType } from "@/lib/utils";
 import toast from "@/lib/toast";
+import {
+  isSoundEnabled,
+  setSoundEnabled,
+  subscribeSoundEnabled,
+  playSuccessCue,
+} from "@/lib/soundAlerts";
 
 interface TopbarProps {
   onOpenNavigation?: () => void;
@@ -62,63 +70,46 @@ export default function Topbar({
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
+  // Master sound-alerts switch (persisted as `wms_sound_alerts`, default ON).
+  // Muting silences toast cues, urgent chimes and spoken announcements —
+  // visual toasts and the bell are unaffected.
+  const [soundOn, setSoundOn] = useState(true);
   useEffect(() => {
-    const loadNotices = () => {
+    setSoundOn(isSoundEnabled());
+    return subscribeSoundEnabled(setSoundOn);
+  }, []);
+  const handleToggleSound = () => {
+    const next = !soundOn;
+    setSoundEnabled(next);
+    if (next) playSuccessCue(); // the click is a user gesture, so this can play
+  };
+
+  useEffect(() => {
+    // Server-computed office notices (pending leaves, low stock, unassigned jobs,
+    // pending discount approvals) from the real notifications API. Refreshed on a
+    // 60s poll; each refresh replaces the previous API-sourced entries (their ids
+    // are prefixed "notice-") so counts never go stale or duplicate.
+    const loadServerNotifications = async () => {
       try {
-        const stored = JSON.parse(localStorage.getItem("admin_notifications") || "[]");
-        // Sanitize and purge any internal System or sync event notifications
-        const filtered = (Array.isArray(stored) ? stored : []).filter(
-          (n: any) =>
-            n &&
-            n.title !== "System" &&
-            !n.title?.toLowerCase().includes("system") &&
-            !n.message?.includes("AUDIT_LOG_UPDATE") &&
-            !n.message?.includes("Sync event")
-        );
-        if (filtered.length !== stored.length) {
-          localStorage.setItem("admin_notifications", JSON.stringify(filtered));
-        }
-
-        // Purge any lingering internal audit sync in last event
-        const lastEvt = localStorage.getItem("erp_last_event") || localStorage.getItem("workman_erp_last_event");
-        if (lastEvt && (lastEvt.includes("AUDIT_LOG_UPDATE") || lastEvt.includes("Sync event") || lastEvt.includes('"actor":"System"'))) {
-          localStorage.removeItem("erp_last_event");
-          localStorage.removeItem("workman_erp_last_event");
-        }
-
-        if (filtered.length > 0) {
-          setNotifications((prev) => {
-            const ids = new Set(prev.map((n) => n.id));
-            const newOnes = filtered.filter((n: any) => !ids.has(n.id));
-            return [...newOnes, ...prev];
-          });
-        }
-      } catch (e) {
-        // ignore
-      }
-    };
-
-    const loadPendingDiscounts = async () => {
-      try {
-        const res = await fetch("/api/accounts?view=discounts");
+        const res = await fetch("/api/notifications");
+        if (!res.ok) return;
         const data = await res.json();
-        if (data.discounts && data.discounts.length > 0) {
-          const discountNotices = data.discounts.map((d: any) => ({
-            id: `disc-${d.jobId}-${d.itemId || "job"}`,
-            title: `Discount Request: ${d.jobNumber}`,
-            message: `Tech ${d.technicianName} requested PKR ${d.requestedDiscount} discount on ${d.itemDescription} (${d.customerName}).`,
-            timestamp: "Awaiting approval",
-            unread: true,
-            isDiscount: true,
-            href: "/accounts",
-          }));
-          setNotifications((prev) => {
-            const ids = new Set(prev.map((n) => n.id));
-            const newOnes = discountNotices.filter((n: any) => !ids.has(n.id));
-            return [...newOnes, ...prev];
-          });
-        }
-      } catch (e) {}
+        const notices = (Array.isArray(data.notifications) ? data.notifications : []).map((n: any) => ({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          timestamp: n.createdAt ? new Date(n.createdAt).toLocaleString() : "Active now",
+          unread: true,
+          href: n.link,
+          isDiscount: n.id === "notice-discounts",
+        }));
+        setNotifications((prev) => [
+          ...notices,
+          ...prev.filter((n) => !String(n.id).startsWith("notice-")),
+        ]);
+      } catch {
+        // Best-effort: a failed fetch leaves the last known notices in place.
+      }
     };
 
     const loadBlockedDeviceAlerts = async () => {
@@ -165,14 +156,13 @@ export default function Topbar({
       }
     };
 
-    loadNotices();
-    loadPendingDiscounts();
+    loadServerNotifications();
     loadBlockedDeviceAlerts();
+    const noticesTimer = window.setInterval(loadServerNotifications, 60_000);
     const securityAlertTimer = window.setInterval(loadBlockedDeviceAlerts, 30_000);
-    window.addEventListener("admin_notification_update", loadNotices);
     return () => {
+      window.clearInterval(noticesTimer);
       window.clearInterval(securityAlertTimer);
-      window.removeEventListener("admin_notification_update", loadNotices);
     };
   }, []);
 
@@ -412,6 +402,18 @@ export default function Topbar({
 
         {/* Right: Notifications & Role Switcher */}
         <div className="flex items-center gap-2.5">
+          {/* Sound Alerts Master Toggle */}
+          <button
+            type="button"
+            onClick={handleToggleSound}
+            title={soundOn ? "Sound alerts ON — click to mute" : "Sound alerts OFF — click to unmute"}
+            aria-label={soundOn ? "Mute sound alerts" : "Unmute sound alerts"}
+            aria-pressed={soundOn}
+            className="p-1.5 text-[#A1A1AA] hover:text-white hover:bg-[#27272A] rounded-lg transition focus-visible:outline-none"
+          >
+            {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-rose-400" />}
+          </button>
+
           {/* Notifications Bell with Popover Dropdown */}
           <div className="relative">
             <button

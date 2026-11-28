@@ -38,9 +38,64 @@ export class HrmService {
       ];
     }
 
+    // Select whitelist: the full Employee row carries faceEmbedding (a
+    // 512-float vector per person — ~81% of this payload in production:
+    // 331 KB of 407 KB for 58 employees) plus credential material
+    // (mobilePasswordHash, mobileSessionId) that no list consumer reads and
+    // a directory endpoint should never ship. The single-employee record
+    // (getEmployee) still returns the full row where enrolment needs it.
     return await prisma.employee.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        role: true,
+        department: true,
+        designation: true,
+        employmentType: true,
+        joinDate: true,
+        salary: true,
+        monthlyIncomeTax: true,
+        eobiEmployeeShare: true,
+        eobiEmployerShare: true,
+        status: true,
+        probationEndDate: true,
+        probationStatus: true,
+        cnic: true,
+        emergencyContactName: true,
+        emergencyContactPhone: true,
+        address: true,
+        bankName: true,
+        bankAccountTitle: true,
+        bankAccountNumber: true,
+        bankIban: true,
+        reportingManagerId: true,
+        erpUserId: true,
+        faceEnrolled: true,
+        faceTemplateUrl: true,
+        faceEnrolledAt: true,
+        faceEnrollmentCount: true,
+        allowFaceReenrollment: true,
+        active: true,
+        mobileLoginActive: true,
+        appAccessMain: true,
+        appAccessBikes: true,
+        appAccessHvac: true,
+        mobileSessionApp: true,
+        mobileUsername: true,
+        mobilePasswordSetAt: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
+        mobileDeviceId: true,
+        mobileDeviceLabel: true,
+        mobileSessionStartedAt: true,
+        lastMobileSessionAt: true,
+        lat: true,
+        lng: true,
+        lastPingAt: true,
+        createdAt: true,
         reportingManager: {
           select: { id: true, name: true, designation: true, role: true },
         },

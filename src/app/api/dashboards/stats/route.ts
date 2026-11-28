@@ -38,6 +38,13 @@ export async function GET(req: NextRequest) {
 
     const todayStart = pktTodayStart(); // PKT midnight (server runs in UTC)
 
+    // PKT month boundaries for the month-over-month revenue query below
+    // (hoisted so that query can join the parallel batch instead of running
+    // as a lone sequential round-trip after it).
+    const pNow = pktParts(now);
+    const thisMonthStart = pktStartOfDay(pNow.year, pNow.month, 1);
+    const lastMonthStart = pktStartOfDay(pNow.year, pNow.month - 1, 1);
+
     // Parallel queries to fetch core entities
     const [
       jobs,
@@ -48,10 +55,10 @@ export async function GET(req: NextRequest) {
       accounts,
       journalEntries,
       products,
-      inventoryRequests,
-      stockReturns,
+      pendingRequestsCount,
+      pendingReturnsCount,
       attendancesToday,
-      leaveRequests,
+      pendingLeaveCount,
       advances,
       feedbackCalls,
       projects,
@@ -59,25 +66,46 @@ export async function GET(req: NextRequest) {
       workshopJobs,
       workshopTools,
       workshopScrap,
+      momJobs,
     ]: any = await Promise.all([
+      // Select whitelist: the metrics below read only a handful of job
+      // fields, but a bare include pulled every Job scalar (incl. the
+      // base64 completionPhotos) plus the full customer / assigned
+      // Employee records (incl. faceEmbedding) for the whole range.
       prisma.job.findMany({
         where: jobWhere,
-        include: {
-          customer: true,
-          assignedTechnician: true,
-          items: true,
-          feedbackCalls: true,
-          hisaabSettlements: { where: { status: { not: "superseded" } } },
-          expenseClaims: true,
+        select: {
+          id: true,
+          status: true,
+          isFoc: true,
+          discountAmount: true,
+          qualityFlag: true,
+          assignedTechnicianId: true,
+          createdAt: true,
+          items: {
+            select: { quantityActual: true, quantityPlanned: true, unitRate: true },
+          },
+          hisaabSettlements: {
+            where: { status: { not: "superseded" } },
+            select: { amountCollected: true, amountExpected: true },
+          },
+          expenseClaims: { select: { amount: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
       prisma.customer.count(),
       prisma.employee.findMany({
         where: { role: "technician", active: true },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          // Only the count and (for the availability derivation below) the
+          // status of each active job are read — not the full job rows.
+          // "Paused" is included to mirror /api/technicians' active set.
           jobs: {
-            where: { status: { in: ["InProgress", "Assigned", "Accepted"] } },
+            where: { status: { in: ["InProgress", "Assigned", "Accepted", "Paused"] } },
+            select: { id: true, status: true },
           },
         },
       }),
@@ -87,6 +115,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.invoice.findMany({
         where: dateFilter ? { createdAt: dateFilter } : {},
+        select: { amount: true, status: true, createdAt: true },
       }),
       prisma.account.count(),
       prisma.journalEntry.findMany({
@@ -105,32 +134,46 @@ export async function GET(req: NextRequest) {
           unit: true,
         },
       }),
-      prisma.inventoryRequest.findMany({
-        where: dateFilter ? { createdAt: dateFilter } : {},
-        include: { job: { include: { customer: true } } },
+      // Only the pending counts are read from these two — count in the DB
+      // instead of fetching every row with its job + customer attached.
+      // (StockReturn has no status column, so every row counted before.)
+      prisma.inventoryRequest.count({
+        where: {
+          ...(dateFilter ? { createdAt: dateFilter } : {}),
+          status: { not: "issued" },
+        },
       }),
-      prisma.stockReturn.findMany({
+      prisma.stockReturn.count({
         where: dateFilter ? { createdAt: dateFilter } : {},
-        include: { job: { include: { customer: true } } },
       }),
       prisma.attendanceLog.findMany({
         where: {
           timestamp: { gte: todayStart },
         },
+        select: { employeeId: true, result: true, notes: true, timestamp: true },
       }),
-      prisma.leaveRequest.findMany({
+      prisma.leaveRequest.count({
         where: { status: "pending" },
       }),
       prisma.employeeAdvance.findMany({
         where: { status: "approved" },
+        select: { amount: true },
       }),
       prisma.feedbackCall.findMany({
         where: dateFilter ? { calledAt: dateFilter } : {},
-        include: { job: { include: { customer: true, assignedTechnician: true } } },
+        include: {
+          job: {
+            select: {
+              jobNumber: true,
+              customer: { select: { name: true } },
+              assignedTechnician: { select: { name: true } },
+            },
+          },
+        },
         orderBy: { calledAt: "desc" },
       }),
       prisma.project.findMany({
-        include: { customer: true, boqItems: true },
+        include: { customer: { select: { name: true } } },
       }),
       prisma.technicianLedgerEntry.findMany({
         select: { technicianId: true, type: true, amount: true },
@@ -155,6 +198,12 @@ export async function GET(req: NextRequest) {
       prisma.workshopScrapItem.findMany({
         include: { jobCard: true },
         orderBy: { createdAt: "desc" },
+      }),
+      // Month-over-month revenue inputs — independent of every other query,
+      // so it runs in this batch rather than as a sequential call afterwards.
+      prisma.job.findMany({
+        where: { status: "Finalized", isFoc: false, finalizedAt: { gte: lastMonthStart } },
+        select: { finalizedAt: true, discountAmount: true, items: { select: { quantityActual: true, quantityPlanned: true, unitRate: true } } },
       }),
     ]);
 
@@ -198,6 +247,40 @@ export async function GET(req: NextRequest) {
     const completionRate = totalJobsCount > 0 ? (completedJobs / totalJobsCount) * 100 : 0;
 
     // 2. TECHNICIANS & FIELD OPS METRICS
+    // Availability derivation — mirrors /api/technicians: a technician is
+    // checked in when their latest punch today is not a check-out; checked
+    // in + an InProgress job = "On Job"; checked in with no active job =
+    // "Available". The Employee model has NO currentStatus column, so the
+    // old code read tech.currentStatus (always undefined): the leaderboard
+    // defaulted everyone to "Available" while the available count — taken
+    // from the same raw field — was always 0. Both now use this one
+    // derivation, so the count and the leaderboard can never disagree.
+    const logsByTech = new Map<string, any[]>();
+    for (const a of attendancesToday) {
+      const arr = logsByTech.get(a.employeeId);
+      if (arr) arr.push(a);
+      else logsByTech.set(a.employeeId, [a]);
+    }
+    const deriveTechStatus = (tech: any): string => {
+      const logs = (logsByTech.get(tech.id) || [])
+        .slice()
+        .sort((x: any, y: any) => new Date(y.timestamp).getTime() - new Date(x.timestamp).getTime());
+      const latest = logs[0] || null;
+      const isCheckedIn = latest ? !latest.notes?.includes("[CHECK_OUT]") : false;
+      const activeJob =
+        (tech.jobs || []).find((j: any) => j.status === "InProgress") || (tech.jobs || [])[0];
+      if (isCheckedIn) {
+        if (activeJob) {
+          if (activeJob.status === "InProgress") return "On Job";
+          if (activeJob.status === "Paused") return "Paused";
+          return "Assigned";
+        }
+        return "Available";
+      }
+      if (logs.some((l: any) => l.notes?.includes("[CHECK_OUT]"))) return "Checked Out";
+      return "Off Duty";
+    };
+
     const techMetrics = technicians.map((tech: any) => {
       const techJobs = jobs.filter((j: any) => j.assignedTechnicianId === tech.id);
       const techCompleted = techJobs.filter((j: any) =>
@@ -221,7 +304,7 @@ export async function GET(req: NextRequest) {
         id: tech.id,
         name: tech.name,
         phone: tech.phone,
-        currentStatus: tech.currentStatus || "Available",
+        currentStatus: deriveTechStatus(tech),
         activeJobsCount: tech.jobs?.length || 0,
         completedJobsCount: techCompleted,
         disputeCount: techDisputed,
@@ -231,8 +314,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const techAvailable = technicians.filter((t: any) => t.currentStatus === "Available").length;
-    const techOnJob = technicians.filter((t: any) => t.currentStatus === "On Job").length;
+    const techAvailable = techMetrics.filter((t: any) => t.currentStatus === "Available").length;
+    const techOnJob = techMetrics.filter((t: any) => t.currentStatus === "On Job").length;
 
     // 3. FINANCE & ACCOUNTS METRICS
     const totalInvoiced = invoices.reduce((s: number, i: any) => s + (i.amount || 0), 0);
@@ -304,8 +387,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const pendingRequests = inventoryRequests.filter((r: any) => r.status !== "issued").length;
-    const pendingReturns = stockReturns.filter((r: any) => r.status !== "verified").length;
+    const pendingRequests = pendingRequestsCount;
+    const pendingReturns = pendingReturnsCount;
 
     // 5. HRM & WORKFORCE METRICS
     const totalStaff = allEmployees.length;
@@ -316,7 +399,7 @@ export async function GET(req: NextRequest) {
       attendancesToday.filter((a: any) => a.result === "pass").map((a: any) => a.employeeId)
     ).size;
     const attendancePct = totalStaff > 0 ? (presentTodayCount / totalStaff) * 100 : 0;
-    const pendingLeaves = leaveRequests.length;
+    const pendingLeaves = pendingLeaveCount;
     const totalAdvancesAmount = advances.reduce((s: number, a: any) => s + (a.amount || 0), 0);
 
     const deptCounts: Record<string, number> = {};
@@ -349,13 +432,7 @@ export async function GET(req: NextRequest) {
     ];
 
     // Month-over-month change of the same metric (finalized, chargeable jobs; by finalize date, PKT months).
-    const pNow = pktParts(now);
-    const thisMonthStart = pktStartOfDay(pNow.year, pNow.month, 1);
-    const lastMonthStart = pktStartOfDay(pNow.year, pNow.month - 1, 1);
-    const momJobs = await prisma.job.findMany({
-      where: { status: "Finalized", isFoc: false, finalizedAt: { gte: lastMonthStart } },
-      select: { finalizedAt: true, discountAmount: true, items: { select: { quantityActual: true, quantityPlanned: true, unitRate: true } } },
-    });
+    // momJobs was fetched in the parallel batch above.
     let revThisMonth = 0;
     let revLastMonth = 0;
     for (const j of momJobs) {

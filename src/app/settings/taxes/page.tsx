@@ -57,7 +57,14 @@ export default function TaxSettingsPage() {
   const [rates, setRates] = useState<TaxRateConfig[]>([]);
   const [policy, setPolicy] = useState<TaxPolicy>(DEFAULT_TAX_POLICY);
   const [roleAccounts, setRoleAccounts] = useState<Record<string, { code: string; name: string } | null>>({});
-  const [canEdit, setCanEdit] = useState(false);
+  // Seed from the same client permission gate the page enforces below: anyone
+  // who can see this form holds settings.taxes / settings.accounting, which is
+  // exactly what the server checks for canEdit. Starting from `false` left the
+  // whole page disabled whenever the GET was slow or failed transiently, even
+  // for an admin. A successful GET still overwrites this with the server value.
+  const [canEdit, setCanEdit] = useState(
+    () => hasPermission("settings.taxes") || hasPermission("settings.accounting")
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);

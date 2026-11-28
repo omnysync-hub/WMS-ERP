@@ -26,12 +26,13 @@ import { requireOfficePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
-    // 1. Authorize caller: Dispatch / Office / Admin roles
+    // 1. Authorize caller: this endpoint serves ONLY the Surveillance page
+    // (historical route replay / breadcrumbs) — its sole caller in the app.
+    // The Live Dispatch map reads live positions from other endpoints and
+    // never calls this route, so dispatch.view_map must NOT open it:
+    // dispatch.surveillance (manager + admin by default) is the governing key.
     const gate = await requireOfficePermission(req, [
-      "dispatch.view_map",
-      "dispatch.manage",
-      "jobs.view_directory",
-      "hrm.view_employees",
+      "dispatch.surveillance",
       "admin",
     ]);
 

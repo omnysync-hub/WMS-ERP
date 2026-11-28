@@ -31,11 +31,52 @@ export class FeedbackService {
             status: "Verified",
             feedbackCalls: { none: {} },
           },
+          {
+            // finalizeJob does not require feedback, so a job can reach
+            // Finalized with no call ever recorded. recordFeedback accepts
+            // Finalized jobs — without this branch they would vanish from
+            // the queue forever once finalized.
+            status: "Finalized",
+            feedbackCalls: { none: {} },
+          },
         ],
       },
-      include: {
+      // Select whitelist: the bare include pulled every Job scalar (incl.
+      // the base64 completionPhotos — this queue measured 2.7 MB / 4.1 s in
+      // production) and the full assigned Employee record (incl.
+      // faceEmbedding). The queue screen reads neither; it uses the
+      // technician's name and the job's display fields, all kept here.
+      select: {
+        id: true,
+        jobNumber: true,
+        customerId: true,
+        careOfPartyId: true,
+        manualJobNumber: true,
+        jobType: true,
+        remarks: true,
+        status: true,
+        assignedTechnicianId: true,
+        parentJobId: true,
+        reassignedFromJobId: true,
+        isFoc: true,
+        focReason: true,
+        focApprovedBy: true,
+        focApprovedAt: true,
+        focAmountReceived: true,
+        focPaymentReceivedAt: true,
+        focPaymentRef: true,
+        paymentCollectionMode: true,
+        discountAmount: true,
+        discountReason: true,
+        qualityFlag: true,
+        verifiedChecklist: true,
+        createdAt: true,
+        finalizedAt: true,
+        verifiedAt: true,
         customer: true,
-        assignedTechnician: true,
+        assignedTechnician: {
+          select: { id: true, name: true, phone: true },
+        },
         feedbackCalls: {
           orderBy: { calledAt: "desc" },
         },

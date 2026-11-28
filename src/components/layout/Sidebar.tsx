@@ -273,13 +273,6 @@ export default function Sidebar({
       perm: "dispatch.view_map",
     },
     {
-      label: "Customer 360 Records",
-      href: "/customers",
-      icon: Users,
-      roles: ["admin", "accountant", "dispatcher", "call_center", "auditor"],
-      perm: "jobs.view_directory",
-    },
-    {
       label: "Care-Of Parties",
       href: "/jobs/care-of",
       icon: Building,
@@ -306,22 +299,38 @@ export default function Sidebar({
   });
 
   // Dedicated HRM Accordion Sub-Items
-  const hrmSubItems = [
-    { label: "HR Dashboard", tab: "analytics", icon: BarChart3 },
-    { label: "Company Onboarding", tab: "company-onboarding", icon: Building },
-    { label: "Employees", tab: "employees", icon: Users },
-    { label: "Leave Management", tab: "leave", icon: Calendar },
-    { label: "Assets Register", tab: "assets", icon: Package },
-    { label: "Recruitment (ATS)", tab: "recruitment", icon: UserPlus },
-    { label: "Attendance & Face", tab: "attendance", icon: Camera },
-    { label: "Device Punches", tab: "device-punches", icon: Fingerprint },
-    { label: "Payroll Runs", tab: "payroll", icon: CreditCard },
-    { label: "Advances", tab: "advances", icon: TrendingDown },
+  // Visibility mirrors the HRM APIs: when an item carries `perms`, the permissions
+  // alone decide (role edits / per-user overrides are respected); the `roles` list
+  // is only used for the one surface whose API is role-gated instead of
+  // permission-gated (device punches: admin/HR roles on /api/integrations/zkbio).
+  const allHrmSubItems: Array<{
+    label: string;
+    tab: string;
+    icon: any;
+    perms?: string[];
+    roles?: string[];
+  }> = [
+    { label: "HR Dashboard", tab: "analytics", icon: BarChart3, perms: ["hrm.view_employees", "hrm.manage_employees"] },
+    { label: "Company Onboarding", tab: "company-onboarding", icon: Building, perms: ["hrm.view_employees", "hrm.manage_employees"] },
+    { label: "Employees", tab: "employees", icon: Users, perms: ["hrm.view_employees", "hrm.manage_employees"] },
+    { label: "Leave Management", tab: "leave", icon: Calendar, perms: ["hrm.view_employees", "hrm.manage_employees"] },
+    { label: "Assets Register", tab: "assets", icon: Package, perms: ["hrm.view_employees", "hrm.manage_employees"] },
+    { label: "Recruitment (ATS)", tab: "recruitment", icon: UserPlus, perms: ["hrm.view_employees", "hrm.manage_employees"] },
+    { label: "Attendance & Face", tab: "attendance", icon: Camera, perms: ["hrm.attendance"] },
+    { label: "Device Punches", tab: "device-punches", icon: Fingerprint, roles: ["admin", "hr", "management", "superadmin"] },
+    { label: "Payroll Runs", tab: "payroll", icon: CreditCard, perms: ["hrm.payroll", "hrm.payroll_disburse"] },
+    { label: "Advances", tab: "advances", icon: TrendingDown, perms: ["hrm.advances"] },
   ];
 
-  const hasHrmAccess =
-    activeRole !== "dispatcher" &&
-    (["admin", "hr", "auditor"].includes(activeRole) || hasPermission("hrm.view_employees"));
+  const hrmSubItems = allHrmSubItems.filter((sub) => {
+    if (sub.perms) return sub.perms.some((p) => hasPermission(p));
+    return sub.roles ? sub.roles.includes(activeRole) : false;
+  });
+
+  // HRM access follows ANY hrm.* grant (e.g. a manager holding only
+  // hrm.payroll / hrm.payroll_disburse / hrm.advances still reaches HRM and
+  // sees exactly the tabs those grants unlock — the page gates per tab too).
+  const hasHrmAccess = hrmSubItems.length > 0;
 
   // Dedicated Procurement Accordion Sub-Items
   const allProcurementSubItems = [
@@ -402,6 +411,7 @@ export default function Sidebar({
     { label: "Point of Sale (POS)", href: "/pos", icon: ShoppingBag, roles: ["admin", "cashier", "accountant", "call_center", "auditor"], perm: "accounts.pos" },
     { label: "Tax Report", href: "/accounts/tax-report", icon: CreditCard, roles: ["admin", "accountant", "manager", "auditor"], perm: "accounts.financial_reports|settings.taxes" },
     { label: "Warehouse & Stock", href: "/inventory", icon: Package, roles: ["admin", "storekeeper", "accountant", "auditor"], perm: "inventory.view_stock" },
+    { label: "Workshops", href: "/workshops", icon: Wrench, roles: ["admin", "accountant", "auditor"], perm: "jobs.reports" },
     { label: "Feedback Queue", href: "/feedback", icon: Headphones, roles: ["admin", "call_center", "auditor"] },
     { label: "Audit & Rollbacks", href: "/audit", icon: RotateCcw, roles: ["admin", "auditor"], perm: "audit.view_logs" },
   ];
@@ -421,7 +431,7 @@ export default function Sidebar({
   );
 
   const inventoryOperations = operationsItems.filter((item) =>
-    ["/inventory"].includes(item.href)
+    ["/inventory", "/workshops"].includes(item.href)
   );
 
   // Temporary Vouchers tab: visible to voucher creators, voucher posters, or ledger viewers

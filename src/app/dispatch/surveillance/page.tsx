@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/layout/PageHeader";
 import SurveillanceMap from "@/components/maps/SurveillanceMap";
+import { formatBatteryPercent, formatDurationMinutes } from "@/components/maps/surveillanceFormat";
 import { useRole } from "@/contexts/RoleContext";
 import { pktParts, pktTodayStart } from "@/lib/pktTime";
 
@@ -12,6 +13,7 @@ function pktDateStr(d: Date): string {
   const { year, month, day } = pktParts(d);
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
 import {
   Users,
   Calendar,
@@ -507,7 +509,7 @@ export default function SurveillanceDashboardPage() {
             <p className="text-xl font-mono font-extrabold text-rose-600">
               {summary.offlineIncidents}{" "}
               <span className="text-xs font-sans text-zinc-400 font-normal">
-                ({summary.totalOfflineMinutes}m total)
+                ({formatDurationMinutes(summary.totalOfflineMinutes)} total)
               </span>
             </p>
           </div>
@@ -621,7 +623,7 @@ export default function SurveillanceDashboardPage() {
                   <span>
                     ⚡ {currentPing.speed != null ? `${Math.round(currentPing.speed)} km/h` : "0 km/h"}
                   </span>
-                  <span>🔋 {currentPing.batteryLevel != null ? `${Math.round(currentPing.batteryLevel)}%` : "—"}</span>
+                  <span>🔋 {currentPing.batteryLevel != null ? formatBatteryPercent(currentPing.batteryLevel) : "—"}</span>
                   <span className={currentPing.isMoving ? "text-emerald-400 font-bold" : "text-amber-400"}>
                     {currentPing.isMoving ? "Moving" : "Idle"}
                   </span>
@@ -714,7 +716,7 @@ export default function SurveillanceDashboardPage() {
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-rose-900">Incident #{idx + 1}</span>
                   <span className="px-2 py-0.5 bg-rose-100 text-rose-800 font-bold rounded-md text-[11px]">
-                    {gap.durationMinutes} mins offline
+                    {formatDurationMinutes(gap.durationMinutes || 0)} offline
                   </span>
                 </div>
                 <p className="text-zinc-600 text-[11px]">
@@ -728,7 +730,7 @@ export default function SurveillanceDashboardPage() {
                   </p>
                 )}
                 {gap.lastBatteryLevel != null && (
-                  <p className="text-zinc-400 text-[10px]">Last reported battery: {gap.lastBatteryLevel}%</p>
+                  <p className="text-zinc-400 text-[10px]">Last reported battery: {formatBatteryPercent(gap.lastBatteryLevel)}</p>
                 )}
               </div>
             ))}

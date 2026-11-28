@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import React, { useState, useEffect, useRef } from "react";
 import {
   ShieldAlert,
@@ -271,7 +273,7 @@ export default function ThreeWayMatchTab({
   }
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
-    if (!canCreateInvoice) { alert("Missing permission: procurement.invoice.create"); return; }
+    if (!canCreateInvoice) { notify.warning("Missing permission: procurement.invoice.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (!vendorId || !invoiceNumber.trim()) {
       setFormError("Please enter invoice number and select a vendor.");

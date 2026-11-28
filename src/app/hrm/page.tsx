@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import PageHeader from "@/components/layout/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
+import { useRole } from "@/contexts/RoleContext";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { notify } from "@/lib/notify";
 import AddEmployeeDrawer from "@/components/drawers/AddEmployeeDrawer";
 import LeaveRequestDrawer from "@/components/drawers/LeaveRequestDrawer";
 import AddAssetDrawer from "@/components/drawers/AddAssetDrawer";
@@ -116,6 +118,134 @@ function HrmPayrollContent() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [notification, setNotification] = useState("");
 
+  // ---------------------------------------------------------------------------
+  // Permission gating — mirrors the HRM APIs so a role only sees the tabs and
+  // actions it can actually use (the server still enforces the same keys):
+  //   employees / analytics / onboarding : GET /api/hrm/employees + analytics
+  //       require hrm.view_employees; mutations require hrm.manage_employees
+  //   leave    : approvals require hrm.manage_employees (or being the
+  //       requester's reporting manager — checked per row at render time)
+  //   assets / recruitment : reads hrm.view_employees, writes hrm.manage_employees
+  //   attendance           : /api/attendance requires hrm.attendance
+  //   device-punches       : /api/integrations/zkbio is role-gated (admin / HR)
+  //   payroll  : reads hrm.payroll OR hrm.payroll_disburse; calculate/approve
+  //       require hrm.payroll; disburse requires hrm.payroll_disburse
+  //   advances : /api/hrm/advances requires hrm.advances
+  // ---------------------------------------------------------------------------
+  const { activeRole, activeUser, hasPermission } = useRole();
+  const canViewEmployees =
+    hasPermission("hrm.view_employees") || hasPermission("hrm.manage_employees");
+  const canManageEmployees = hasPermission("hrm.manage_employees");
+  const canPayroll = hasPermission("hrm.payroll");
+  const canDisbursePayroll = hasPermission("hrm.payroll_disburse");
+  const canAdvances = hasPermission("hrm.advances");
+  const canAttendance = hasPermission("hrm.attendance");
+  const canDevicePunches = ["admin", "hr", "management", "superadmin"].includes(activeRole);
+
+  type HrmTabKey =
+    | "analytics"
+    | "company-onboarding"
+    | "employees"
+    | "leave"
+    | "assets"
+    | "recruitment"
+    | "attendance"
+    | "device-punches"
+    | "payroll"
+    | "advances";
+
+  const tabAccess: Record<HrmTabKey, boolean> = {
+    analytics: canViewEmployees,
+    "company-onboarding": canViewEmployees,
+    employees: canViewEmployees,
+    leave: canViewEmployees,
+    assets: canViewEmployees,
+    recruitment: canViewEmployees,
+    attendance: canAttendance,
+    "device-punches": canDevicePunches,
+    payroll: canPayroll || canDisbursePayroll,
+    advances: canAdvances,
+  };
+  const visibleTabs = (Object.keys(tabAccess) as HrmTabKey[]).filter((t) => tabAccess[t]);
+
+  // If the requested tab is not available to this role, land on the first
+  // tab the role can actually use.
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !tabAccess[activeTab as HrmTabKey]) {
+      setActiveTab(visibleTabs[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, visibleTabs.join(",")]);
+
+  // Cash/bank accounts for the payroll disburse picker: the configured
+  // accounts (/api/accounting-config financialAccounts — readable by any
+  // signed-in role), falling back to the accounts cashbook view.
+  const [cashBankAccounts, setCashBankAccounts] = useState<
+    Array<{ code: string; name: string; isDefault?: boolean }>
+  >([]);
+  const [mappedPayrollAccountCode, setMappedPayrollAccountCode] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let list: Array<{ code: string; name: string; isDefault?: boolean }> = [];
+      try {
+        const res = await fetch("/api/accounting-config");
+        if (res.ok) {
+          const data = await res.json();
+          list = (data.financialAccounts || [])
+            .filter((fa: any) => fa.isActive !== false && fa.ledgerAccount?.code)
+            .map((fa: any) => ({
+              code: fa.ledgerAccount.code,
+              name: fa.name || fa.ledgerAccount.name,
+              isDefault: Boolean(fa.isDefault),
+            }));
+        }
+      } catch {
+        // fall through to the cashbook view
+      }
+      if (list.length === 0) {
+        try {
+          const res = await fetch("/api/accounts?view=cashbook");
+          if (res.ok) {
+            const data = await res.json();
+            list = (data.cashAccounts || []).map((a: any) => ({ code: a.code, name: a.name }));
+          }
+        } catch {
+          // the picker keeps its "mapped account" default option only
+        }
+      }
+      if (!cancelled && list.length > 0) setCashBankAccounts(list);
+    })();
+    (async () => {
+      // Best effort: the account mapped for payroll disbursement
+      // (payroll_net_disbursing) becomes the picker's pre-selection. The
+      // mappings view needs accounts access, so failure just leaves the
+      // picker's explicit "mapped account" default in place.
+      try {
+        const res = await fetch("/api/accounts?view=account_mappings");
+        if (!res.ok) return;
+        const data = await res.json();
+        const mapping = (data.mappings || []).find(
+          (m: any) => m.transactionType === "payroll_net_disbursing"
+        );
+        if (!cancelled && mapping?.accountCode) {
+          setMappedPayrollAccountCode(mapping.accountCode);
+        }
+      } catch {
+        // ignore — server resolves the mapping when no code is sent
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Payroll disburse dialog state (replaces the old free-text prompt())
+  const [disburseTarget, setDisburseTarget] = useState<{ runId: string; period?: string } | null>(null);
+  const [disburseAccountCode, setDisburseAccountCode] = useState<string>("");
+  const [isDisbursing, setIsDisbursing] = useState(false);
+
   // Tab: Analytics
   const [analytics, setAnalytics] = useState<any>(null);
 
@@ -150,11 +280,6 @@ function HrmPayrollContent() {
   const [selectedRequisitionFilter, setSelectedRequisitionFilter] = useState("all");
   const [onboardCandidate, setOnboardCandidate] = useState<any>(null);
 
-  // Tab: Grievances
-  const [grievanceSubTab, setGrievanceSubTab] = useState<"all" | "open" | "resolved">("open");
-  const [grievances, setGrievances] = useState<any[]>([]);
-  const [showRaiseGrievanceDrawer, setShowRaiseGrievanceDrawer] = useState(false);
-
   // Existing Attendance States
   const [attendanceViewMode, setAttendanceViewMode] = useState<"sheet" | "sites" | "logs">("sheet");
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
@@ -178,6 +303,7 @@ function HrmPayrollContent() {
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
 
   async function loadData() {
+    if (!tabAccess[activeTab as HrmTabKey]) return;
     try {
       if (activeTab === "analytics") {
         const res = await fetch("/api/hrm/analytics");
@@ -244,7 +370,7 @@ function HrmPayrollContent() {
 
   useEffect(() => {
     loadData();
-  }, [activeTab, employeeSubTab, leaveSubTab, assetSubTab, atsView, grievanceSubTab, attendanceSubTab]);
+  }, [activeTab, employeeSubTab, leaveSubTab, assetSubTab, atsView, attendanceSubTab]);
 
   // Leave approval / rejection
   const handleApproveLeave = async (requestId: string) => {
@@ -259,10 +385,11 @@ function HrmPayrollContent() {
       });
       if (res.ok) {
         setNotification("Leave request approved and balance deducted.");
+        notify.success("Leave request approved and balance deducted.");
         loadData();
       }
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
@@ -281,15 +408,21 @@ function HrmPayrollContent() {
       });
       if (res.ok) {
         setNotification("Leave request rejected.");
+        notify.success("Leave request rejected.");
         loadData();
       }
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
   // Asset return
   const handleReturnAsset = async (assetId: string) => {
+    if (!canManageEmployees) {
+      setNotification("You don't have permission to manage assets (hrm.manage_employees required).");
+      notify.error("You don't have permission to manage assets (hrm.manage_employees required).");
+      return;
+    }
     const notes = prompt("Enter return condition notes (e.g. good condition, cleaned, tested):");
     try {
       const res = await fetch("/api/hrm/assets", {
@@ -303,15 +436,21 @@ function HrmPayrollContent() {
       });
       if (res.ok) {
         setNotification("Asset returned to store inventory.");
+        notify.success("Asset returned to store inventory.");
         loadData();
       }
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
   // Approve Requisition
   const handleApproveRequisition = async (reqId: string) => {
+    if (!canManageEmployees) {
+      setNotification("You don't have permission to manage recruitment (hrm.manage_employees required).");
+      notify.error("You don't have permission to manage recruitment (hrm.manage_employees required).");
+      return;
+    }
     try {
       const res = await fetch("/api/hrm/recruitment", {
         method: "POST",
@@ -323,15 +462,21 @@ function HrmPayrollContent() {
       });
       if (res.ok) {
         setNotification("Requisition approved and opened for hiring.");
+        notify.success("Requisition approved and opened for hiring.");
         loadData();
       }
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
   // Move candidate stage
   const handleUpdateCandidateStage = async (candidateId: string, newStage: string) => {
+    if (!canManageEmployees) {
+      setNotification("You don't have permission to manage recruitment (hrm.manage_employees required).");
+      notify.error("You don't have permission to manage recruitment (hrm.manage_employees required).");
+      return;
+    }
     try {
       const res = await fetch("/api/hrm/recruitment", {
         method: "POST",
@@ -347,9 +492,10 @@ function HrmPayrollContent() {
           prev.map((c) => (c.id === candidateId ? { ...c, stage: newStage } : c))
         );
         setNotification(`Candidate advanced to ${newStage}.`);
+        notify.success(`Candidate advanced to ${newStage}.`);
       }
     } catch (e: any) {
-      alert(e.message || "Failed to update candidate stage");
+      notify.error(e.message || "Failed to update candidate stage");
     }
   };
 
@@ -370,14 +516,15 @@ function HrmPayrollContent() {
       const data = await res.json();
       if (res.ok) {
         setNotification(data.message || `Flag ${action}d successfully.`);
+        notify.success(data.message || `Flag ${action}d successfully.`);
         setResolveTargetLog(null);
         setResolutionNotes("");
         loadData();
       } else {
-        alert(data.error || data.message || "Failed to resolve flag");
+        notify.error(data.error || data.message || "Failed to resolve flag");
       }
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsResolving(false);
     }
@@ -385,6 +532,11 @@ function HrmPayrollContent() {
 
   // Handle Payroll Calculation
   const handleCalculatePayroll = async () => {
+    if (!canPayroll) {
+      setNotification("You don't have permission to calculate payroll (hrm.payroll required).");
+      notify.error("You don't have permission to calculate payroll (hrm.payroll required).");
+      return;
+    }
     try {
       const res = await fetch("/api/hrm/payroll", {
         method: "POST",
@@ -396,14 +548,20 @@ function HrmPayrollContent() {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setNotification("Draft payroll run generated successfully!");
+      notify.success("Draft payroll run generated successfully!");
       loadData();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
   // Handle Payroll Approval
   const handleApprovePayroll = async (runId: string) => {
+    if (!canPayroll) {
+      setNotification("You don't have permission to approve payroll (hrm.payroll required).");
+      notify.error("You don't have permission to approve payroll (hrm.payroll required).");
+      return;
+    }
     try {
       const res = await fetch("/api/hrm/payroll", {
         method: "POST",
@@ -415,44 +573,71 @@ function HrmPayrollContent() {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setNotification("Payroll approved: salaries posted to Salaries Payable (WHT and EOBI booked). Ready for payment.");
+      notify.success("Payroll approved: salaries posted to Salaries Payable (WHT and EOBI booked). Ready for payment.");
       setSelectedPayrollRunForDetail((prev: any) =>
         prev?.id === runId ? { ...prev, status: "Approved" } : prev
       );
       loadData();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 
-  // Handle Payroll Payout
-  const handleDisbursePayroll = async (runId: string) => {
-    if (!confirm("Pay this payroll now? This clears Salaries Payable against the operating bank account.")) {
+  // Handle Payroll Payout — opens the disburse dialog with a real cash/bank
+  // account picker (previously a free-text prompt() for the account code).
+  const handleDisbursePayroll = (runId: string) => {
+    if (!canDisbursePayroll) {
+      setNotification("You don't have permission to disburse payroll (hrm.payroll_disburse required).");
+      notify.error("You don't have permission to disburse payroll (hrm.payroll_disburse required).");
       return;
     }
-    const paidFromAccountCode = (prompt("Pay from which cash/bank account code? (blank = mapped payroll bank, e.g. 11103 Bank, 11101 Cash)", "") || "").trim();
+    const run = payrollRuns.find((r) => r.id === runId) || selectedPayrollRunForDetail;
+    // Pre-select the account mapped for payroll disbursement when it is one
+    // of the configured cash/bank accounts; otherwise leave the explicit
+    // "mapped account" default selected (server resolves the mapping).
+    setDisburseAccountCode(
+      mappedPayrollAccountCode && cashBankAccounts.some((a) => a.code === mappedPayrollAccountCode)
+        ? mappedPayrollAccountCode
+        : ""
+    );
+    setDisburseTarget({ runId, period: run?.period });
+  };
+
+  const handleConfirmDisbursePayroll = async () => {
+    if (!disburseTarget) return;
     try {
+      setIsDisbursing(true);
       const res = await fetch("/api/hrm/payroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "disburse",
-          runId,
-          ...(paidFromAccountCode ? { paidFromAccountCode } : {}),
+          runId: disburseTarget.runId,
+          ...(disburseAccountCode ? { paidFromAccountCode: disburseAccountCode } : {}),
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setNotification("Payroll paid: Salaries Payable cleared against bank / cash.");
+      notify.success("Payroll paid: Salaries Payable cleared against bank / cash.");
       setSelectedPayrollRunForDetail((prev: any) =>
-        prev?.id === runId ? { ...prev, status: "Paid" } : prev
+        prev?.id === disburseTarget.runId ? { ...prev, status: "Paid" } : prev
       );
+      setDisburseTarget(null);
       loadData();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
+    } finally {
+      setIsDisbursing(false);
     }
   };
 
   // Handle Discarding Draft Payroll
   const handleDeleteDraftPayroll = async (runId: string) => {
+    if (!canPayroll) {
+      setNotification("You don't have permission to discard payroll drafts (hrm.payroll required).");
+      notify.error("You don't have permission to discard payroll drafts (hrm.payroll required).");
+      return;
+    }
     if (!confirm("Discard this draft payroll cycle? This cannot be undone.")) return;
     try {
       const res = await fetch("/api/hrm/payroll", {
@@ -465,12 +650,13 @@ function HrmPayrollContent() {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       setNotification("Draft payroll cycle discarded.");
+      notify.success("Draft payroll cycle discarded.");
       if (selectedPayrollRunForDetail?.id === runId) {
         setSelectedPayrollRunForDetail(null);
       }
       loadData();
     } catch (e: any) {
-      alert(e.message || "Failed to delete draft");
+      notify.error(e.message || "Failed to delete draft");
     }
   };
 
@@ -494,9 +680,10 @@ function HrmPayrollContent() {
       setAdvanceAmount("");
       setAdvanceReason("");
       setNotification("Salary advance issued! Advance ledger debited.");
+      notify.success("Salary advance issued! Advance ledger debited.");
       loadData();
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     } finally {
       setIsSubmittingAdvance(false);
     }
@@ -572,6 +759,31 @@ function HrmPayrollContent() {
 
   const currentTabInfo = tabTitles[activeTab] || tabTitles.analytics;
 
+  // No HRM tab is available to this role — show a clean access notice
+  // instead of an empty shell whose every action would be denied.
+  if (visibleTabs.length === 0) {
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto pb-12">
+        <PageHeader
+          breadcrumbs={[{ label: "HRM & Workforce" }]}
+          title="Human Resources & Workforce"
+          subtitle="Employee records, attendance, payroll, and advances"
+        />
+        <div className="bg-white border border-[#E4E4E7] rounded-xl p-10 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <h3 className="text-sm font-bold text-[#18181B]">No HRM access for your role</h3>
+          <p className="text-xs text-[#71717A] max-w-md mx-auto">
+            Your account doesn&apos;t hold any HRM permissions (employee records, attendance,
+            payroll, or advances), so there is nothing to show here. If you need access, ask an
+            administrator to grant the relevant HRM permissions to your role.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Page Header */}
@@ -583,7 +795,7 @@ function HrmPayrollContent() {
         title={currentTabInfo.title}
         subtitle={currentTabInfo.subtitle}
         actions={
-          activeTab === "employees" ? (
+          activeTab === "employees" && canManageEmployees ? (
             <button
               onClick={() => setShowAddEmployeeDrawer(true)}
               className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
@@ -599,7 +811,7 @@ function HrmPayrollContent() {
               <Calendar className="w-3.5 h-3.5" />
               Apply for Leave
             </button>
-          ) : activeTab === "assets" ? (
+          ) : activeTab === "assets" && canManageEmployees ? (
             <button
               onClick={() => setShowAddAssetDrawer(true)}
               className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
@@ -607,7 +819,7 @@ function HrmPayrollContent() {
               <Package className="w-3.5 h-3.5" />
               Register Asset
             </button>
-          ) : activeTab === "recruitment" ? (
+          ) : activeTab === "recruitment" && canManageEmployees ? (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
@@ -627,7 +839,7 @@ function HrmPayrollContent() {
                 Raise Requisition
               </button>
             </div>
-          ) : activeTab === "payroll" ? (
+          ) : activeTab === "payroll" && canPayroll ? (
             <button
               onClick={() => setShowCreatePayrollDrawer(true)}
               className="h-8 px-3.5 rounded-lg bg-[#0D7A5F] hover:bg-[#0A624C] text-xs font-semibold text-white inline-flex items-center gap-1.5 transition shadow-xs"
@@ -635,7 +847,7 @@ function HrmPayrollContent() {
               <Play className="w-3.5 h-3.5" />
               Generate Monthly Draft
             </button>
-          ) : activeTab === "advances" ? (
+          ) : activeTab === "advances" && canAdvances ? (
             <button
               onClick={() => {
                 if (employees.length > 0 && !advanceEmpId) setAdvanceEmpId(employees[0].id);
@@ -688,14 +900,16 @@ function HrmPayrollContent() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setShowAddEmployeeDrawer(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0D7A5F] hover:bg-[#0A614B] rounded-lg transition shadow-xs cursor-pointer"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>+ Add Employee</span>
-              </button>
+              {canManageEmployees && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddEmployeeDrawer(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0D7A5F] hover:bg-[#0A614B] rounded-lg transition shadow-xs cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>+ Add Employee</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowLeaveDrawer(true)}
@@ -704,30 +918,36 @@ function HrmPayrollContent() {
                 <Calendar className="w-3.5 h-3.5 text-[#0D7A5F]" />
                 <span>Log Leave</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setShowAddAssetDrawer(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
-              >
-                <Package className="w-3.5 h-3.5 text-blue-600" />
-                <span>Issue Asset</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowNewRequisitionDrawer(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
-              >
-                <Briefcase className="w-3.5 h-3.5 text-purple-600" />
-                <span>Post Requisition</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("attendance")}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition cursor-pointer"
-              >
-                <Clock className="w-3.5 h-3.5 text-sky-600" />
-                <span>Live Terminal</span>
-              </button>
+              {canManageEmployees && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddAssetDrawer(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Issue Asset</span>
+                </button>
+              )}
+              {canManageEmployees && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewRequisitionDrawer(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#18181B] bg-[#F4F4F5] hover:bg-[#E4E4E7] border border-[#D4D4D8] rounded-lg transition cursor-pointer"
+                >
+                  <Briefcase className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Post Requisition</span>
+                </button>
+              )}
+              {canAttendance && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("attendance")}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition cursor-pointer"
+                >
+                  <Clock className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Live Terminal</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1546,7 +1766,8 @@ function HrmPayrollContent() {
                           <StatusBadge status={req.status} />
                         </td>
                         <td className="p-3 text-right">
-                          {req.status === "Pending" ? (
+                          {req.status === "Pending" &&
+                          (canManageEmployees || req.employee?.reportingManagerId === activeUser?.id) ? (
                             <div className="flex items-center justify-end gap-1.5">
                               <button
                                 onClick={() => handleApproveLeave(req.id)}
@@ -1561,6 +1782,10 @@ function HrmPayrollContent() {
                                 Reject
                               </button>
                             </div>
+                          ) : req.status === "Pending" ? (
+                            <span className="text-[11px] text-[#71717A]">
+                              Awaiting HR / reporting manager
+                            </span>
                           ) : (
                             <span className="text-[11px] text-[#71717A]">
                               {req.approvedBy ? `By ${req.approvedBy}` : "Processed"}
@@ -1637,7 +1862,9 @@ function HrmPayrollContent() {
                           <StatusBadge status={ast.status} />
                         </td>
                         <td className="p-3 text-right">
-                          {ast.status === "Assigned" ? (
+                          {!canManageEmployees ? (
+                            <span className="text-[11px] text-[#71717A]">—</span>
+                          ) : ast.status === "Assigned" ? (
                             <button
                               onClick={() => handleReturnAsset(ast.id)}
                               className="px-2.5 py-1 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition inline-flex items-center gap-1"
@@ -1785,13 +2012,15 @@ function HrmPayrollContent() {
                             </td>
                             <td className="p-3 text-right">
                               <div className="flex items-center justify-end gap-1.5">
-                                {req.status === "Draft" ? (
+                                {req.status === "Draft" && canManageEmployees ? (
                                   <button
                                     onClick={() => handleApproveRequisition(req.id)}
                                     className="px-2.5 py-1 text-xs font-bold text-white bg-[#0D7A5F] hover:bg-[#0A624C] rounded-lg transition"
                                   >
                                     Approve Requisition
                                   </button>
+                                ) : req.status === "Draft" ? (
+                                  <span className="text-[11px] text-[#71717A]">Awaiting HR approval</span>
                                 ) : (
                                   <>
                                     <span className="text-[11px] text-emerald-800 font-bold mr-2">
@@ -1855,32 +2084,36 @@ function HrmPayrollContent() {
                                 {stageCandidates.length}
                               </span>
                             </div>
-                            <button
-                              onClick={() => {
-                                setCandidateDefaultStage(stage);
-                                setShowAddCandidateDrawer(true);
-                              }}
-                              className="w-5 h-5 rounded hover:bg-white text-zinc-500 hover:text-emerald-700 flex items-center justify-center transition border border-transparent hover:border-[#E4E4E7]"
-                              title={`Add candidate to ${stage}`}
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
+                            {canManageEmployees && (
+                              <button
+                                onClick={() => {
+                                  setCandidateDefaultStage(stage);
+                                  setShowAddCandidateDrawer(true);
+                                }}
+                                className="w-5 h-5 rounded hover:bg-white text-zinc-500 hover:text-emerald-700 flex items-center justify-center transition border border-transparent hover:border-[#E4E4E7]"
+                                title={`Add candidate to ${stage}`}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
 
                           <div className="space-y-2.5">
                             {stageCandidates.length === 0 ? (
                               <div className="border border-dashed border-[#D4D4D8] rounded-xl p-4 text-center space-y-2 bg-white/60">
                                 <p className="text-[11px] text-[#A1A1AA]">No candidates in {stage}</p>
-                                <button
-                                  onClick={() => {
-                                    setCandidateDefaultStage(stage);
-                                    setShowAddCandidateDrawer(true);
-                                  }}
-                                  className="px-2.5 py-1 text-[11px] font-semibold text-[#0D7A5F] hover:bg-emerald-50 rounded-md border border-[#0D7A5F]/20 transition inline-flex items-center gap-1"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  Add Candidate
-                                </button>
+                                {canManageEmployees && (
+                                  <button
+                                    onClick={() => {
+                                      setCandidateDefaultStage(stage);
+                                      setShowAddCandidateDrawer(true);
+                                    }}
+                                    className="px-2.5 py-1 text-[11px] font-semibold text-[#0D7A5F] hover:bg-emerald-50 rounded-md border border-[#0D7A5F]/20 transition inline-flex items-center gap-1"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    Add Candidate
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               stageCandidates.map((cand) => (
@@ -1917,7 +2150,8 @@ function HrmPayrollContent() {
                                     )}
                                   </div>
 
-                                  {/* ATS Stage Transition Actions */}
+                                  {/* ATS Stage Transition Actions (mutations require hrm.manage_employees) */}
+                                  {canManageEmployees && (
                                   <div className="pt-2 border-t border-[#F4F4F5] space-y-1.5">
                                     {stage === "Applied" && (
                                       <button
@@ -2010,6 +2244,7 @@ function HrmPayrollContent() {
                                       </div>
                                     )}
                                   </div>
+                                  )}
                                 </div>
                               ))
                             )}
@@ -2017,18 +2252,20 @@ function HrmPayrollContent() {
                         </div>
 
                         {/* Column footer */}
-                        <div className="pt-2 border-t border-[#E4E4E7]/60 text-center">
-                          <button
-                            onClick={() => {
-                              setCandidateDefaultStage(stage);
-                              setShowAddCandidateDrawer(true);
-                            }}
-                            className="text-[11px] text-[#71717A] hover:text-[#0D7A5F] font-medium transition inline-flex items-center gap-1"
-                          >
-                            <Plus className="w-3 h-3" />
-                            Add candidate
-                          </button>
-                        </div>
+                        {canManageEmployees && (
+                          <div className="pt-2 border-t border-[#E4E4E7]/60 text-center">
+                            <button
+                              onClick={() => {
+                                setCandidateDefaultStage(stage);
+                                setShowAddCandidateDrawer(true);
+                              }}
+                              className="text-[11px] text-[#71717A] hover:text-[#0D7A5F] font-medium transition inline-flex items-center gap-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              Add candidate
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2428,15 +2665,19 @@ function HrmPayrollContent() {
                         </div>
                         <p className="text-xs font-semibold text-[#18181B]">No payroll cycles generated yet</p>
                         <p className="text-[11px] text-[#71717A] max-w-sm mx-auto">
-                          Click below to preview employee attendance, advances, and generate your first monthly payroll draft.
+                          {canPayroll
+                            ? "Click below to preview employee attendance, advances, and generate your first monthly payroll draft."
+                            : "Payroll cycles will appear here once they are generated and approved for disbursement."}
                         </p>
-                        <button
-                          onClick={() => setShowCreatePayrollDrawer(true)}
-                          className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
-                        >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          Generate First Payroll Draft
-                        </button>
+                        {canPayroll && (
+                          <button
+                            onClick={() => setShowCreatePayrollDrawer(true)}
+                            className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            Generate First Payroll Draft
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ) : (
@@ -2477,14 +2718,14 @@ function HrmPayrollContent() {
                                 View Breakdown
                               </button>
 
-                              {r.status === "Draft" ? (
+                              {r.status === "Draft" && canPayroll ? (
                                 <button
                                   onClick={() => handleApprovePayroll(r.id)}
                                   className="px-2.5 py-1 bg-[#18181B] hover:bg-black text-white rounded-lg text-xs font-bold transition shadow-2xs"
                                 >
                                   Approve
                                 </button>
-                              ) : r.status === "Approved" ? (
+                              ) : r.status === "Approved" && canDisbursePayroll ? (
                                 <button
                                   onClick={() => handleDisbursePayroll(r.id)}
                                   className="px-2.5 py-1 bg-[#0D7A5F] hover:bg-[#0A624C] text-white rounded-lg text-xs font-bold transition shadow-2xs inline-flex items-center gap-1"
@@ -2492,10 +2733,14 @@ function HrmPayrollContent() {
                                   <CreditCard className="w-3 h-3" />
                                   Disburse via WPS
                                 </button>
-                              ) : (
+                              ) : r.status === "Paid" ? (
                                 <span className="text-emerald-800 font-bold text-[11px] inline-flex items-center gap-1">
                                   <CheckCircle2 className="w-3 h-3" />
                                   Disbursed
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-[#71717A]">
+                                  {r.status === "Draft" ? "Awaiting approval" : "Awaiting disbursement"}
                                 </span>
                               )}
                             </div>
@@ -2642,6 +2887,7 @@ function HrmPayrollContent() {
         initialValues={onboardCandidate || undefined}
         onEmployeeAdded={() => {
           setNotification("Employee created successfully.");
+          notify.success("Employee created successfully.");
           setOnboardCandidate(null);
           loadData();
         }}
@@ -2655,6 +2901,7 @@ function HrmPayrollContent() {
         defaultEmployeeId={undefined}
         onLeaveRequested={() => {
           setNotification("Leave application submitted.");
+          notify.success("Leave application submitted.");
           loadData();
         }}
       />
@@ -2664,6 +2911,7 @@ function HrmPayrollContent() {
         onClose={() => setShowAddAssetDrawer(false)}
         onAssetAdded={() => {
           setNotification("Asset registered.");
+          notify.success("Asset registered.");
           loadData();
         }}
       />
@@ -2676,6 +2924,7 @@ function HrmPayrollContent() {
           employees={employees}
           onAssetAssigned={() => {
             setNotification("Asset assigned.");
+            notify.success("Asset assigned.");
             setAssignTargetAsset(null);
             loadData();
           }}
@@ -2687,6 +2936,7 @@ function HrmPayrollContent() {
         onClose={() => setShowNewRequisitionDrawer(false)}
         onRequisitionCreated={() => {
           setNotification("Requisition raised.");
+          notify.success("Requisition raised.");
           loadData();
         }}
       />
@@ -2698,6 +2948,7 @@ function HrmPayrollContent() {
         defaultStage={candidateDefaultStage}
         onCandidateAdded={() => {
           setNotification("Candidate profile added to pipeline.");
+          notify.success("Candidate profile added to pipeline.");
           loadData();
         }}
       />
@@ -2709,6 +2960,7 @@ function HrmPayrollContent() {
         existingRuns={payrollRuns}
         onRunCreated={(newRun) => {
           setNotification(`Draft payroll cycle for ${newRun.period} generated!`);
+          notify.success(`Draft payroll cycle for ${newRun.period} generated!`);
           loadData();
           setSelectedPayrollRunForDetail(newRun);
         }}
@@ -2739,6 +2991,72 @@ function HrmPayrollContent() {
 
 
 
+      {/* Payroll Disburse Dialog — pick the cash/bank account to pay from */}
+      {disburseTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 space-y-4 text-xs text-[#18181B]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#18181B]">Disburse Payroll via WPS</h3>
+                <p className="text-[11px] text-[#71717A] mt-0.5">
+                  {disburseTarget.period ? `${disburseTarget.period} cycle — ` : ""}
+                  this clears Salaries Payable against the account you choose below.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDisburseTarget(null)}
+                className="text-[#71717A] hover:text-[#18181B] transition"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="font-bold text-[#18181B] block mb-1">Pay From Account *</label>
+              <select
+                value={disburseAccountCode}
+                onChange={(e) => setDisburseAccountCode(e.target.value)}
+                className="w-full h-9 px-3 bg-[#F4F4F5] border border-[#E4E4E7] rounded-lg text-xs font-semibold text-[#18181B] focus:outline-hidden"
+              >
+                <option value="">
+                  Mapped payroll account{mappedPayrollAccountCode ? ` — ${mappedPayrollAccountCode}` : ""} (default)
+                </option>
+                {cashBankAccounts.map((acc) => (
+                  <option key={acc.code} value={acc.code}>
+                    {acc.code} — {acc.name}
+                    {acc.isDefault ? " (Default)" : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-[#71717A] mt-1 font-mono">
+                GL Impact: Dr Salaries Payable | Cr {disburseAccountCode || mappedPayrollAccountCode || "mapped payroll account"}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#EDEDED]">
+              <button
+                type="button"
+                onClick={() => setDisburseTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-[#71717A] hover:text-[#18181B] transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDisbursePayroll}
+                disabled={isDisbursing}
+                className="px-4 py-2 bg-[#0D7A5F] hover:bg-[#0A624C] disabled:bg-zinc-300 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                {isDisbursing ? "Paying..." : "Pay Payroll Now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Staff Advance Modal */}
       <IssueAdvanceDrawer
         isOpen={showAdvanceModal}
@@ -2747,6 +3065,7 @@ function HrmPayrollContent() {
         defaultEmployeeId={advanceEmpId}
         onAdvanceIssued={() => {
           setNotification("Salary advance issued! Advance ledger debited.");
+          notify.success("Salary advance issued! Advance ledger debited.");
           loadData();
         }}
       />

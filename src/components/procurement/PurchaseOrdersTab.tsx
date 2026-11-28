@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import React, { useState, useEffect } from "react";
 import {
   ShoppingCart,
@@ -295,7 +297,7 @@ export default function PurchaseOrdersTab({
   };
 
   const handleCreatePo = async (e: React.FormEvent) => {
-    if (!canCreatePo) { alert("Missing permission: procurement.po.create"); return; }
+    if (!canCreatePo) { notify.warning("Missing permission: procurement.po.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (!vendorId) {
       setFormError("Please select a vendor.");
@@ -365,7 +367,7 @@ export default function PurchaseOrdersTab({
   };
 
   const handleApprovePo = async (id: string, notes?: string) => {
-    if (!canApprovePo) { alert("Missing permission: procurement.po.approve"); return; }
+    if (!canApprovePo) { notify.warning("Missing permission: procurement.po.approve", { title: "Permission Denied" }); return; }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/procurement", {
@@ -387,7 +389,7 @@ export default function PurchaseOrdersTab({
       setApprovalNotes("");
       onRefresh();
     } catch (err: any) {
-      alert(err.message);
+      notify.error(err.message);
     } finally {
       setIsSubmitting(false);
     }

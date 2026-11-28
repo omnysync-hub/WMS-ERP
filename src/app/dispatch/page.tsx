@@ -7,6 +7,7 @@ import DispatchTechDrawer from "@/components/drawers/DispatchTechDrawer";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Users, Briefcase, MapPin, RefreshCw, CheckCircle2, ChevronRight, Phone, ShieldCheck } from "lucide-react";
 import { realtimeSync } from "@/lib/realtimeSync";
+import { notify } from "@/lib/notify";
 
 export default function DispatchMapPage() {
   const [technicians, setTechnicians] = useState<any[]>([]);
@@ -53,7 +54,7 @@ export default function DispatchMapPage() {
     try {
       const assignedTech = technicians.find((t) => t.id === technicianId);
       if (!assignedTech?.isCheckedIn) {
-        alert(`Cannot assign job: ${assignedTech?.name || "Technician"} is off duty and has not checked in today.`);
+        notify.warning(`Cannot assign job: ${assignedTech?.name || "Technician"} is off duty and has not checked in today.`);
         return;
       }
 
@@ -73,6 +74,7 @@ export default function DispatchMapPage() {
       const jobObj = unassignedJobs.find((j) => j.id === jobId);
 
       setNotification("Job assigned successfully! WhatsApp dispatch instructions routed to technician.");
+      notify.success("Job assigned successfully! WhatsApp dispatch instructions routed to technician.");
       setIsDrawerOpen(false);
       loadData();
 
@@ -87,7 +89,7 @@ export default function DispatchMapPage() {
         payload: { job: jobObj },
       });
     } catch (e: any) {
-      alert(e.message);
+      notify.error(e.message);
     }
   };
 

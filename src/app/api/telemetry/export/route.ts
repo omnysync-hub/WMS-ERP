@@ -9,11 +9,12 @@ import { requireOfficePermission } from "@/lib/auth/erpActor";
 
 export async function GET(req: NextRequest) {
   try {
+    // Export of surveillance telemetry (CSV/JSON download of a technician's
+    // historical track). Only the Surveillance page calls this route, so it is
+    // gated by dispatch.surveillance — the same key as /api/telemetry/history —
+    // not by the live-map permission dispatch.view_map.
     const gate = await requireOfficePermission(req, [
-      "dispatch.view_map",
-      "dispatch.manage",
-      "jobs.view_directory",
-      "hrm.view_employees",
+      "dispatch.surveillance",
       "admin",
     ]);
 
@@ -113,6 +114,16 @@ export async function GET(req: NextRequest) {
       const escape = (str: string | null | undefined) =>
         `"${String(str || "").replace(/"/g, '""')}"`;
 
+      // Battery is stored as a fraction (0–1); the CSV column is battery_pct,
+      // so convert fractions to a percentage. Values already > 1 are passed
+      // through unchanged (they were recorded as percentages).
+      const batteryPct =
+        p.batteryLevel == null
+          ? ""
+          : p.batteryLevel <= 1
+            ? Math.round(p.batteryLevel * 1000) / 10
+            : p.batteryLevel;
+
       return [
         p.timestamp.toISOString(),
         p.employeeId,
@@ -121,7 +132,7 @@ export async function GET(req: NextRequest) {
         p.lng,
         p.accuracy ?? "",
         p.speed ?? "",
-        p.batteryLevel ?? "",
+        batteryPct,
         p.isMoving ? "YES" : "NO",
         p.isShiftActive ? "YES" : "NO",
         escape(p.activeJob?.jobNumber),

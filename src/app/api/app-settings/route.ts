@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   }
   return NextResponse.json(
     { settings: Object.fromEntries(rows.map((r) => [r.key, r.value])) },
-    { headers: { "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=120" } }
   );
 }
 

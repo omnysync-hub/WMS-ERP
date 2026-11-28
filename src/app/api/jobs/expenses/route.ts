@@ -30,6 +30,115 @@ export async function GET(req: NextRequest) {
 
   try {
     const { searchParams } = new URL(req.url);
+
+    // Receipt-on-demand: the queue/list payloads never inline receipt photo bodies
+    // (data URLs up to ~2.7M chars each); the client fetches a claim's photos only
+    // when a thumbnail/lightbox is actually opened.
+    const receiptFor = searchParams.get("receiptFor");
+    if (receiptFor) {
+      const claim = await prisma.jobExpenseClaim.findUnique({
+        where: { id: receiptFor },
+        select: { id: true, receiptUrl: true, receiptUrls: true },
+      });
+      if (!claim) {
+        return NextResponse.json({ error: "Expense claim not found" }, { status: 404 });
+      }
+      const receiptUrls =
+        claim.receiptUrls && claim.receiptUrls.length > 0
+          ? claim.receiptUrls
+          : claim.receiptUrl
+            ? [claim.receiptUrl]
+            : [];
+      return NextResponse.json({ claimId: claim.id, receiptUrl: claim.receiptUrl, receiptUrls });
+    }
+
+    // Slim clearance queue: one flat row per PENDING claim across all technicians,
+    // oldest first (peak-load fairness). No receipt bodies, no full job/customer
+    // includes — just what the accountant needs to decide. Capped so an "all dates"
+    // backlog can't produce an unbounded payload; `truncated` flags the cap.
+    if (searchParams.get("queue") === "1") {
+      const QUEUE_CAP = 500;
+      const technicianFilter = searchParams.get("technicianId") || undefined;
+      const rows = await prisma.jobExpenseClaim.findMany({
+        where: {
+          status: "pending",
+          ...(technicianFilter ? { technicianId: technicianFilter } : {}),
+        },
+        orderBy: { createdAt: "asc" },
+        take: QUEUE_CAP + 1,
+        select: {
+          id: true,
+          jobId: true,
+          technicianId: true,
+          amount: true,
+          note: true,
+          category: true,
+          createdAt: true,
+          accruedAt: true,
+          receiptUrl: true,
+          receiptUrls: true,
+          job: {
+            select: {
+              jobNumber: true,
+              status: true,
+              finalizedAt: true,
+              verifiedAt: true,
+              customer: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const truncated = rows.length > QUEUE_CAP;
+      const pageRows = truncated ? rows.slice(0, QUEUE_CAP) : rows;
+
+      const techIds = [...new Set(pageRows.map((c) => c.technicianId))];
+      const techs = techIds.length
+        ? await prisma.employee.findMany({
+            where: { id: { in: techIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const techNameById = new Map(techs.map((t) => [t.id, t.name]));
+
+      const claims = pageRows.map((c) => {
+        const receiptCount =
+          c.receiptUrls && c.receiptUrls.length > 0
+            ? c.receiptUrls.length
+            : c.receiptUrl
+              ? 1
+              : 0;
+        return {
+          id: c.id,
+          jobId: c.jobId,
+          jobNumber: c.job?.jobNumber || "—",
+          customerName: c.job?.customer?.name || "Customer",
+          technicianId: c.technicianId,
+          technicianName: techNameById.get(c.technicianId) || "Technician",
+          amount: c.amount,
+          note: c.note,
+          category: c.category || "General",
+          createdAt: c.createdAt,
+          accruedAt: c.accruedAt,
+          hasReceipt: receiptCount > 0,
+          receiptCount,
+          isJobCompleted: c.job ? isJobCompleted(c.job) : false,
+          jobStatus: c.job?.status,
+          isPartial:
+            c.note?.includes("[Partially Cleared") ||
+            c.note?.includes("[Remaining Balance"),
+        };
+      });
+
+      return NextResponse.json({
+        queue: claims,
+        summary: {
+          pendingCount: claims.length,
+          pendingTotal: Math.round(claims.reduce((s, c) => s + c.amount, 0) * 100) / 100,
+          truncated,
+        },
+      });
+    }
+
     const dateParam = searchParams.get("date") || undefined;
     const isAllDates = dateParam === "all";
     const day = isAllDates ? null : pakistanDayRange(dateParam);
@@ -174,13 +283,17 @@ export async function GET(req: NextRequest) {
               phone: j.customer?.phone || "",
               addressText: j.customer?.addressText || "",
             },
+            // Per-job claim copies are used by the page for counts/totals only —
+            // receipt photo bodies are NOT duplicated here (they ship once, on the
+            // technician's itemized claims above, and on demand via ?receiptFor=).
             claims: (j.expenseClaims || []).map((c) => ({
               id: c.id,
               amount: c.amount,
               note: c.note,
               category: c.category || "General",
-              receiptUrl: c.receiptUrl,
-            receiptUrls: c.receiptUrls && c.receiptUrls.length > 0 ? c.receiptUrls : (c.receiptUrl ? [c.receiptUrl] : []),
+              receiptUrl: null,
+              receiptUrls: [] as string[],
+              hasReceipt: Boolean(c.receiptUrl) || (c.receiptUrls?.length || 0) > 0,
               status: c.status,
               paidAt: c.paidAt,
               createdAt: c.createdAt,
@@ -341,6 +454,122 @@ export async function POST(req: NextRequest) {
         success: true,
         clearedCount: clearedClaims.length,
         disbursed: amountToPay || totalPending,
+      });
+    }
+
+    if (action === "clear_claims_bulk") {
+      // Bulk clearance for the peak-time queue: ONE request clears/pays many claims
+      // across jobs and technicians. Each claim goes through the exact same
+      // JobsService.clearExpense path as a single clear (its own transaction, its own
+      // GL journal, its own idempotency key), so one bad claim never fails the batch
+      // and money behaviour per claim is unchanged.
+      const claimIds: string[] = Array.isArray(body.claimIds)
+        ? [...new Set<string>(body.claimIds.filter((x: any) => typeof x === "string" && x))]
+        : [];
+      if (claimIds.length === 0) {
+        return NextResponse.json(
+          { error: "Select at least one pending claim to clear" },
+          { status: 400 }
+        );
+      }
+      if (claimIds.length > 200) {
+        return NextResponse.json(
+          { error: "At most 200 claims can be cleared in one batch" },
+          { status: 400 }
+        );
+      }
+
+      const claims = await prisma.jobExpenseClaim.findMany({
+        where: { id: { in: claimIds } },
+        select: { id: true, jobId: true, amount: true, status: true, createdAt: true },
+        orderBy: { createdAt: "asc" }, // oldest first, same fairness as the queue
+      });
+      const foundIds = new Set(claims.map((c) => c.id));
+
+      // Optional partial disbursement: allocate the given amount across the selected
+      // claims oldest-first (same split pattern as clear_technician); claims beyond
+      // the funded amount are reported back as skipped, untouched.
+      const totalSelected = claims
+        .filter((c) => c.status === "pending")
+        .reduce((s, c) => s + c.amount, 0);
+      let remainingFund =
+        amountToPay !== undefined && amountToPay !== null && amountToPay !== ""
+          ? Math.min(Number(amountToPay), totalSelected)
+          : null; // null = pay every selected claim in full
+      if (remainingFund !== null && (!Number.isFinite(remainingFund) || remainingFund <= 0)) {
+        return NextResponse.json(
+          { error: "Disbursement amount must be greater than zero" },
+          { status: 400 }
+        );
+      }
+
+      const results: Array<{
+        claimId: string;
+        success: boolean;
+        paidNow?: number;
+        isPartial?: boolean;
+        error?: string;
+      }> = [];
+
+      for (const claimId of claimIds) {
+        if (!foundIds.has(claimId)) {
+          results.push({ claimId, success: false, error: "Claim not found" });
+        }
+      }
+
+      for (const claim of claims) {
+        if (claim.status !== "pending") {
+          results.push({ claimId: claim.id, success: false, error: "Claim is already cleared/paid" });
+          continue;
+        }
+        let payThis: number | undefined;
+        if (remainingFund !== null) {
+          if (remainingFund <= 0) {
+            results.push({
+              claimId: claim.id,
+              success: false,
+              error: "Not covered by the disbursement amount — left pending",
+            });
+            continue;
+          }
+          payThis = Math.min(remainingFund, claim.amount);
+        }
+        try {
+          await JobsService.clearExpense(
+            claim.jobId,
+            claim.id,
+            actorName,
+            disbursingAccountCode,
+            payThis,
+            paymentNotes
+          );
+          const paidNow = payThis !== undefined ? payThis : claim.amount;
+          if (remainingFund !== null) {
+            remainingFund = Math.round((remainingFund - paidNow) * 100) / 100;
+          }
+          results.push({
+            claimId: claim.id,
+            success: true,
+            paidNow,
+            isPartial: paidNow < claim.amount,
+          });
+        } catch (err: any) {
+          results.push({ claimId: claim.id, success: false, error: err.message || "Clearance failed" });
+        }
+      }
+
+      const cleared = results.filter((r) => r.success);
+      realtimeSync.publish("EXPENSE_CLEARED", {
+        actor: actorName,
+        message: `Bulk expense clearance by ${actorName}: ${cleared.length} claim(s) paid.`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        results,
+        clearedCount: cleared.length,
+        failedCount: results.length - cleared.length,
+        totalPaid: Math.round(cleared.reduce((s, r) => s + (r.paidNow || 0), 0) * 100) / 100,
       });
     }
 

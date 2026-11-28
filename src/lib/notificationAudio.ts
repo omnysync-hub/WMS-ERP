@@ -1,5 +1,7 @@
 // Audio synthesizer and Text-To-Speech (TTS) notification utility for Workman Services ERP
 
+import { isSoundEnabled } from "./soundAlerts";
+
 let audioCtx: AudioContext | null = null;
 
 function getAudioContext(): AudioContext | null {
@@ -35,6 +37,7 @@ if (typeof window !== "undefined") {
  * Lasts approx 1.8 seconds with harmonic decay.
  */
 export function playLongerChime(type: "discount" | "stock" | "general" = "general") {
+  if (!isSoundEnabled()) return; // Master mute (Topbar speaker toggle) silences urgent chimes too.
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -114,7 +117,7 @@ export function playChime(type: "discount" | "stock" | "general" = "general") {
  * Speaks text using the browser SpeechSynthesis API (TTS)
  */
 export function speakTts(message: string, onEnd?: () => void) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window) || !isSoundEnabled()) {
     onEnd?.();
     return;
   }

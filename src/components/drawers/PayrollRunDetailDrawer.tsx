@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { useRole } from "@/contexts/RoleContext";
 import {
   DollarSign,
   Users,
@@ -42,6 +43,7 @@ export default function PayrollRunDetailDrawer({
   onDeleteDraft,
   onViewPayslip,
 }: PayrollRunDetailDrawerProps) {
+  const { hasPermission } = useRole();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDeptFilter, setSelectedDeptFilter] = useState("all");
 
@@ -101,7 +103,7 @@ export default function PayrollRunDetailDrawer({
           </div>
 
           <div className="flex items-center gap-2">
-            {run.status === "Draft" && (
+            {run.status === "Draft" && hasPermission("hrm.payroll") && (
               <>
                 <button
                   onClick={() => onDeleteDraft(run.id)}
@@ -120,7 +122,7 @@ export default function PayrollRunDetailDrawer({
               </>
             )}
 
-            {run.status === "Approved" && (
+            {run.status === "Approved" && hasPermission("hrm.payroll_disburse") && (
               <button
                 onClick={() => onDisburse(run.id)}
                 className="px-4 py-2 rounded-xl bg-[#0D7A5F] hover:bg-[#0A624C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition shadow-xs"

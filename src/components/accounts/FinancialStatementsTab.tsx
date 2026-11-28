@@ -2,6 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { pktParts } from "@/lib/pktTime";
+
+/** Today as a PKT (Asia/Karachi) YYYY-MM-DD string — toISOString() is UTC and lags a day. */
+const pktTodayString = () => {
+  const { year, month, day } = pktParts();
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
 import {
   FileText,
   Calendar,
@@ -25,11 +32,9 @@ export default function FinancialStatementsTab() {
     "trial_balance" | "balance_sheet" | "income_statement" | "cash_flow"
   >("trial_balance");
 
-  const [asOfDate, setAsOfDate] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [startDate, setStartDate] = useState<string>(
-    new Date(new Date().getFullYear(), 0, 1).toISOString().split("T")[0]
-  );
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [asOfDate, setAsOfDate] = useState<string>(pktTodayString());
+  const [startDate, setStartDate] = useState<string>(`${pktParts().year}-01-01`);
+  const [endDate, setEndDate] = useState<string>(pktTodayString());
 
   const [loading, setLoading] = useState(false);
   const [trialBalanceData, setTrialBalanceData] = useState<any>(null);
@@ -45,6 +50,8 @@ export default function FinancialStatementsTab() {
       let url = `/api/accounts?view=financial_statements&statement=${activeStatement}`;
       if (activeStatement === "trial_balance" || activeStatement === "balance_sheet") {
         url += `&asOfDate=${asOfDate}`;
+        // Trial balance also takes the period start so it can report period movements.
+        if (activeStatement === "trial_balance") url += `&startDate=${startDate}`;
       } else {
         url += `&startDate=${startDate}&endDate=${endDate}`;
       }
@@ -446,7 +453,7 @@ export default function FinancialStatementsTab() {
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Statement of Comprehensive Income (P&L)</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
-                From {new Date(incomeStatementData.startDate).toLocaleDateString()} to {new Date(incomeStatementData.endDate).toLocaleDateString()} • Single Currency PKR
+                From {startDate} to {endDate} • Single Currency PKR
               </p>
             </div>
             <div className="text-right">
@@ -564,7 +571,7 @@ export default function FinancialStatementsTab() {
               </span>
               <h2 className="text-lg font-bold text-[#18181B]">Statement of Cash Flows (Indirect Method)</h2>
               <p className="text-xs text-[#71717A] mt-0.5 font-mono">
-                From {new Date(cashFlowData.startDate).toLocaleDateString()} to {new Date(cashFlowData.endDate).toLocaleDateString()} • Inflows & Outflows in PKR
+                From {startDate} to {endDate} • Inflows & Outflows in PKR
               </p>
             </div>
             <div className="text-right">

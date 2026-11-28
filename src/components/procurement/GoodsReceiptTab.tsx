@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import React, { useState, useEffect } from "react";
 import {
   PackageCheck,
@@ -68,6 +70,37 @@ export default function GoodsReceiptTab({
     if (queueFilter === "awaiting_delivery") setSubView("awaiting");
     if (queueFilter === "completed_grns") setSubView("grns");
   }, [queueFilter]);
+
+  // GL accounts a GRN posts to, resolved live from the account mappings
+  // (grn_receipt_asset = debit, grn_receipt_clearing = credit). The mappings
+  // endpoint requires accounts.general_ledger; roles without it simply keep
+  // the generic "Posted to GL" label.
+  const [grnGlCodes, setGrnGlCodes] = useState<{ debit: string | null; credit: string | null }>({
+    debit: null,
+    credit: null,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/accounts?view=account_mappings");
+        const data = await res.json();
+        if (cancelled || !data?.success || !Array.isArray(data.mappings)) return;
+        const byType = new Map<string, string | null>(
+          data.mappings.map((m: any) => [m.transactionType, m.accountCode || null])
+        );
+        setGrnGlCodes({
+          debit: byType.get("grn_receipt_asset") || null,
+          credit: byType.get("grn_receipt_clearing") || null,
+        });
+      } catch {
+        // Mappings unavailable for this role — keep the generic label.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Create GRN Modal State
   const [showCreateModal, setShowCreateModal] = useState(Boolean(presetPoForGrn));
@@ -213,7 +246,7 @@ export default function GoodsReceiptTab({
 
 
   const handleCreateGrn = async (e: React.FormEvent) => {
-    if (!canCreateGrn) { alert("Missing permission: procurement.grn.create"); return; }
+    if (!canCreateGrn) { notify.warning("Missing permission: procurement.grn.create", { title: "Permission Denied" }); return; }
     e.preventDefault();
     if (!selectedPoId) {
       setFormError("Please select a Purchase Order.");
@@ -654,7 +687,10 @@ export default function GoodsReceiptTab({
                       <td className="py-3 px-3 text-[11px]">
                         {grn.accountingJournalId ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700 font-mono text-[10px] font-medium">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Dr 1200 / Cr 2050
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />{" "}
+                            {grnGlCodes.debit && grnGlCodes.credit
+                              ? `Dr ${grnGlCodes.debit} / Cr ${grnGlCodes.credit}`
+                              : "Posted to GL"}
                           </span>
                         ) : (
                           <span className="text-[#71717A] font-mono text-[10px]">

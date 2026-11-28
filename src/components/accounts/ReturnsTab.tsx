@@ -19,7 +19,10 @@ const label = "text-xs font-semibold text-[#71717A] block mb-1";
  */
 export default function ReturnsTab() {
   const { hasPermission } = useRole();
-  const canPost = hasPermission("accounts.manage_chart");
+  // The returns API posts with accounts.post_entries. (This used to check a
+  // "accounts.manage_chart" key that exists in no role, disabling posting for
+  // every non-admin user.)
+  const canPost = hasPermission("accounts.post_entries");
   const [mode, setMode] = useState<"sales" | "purchase">("sales");
   const [opts, setOpts] = useState<any>({ invoices: [], supplierBills: [], products: [], vendors: [] });
   const [history, setHistory] = useState<{ creditNotes: any[]; debitNotes: any[] }>({ creditNotes: [], debitNotes: [] });
@@ -36,7 +39,35 @@ export default function ReturnsTab() {
       const oj = await o.json();
       const hj = await h.json();
       if (!o.ok) throw new Error(oj.error || "Failed to load");
-      setOpts(oj);
+      // The returns options query only lists invoices with a customer attached and a
+      // positive amount; job invoices it misses left the credit-note picker empty even
+      // though invoices exist. Merge in the accounts invoice list as a fallback source.
+      let invoices = oj.invoices || [];
+      try {
+        const invRes = await fetch("/api/accounts?view=invoices");
+        const invData = await invRes.json();
+        if (Array.isArray(invData)) {
+          const seen = new Set(invoices.map((i: any) => i.id));
+          const extra = invData
+            .filter((i: any) => i && !seen.has(i.id) && i.status !== "cancelled" && Number(i.amount) > 0)
+            .map((i: any) => ({
+              id: i.id,
+              invoiceNumber: i.invoiceNumber,
+              customerName: i.customerName,
+              amount: i.amount,
+              status: i.status,
+              taxRate: i.taxRate ?? 0,
+              taxInclusive: i.taxInclusive ?? false,
+              taxAmount: i.taxAmount ?? 0,
+              taxBreakdown: i.taxBreakdown ?? null,
+              createdAt: i.createdAt,
+            }));
+          if (extra.length) invoices = [...invoices, ...extra];
+        }
+      } catch {
+        // Fallback is best-effort; the primary options list still applies.
+      }
+      setOpts({ ...oj, invoices });
       setHistory({ creditNotes: hj.creditNotes || [], debitNotes: hj.debitNotes || [] });
     } catch (e: any) {
       toast.error(e.message);
@@ -262,7 +293,7 @@ export default function ReturnsTab() {
             type="submit"
             disabled={busy || !canPost}
             className="px-4 py-2 rounded-lg bg-[#0D7A5F] text-white text-xs font-semibold disabled:opacity-50"
-            title={canPost ? "" : "You need the 'manage chart of accounts' permission"}
+            title={canPost ? "" : "You need the 'post entries' permission to post returns"}
           >
             {busy ? "Posting…" : mode === "sales" ? "Post Credit Note" : "Post Debit Note"}
           </button>

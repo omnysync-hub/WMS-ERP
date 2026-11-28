@@ -2,6 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { formatCurrency } from "@/lib/utils";
+import { pktParts } from "@/lib/pktTime";
+
+/** Today as a PKT (Asia/Karachi) YYYY-MM-DD string — toISOString() is UTC and lags a day. */
+const pktTodayString = () => {
+  const { year, month, day } = pktParts();
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
 import {
   ArrowLeftRight,
   ShieldCheck,
@@ -15,7 +22,7 @@ import {
 
 export default function SubLedgerReconciliationTab() {
   const [subTab, setSubTab] = useState<"receivables" | "payables">("receivables");
-  const [asOfDate, setAsOfDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [asOfDate, setAsOfDate] = useState<string>(pktTodayString());
   const [loading, setLoading] = useState(false);
   const [driftData, setDriftData] = useState<any>(null);
   const [arAging, setArAging] = useState<any>(null);

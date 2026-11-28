@@ -4,6 +4,9 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { ZoomIn, ZoomOut, Layers, Compass, Focus, Navigation } from "lucide-react";
+import { formatBatteryPercent, formatDurationMinutes } from "./surveillanceFormat";
+
+export { formatBatteryPercent, formatDurationMinutes } from "./surveillanceFormat";
 
 export interface PingData {
   id: string;
@@ -232,10 +235,10 @@ export default function RealSurveillanceMap({
               <span class="text-[10px] font-black">!</span>
             </div>
             <div class="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-zinc-900 text-white text-[10px] p-2 rounded-lg shadow-xl border border-rose-500 pointer-events-none opacity-0 group-hover:opacity-100 transition z-50">
-              <p class="font-bold text-rose-400">Offline Gap: ${gap.durationMinutes || 0} mins</p>
+              <p class="font-bold text-rose-400">Offline Gap: ${formatDurationMinutes(gap.durationMinutes || 0)}</p>
               <p class="text-zinc-300">Started: ${new Date(gap.gapStartAt).toLocaleTimeString()}</p>
               ${gap.gapEndAt ? `<p class="text-zinc-300">Resumed: ${new Date(gap.gapEndAt).toLocaleTimeString()}</p>` : ""}
-              ${gap.lastBatteryLevel != null ? `<p class="text-zinc-400">Battery: ${gap.lastBatteryLevel}%</p>` : ""}
+              ${gap.lastBatteryLevel != null ? `<p class="text-zinc-400">Battery: ${formatBatteryPercent(gap.lastBatteryLevel)}</p>` : ""}
             </div>
           </div>
         `;
@@ -330,7 +333,7 @@ export default function RealSurveillanceMap({
     const ping = pings[currentPingIndex];
     const pingTime = new Date(ping.timestamp).toLocaleTimeString();
     const speedStr = ping.speed != null ? `${Math.round(ping.speed)} km/h` : "Idle";
-    const batteryStr = ping.batteryLevel != null ? `${Math.round(ping.batteryLevel)}%` : "—";
+    const batteryStr = ping.batteryLevel != null ? formatBatteryPercent(ping.batteryLevel) : "—";
 
     // Heading calculation
     let bearing = 0;

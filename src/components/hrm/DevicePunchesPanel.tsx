@@ -4,6 +4,14 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Fingerprint, Link2, RefreshCw } from "lucide-react";
 import toast from "@/lib/toast";
 import { formatDateTime } from "@/lib/utils";
+import { pktParts, pktDayFromString, pktStartOfDay, pktEndOfDay } from "@/lib/pktTime";
+
+/** Today as a "YYYY-MM-DD" string on the Pakistan clock. */
+function pktTodayString(): string {
+  const { year, month, day } = pktParts();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${year}-${pad(month + 1)}-${pad(day)}`;
+}
 
 /**
  * Device Punches (ZKBio / Zlink biometric terminals).
@@ -57,8 +65,8 @@ export default function DevicePunchesPanel() {
   const [savingCode, setSavingCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState<string>(() => pktTodayString());
+  const [toDate, setToDate] = useState<string>(() => pktTodayString());
   const [unmappedOnly, setUnmappedOnly] = useState(false);
 
   const load = useCallback(async () => {
@@ -66,8 +74,16 @@ export default function DevicePunchesPanel() {
     setError("");
     try {
       const params = new URLSearchParams({ limit: "500" });
-      if (fromDate) params.set("from", new Date(`${fromDate}T00:00:00`).toISOString());
-      if (toDate) params.set("to", new Date(`${toDate}T23:59:59`).toISOString());
+      // Date inputs are PKT calendar days — convert with the PKT helpers so
+      // the range matches the Pakistan day, not the browser/server timezone.
+      const fromParts = fromDate ? pktDayFromString(fromDate) : null;
+      if (fromParts) {
+        params.set("from", pktStartOfDay(fromParts.year, fromParts.month, fromParts.day).toISOString());
+      }
+      const toParts = toDate ? pktDayFromString(toDate) : null;
+      if (toParts) {
+        params.set("to", pktEndOfDay(toParts.year, toParts.month, toParts.day).toISOString());
+      }
       if (unmappedOnly) params.set("unmapped", "1");
 
       const [punchRes, mapRes, empRes] = await Promise.all([

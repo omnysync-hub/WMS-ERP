@@ -1,8 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import SideDrawer from "@/components/ui/SideDrawer";
-import { Receipt, Check, Upload } from "lucide-react";
+import { Receipt, Check, Upload, X } from "lucide-react";
+
+/** Mirrors RECEIPT_DATA_URL_MAX_LENGTH in src/lib/receiptUrl.ts (server-enforced). */
+const RECEIPT_DATA_URL_MAX_LENGTH = 2_700_000;
+const RECEIPT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 interface QuickExpenseDrawerProps {
   isOpen: boolean;
@@ -25,6 +29,40 @@ export default function QuickExpenseDrawer({
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptName, setReceiptName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleReceiptFile = (file: File | undefined | null) => {
+    if (!file) return;
+    if (!RECEIPT_IMAGE_TYPES.includes(file.type)) {
+      setErrorMsg("Receipt photo must be a JPEG, PNG or WebP image.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        setErrorMsg("Could not read the selected receipt image.");
+        return;
+      }
+      if (dataUrl.length > RECEIPT_DATA_URL_MAX_LENGTH) {
+        setErrorMsg("Receipt photo is too large. Please choose a smaller image.");
+        return;
+      }
+      setErrorMsg("");
+      setReceiptDataUrl(dataUrl);
+      setReceiptName(file.name);
+    };
+    reader.onerror = () => setErrorMsg("Could not read the selected receipt image.");
+    reader.readAsDataURL(file);
+  };
+
+  const clearReceipt = () => {
+    setReceiptDataUrl(null);
+    setReceiptName("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -57,6 +95,7 @@ export default function QuickExpenseDrawer({
           amount: Number(amount),
           note,
           category,
+          receiptUrl: receiptDataUrl || undefined,
         }),
       });
 
@@ -69,6 +108,7 @@ export default function QuickExpenseDrawer({
       setAmount("");
       setNote("");
       setCategory(expenseCategories[0]?.code || "");
+      clearReceipt();
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -158,17 +198,64 @@ export default function QuickExpenseDrawer({
           />
         </div>
 
-        {/* Receipt Upload Mock */}
+        {/* Receipt Photo Upload (data-URL, validated server-side by validateReceiptUrl) */}
         <div>
           <label className="font-semibold text-[#1A1D1F] block mb-1">
             Attach Receipt Photo (Optional)
           </label>
-          <div className="border-2 border-dashed border-[#E4E4E7] rounded-xl p-4 text-center hover:bg-[#F4F4F5] cursor-pointer transition">
-            <Upload className="w-5 h-5 text-[#71717A] mx-auto mb-1" />
-            <p className="text-xs text-[#71717A]">
-              Click to select receipt image or drag here
-            </p>
-          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => handleReceiptFile(e.target.files?.[0])}
+          />
+          {receiptDataUrl ? (
+            <div className="border border-[#E4E4E7] rounded-xl p-3 flex items-center gap-3 bg-[#FAFAFA]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={receiptDataUrl}
+                alt="Receipt preview"
+                className="w-14 h-14 object-cover rounded-lg border border-[#E4E4E7]"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-[#1A1D1F] truncate">{receiptName || "Receipt photo"}</p>
+                <p className="text-[11px] text-[#71717A]">Attached — it will be saved with this expense.</p>
+              </div>
+              <button
+                type="button"
+                onClick={clearReceipt}
+                aria-label="Remove receipt photo"
+                className="p-1.5 rounded-lg text-[#71717A] hover:text-[#991B1B] hover:bg-[#FEF2F2] transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                handleReceiptFile(e.dataTransfer.files?.[0]);
+              }}
+              className="border-2 border-dashed border-[#E4E4E7] rounded-xl p-4 text-center hover:bg-[#F4F4F5] cursor-pointer transition"
+            >
+              <Upload className="w-5 h-5 text-[#71717A] mx-auto mb-1" />
+              <p className="text-xs text-[#71717A]">
+                Click to select receipt image or drag here
+              </p>
+              <p className="text-[10px] text-[#A1A1AA] mt-0.5">JPEG, PNG or WebP</p>
+            </div>
+          )}
         </div>
       </form>
     </SideDrawer>

@@ -661,7 +661,19 @@ export const PERMISSION_GROUPS: PermissionModuleGroup[] = [
       {
         key: "audit.view_logs",
         label: "View Audit Trail & Rollback History",
-        description: "Allow inspecting comprehensive action logs, user audit history, and undoing changes",
+        description: "Allow inspecting comprehensive action logs and user audit history",
+        module: "settings",
+      },
+      {
+        key: "audit.rollback",
+        label: "Execute Audit Rollbacks",
+        description: "Allow executing state rollbacks from the audit trail (admin only by default)",
+        module: "settings",
+      },
+      {
+        key: "audit.clear",
+        label: "Clear Audit Trail",
+        description: "Allow permanently deleting the entire activity log (admin only by default)",
         module: "settings",
       },
     ],
@@ -734,7 +746,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
 
     
     // Procurement
-    "procurement.view_pr": true,
+    "procurement.view_pr": false,
     "procurement.create_pr": false,
     "procurement.approve_po": false,
     "procurement.grn": false,
@@ -1238,9 +1250,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "procurement.vendor.manage": false,
     "procurement.costs.view": true,
     "procurement.reports.view": true,
-    "procurement.view_pr": true,
+    "procurement.view_pr": false,
     "settings.manage_users": false,
     "settings.manage_roles": false,
+    // Destructive audit actions stay admin-only even though the auditor spreads all keys.
+    "audit.rollback": false,
+    "audit.clear": false,
     // Auditor is read-only: no ledger/stock/HR/config mutations.
     "jobs.edit_job": false,
     "jobs.reassign_tech": false,
@@ -1321,12 +1336,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, boolean>> =
     "dispatch.view_map": false,
     "inventory.view_stock": true,
     "inventory.view_costs": false,
-    // Field tech may raise / view own PRs for materials; no RFQ/PO/GRN/pay
-    "procurement.view_pr": true,
-    "procurement.pr.create": true,
-    "procurement.pr.submit": true,
+    // PRs are Store-only to raise and Manager-only to approve (client rule, Nov 2026):
+    // technicians neither see nor raise PRs; no RFQ/PO/GRN/pay either.
+    "procurement.view_pr": false,
+    "procurement.pr.create": false,
+    "procurement.pr.submit": false,
     "procurement.pr.approve": false,
-    "procurement.create_pr": true,
+    "procurement.create_pr": false,
   },
 
   creator: {

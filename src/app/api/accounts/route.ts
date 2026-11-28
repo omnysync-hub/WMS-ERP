@@ -21,6 +21,52 @@ import { FiscalPeriodService } from "@/lib/services/FiscalPeriodService";
 import { AccountSuggestionAgent } from "@/lib/services/AccountSuggestionAgent";
 import { requirePermission, resolveJobsActor, actorHasPermission } from "@/lib/auth/erpActor";
 import { isJobCompleted } from "@/lib/jobStatus";
+import { pktDayFromString, pktEndOfDay, pktParts, pktStartOfDay } from "@/lib/pktTime";
+
+/** Every `view` this route serves. Anything else is a client bug — fail loudly instead of
+ *  silently returning the chart of accounts (which masked typos as "the chart loaded"). */
+const KNOWN_VIEWS = new Set([
+  "vouchers",
+  "company_settings",
+  "account_mappings",
+  "mapping_suggestions",
+  "financial_statements",
+  "bank_reconciliation",
+  "subledger_reconciliation",
+  "fixed_assets",
+  "fiscal_periods",
+  "vendors",
+  "foc_payments",
+  "discounts",
+  "parties",
+  "party_ledger",
+  "expenses",
+  "pos_sales",
+  "account_drilldown",
+  "technicians",
+  "journal",
+  "invoices",
+  "cashbook",
+  "chart",
+]);
+
+/**
+ * All cash/bank posting accounts, derived from the chart itself: active level-4 asset
+ * ledgers under the "Cash & Bank" group (1110) or linked to a configured Financial
+ * Account. No fixed code lists — an account the client adds to the group (11105 Cash
+ * with Technicians included) shows up everywhere automatically.
+ */
+async function cashBankLeafAccounts() {
+  const accounts = await prisma.account.findMany({
+    where: { isActive: true, level: 4, type: "asset" },
+    include: {
+      parent: { select: { code: true } },
+      financialAccount: { select: { id: true } },
+    },
+    orderBy: { code: "asc" },
+  });
+  return accounts.filter((a) => AccountsPostingService.isCashBankAccount(a));
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -46,6 +92,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         { error: "You do not have permission to view accounting records.", code: "PERMISSION_DENIED" },
         { status: 403 }
+      );
+    }
+    if (view !== null && !KNOWN_VIEWS.has(view)) {
+      return NextResponse.json(
+        { error: `Unknown accounts view '${view}'.`, code: "UNKNOWN_VIEW" },
+        { status: 400 }
       );
     }
     const partyType = searchParams.get("partyType"); // "customer", "technician", "vendor"
@@ -120,12 +172,21 @@ export async function GET(req: NextRequest) {
       const startStr = searchParams.get("startDate");
       const endStr = searchParams.get("endDate");
 
-      const asOfDate = asOfStr ? new Date(`${asOfStr.split("T")[0]}T23:59:59.999Z`) : new Date();
-      const startDate = startStr ? new Date(`${startStr.split("T")[0]}T00:00:00.000Z`) : new Date(new Date().getFullYear(), 0, 1);
-      const endDate = endStr ? new Date(`${endStr.split("T")[0]}T23:59:59.999Z`) : new Date();
+      // Statement dates are PKT calendar days: "2026-11-28" means the Pakistan day, so the
+      // window is 00:00–23:59 PKT. Parsing them as UTC days shifted every report by one
+      // day (statements came out dated tomorrow for PKT users).
+      const asOfParts = asOfStr ? pktDayFromString(asOfStr) : null;
+      const asOfDate = asOfParts ? pktEndOfDay(asOfParts.year, asOfParts.month, asOfParts.day) : new Date();
+      const startParts = startStr ? pktDayFromString(startStr) : null;
+      const todayParts = pktParts();
+      const startDate = startParts
+        ? pktStartOfDay(startParts.year, startParts.month, startParts.day)
+        : pktStartOfDay(todayParts.year, 0, 1);
+      const endParts = endStr ? pktDayFromString(endStr) : null;
+      const endDate = endParts ? pktEndOfDay(endParts.year, endParts.month, endParts.day) : new Date();
 
       if (statement === "trial_balance") {
-        const tb = await FinancialReportingService.getTrialBalance(asOfDate);
+        const tb = await FinancialReportingService.getTrialBalance(asOfDate, startStr ? startDate : undefined);
         return NextResponse.json({ success: true, trialBalance: tb });
       } else if (statement === "balance_sheet") {
         const bs = await FinancialReportingService.getBalanceSheet(asOfDate);
@@ -138,7 +199,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ success: true, cashFlow: cf });
       } else {
         const [tb, bs, is, cf] = await Promise.all([
-          FinancialReportingService.getTrialBalance(asOfDate),
+          FinancialReportingService.getTrialBalance(asOfDate, startStr ? startDate : undefined),
           FinancialReportingService.getBalanceSheet(asOfDate),
           FinancialReportingService.getIncomeStatement(startDate, endDate),
           FinancialReportingService.getCashFlowStatement(startDate, endDate),
@@ -157,27 +218,25 @@ export async function GET(req: NextRequest) {
     if (view === "bank_reconciliation") {
       const bankAccountId = searchParams.get("bankAccountId");
       if (!bankAccountId) {
-        // Bank accounts come from Setup > Cash & Bank accounts; the code/name guess is only a
-        // fallback for books that have not configured them yet.
+        // Reconcilable accounts = every cash/bank posting ledger in the chart (the old
+        // name/code guess offered a level-3 header and the 64103 Bank Charges expense
+        // account, and missed real cash/bank ledgers). Setup > Cash & Bank "bank"
+        // accounts are unioned in so a configured bank outside the 1110 group still shows.
         const configuredBanks = await prisma.financialAccount.findMany({
           where: { isActive: true, kind: "bank" },
           select: { ledgerAccountId: true },
         });
-        const bankAccounts = configuredBanks.length
+        const configuredIds = new Set(configuredBanks.map((b) => b.ledgerAccountId));
+        const chartCashBank = await cashBankLeafAccounts();
+        const extraConfigured = configuredIds.size
           ? await prisma.account.findMany({
-              where: { id: { in: configuredBanks.map((b) => b.ledgerAccountId) } },
+              where: { id: { in: [...configuredIds] }, isActive: true, level: 4 },
               orderBy: { code: "asc" },
             })
-          : await prisma.account.findMany({
-              where: {
-                OR: [
-                  { code: "11103" },
-                  { code: { startsWith: "101" } },
-                  { name: { contains: "Bank", mode: "insensitive" } },
-                ],
-              },
-              orderBy: { code: "asc" },
-            });
+          : [];
+        const byId = new Map<string, (typeof extraConfigured)[number]>();
+        for (const acc of [...chartCashBank, ...extraConfigured]) byId.set(acc.id, acc);
+        const bankAccounts = [...byId.values()].sort((a, b) => a.code.localeCompare(b.code));
         return NextResponse.json({ success: true, bankAccounts });
       }
 
@@ -227,7 +286,9 @@ export async function GET(req: NextRequest) {
     // 0.3 SUB-LEDGER RECONCILIATION & DRIFT
     if (view === "subledger_reconciliation") {
       const asOfStr = searchParams.get("asOfDate");
-      const asOfDate = asOfStr ? new Date(asOfStr) : new Date();
+      // As-of is a PKT calendar day: include everything posted on that Pakistan day.
+      const asOfParts = asOfStr ? pktDayFromString(asOfStr) : null;
+      const asOfDate = asOfParts ? pktEndOfDay(asOfParts.year, asOfParts.month, asOfParts.day) : new Date();
 
       const [drift, customerAging, vendorAging] = await Promise.all([
         SubLedgerService.checkReconciliationDrift(),
@@ -1413,30 +1474,11 @@ export async function GET(req: NextRequest) {
       const fromDate = searchParams.get("from");
       const toDate = searchParams.get("to");
 
-      // Find all Cash and Bank accounts (level 4 asset accounts)
-      // Prefer the configured cash/bank/wallet accounts; fall back to the legacy code/name guess.
-      const configuredCash = await prisma.financialAccount.findMany({
-        where: { isActive: true },
-        select: { ledgerAccountId: true },
-      });
-      const cashAccounts = configuredCash.length
-        ? await prisma.account.findMany({
-            where: { id: { in: configuredCash.map((c) => c.ledgerAccountId) } },
-            orderBy: { code: "asc" },
-          })
-        : await prisma.account.findMany({
-            where: {
-              level: 4,
-              isActive: true,
-              // 11105 Cash with Technicians is a clearing account, never a place money is received into.
-              code: { not: "11105" },
-              OR: [
-                { code: { in: ["11101", "11102", "11103", "11104"] } },
-                { parent: { code: "1110" } },
-              ],
-            },
-            orderBy: { code: "asc" },
-          });
+      // All Cash and Bank posting accounts, derived from the chart (Cash & Bank group
+      // 1110 or a configured Financial Account). Previously this used only the Setup
+      // configuration when present and a fixed code list otherwise — both dropped
+      // 11105 Cash with Technicians, so its movements never appeared in the cashbook.
+      const cashAccounts = await cashBankLeafAccounts();
 
       const cashAccountIds = targetAccountCode && targetAccountCode !== "ALL"
         ? cashAccounts.filter((a) => a.code === targetAccountCode).map((a) => a.id)
@@ -1650,6 +1692,9 @@ const ACCOUNTS_ACTION_PERMISSION: Record<string, string> = {
   create_voucher: "accounts.vouchers",
   post_voucher: "accounts.post_voucher",
   reject_voucher: "accounts.post_voucher",
+  // Discount decisions belong to the discount approvers, same key as the job discount flow
+  approve_item_discount: "jobs.approve_discount",
+  reject_item_discount: "jobs.approve_discount",
 };
 
 export async function POST(req: NextRequest) {

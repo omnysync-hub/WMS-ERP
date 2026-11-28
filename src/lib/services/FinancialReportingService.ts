@@ -63,7 +63,7 @@ export class FinancialReportingService {
    * Generate Full 4-Level Trial Balance as of a specific date.
    * Pulls all posted journal lines, groups by account, and rolls up from Level 4 to Level 1.
    */
-  static async getTrialBalance(asOfDate: Date = new Date()) {
+  static async getTrialBalance(asOfDate: Date = new Date(), fromDate?: Date) {
     // Include deactivated accounts too: their historical postings still belong in the TB/BS.
     const accounts = await prisma.account.findMany({
       include: {
@@ -74,6 +74,7 @@ export class FinancialReportingService {
               status: { in: ["posted", "reversed", "reversal"] },
             },
           },
+          include: { journalEntry: { select: { date: true } } },
         },
       },
       orderBy: { code: "asc" },
@@ -81,6 +82,8 @@ export class FinancialReportingService {
 
     let totalDebits = 0;
     let totalCredits = 0;
+    let totalPeriodDebits = 0;
+    let totalPeriodCredits = 0;
 
     const accountsWithBalance = accounts
       .filter((acc) => acc.isActive || acc.journalLines.length > 0)
@@ -88,17 +91,28 @@ export class FinancialReportingService {
       let balance = 0;
       let accountDebitSum = 0;
       let accountCreditSum = 0;
+      let periodDebitSum = 0;
+      let periodCreditSum = 0;
 
       for (const line of acc.journalLines) {
         accountDebitSum += line.debit;
         accountCreditSum += line.credit;
 
         balance += signedLineBalance(acc.type, line.debit, line.credit);
+
+        if (!fromDate || line.journalEntry.date >= fromDate) {
+          periodDebitSum += line.debit;
+          periodCreditSum += line.credit;
+        }
       }
 
       totalDebits += accountDebitSum;
       totalCredits += accountCreditSum;
+      totalPeriodDebits += periodDebitSum;
+      totalPeriodCredits += periodCreditSum;
 
+      const debitTotal = Math.round(accountDebitSum * 100) / 100;
+      const creditTotal = Math.round(accountCreditSum * 100) / 100;
       return {
         id: acc.id,
         code: acc.code,
@@ -107,8 +121,15 @@ export class FinancialReportingService {
         level: acc.level,
         parentId: acc.parentId,
         isActive: acc.isActive,
-        debitTotal: Math.round(accountDebitSum * 100) / 100,
-        creditTotal: Math.round(accountCreditSum * 100) / 100,
+        debitTotal,
+        creditTotal,
+        // The statements UI reads `debit` / `credit` for its movement columns; they must
+        // carry the same footing totals or every row renders "—".
+        debit: debitTotal,
+        credit: creditTotal,
+        // Movements inside [fromDate, asOfDate] only (equals the totals when no fromDate).
+        periodDebit: Math.round(periodDebitSum * 100) / 100,
+        periodCredit: Math.round(periodCreditSum * 100) / 100,
         balance: Math.round(balance * 100) / 100,
         entriesCount: acc.journalLines.length,
       };
@@ -122,10 +143,13 @@ export class FinancialReportingService {
 
     return {
       asOfDate,
+      fromDate: fromDate || null,
       totalDebits: roundedTotalDebits,
       totalCredits: roundedTotalCredits,
       totalDebit: roundedTotalDebits,
       totalCredit: roundedTotalCredits,
+      totalPeriodDebit: Math.round(totalPeriodDebits * 100) / 100,
+      totalPeriodCredit: Math.round(totalPeriodCredits * 100) / 100,
       variance,
       isInBalance: Math.abs(variance) <= 0.01,
       isBalanced: Math.abs(variance) <= 0.01,
@@ -333,10 +357,23 @@ export class FinancialReportingService {
       resolveSafe("customer_payment_receiving", "11101", "asset"),
       resolveSafe("bank_operating", "11103", "asset"),
     ]);
-    // Cash = every active cash/bank account (cash drawer, petty cash, banks), not only the two mapped ones.
+    // Cash = every cash/bank posting account in the chart (Cash & Bank group 1110 or a
+    // configured Financial Account), not only the two mapped ones and not only the Setup
+    // configuration — 11105 Cash with Technicians was silently left out of ending cash
+    // whenever it was not itself a configured Financial Account.
+    const chartCashBank = await prisma.account.findMany({
+      where: { isActive: true, level: 4, type: "asset" },
+      include: {
+        parent: { select: { code: true } },
+        financialAccount: { select: { id: true } },
+      },
+    });
+    const cashBankIds = chartCashBank
+      .filter((a) => AccountsPostingService.isCashBankAccount(a))
+      .map((a) => a.id);
     const configuredCash = await prisma.financialAccount.findMany({ where: { isActive: true }, select: { ledgerAccountId: true } });
     const cashAccountIds = Array.from(
-      new Set([cashAcc?.id, bankAcc?.id, ...configuredCash.map((c) => c.ledgerAccountId)].filter(Boolean) as string[])
+      new Set([cashAcc?.id, bankAcc?.id, ...configuredCash.map((c) => c.ledgerAccountId), ...cashBankIds].filter(Boolean) as string[])
     );
 
     // 1. Depreciation (Non-Cash Expense)
